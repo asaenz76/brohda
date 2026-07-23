@@ -1,0 +1,138 @@
+"use client";
+
+import { useState } from "react";
+import { Copy, Check } from "lucide-react";
+import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "@/lib/payment-methods/constants";
+import type { PaymentMethodRow } from "@/lib/payment-methods/fetch";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+
+const SELECT_CLASS =
+  "h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm dark:bg-input/30";
+
+// Shown once a real (non-Other) method is picked on a deposit form — tells
+// the player where to send funds and lets them copy the destination
+// straight into their banking/wallet app. Same defensive copy pattern as
+// ShareSheet.tsx's copyLink(): clipboard writes can legitimately reject, so
+// this never throws, just silently keeps the "Copy" label if it fails.
+export function DestinationHint({ method }: { method: PaymentMethodRow }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    if (!method.destination) return;
+    try {
+      await navigator.clipboard.writeText(method.destination);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard write failed (permissions, unfocused tab, etc.) — the
+      // destination text is still visible to copy manually, so this is a
+      // silent no-op rather than an error state.
+    }
+  }
+
+  if (!method.destination) {
+    return (
+      <p className="rounded-lg bg-surface-secondary p-3 text-sm text-text-secondary">
+        Destination not configured yet — contact an admin.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-1.5 rounded-lg bg-surface-secondary p-3">
+      <p className="text-sm text-text-secondary">
+        Please send funds to{" "}
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="inline-flex items-center gap-1 font-semibold text-text-primary underline decoration-dotted underline-offset-2"
+        >
+          {method.destination}
+          {copied ? <Check className="size-3.5 text-credit" /> : <Copy className="size-3.5" />}
+        </button>
+        {method.instructions ? ` ${method.instructions}` : ""}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The Method select shared by both deposit and withdrawal requests, plus
+ * — for deposits only — the OTHER-method free-text "Specify" field, the
+ * destination copy-hint, and the required Transaction #/ID input. Shared by
+ * the main wallet page's Add Funds/Transfer Out form and TopUpAndJoinModal's
+ * quick top-up form (always deposit-mode) so every deposit entry point
+ * collects identical, admin-reviewable info instead of drifting apart.
+ */
+export function DepositFields({
+  idPrefix,
+  mode,
+  paymentMethods,
+  paymentMethod,
+  onPaymentMethodChange,
+}: {
+  idPrefix: string;
+  mode: "deposit" | "withdrawal";
+  paymentMethods: PaymentMethodRow[];
+  paymentMethod: PaymentMethod | "";
+  onPaymentMethodChange: (method: PaymentMethod) => void;
+}) {
+  const selectedMethodRow = paymentMethods.find((m) => m.method === paymentMethod) ?? null;
+
+  return (
+    <>
+      <div className="space-y-1.5">
+        <Label htmlFor={`${idPrefix}-payment-method`}>Method</Label>
+        <select
+          id={`${idPrefix}-payment-method`}
+          name="paymentMethod"
+          className={SELECT_CLASS}
+          value={paymentMethod}
+          onChange={(e) => onPaymentMethodChange(e.target.value as PaymentMethod)}
+          required
+        >
+          <option value="" disabled>
+            Select a method…
+          </option>
+          {paymentMethods.map((m) => (
+            <option key={m.method} value={m.method}>
+              {PAYMENT_METHOD_LABELS[m.method]}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {mode === "deposit" && paymentMethod === "OTHER" && (
+        <div className="space-y-1.5">
+          <Label htmlFor={`${idPrefix}-other-method`}>Specify</Label>
+          <Textarea
+            id={`${idPrefix}-other-method`}
+            name="otherMethodNote"
+            placeholder="How are you sending/receiving funds?"
+            rows={2}
+            required
+          />
+        </div>
+      )}
+
+      {/* OTHER is still just an enum value in payment_methods — an admin can
+          (and here, does) configure a real destination/instructions for it
+          same as any named method, so this must not skip OTHER. */}
+      {mode === "deposit" && selectedMethodRow && <DestinationHint method={selectedMethodRow} />}
+
+      {mode === "deposit" && (
+        <div className="space-y-1.5">
+          <Label htmlFor={`${idPrefix}-transaction-ref`}>Transaction #/ID</Label>
+          <Input
+            id={`${idPrefix}-transaction-ref`}
+            name="transactionRef"
+            placeholder="e.g. the tx hash or confirmation number"
+            required
+          />
+        </div>
+      )}
+    </>
+  );
+}

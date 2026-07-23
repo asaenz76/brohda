@@ -1,0 +1,15 @@
+-- A distinct, lower-privileged 'admin' role: full admin-panel access
+-- (pools, fixtures, invitations, comment moderation) minus money movement
+-- (wallet adjustments, wallet-request approval, settlement/refund
+-- confirmation, reversal) and minus account/role management. Only
+-- super_admin can grant/revoke it (enforced at the app layer in
+-- lib/actions/users.ts, not here — this migration only adds the enum
+-- value; the broader read/moderation gates that use it are in
+-- 20260101000021_admin_role_policies.sql.
+--
+-- Split into its own file/transaction because a new enum value can't be
+-- used in the same transaction that adds it — the Supabase CLI's
+-- migration runner wraps each file in one transaction, unlike applying
+-- this by hand with psql (which runs each top-level statement in its own
+-- implicit transaction).
+alter type public.user_role add value 'admin';

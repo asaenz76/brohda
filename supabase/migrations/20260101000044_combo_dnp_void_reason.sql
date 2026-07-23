@@ -1,0 +1,11 @@
+-- Global override for COMBO pools: if a named athlete featured in any leg
+-- never took the pitch at all, the whole pool voids — full refund, no fee
+-- — regardless of how the other legs graded or which side has entries.
+-- Distinct from every other void reason: this isn't a match-level anomaly
+-- (postponed/abandoned/etc.) or a winner-distribution edge case, it's the
+-- bet's own premise breaking (see 20260101000045_combo_dnp_grading.sql for
+-- the pool_combo_legs.did_not_play flag and grading logic that uses this).
+-- Must commit in its own transaction before anything can reference it —
+-- same enum-then-use ordering constraint hit for CUSTOM/admin_role/COMBO
+-- earlier.
+alter type public.pool_void_reason add value 'COMBO_PLAYER_DID_NOT_PLAY';

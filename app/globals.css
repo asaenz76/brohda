@@ -1,0 +1,319 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Design tokens. Every component must consume these semantic tokens, never
+ * raw hex/rgb/Tailwind-shade values directly — see the "Social-first
+ * palette" comment below :root for the current color values and the
+ * semantic rule each token follows.
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --font-logo: var(--font-logo);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Exposed directly as Tailwind utilities: bg-surface-primary,
+     text-text-secondary, border-border-subtle, bg-accent-primary,
+     hover:bg-accent-primary-hover, text-warning-muted, text-danger.
+     text-credit/text-debit are dedicated to wallet transaction direction
+     (funds added vs. deducted) — kept separate from danger/pool-loss so a
+     ledger-direction color never has to shift just because an unrelated
+     generic-error rule changes. */
+  --color-surface-primary: var(--surface-primary);
+  --color-surface-secondary: var(--surface-secondary);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-border-subtle: var(--border-subtle);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-accent-primary: var(--accent-primary);
+  --color-accent-primary-hover: var(--accent-primary-hover);
+  --color-accent-primary-subtle: var(--accent-primary-subtle);
+  /* For small accent-colored text labels (not buttons/backgrounds) where
+     the base accent-primary blue reads fine on a light card but is low-
+     contrast as small text against a dark one — e.g. the pool lock
+     countdown. Identical to accent-primary in light mode; only dark mode
+     substitutes a legible tint. */
+  --color-accent-primary-label: var(--accent-primary-label);
+  --color-warning-muted: var(--warning-muted);
+  --color-danger: var(--danger);
+  --color-credit: var(--credit);
+  --color-debit: var(--debit);
+  /* Pool-outcome states (brand palette update) — deliberately separate from
+     credit/debit (wallet ledger direction) and danger (generic errors), same
+     reasoning as that existing split: "won this pool" and "this match is
+     live" are their own concepts and shouldn't shift color just because an
+     unrelated wallet or error-state rule changes. */
+  --color-pool-win: var(--pool-win);
+  --color-pool-loss: var(--pool-loss);
+  --color-pool-live: var(--pool-live);
+  /* Social-first palette additions (2026 refactor) — see the "Social-first
+     palette" comment block below :root for the full rationale. Only
+     genuinely new concepts get a new token; everything else is a value-only
+     remap of the tokens above. */
+  --color-border-strong: var(--border-strong);
+  --color-streak: var(--streak);
+  --color-medal-gold: var(--medal-gold);
+  --color-medal-gold-foreground: var(--medal-gold-foreground);
+  --color-medal-silver: var(--medal-silver);
+  --color-medal-silver-foreground: var(--medal-silver-foreground);
+  --color-medal-bronze: var(--medal-bronze);
+  --color-medal-bronze-foreground: var(--medal-bronze-foreground);
+}
+
+/*
+ * Social-first palette (2026 refactor) — replaces the earlier sportsbook-
+ * leaning brand palette with a neutral, Instagram/Threads/Strava-like base.
+ * Grayscale carries ~95% of the interface; every accent color below has one
+ * fixed semantic meaning and is never reused decoratively:
+ *   accent-primary  -> interaction/selection only (blue)
+ *   pool-win/credit -> profit / positive financial result only (green)
+ *   danger/pool-loss/debit -> loss, error, destructive action only (red)
+ *   streak          -> streaks only (orange) — never a general accent
+ *   warning-muted/pool-live -> genuine warnings + live-match status (amber)
+ *   medal-*         -> leaderboard rank/achievement only (gold/silver/bronze)
+ * Token NAMES are kept stable from the previous palette (minimal blast
+ * radius across already-correct components); only VALUES change, plus a
+ * handful of newly-needed tokens (border-strong, streak, medal-*).
+ * success-coral was removed: every usage was a generic non-financial status
+ * label (job health, "approved"/"active", form-saved confirmations), which
+ * the new rules explicitly say must not be green or red — those call sites
+ * now use text-primary (a plain, high-contrast neutral) instead.
+ */
+:root {
+  --background: #fafafa;
+  --surface-primary: #ffffff;
+  /* Nested panels sitting on top of a card (combo-leg lists, admin table
+     rows) — spec's "surface-subtle". */
+  --surface-secondary: #f5f5f5;
+  /* Popovers/modals and hover tints on interactive surfaces — spec's
+     "surface-hover", reused for both since neither needs to be visually
+     distinct from the other at this near-white end of the scale. */
+  --surface-elevated: #f7f7f7;
+  --border-subtle: #e8e8e8;
+  /* New: a stronger divider for cases that need more separation than
+     border-subtle without becoming a colored accent (e.g. the "remaining"
+     segment of a two-side percentage bar). */
+  --border-strong: #d4d4d4;
+  --text-primary: #111111;
+  --text-secondary: #737373;
+  --text-muted: #a3a3a3;
+  --accent-primary: #4f46e5;
+  --accent-primary-hover: #4338ca;
+  --accent-primary-subtle: #eef2ff;
+  --accent-primary-label: var(--accent-primary); /* fine as-is on a light card */
+  --warning-muted: #f59e0b;
+  --danger: #ef4444;
+  --credit: #22c55e;
+  --debit: #ef4444;
+  --pool-win: #22c55e;
+  --pool-loss: #ef4444;
+  /* Amber, not orange — orange is reserved exclusively for streaks now, so
+     "this match is live" gets the warning hue instead of its old orange. */
+  --pool-live: #f59e0b;
+  /* New: streaks only. Never reused as a general accent/warning color. */
+  --streak: #fb923c;
+  /* New: leaderboard podium only (Podium.tsx) — theme-invariant medal
+     colors, not redefined in .dark below, since a gold medal is gold
+     regardless of theme. Foreground pairs are fixed dark text for contrast
+     against these bright badge fills in both themes. */
+  --medal-gold: #fbbf24;
+  --medal-gold-foreground: #78350f;
+  --medal-silver: #d4d4d8;
+  --medal-silver-foreground: #3f3f46;
+  --medal-bronze: #cd7f32;
+  --medal-bronze-foreground: #451a03;
+
+  --foreground: var(--text-primary);
+  --card: var(--surface-primary);
+  --card-foreground: var(--text-primary);
+  --popover: var(--surface-elevated);
+  --popover-foreground: var(--text-primary);
+  --primary: var(--accent-primary);
+  --primary-foreground: #ffffff;
+  --secondary: var(--surface-secondary);
+  --secondary-foreground: var(--text-primary);
+  --muted: var(--surface-secondary);
+  --muted-foreground: var(--text-muted);
+  --accent: var(--surface-secondary);
+  --accent-foreground: var(--text-primary);
+  --destructive: var(--danger);
+  --destructive-foreground: #ffffff;
+  --border: var(--border-subtle);
+  --input: var(--border-subtle);
+  --ring: var(--accent-primary);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: var(--surface-primary);
+  --sidebar-foreground: var(--text-primary);
+  --sidebar-primary: var(--accent-primary);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--surface-secondary);
+  --sidebar-accent-foreground: var(--text-primary);
+  --sidebar-border: var(--border-subtle);
+  --sidebar-ring: var(--accent-primary);
+}
+
+.dark {
+  --background: #0f1115;
+  --surface-primary: #181a20;
+  --surface-secondary: #20232a;
+  --surface-elevated: #23262e;
+  --border-subtle: #2a2d35;
+  --border-strong: #3a3d46;
+  --text-primary: #f5f5f5;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+  --accent-primary: #6366f1;
+  --accent-primary-hover: #818cf8;
+  --accent-primary-subtle: #20264a;
+  /* Lighter than the base accent — legible as small text on a dark card
+     (e.g. the pool lock countdown), same reasoning the previous palette
+     applied here. */
+  --accent-primary-label: #818cf8;
+  --warning-muted: #f59e0b;
+  --danger: #ef4444;
+  --credit: #22c55e;
+  --debit: #ef4444;
+  --pool-win: #22c55e;
+  --pool-loss: #ef4444;
+  --pool-live: #f59e0b;
+  --streak: #fb923c;
+
+  --foreground: var(--text-primary);
+  --card: var(--surface-primary);
+  --card-foreground: var(--text-primary);
+  --popover: var(--surface-elevated);
+  --popover-foreground: var(--text-primary);
+  --primary: var(--accent-primary);
+  --primary-foreground: #ffffff;
+  --secondary: var(--surface-secondary);
+  --secondary-foreground: var(--text-primary);
+  --muted: var(--surface-secondary);
+  --muted-foreground: var(--text-muted);
+  --accent: var(--surface-elevated);
+  --accent-foreground: var(--text-primary);
+  --destructive: var(--danger);
+  --destructive-foreground: #ffffff;
+  --border: var(--border-subtle);
+  --input: var(--border-subtle);
+  --ring: var(--accent-primary);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: var(--surface-primary);
+  --sidebar-foreground: var(--text-primary);
+  --sidebar-primary: var(--accent-primary);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--surface-elevated);
+  --sidebar-accent-foreground: var(--text-primary);
+  --sidebar-border: var(--border-subtle);
+  --sidebar-ring: var(--accent-primary);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+/* Fallback for interactive elements that don't define their own
+   focus-visible ring (most do, via Tailwind's ring utilities) — keeps
+   keyboard focus visible everywhere rather than relying on each browser's
+   inconsistent default outline. */
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@keyframes celebrate-pop {
+  0% {
+    transform: scale(0.85);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.04);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes toast-slide-in {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}

@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same branch/PR instead of letting them queue.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint, typecheck, unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm lint
+
+      - run: pnpm exec tsc --noEmit
+
+      - run: pnpm test
+
+  integration:
+    name: Integration tests (real local Supabase)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Boots the same local Postgres/Auth/Storage/PostgREST stack `pnpm
+      # supabase:start` runs in dev, via Docker (pre-installed on
+      # ubuntu-latest), and applies every file under supabase/migrations/ —
+      # this is the strongest signal CI can give that a new migration or
+      # RPC change didn't break anything, short of a manual walkthrough.
+      - name: Start local Supabase
+        run: pnpm supabase start
+
+      # supabase status -o env prints ANON_KEY/API_URL/SERVICE_ROLE_KEY —
+      # fixed, publicly-documented local-dev values (identical on every
+      # machine running the Supabase CLI's default local stack), never
+      # real secrets, so no GitHub Actions secret is needed for this part.
+      # The remaining vars are non-Supabase and only need placeholder
+      # values here since API_FOOTBALL_ENABLED=false means the app never
+      # calls the real API-Football service during these tests.
+      - name: Write .env.local from the local Supabase stack
+        run: |
+          eval "$(pnpm supabase status -o env | grep -E '^(API_URL|ANON_KEY|SERVICE_ROLE_KEY)=')"
+          cat > .env.local <<EOF
+          NEXT_PUBLIC_SUPABASE_URL=$API_URL
+          NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY
+          SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY
+          API_FOOTBALL_BASE_URL=https://v3.football.api-sports.io
+          API_FOOTBALL_KEY=ci-placeholder
+          API_FOOTBALL_ENABLED=false
+          DEFAULT_TIMEZONE=America/Costa_Rica
+          APP_URL=http://localhost:3000
+          CRON_SECRET=ci-placeholder
+          RESEND_API_KEY=
+          NEXT_PUBLIC_SENTRY_DSN=
+          EOF
+
+      - run: pnpm test:integration
+
+      - name: Stop local Supabase
+        if: always()
+        run: pnpm supabase:stop
