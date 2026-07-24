@@ -13,7 +13,7 @@ export default function PrivacyPage() {
     <LegalPage title="Privacy Policy" effectiveDate={EFFECTIVE_DATE}>
       <section>
         <p>
-          This Privacy Policy describes how <strong>[Company Legal Name]</strong> (&quot;we&quot;,
+          This Privacy Policy describes how <strong>brohda</strong> (&quot;we&quot;,
           &quot;us&quot;) handles information in connection with brohda. (the &quot;App&quot;, the
           &quot;Service&quot;), a private, invite-only platform. It applies only to information
           collected through the App itself — it does not cover the payment apps, banks, or other

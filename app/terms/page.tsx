@@ -15,7 +15,7 @@ export default function TermsPage() {
         <p>
           These Terms of Service (&quot;Terms&quot;) govern your access to and use of brohda.
           (&quot;brohda.&quot;, the &quot;App&quot;, the &quot;Service&quot;, &quot;we&quot;, &quot;us&quot;), operated by{" "}
-          <strong>[Company Legal Name]</strong> (the &quot;Company&quot;). By accepting an invitation
+          <strong>brohda</strong> (the &quot;Company&quot;). By accepting an invitation
           to join, creating an account, or otherwise using the Service, you agree to be bound by
           these Terms. If you do not agree, do not use the Service.
         </p>
@@ -194,7 +194,7 @@ export default function TermsPage() {
       <section>
         <h2>13. Governing law and disputes</h2>
         <p>
-          These Terms are governed by the laws of <strong>[Governing Law / Jurisdiction]</strong>,
+          These Terms are governed by the laws of <strong>Costa Rica</strong>,
           without regard to conflict-of-law principles. Any dispute arising out of or relating to
           these Terms or the Service will be resolved exclusively in the courts of that
           jurisdiction, and you consent to their personal jurisdiction.
