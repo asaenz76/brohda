@@ -81,7 +81,18 @@ export async function setNewPasswordAction(
     return { error: "Password must be at least 8 characters." };
   }
 
+  const code = String(formData.get("code") ?? "");
   const supabase = await createClient();
+
+  // Exchanged here, at the point of actual submission, rather than when the
+  // page was requested — the code is one-time-use, and exchanging it on
+  // page load meant email link-scanners (or any other incidental GET)
+  // could burn it before the user's own click ever landed.
+  const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+  if (exchangeError) {
+    return { error: "This reset link has expired or already been used." };
+  }
+
   const { error } = await supabase.auth.updateUser({ password });
 
   if (error) {
