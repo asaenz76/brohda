@@ -2,7 +2,17 @@ import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseHostname = supabaseUrl ? new URL(supabaseUrl).hostname : undefined;
+const supabaseParsedUrl = supabaseUrl ? new URL(supabaseUrl) : undefined;
+const supabaseHostname = supabaseParsedUrl?.hostname;
+// CSP connect-src matches WebSocket connections by scheme too — listing
+// only the http(s):// origin doesn't cover the ws(s):// Realtime endpoint
+// Supabase's client opens from it, so the browser throws a SecurityError
+// ("The operation is insecure") the instant a channel tries to connect.
+// Mirrors the Supabase URL's own scheme (wss for the hosted https project,
+// ws for local dev's http://127.0.0.1:54321).
+const supabaseWsOrigin = supabaseHostname
+  ? `${supabaseParsedUrl!.protocol === "https:" ? "wss" : "ws"}://${supabaseHostname}`
+  : "";
 
 const nextConfig: NextConfig = {
   images: {
@@ -60,7 +70,7 @@ const nextConfig: NextConfig = {
               // the SaaS ingest endpoints and self-hosted-style project
               // DSNs — harmless to include even before a DSN is configured,
               // since the SDK sends nothing without one.
-              `connect-src 'self' ${supabaseUrl ?? ""} https://*.sentry.io https://*.ingest.sentry.io${process.env.NODE_ENV !== "production" ? " ws://localhost:* http://localhost:*" : ""}`,
+              `connect-src 'self' ${supabaseUrl ?? ""} ${supabaseWsOrigin} https://*.sentry.io https://*.ingest.sentry.io${process.env.NODE_ENV !== "production" ? " ws://localhost:* http://localhost:*" : ""}`,
               "frame-ancestors 'none'",
             ].join("; "),
           },
