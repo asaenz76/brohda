@@ -56,7 +56,13 @@ export function EditPoolForm({
   const [state, formAction, pending] = useActionState(updatePoolAction, initialState);
   const [locksAtLocal, setLocksAtLocal] = useState(() => toDatetimeLocalValue(locksAtIso));
 
+  // updatePoolSchema's locksAt is z.string().datetime(), which requires a
+  // strict "Z"-suffixed ISO string — Postgres/PostgREST return timestamptz
+  // as "+00:00"-offset instead, so the frozen-field case below must also
+  // normalize through Date/toISOString(), not pass locksAtIso straight
+  // through, or the whole update 400s with "something's missing or invalid."
   const locksAtOut = locksAtLocal ? new Date(locksAtLocal).toISOString() : "";
+  const locksAtFrozen = new Date(locksAtIso).toISOString();
 
   return (
     <form action={formAction} className="space-y-4">
@@ -105,7 +111,7 @@ export function EditPoolForm({
               required
             />
           )}
-          <input type="hidden" name="locksAt" value={hasEntries ? locksAtIso : locksAtOut} />
+          <input type="hidden" name="locksAt" value={hasEntries ? locksAtFrozen : locksAtOut} />
         </div>
       </div>
 
