@@ -355,8 +355,19 @@ export async function updatePoolAction(
     return { error: "Pool not found." };
   }
 
-  if (before.first_entry_at) {
-    return { error: "This pool already has entries — fee and question are frozen." };
+  // Entry fee and Coordinator fee stay editable even after entries exist
+  // (beta testing needs the fee droppable to 0% mid-pool) — everything
+  // else that touches the entry window or who can see what is frozen once
+  // money is committed, matching the DB trigger's own remaining checks.
+  if (
+    before.first_entry_at &&
+    (new Date(parsed.data.locksAt).getTime() !== new Date(before.locks_at).getTime() ||
+      parsed.data.visibility !== before.visibility ||
+      parsed.data.participationVisibility !== before.participation_visibility)
+  ) {
+    return {
+      error: "This pool already has entries — only the entry fee and Coordinator fee can change.",
+    };
   }
 
   if (before.fixture_id) {

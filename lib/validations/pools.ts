@@ -5,7 +5,9 @@ import { z } from "zod";
 // (lib/pools/lock.ts's isBelowMinimum check against pools.min_total_entries).
 // Fixed, not admin-chosen — pools created before this existed keep whatever
 // lower value they were seeded with (updatePoolSchema never touches it).
-export const MINIMUM_POOL_ENTRIES = 10;
+// Lowered from 10 to 2 for beta testing, where pools rarely have more than a
+// handful of participants.
+export const MINIMUM_POOL_ENTRIES = 2;
 
 // Enforced against a pool's linked fixture in the Server Actions that
 // actually create/edit locks_at (createPoolFromTemplate, updatePoolAction) —

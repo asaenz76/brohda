@@ -109,13 +109,13 @@ export default async function AdminPoolDetailPage({
   const userName = (userId: string) =>
     (users ?? []).find((u) => u.id === userId)?.display_name ?? "Unknown";
 
-  const isEditable = !pool.first_entry_at;
+  const hasEntries = !!pool.first_entry_at;
   // Deletable either before any entry ever happened, or once the pool has
   // fully resolved (SETTLED/CANCELLED/VOIDED) — matches
   // deletePoolAction/delete_terminal_pool's own guard exactly. Everything
   // else mid-lifecycle still isn't deletable; Cancel Pool is the only way
   // to unwind those.
-  const isDeletable = isEditable || ["SETTLED", "CANCELLED", "VOIDED"].includes(pool.status);
+  const isDeletable = !hasEntries || ["SETTLED", "CANCELLED", "VOIDED"].includes(pool.status);
 
   // A COMBO pool graded through its own leg checkboxes always has either a
   // did_not_play leg or a stamped winning_option_id by the time it reaches
@@ -209,22 +209,21 @@ export default async function AdminPoolDetailPage({
         </Card>
       )}
 
-      {isEditable && (
-        <Card>
-          <CardContent className="pt-6">
-            <h2 className="mb-4 text-sm font-semibold text-text-primary">Edit pool</h2>
-            <EditPoolForm
-              poolId={pool.id}
-              entryFeeDollars={(pool.entry_fee / 100).toFixed(2)}
-              houseFeePercent={formatBps(pool.house_fee_bps).replace("%", "")}
-              minTotalEntries={pool.min_total_entries}
-              visibility={pool.visibility}
-              participationVisibility={pool.participation_visibility}
-              locksAtIso={pool.locks_at}
-            />
-          </CardContent>
-        </Card>
-      )}
+      <Card>
+        <CardContent className="pt-6">
+          <h2 className="mb-4 text-sm font-semibold text-text-primary">Edit pool</h2>
+          <EditPoolForm
+            poolId={pool.id}
+            entryFeeDollars={(pool.entry_fee / 100).toFixed(2)}
+            houseFeePercent={formatBps(pool.house_fee_bps).replace("%", "")}
+            minTotalEntries={pool.min_total_entries}
+            visibility={pool.visibility}
+            participationVisibility={pool.participation_visibility}
+            locksAtIso={pool.locks_at}
+            hasEntries={hasEntries}
+          />
+        </CardContent>
+      </Card>
 
       {/* Confirms settlement / pays out winners — money movement, super_admin only. */}
       {pool.status === "READY_FOR_REVIEW" && currentSettlement && isSuperAdmin && (
