@@ -61,8 +61,8 @@ export default async function RulesPage() {
             <h2>Joining a pool</h2>
             <ul>
               <li>
-                Pick one option and choose your stake — that amount is deducted from your wallet
-                balance the moment you submit your pick.
+                Pick one option to join — the pool&apos;s entry fee, set by whoever created it, is
+                deducted from your wallet balance the moment you submit your pick.
               </li>
               <li>
                 Entries are final. Once submitted, you can&apos;t change or cancel your own pick —
@@ -83,9 +83,8 @@ export default async function RulesPage() {
                 the total pot before anything is paid out.
               </li>
               <li>
-                What&apos;s left is split evenly across everyone who picked the winning option —{" "}
-                <strong>not</strong> in proportion to how much anyone staked. Two people who both
-                got it right receive the same payout, even if one staked more than the other.
+                What&apos;s left is split evenly across everyone who picked the winning option, no
+                matter when they entered.
               </li>
               <li>
                 If the pot doesn&apos;t divide evenly, the leftover cents stay with the house
