@@ -50,13 +50,19 @@ export function ProfileTabs({
             {label}
           </button>
         ))}
-        {/* A real page, not inline tab content — a plain nav link styled
-            to match, not a third stateful tab. */}
+        {/* Real pages, not inline tab content — plain nav links styled
+            to match, not stateful tabs. */}
         <Link
           href="/analytics"
           className="-mb-px border-b-2 border-transparent px-1 pb-2 text-sm font-semibold text-text-muted transition-colors hover:text-text-secondary"
         >
           Analytics
+        </Link>
+        <Link
+          href="/rules"
+          className="-mb-px border-b-2 border-transparent px-1 pb-2 text-sm font-semibold text-text-muted transition-colors hover:text-text-secondary"
+        >
+          Rules
         </Link>
       </div>
 

@@ -1,9 +1,7 @@
 import { requireUser } from "@/lib/auth/session";
 import { isAdminOrAbove } from "@/lib/auth/guards";
 import { createClient } from "@/lib/supabase/server";
-import { logoutAction } from "@/lib/actions/auth";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
 import { AvatarUploader } from "./avatar-uploader";
 import { ProfileForm } from "./profile-form";
@@ -71,12 +69,6 @@ export default async function ProfilePage({
         }
         edit={
           <div className="space-y-6">
-            <form action={logoutAction}>
-              <Button type="submit" variant="outline" className="w-full">
-                Log out
-              </Button>
-            </form>
-
             <Card>
               <CardContent className="pt-6">
                 <AvatarUploader displayName={user.display_name} avatarUrl={user.avatar_url} />
