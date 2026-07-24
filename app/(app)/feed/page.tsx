@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getPoolCardViewModels } from "@/lib/pools/fetch";
 import { getPaymentMethods } from "@/lib/payment-methods/fetch";
-import { FEED_STATUS_OPTIONS, effectivePoolStatus, isFeedStatus } from "@/lib/pools/status-filter";
+import { effectivePoolStatus } from "@/lib/pools/status-filter";
 import { SocialPoolCard } from "@/components/pools/SocialPoolCard";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
 import { StoriesRow, type StoryEntry } from "@/components/feed/StoriesRow";
@@ -18,13 +18,9 @@ function unwrapEmbed<T>(raw: unknown): T | null {
 export default async function FeedPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sport?: string; league?: string; status?: string }>;
+  searchParams: Promise<{ sport?: string; league?: string }>;
 }) {
-  const { sport: sportParam, league: leagueParam, status: statusParamRaw } = await searchParams;
-  const statusParam =
-    statusParamRaw === "ALL" || (statusParamRaw != null && isFeedStatus(statusParamRaw))
-      ? statusParamRaw
-      : "OPEN";
+  const { sport: sportParam, league: leagueParam } = await searchParams;
 
   const user = await requireUser();
   const supabase = await createClient();
@@ -58,28 +54,15 @@ export default async function FeedPage({
 
   const poolsSelect = "id, status, locks_at, created_at, fixtures(sport, competition_name)";
 
-  // The lock cron only runs once a minute (and not at all outside Vercel
-  // Cron) — a pool past its locks_at can sit with pools.status still
-  // 'OPEN' in the DB until that job catches up (same race
-  // lib/pools/card-state.ts's deriveCardState already corrects for on the
-  // card itself). Filtering by the raw DB status alone would let such a
-  // pool show under "Open" even though it's no longer available to bet
-  // on — so OPEN/LOCKED both need the broader DB fetch below, refined by
-  // effectiveStatus() afterward. "ALL" means every status in
-  // FEED_STATUS_OPTIONS, not literally every pool_status (DRAFT/SCHEDULED/
-  // etc. are admin-internal and never shown here regardless of filter).
-  const dbStatusFilter =
-    statusParam === "ALL"
-      ? FEED_STATUS_OPTIONS
-      : statusParam === "LOCKED"
-        ? (["OPEN", "LOCKED"] as const)
-        : ([statusParam] as const);
-
+  // Feed only ever shows open pools — fetched by DB status, then refined by
+  // effectivePoolStatus() below to exclude pools past their locks_at that
+  // the lock cron (runs once a minute, and not at all outside Vercel Cron)
+  // hasn't caught up to yet.
   const poolsQuery = supabase
     .from("pools")
     .select(poolsSelect)
     .eq("visibility", "VISIBLE_TO_ALL_MEMBERS")
-    .in("status", dbStatusFilter);
+    .eq("status", "OPEN");
 
   const [{ data: pools }, { data: myEntries }, { data: wallet }, paymentMethods] = await Promise.all([
     poolsQuery,
@@ -104,14 +87,14 @@ export default async function FeedPage({
         league: fixture?.competition_name ?? null,
       };
     })
-    .filter((row) => statusParam === "ALL" || effectivePoolStatus(row) === statusParam);
+    .filter((row) => effectivePoolStatus(row) === "OPEN");
 
   const sportOptions = [...new Set(rows.map((r) => r.sport).filter((s): s is string => s != null))].sort();
   const leagueOptions = [
     ...new Set(rows.map((r) => r.league).filter((l): l is string => l != null)),
   ].sort();
 
-  const isFiltered = Boolean(sportParam || leagueParam) || statusParam !== "OPEN";
+  const isFiltered = Boolean(sportParam || leagueParam);
   const filteredRows = rows
     .filter((r) => (sportParam ? r.sport === sportParam : true))
     .filter((r) => (leagueParam ? r.league === leagueParam : true))
@@ -138,7 +121,7 @@ export default async function FeedPage({
           title={isFiltered ? "No pools match these filters" : "No open pools available at this moment"}
           description={
             isFiltered
-              ? "Try a different status, sport, or league, or clear the filters above."
+              ? "Try a different sport or league, or clear the filters above."
               : "Check back soon — new pools show up here as soon as they're published."
           }
         />
