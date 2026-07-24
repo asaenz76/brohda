@@ -15,7 +15,7 @@ export default async function RulesPage() {
       <div>
         <h1 className="font-heading text-2xl font-semibold text-text-primary">How pools work</h1>
         <p className="mt-1 text-sm text-text-muted">
-          The rules every pool in this group follows — worth a read before you join one.
+          The rules every pool follows — worth a read before you join one.
         </p>
       </div>
 
