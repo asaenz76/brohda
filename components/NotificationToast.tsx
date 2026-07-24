@@ -30,7 +30,16 @@ export function NotificationToast({ initialUnreadCount }: { initialUnreadCount: 
     let cancelled = false;
 
     async function poll() {
-      const state = await getNotificationPollStateAction();
+      // A background poll failing (session expired, transient network
+      // blip) isn't worth surfacing — swallow it here rather than let an
+      // unhandled rejection repeat every POLL_INTERVAL_MS for the rest of
+      // the tab's lifetime.
+      let state;
+      try {
+        state = await getNotificationPollStateAction();
+      } catch {
+        return;
+      }
       if (cancelled) return;
 
       if (!hasBaselineRef.current) {
