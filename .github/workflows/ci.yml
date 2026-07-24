@@ -78,6 +78,14 @@ jobs:
           NEXT_PUBLIC_SENTRY_DSN=
           EOF
 
+      # Most integration tests look up an existing admin/super_admin
+      # account rather than creating their own — in every dev environment
+      # so far that account already existed from the one-time
+      # `pnpm create-super-admin` bootstrap a human runs once, but CI
+      # starts from a genuinely empty database every run.
+      - name: Bootstrap a super admin for the tests to find
+        run: pnpm create-super-admin --email ci-admin@example.com --password 'CiTestPassword123!' --name "CI Admin"
+
       - run: pnpm test:integration
 
       - name: Stop local Supabase

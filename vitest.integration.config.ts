@@ -6,6 +6,13 @@ export default defineConfig({
     environment: "node",
     include: ["tests/integration/**/*.test.ts"],
     testTimeout: 20_000,
+    // These tests share one real database and some rely on another file's
+    // setup already having run (e.g. an admin account looked up but never
+    // created locally) or mutate a singleton (the house wallet balance) —
+    // running files in parallel (Vitest's default) races both of those
+    // across worker threads, non-deterministically, depending on how many
+    // cores/threads happen to be available on whatever machine runs this.
+    fileParallelism: false,
   },
   resolve: {
     alias: {
