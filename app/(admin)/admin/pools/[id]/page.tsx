@@ -15,6 +15,7 @@ import { ComboSettlementReviewForm } from "./combo-settlement-review-form";
 import { TemplateSettlementReviewForm } from "./template-settlement-review-form";
 import {
   AdvanceLockedPoolButton,
+  ArchivePoolButton,
   CancelPoolButton,
   CheckResultButton,
   DeletePoolButton,
@@ -116,6 +117,10 @@ export default async function AdminPoolDetailPage({
   // else mid-lifecycle still isn't deletable; Cancel Pool is the only way
   // to unwind those.
   const isDeletable = !hasEntries || ["SETTLED", "CANCELLED", "VOIDED"].includes(pool.status);
+  // Archiving only ever applies to a resolved pool with real history worth
+  // keeping around (not deleting) but hiding from the default list —
+  // matches ARCHIVABLE_STATUSES in lib/actions/pool-lifecycle.ts exactly.
+  const isArchivable = ["SETTLED", "CANCELLED", "VOIDED"].includes(pool.status);
 
   // A COMBO pool graded through its own leg checkboxes always has either a
   // did_not_play leg or a stamped winning_option_id by the time it reaches
@@ -150,7 +155,8 @@ export default async function AdminPoolDetailPage({
           {pool.title && <p className="text-sm text-text-secondary">{pool.title}</p>}
           <h1 className="text-lg font-semibold text-text-primary">{pool.question}</h1>
           <p className="text-sm text-text-secondary">
-            Status: {humanizeEnum(pool.status)} · Entry {formatCents(pool.entry_fee)} · Coordinator Fee{" "}
+            Status: {humanizeEnum(pool.status)}
+            {pool.archived_at && " · Archived"} · Entry {formatCents(pool.entry_fee)} · Coordinator Fee{" "}
             {formatBps(pool.house_fee_bps)}
           </p>
           <p className="text-xs text-text-muted">
@@ -165,6 +171,10 @@ export default async function AdminPoolDetailPage({
           {/* Refunds every active entry outright — money movement, super_admin only. */}
           {CANCELLABLE_STATUSES.includes(pool.status) && isSuperAdmin && (
             <CancelPoolButton poolId={pool.id} />
+          )}
+          {/* Reversible hide-from-list, once fully resolved, super_admin only. */}
+          {isArchivable && isSuperAdmin && (
+            <ArchivePoolButton poolId={pool.id} archived={!!pool.archived_at} />
           )}
           {/* Hard delete — before any entry ever happened, or once fully
               resolved (SETTLED/CANCELLED/VOIDED), super_admin only. */}

@@ -437,6 +437,178 @@ export async function deletePoolAction(poolId: string): Promise<DeletePoolResult
   return { success: true, error: null };
 }
 
+export type ArchivePoolResult = { success: boolean; error: string | null };
+
+const ARCHIVABLE_STATUSES = new Set(["SETTLED", "CANCELLED", "VOIDED"]);
+
+/**
+ * Soft-hides a resolved pool from the main admin pools list without
+ * deleting it — unlike deletePoolAction, fully reversible via
+ * unarchivePoolAction. Same eligibility set as delete (SETTLED/CANCELLED/
+ * VOIDED) since those are exactly the "old, resolved" pools that clutter
+ * the list once there's real history to look back on.
+ */
+export async function archivePoolAction(poolId: string): Promise<ArchivePoolResult> {
+  const admin = await requireSuperAdmin();
+  const adminClient = createAdminClient();
+
+  const { data: pool } = await adminClient
+    .from("pools")
+    .select("id, status, archived_at")
+    .eq("id", poolId)
+    .single();
+
+  if (!pool || !ARCHIVABLE_STATUSES.has(pool.status)) {
+    return { success: false, error: "Only settled, voided, or cancelled pools can be archived." };
+  }
+  if (pool.archived_at) {
+    return { success: true, error: null };
+  }
+
+  const { error } = await adminClient
+    .from("pools")
+    .update({ archived_at: new Date().toISOString() })
+    .eq("id", poolId);
+  if (error) return { success: false, error: "Could not archive this pool." };
+
+  await writeAuditLog({
+    actorId: admin.id,
+    action: "pool.archived",
+    entityType: "pool",
+    entityId: poolId,
+  });
+
+  revalidatePoolPaths(poolId);
+  return { success: true, error: null };
+}
+
+export async function unarchivePoolAction(poolId: string): Promise<ArchivePoolResult> {
+  const admin = await requireSuperAdmin();
+  const adminClient = createAdminClient();
+
+  const { error } = await adminClient.from("pools").update({ archived_at: null }).eq("id", poolId);
+  if (error) return { success: false, error: "Could not unarchive this pool." };
+
+  await writeAuditLog({
+    actorId: admin.id,
+    action: "pool.unarchived",
+    entityType: "pool",
+    entityId: poolId,
+  });
+
+  revalidatePoolPaths(poolId);
+  return { success: true, error: null };
+}
+
+export type BulkArchivePoolsResult = {
+  success: boolean;
+  error: string | null;
+  archivedCount: number;
+  skippedIds: string[];
+};
+
+/** Bulk counterpart to archivePoolAction — same independent-per-pool shape as bulkDeletePoolsAction. */
+export async function bulkArchivePoolsAction(poolIds: string[]): Promise<BulkArchivePoolsResult> {
+  const admin = await requireSuperAdmin();
+  const adminClient = createAdminClient();
+
+  if (poolIds.length === 0) {
+    return { success: false, error: "No pools selected.", archivedCount: 0, skippedIds: [] };
+  }
+
+  const { data: pools } = await adminClient
+    .from("pools")
+    .select("id, status, archived_at")
+    .in("id", poolIds);
+  const poolById = new Map((pools ?? []).map((p) => [p.id as string, p]));
+  const skippedIds: string[] = [];
+  let archivedCount = 0;
+
+  for (const poolId of poolIds) {
+    const pool = poolById.get(poolId);
+    if (!pool || !ARCHIVABLE_STATUSES.has(pool.status) || pool.archived_at) {
+      skippedIds.push(poolId);
+      continue;
+    }
+
+    const { error } = await adminClient
+      .from("pools")
+      .update({ archived_at: new Date().toISOString() })
+      .eq("id", poolId);
+    if (error) {
+      skippedIds.push(poolId);
+      continue;
+    }
+
+    await writeAuditLog({
+      actorId: admin.id,
+      action: "pool.archived",
+      entityType: "pool",
+      entityId: poolId,
+    });
+    archivedCount++;
+  }
+
+  revalidatePath("/admin/pools");
+  return {
+    success: archivedCount > 0,
+    error: archivedCount === 0 ? "None of the selected pools could be archived." : null,
+    archivedCount,
+    skippedIds,
+  };
+}
+
+export type BulkUnarchivePoolsResult = {
+  success: boolean;
+  error: string | null;
+  unarchivedCount: number;
+  skippedIds: string[];
+};
+
+export async function bulkUnarchivePoolsAction(poolIds: string[]): Promise<BulkUnarchivePoolsResult> {
+  const admin = await requireSuperAdmin();
+  const adminClient = createAdminClient();
+
+  if (poolIds.length === 0) {
+    return { success: false, error: "No pools selected.", unarchivedCount: 0, skippedIds: [] };
+  }
+
+  const { data: pools } = await adminClient.from("pools").select("id, archived_at").in("id", poolIds);
+  const poolById = new Map((pools ?? []).map((p) => [p.id as string, p]));
+  const skippedIds: string[] = [];
+  let unarchivedCount = 0;
+
+  for (const poolId of poolIds) {
+    const pool = poolById.get(poolId);
+    if (!pool || !pool.archived_at) {
+      skippedIds.push(poolId);
+      continue;
+    }
+
+    const { error } = await adminClient.from("pools").update({ archived_at: null }).eq("id", poolId);
+    if (error) {
+      skippedIds.push(poolId);
+      continue;
+    }
+
+    await writeAuditLog({
+      actorId: admin.id,
+      action: "pool.unarchived",
+      entityType: "pool",
+      entityId: poolId,
+    });
+    unarchivedCount++;
+  }
+
+  revalidatePath("/admin/pools");
+  return {
+    success: unarchivedCount > 0,
+    error: unarchivedCount === 0 ? "None of the selected pools could be unarchived." : null,
+    unarchivedCount,
+    skippedIds,
+  };
+}
+
 export type BulkDeletePoolsResult = {
   success: boolean;
   error: string | null;

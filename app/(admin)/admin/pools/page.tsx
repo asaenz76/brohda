@@ -17,7 +17,7 @@ export default async function AdminPoolsPage() {
   const { data: pools } = await supabase
     .from("pools")
     .select(
-      "id, question, status, locks_at, entry_fee, house_fee_bps, first_entry_at, fixtures(home_team_name, away_team_name, competition_name, scheduled_start_utc)",
+      "id, question, status, locks_at, entry_fee, house_fee_bps, first_entry_at, archived_at, fixtures(home_team_name, away_team_name, competition_name, scheduled_start_utc)",
     )
     .order("created_at", { ascending: false });
 
@@ -81,6 +81,7 @@ export default async function AdminPoolsPage() {
       id: pool.id,
       question: pool.question,
       status: pool.status,
+      archivedAt: pool.archived_at,
       locks_at: pool.locks_at,
       entryFeeCents: pool.entry_fee,
       houseFeeBps: pool.house_fee_bps,

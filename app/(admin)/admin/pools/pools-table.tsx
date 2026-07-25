@@ -3,7 +3,11 @@
 import { Fragment, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { ChevronDown } from "lucide-react";
-import { bulkDeletePoolsAction } from "@/lib/actions/pool-lifecycle";
+import {
+  bulkArchivePoolsAction,
+  bulkDeletePoolsAction,
+  bulkUnarchivePoolsAction,
+} from "@/lib/actions/pool-lifecycle";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -45,6 +49,7 @@ export interface PoolRow {
   id: string;
   question: string;
   status: string;
+  archivedAt: string | null;
   locks_at: string;
   entryFeeCents: number;
   houseFeeBps: number;
@@ -214,12 +219,17 @@ export function PoolsTable({ pools, isSuperAdmin }: { pools: PoolRow[]; isSuperA
   const [question, setQuestion] = useState("");
   const [status, setStatus] = useState("");
   const [locksDate, setLocksDate] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [removed, setRemoved] = useState<Set<string>>(new Set());
+  const [archivedOverrides, setArchivedOverrides] = useState<Map<string, string | null>>(new Map());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmingBulkDelete, setConfirmingBulkDelete] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  const archivedAt = (pool: PoolRow) =>
+    archivedOverrides.has(pool.id) ? archivedOverrides.get(pool.id)! : pool.archivedAt;
 
   const filtered = useMemo(() => {
     return pools
@@ -231,13 +241,19 @@ export function PoolsTable({ pools, isSuperAdmin }: { pools: PoolRow[]; isSuperA
           const poolDate = new Date(pool.locks_at).toISOString().slice(0, 10);
           if (poolDate !== locksDate) return false;
         }
+        if (!showArchived && archivedAt(pool)) return false;
         return true;
       });
-  }, [pools, removed, question, status, locksDate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- archivedAt reads archivedOverrides, listed separately
+  }, [pools, removed, question, status, locksDate, showArchived, archivedOverrides]);
 
   const deletableVisible = filtered.filter((p) => BULK_DELETABLE_STATUSES.has(p.status));
   const allDeletableSelected =
     deletableVisible.length > 0 && deletableVisible.every((p) => selected.has(p.id));
+
+  const selectedEligible = deletableVisible.filter((p) => selected.has(p.id));
+  const selectedAllArchivable = selectedEligible.length > 0 && selectedEligible.every((p) => !archivedAt(p));
+  const selectedAllUnarchivable = selectedEligible.length > 0 && selectedEligible.every((p) => archivedAt(p));
 
   function toggleSelect(poolId: string) {
     setSelected((prev) => {
@@ -269,6 +285,55 @@ export function PoolsTable({ pools, isSuperAdmin }: { pools: PoolRow[]; isSuperA
       if (result.skippedIds.length > 0) {
         setBulkError(
           `${result.deletedCount} pool${result.deletedCount === 1 ? "" : "s"} deleted, ${result.skippedIds.length} skipped (no longer eligible).`,
+        );
+      }
+    });
+  }
+
+  function handleBulkArchive() {
+    setBulkError(null);
+    const ids = selectedEligible.filter((p) => !archivedAt(p)).map((p) => p.id);
+    startTransition(async () => {
+      const result = await bulkArchivePoolsAction(ids);
+      if (!result.success) {
+        setBulkError(result.error);
+        return;
+      }
+      const archivedIds = ids.filter((id) => !result.skippedIds.includes(id));
+      const now = new Date().toISOString();
+      setArchivedOverrides((prev) => {
+        const next = new Map(prev);
+        for (const id of archivedIds) next.set(id, now);
+        return next;
+      });
+      setSelected(new Set());
+      if (result.skippedIds.length > 0) {
+        setBulkError(
+          `${result.archivedCount} pool${result.archivedCount === 1 ? "" : "s"} archived, ${result.skippedIds.length} skipped (no longer eligible).`,
+        );
+      }
+    });
+  }
+
+  function handleBulkUnarchive() {
+    setBulkError(null);
+    const ids = selectedEligible.filter((p) => archivedAt(p)).map((p) => p.id);
+    startTransition(async () => {
+      const result = await bulkUnarchivePoolsAction(ids);
+      if (!result.success) {
+        setBulkError(result.error);
+        return;
+      }
+      const unarchivedIds = ids.filter((id) => !result.skippedIds.includes(id));
+      setArchivedOverrides((prev) => {
+        const next = new Map(prev);
+        for (const id of unarchivedIds) next.set(id, null);
+        return next;
+      });
+      setSelected(new Set());
+      if (result.skippedIds.length > 0) {
+        setBulkError(
+          `${result.unarchivedCount} pool${result.unarchivedCount === 1 ? "" : "s"} unarchived, ${result.skippedIds.length} skipped (no longer eligible).`,
         );
       }
     });
@@ -313,6 +378,10 @@ export function PoolsTable({ pools, isSuperAdmin }: { pools: PoolRow[]; isSuperA
             className="w-40"
           />
         </div>
+        <label className="flex items-center gap-2 pb-1.5 text-sm text-text-secondary">
+          <Checkbox checked={showArchived} onCheckedChange={(v) => setShowArchived(!!v)} />
+          Show archived
+        </label>
         {(question || status || locksDate) && (
           <button
             type="button"
@@ -359,15 +428,32 @@ export function PoolsTable({ pools, isSuperAdmin }: { pools: PoolRow[]; isSuperA
                 </Button>
               </>
             ) : (
-              <Button
-                type="button"
-                variant="destructive"
-                size="sm"
-                disabled={selected.size === 0}
-                onClick={() => setConfirmingBulkDelete(true)}
-              >
-                Delete selected ({selected.size})
-              </Button>
+              <>
+                {selectedAllUnarchivable ? (
+                  <Button type="button" variant="outline" size="sm" disabled={isPending} onClick={handleBulkUnarchive}>
+                    {isPending ? "Unarchiving…" : `Unarchive selected (${selectedEligible.length})`}
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={isPending || !selectedAllArchivable}
+                    onClick={handleBulkArchive}
+                  >
+                    {isPending ? "Archiving…" : `Archive selected (${selectedEligible.length})`}
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  disabled={selected.size === 0}
+                  onClick={() => setConfirmingBulkDelete(true)}
+                >
+                  Delete selected ({selected.size})
+                </Button>
+              </>
             )}
           </div>
         </div>
@@ -421,7 +507,10 @@ export function PoolsTable({ pools, isSuperAdmin }: { pools: PoolRow[]; isSuperA
                           />
                         </span>
                         <span className="px-3 py-2 text-text-primary">{pool.question}</span>
-                        <span className="px-3 py-2 text-text-secondary">{humanizeEnum(pool.status)}</span>
+                        <span className="px-3 py-2 text-text-secondary">
+                          {humanizeEnum(pool.status)}
+                          {archivedAt(pool) && " · Archived"}
+                        </span>
                         <span className="px-3 py-2 text-text-secondary">
                           {new Date(pool.locks_at).toLocaleString()}
                         </span>

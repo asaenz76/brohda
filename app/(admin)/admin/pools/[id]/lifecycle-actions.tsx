@@ -4,11 +4,13 @@ import { useActionState, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   advanceLockedPoolAction,
+  archivePoolAction,
   cancelPoolAction,
   checkPoolResultNowAction,
   deletePoolAction,
   forceLockPoolAction,
   gradeManuallyAction,
+  unarchivePoolAction,
   type CancelPoolState,
   type CheckResultState,
   type GradeManuallyState,
@@ -160,6 +162,39 @@ export function DeletePoolButton({ poolId }: { poolId: string }) {
     <Button type="button" variant="destructive" onClick={() => setConfirming(true)}>
       Delete pool
     </Button>
+  );
+}
+
+// Fully reversible (unlike DeletePoolButton), so a single click toggles
+// straight through — no confirm step, matching ForceLockButton's plain shape.
+export function ArchivePoolButton({ poolId, archived }: { poolId: string; archived: boolean }) {
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  function handleToggle() {
+    setError(null);
+    startTransition(async () => {
+      const result = archived ? await unarchivePoolAction(poolId) : await archivePoolAction(poolId);
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
+      router.refresh();
+    });
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <Button type="button" variant="outline" disabled={isPending} onClick={handleToggle}>
+        {isPending ? (archived ? "Unarchiving…" : "Archiving…") : archived ? "Unarchive pool" : "Archive pool"}
+      </Button>
+      {error && (
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 
