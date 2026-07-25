@@ -50,12 +50,31 @@ const DATA_SOURCE_LABELS: Record<string, string> = {
   LINEUPS: "Lineups",
 };
 
+// How reliably a template grades itself without admin intervention:
+// - AUTO: only ever needs the fixture's final score, which every completed
+//   fixture already has — the safest, "suggested" pick.
+// - NEEDS_LIVE_DATA: needs the match-events feed, which is only fetched
+//   once this pool already exists and the match has kicked off, and isn't
+//   guaranteed to come back complete for every competition — grading may
+//   fall back to Grade Manually if the feed doesn't report it.
+// - MANUAL: never auto-grades at all (combo legs are checked by hand).
+type GradingReliability = "AUTO" | "NEEDS_LIVE_DATA" | "MANUAL";
+
+const GRADING_BADGE: Record<GradingReliability, { label: string; className: string }> = {
+  AUTO: { label: "Auto-graded", className: "bg-credit/10 text-credit" },
+  NEEDS_LIVE_DATA: { label: "Needs live match data", className: "bg-warning-muted/20 text-text-secondary" },
+  MANUAL: { label: "Manual grading", className: "bg-warning-muted/20 text-text-secondary" },
+};
+// Suggested (AUTO) templates sort first within a category tab — the same
+// signal as the badge color, just also reflected in list order.
+const GRADING_RANK: Record<GradingReliability, number> = { AUTO: 0, NEEDS_LIVE_DATA: 1, MANUAL: 2 };
+
 interface TemplateCard {
   id: string;
   category: CardCategory;
   name: string;
   description: string;
-  autoGraded: boolean;
+  gradingReliability: GradingReliability;
   dataSource: string;
 }
 
@@ -65,7 +84,7 @@ const LEGACY_CARDS: TemplateCard[] = [
     category: "MATCH_RESULT",
     name: "Who will advance?",
     description: "Knockout matches only — winner counts extra time and penalties.",
-    autoGraded: true,
+    gradingReliability: "AUTO",
     dataSource: "Fixture score",
   },
   {
@@ -73,7 +92,7 @@ const LEGACY_CARDS: TemplateCard[] = [
     category: "MATCH_RESULT",
     name: "Result after regulation",
     description: "1X2 — home win, draw, or away win. 90 minutes + injury time only.",
-    autoGraded: true,
+    gradingReliability: "AUTO",
     dataSource: "Fixture score",
   },
   {
@@ -81,7 +100,7 @@ const LEGACY_CARDS: TemplateCard[] = [
     category: "COMBO",
     name: "Combo (multi-leg Yes/No)",
     description: "Yes/No prop tied to this match. “Yes” wins only if every condition is met.",
-    autoGraded: false,
+    gradingReliability: "MANUAL",
     dataSource: "Manual grading",
   },
 ];
@@ -97,11 +116,15 @@ const REGISTRY_CARDS: TemplateCard[] = [
   category: t.category as CardCategory,
   name: t.name,
   description: t.description,
-  autoGraded: true,
+  gradingReliability: (t.requiredDataSources.includes("FIXTURE_EVENTS")
+    ? "NEEDS_LIVE_DATA"
+    : "AUTO") as GradingReliability,
   dataSource: DATA_SOURCE_LABELS[t.requiredDataSources[0]] ?? "Fixture score",
 }));
 
-const ALL_CARDS = [...LEGACY_CARDS, ...REGISTRY_CARDS];
+const ALL_CARDS = [...LEGACY_CARDS, ...REGISTRY_CARDS].sort(
+  (a, b) => GRADING_RANK[a.gradingReliability] - GRADING_RANK[b.gradingReliability],
+);
 const TABS = (
   ["MATCH_RESULT", "GOALS", "DISCIPLINE", "PLAYER_PROPS", "COMBO"] as CardCategory[]
 ).filter((cat) =>
@@ -448,16 +471,20 @@ export function PoolTemplateBuilder({ fixtures }: { fixtures: FixtureOption[] })
                       <span
                         className={cn(
                           "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-                          card.autoGraded
-                            ? "bg-credit/10 text-credit"
-                            : "bg-warning-muted/20 text-text-secondary",
+                          GRADING_BADGE[card.gradingReliability].className,
                         )}
                       >
-                        {card.autoGraded ? "Auto-graded" : "Manual grading"}
+                        {GRADING_BADGE[card.gradingReliability].label}
                       </span>
                     </div>
                     <span className="mt-1 block text-xs text-text-muted">{card.description}</span>
                     <span className="mt-1 block text-xs text-text-muted">Data: {card.dataSource}</span>
+                    {card.gradingReliability === "NEEDS_LIVE_DATA" && (
+                      <span className="mt-1 block text-xs text-text-muted">
+                        Grades automatically once match events are being tracked — use Grade Manually
+                        if the feed doesn&rsquo;t report it for this match.
+                      </span>
+                    )}
                     {disabled && (
                       <span className="mt-1 block text-xs text-danger">
                         {card.id === "WHO_WILL_ADVANCE"
