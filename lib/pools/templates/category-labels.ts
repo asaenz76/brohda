@@ -52,3 +52,52 @@ export function resolvePoolAnalyticsCategory(poolType: string, templateId: strin
 export function resolvePoolCategoryLabel(poolType: string, templateId: string | null): string {
   return ANALYTICS_CATEGORY_LABELS[resolvePoolAnalyticsCategory(poolType, templateId)];
 }
+
+// User-typed search terms → matching category codes, for /search's "search
+// by market" feature (beta feedback: players expect to find pools by typing
+// "goals", "cards", "result", etc., not just team/league names). Deliberately
+// many-to-many where a term genuinely spans categories (e.g. "score" covers
+// both goal counts and player-to-score props) — the search page unions every
+// matched category's fixtures, so over-inclusion just surfaces a few extra
+// fixtures, while under-inclusion would silently hide a real match.
+const CATEGORY_SEARCH_SYNONYMS: Record<string, AnalyticsCategoryCode[]> = {
+  goal: ["GOALS"],
+  goals: ["GOALS"],
+  score: ["GOALS", "PLAYER_PROPS"],
+  scorer: ["PLAYER_PROPS"],
+  scoring: ["GOALS", "PLAYER_PROPS"],
+  card: ["DISCIPLINE"],
+  cards: ["DISCIPLINE"],
+  discipline: ["DISCIPLINE"],
+  result: ["MATCH_RESULT"],
+  winner: ["MATCH_RESULT"],
+  win: ["MATCH_RESULT"],
+  stats: ["MATCH_STATS"],
+  statistics: ["MATCH_STATS"],
+  player: ["PLAYER_PROPS"],
+  players: ["PLAYER_PROPS"],
+  props: ["PLAYER_PROPS", "TEAM_PROPS"],
+  team: ["TEAM_PROPS"],
+  combo: ["COMBO"],
+  parlay: ["COMBO"],
+  custom: ["CUSTOM"],
+};
+
+// Matches a query against the synonym map in both directions — "goals"
+// contains the "goal" key, and (once the query is at least 3 characters,
+// to avoid 1-2 letter queries fuzzy-matching half the map) a partial
+// in-progress query like "sco" matches the "score"/"scorer" keys, so results
+// update sensibly while the user is still typing under the existing
+// debounced live search.
+export function resolveCategoriesFromSearchTerm(query: string): AnalyticsCategoryCode[] {
+  const normalized = query.trim().toLowerCase();
+  if (normalized.length < 3) return [];
+
+  const matched = new Set<AnalyticsCategoryCode>();
+  for (const [term, categories] of Object.entries(CATEGORY_SEARCH_SYNONYMS)) {
+    if (normalized.includes(term) || term.includes(normalized)) {
+      for (const category of categories) matched.add(category);
+    }
+  }
+  return [...matched];
+}

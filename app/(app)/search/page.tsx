@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Avatar } from "@/components/Avatar";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
 import { LocalDateTime } from "@/components/LocalDateTime";
+import { resolveCategoriesFromSearchTerm } from "@/lib/pools/templates/category-labels";
 import { SearchInput } from "./search-input";
 
 type SearchProfile = {
@@ -44,14 +45,34 @@ export default async function SearchPage({
     // filter clauses via its comma/paren syntax. .ilike()'s pattern
     // argument is passed as a normal bound value, no such risk.
     const pattern = `%${query}%`;
-    const [{ data: byName }, { data: byUsername }, { data: byHomeTeam }, { data: byAwayTeam }, { data: byCompetition }] =
-      await Promise.all([
-        supabase.from("public_profiles").select("*").ilike("display_name", pattern).limit(20),
-        supabase.from("public_profiles").select("*").ilike("username", pattern).limit(20),
-        supabase.from("fixtures").select(FIXTURE_SELECT).ilike("home_team_name", pattern).limit(20),
-        supabase.from("fixtures").select(FIXTURE_SELECT).ilike("away_team_name", pattern).limit(20),
-        supabase.from("fixtures").select(FIXTURE_SELECT).ilike("competition_name", pattern).limit(20),
-      ]);
+    // "Market" search (beta feedback: find pools by "goals", "cards",
+    // "result", etc., not just team/league names) resolves the query to
+    // pools.analytics_category values via a synonym map, then pulls in
+    // whichever fixtures those pools belong to — merged into the same
+    // fixture list below, same as any other match source.
+    const matchedCategories = resolveCategoriesFromSearchTerm(query);
+    const [
+      { data: byName },
+      { data: byUsername },
+      { data: byHomeTeam },
+      { data: byAwayTeam },
+      { data: byCompetition },
+      { data: poolsByCategory },
+    ] = await Promise.all([
+      supabase.from("public_profiles").select("*").ilike("display_name", pattern).limit(20),
+      supabase.from("public_profiles").select("*").ilike("username", pattern).limit(20),
+      supabase.from("fixtures").select(FIXTURE_SELECT).ilike("home_team_name", pattern).limit(20),
+      supabase.from("fixtures").select(FIXTURE_SELECT).ilike("away_team_name", pattern).limit(20),
+      supabase.from("fixtures").select(FIXTURE_SELECT).ilike("competition_name", pattern).limit(20),
+      matchedCategories.length > 0
+        ? supabase
+            .from("pools")
+            .select("fixture_id")
+            .in("analytics_category", matchedCategories)
+            .not("fixture_id", "is", null)
+            .limit(50)
+        : Promise.resolve({ data: [] as { fixture_id: string | null }[] }),
+    ]);
 
     const merged = new Map<string, SearchProfile>();
     for (const profile of [...(byName ?? []), ...(byUsername ?? [])]) {
@@ -71,6 +92,20 @@ export default async function SearchPage({
     >();
     for (const fixture of [...(byHomeTeam ?? []), ...(byAwayTeam ?? []), ...(byCompetition ?? [])]) {
       mergedFixtures.set(fixture.id, fixture);
+    }
+
+    const categoryFixtureIds = [
+      ...new Set((poolsByCategory ?? []).map((p) => p.fixture_id).filter((id): id is string => id != null)),
+    ].filter((id) => !mergedFixtures.has(id));
+    if (categoryFixtureIds.length > 0) {
+      const { data: byCategory } = await supabase
+        .from("fixtures")
+        .select(FIXTURE_SELECT)
+        .in("id", categoryFixtureIds)
+        .limit(20);
+      for (const fixture of byCategory ?? []) {
+        mergedFixtures.set(fixture.id, fixture);
+      }
     }
 
     // Only surface fixtures that actually have a pool to enter — landing on
@@ -104,8 +139,8 @@ export default async function SearchPage({
       {query.length === 0 ? (
         <EmptyFeedState
           icon={SearchIcon}
-          title="Search for players or fixtures"
-          description="Find people by name or username, or a match by team or league."
+          title="Search for players, fixtures, or markets"
+          description="Find people by name or username, a match by team or league, or pools by market — goals, cards, result, and more."
         />
       ) : !hasResults ? (
         <EmptyFeedState

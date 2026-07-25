@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolvePoolCategoryLabel } from "@/lib/pools/templates/category-labels";
+import { resolveCategoriesFromSearchTerm, resolvePoolCategoryLabel } from "@/lib/pools/templates/category-labels";
 
 describe("resolvePoolCategoryLabel", () => {
   it("maps a TEMPLATE_GRADED row to its registry category label", () => {
@@ -22,5 +22,39 @@ describe("resolvePoolCategoryLabel", () => {
 
   it("falls back to Other for a TEMPLATE_GRADED row with a null template_id", () => {
     expect(resolvePoolCategoryLabel("TEMPLATE_GRADED", null)).toBe("Other");
+  });
+});
+
+describe("resolveCategoriesFromSearchTerm", () => {
+  it("matches direct market terms to their category codes", () => {
+    expect(resolveCategoriesFromSearchTerm("goals")).toEqual(["GOALS"]);
+    expect(resolveCategoriesFromSearchTerm("cards")).toEqual(["DISCIPLINE"]);
+    expect(resolveCategoriesFromSearchTerm("result")).toEqual(["MATCH_RESULT"]);
+  });
+
+  it("is case-insensitive and trims whitespace", () => {
+    expect(resolveCategoriesFromSearchTerm("  GOALS  ")).toEqual(["GOALS"]);
+  });
+
+  it("returns multiple categories for a genuinely ambiguous term", () => {
+    expect(resolveCategoriesFromSearchTerm("score")).toEqual(
+      expect.arrayContaining(["GOALS", "PLAYER_PROPS"]),
+    );
+  });
+
+  it("matches a partial in-progress query against a longer key", () => {
+    // Simulates the debounced live search firing mid-keystroke.
+    expect(resolveCategoriesFromSearchTerm("sco")).toEqual(
+      expect.arrayContaining(["GOALS", "PLAYER_PROPS"]),
+    );
+  });
+
+  it("does not fuzzy-match on queries under 3 characters", () => {
+    expect(resolveCategoriesFromSearchTerm("go")).toEqual([]);
+    expect(resolveCategoriesFromSearchTerm("")).toEqual([]);
+  });
+
+  it("returns no categories for an unrelated query like a team name", () => {
+    expect(resolveCategoriesFromSearchTerm("Arsenal")).toEqual([]);
   });
 });
