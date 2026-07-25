@@ -4,6 +4,7 @@ import { resolveDateRange, previousPeriod, type DateRange } from "./date-ranges"
 import { DEFAULT_ANALYTICS_TIMEZONE, normalizeIanaTimezone } from "./timezone";
 import { ANALYTICS_CATEGORY_LABELS, type AnalyticsCategoryCode } from "@/lib/pools/templates/category-labels";
 import { computeStreaks, toStreakSymbols, type GradedOutcome, type StreakSymbol } from "./streaks";
+import { buildMetric } from "./metrics";
 import type { AnalyticsFilters, AnalyticsResponse, MetricValue } from "./types";
 
 // Every function below is self-scoped: the SQL RPCs read auth.uid()
@@ -25,15 +26,6 @@ import type { AnalyticsFilters, AnalyticsResponse, MetricValue } from "./types";
 //   with entry-dated volume in the same ratio (that was the original bug
 //   — this module keeps stake_basis and net_result on the same
 //   realization-dated footing for realized ROI).
-
-function buildMetric(current: number | null, previous: number | null | undefined): MetricValue {
-  if (previous === undefined || previous === null || current === null) {
-    return { current, previous: previous ?? null, changeAbsolute: null, changePercentage: null };
-  }
-  const changeAbsolute = current - previous;
-  const changePercentage = previous !== 0 ? changeAbsolute / Math.abs(previous) : null;
-  return { current, previous, changeAbsolute, changePercentage };
-}
 
 function toDateRange(filters: AnalyticsFilters, timeZone: string): DateRange {
   const custom =

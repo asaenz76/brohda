@@ -106,6 +106,7 @@ export function ProfileForm({
           maxLength={24}
           minLength={3}
           pattern="[a-zA-Z0-9_]+"
+          placeholder="Letters, numbers, or underscores"
           required
         />
         <p className="text-xs text-text-secondary">Required — you can&apos;t use the rest of the site without it.</p>

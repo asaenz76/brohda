@@ -287,15 +287,26 @@ describe.skipIf(!SERVICE_ROLE_KEY)("pools and entries", () => {
     await deactivate(player.userId);
   });
 
-  it("enforces fee immutability once an entry exists", async () => {
+  // entry_fee/house_fee_bps were frozen once a pool had entries until the
+  // beta fee-editability change (20260101000072_relax_fee_immutability.sql,
+  // see project_beta_temporary_fee_and_minentries memory) — question/
+  // pool_type/title/template_id/template_config are still frozen, since
+  // those define what the pool IS rather than its economics.
+  it("allows the entry fee to change once an entry exists, but not the question", async () => {
     const player = await createTestPlayer(`pool-feefreeze-${Date.now()}@example.com`, 5000);
     const { poolId, optionIds } = await createTestPool(fixtureId, adminId);
 
     await enter(poolId, player.userId, optionIds[0]);
 
-    const { error } = await admin.from("pools").update({ entry_fee: 2000 }).eq("id", poolId);
-    expect(error).not.toBeNull();
-    expect(error!.message).toContain("frozen");
+    const feeResult = await admin.from("pools").update({ entry_fee: 2000 }).eq("id", poolId);
+    expect(feeResult.error).toBeNull();
+
+    const { error: questionError } = await admin
+      .from("pools")
+      .update({ question: "a different question" })
+      .eq("id", poolId);
+    expect(questionError).not.toBeNull();
+    expect(questionError!.message).toContain("frozen");
 
     await deactivate(player.userId);
   });

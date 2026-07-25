@@ -1261,6 +1261,46 @@ API-Football calls** were needed. `FIXTURE_EVENTS`/`FIXTURE_STATISTICS`/
 builders, and a COMBO rebuild onto this same registry) can slot in without
 another architecture change — none of that is implemented yet.
 
+## Analytics (post-Phase-7)
+
+Two pages share one foundation (`lib/analytics/types.ts`, `date-ranges.ts`,
+`timezone.ts`, `metrics.ts`'s `buildMetric`, `streaks.ts`, `format.ts`, and
+the `components/analytics/*` chart components built on `recharts`):
+
+- **`/graphs`** (`requireUser()`) — a player's own performance. Every RPC
+  (`get_user_analytics_overview`, `get_user_financial_overview`,
+  `get_user_category_performance`, `get_user_competition_performance`,
+  `get_user_monthly_activity`, `get_user_cumulative_pnl`,
+  `get_user_bankroll_balance`, `get_user_entry_history`) reads `auth.uid()`
+  internally — no parameter ever selects whose data comes back — so
+  they're granted to `authenticated`. Activity metrics (pools entered,
+  category/competition breakdowns) are entry-dated; financial metrics (net
+  result, realized ROI) are realization-dated by `settlements.created_at`,
+  never mixed — see `20260101000071_analytics_financial_rewrite.sql`.
+- **`/admin/analytics`** (`requireSuperAdmin()`) — the same shape,
+  platform-wide instead of self-scoped. `lib/analytics/adminAnalyticsService.ts`
+  calls a parallel set of `get_platform_*` functions
+  (`20260101000074_platform_analytics_functions.sql`) that mirror the
+  `get_user_*` definitions exactly minus the `user_id = auth.uid()`
+  filter, plus `get_platform_top_users` (a per-user leaderboard, no
+  per-user equivalent needed). These are granted to `service_role` only —
+  never `authenticated` — since they return every user's financial data;
+  enforcement is "only `createAdminClient()` can call it," matching
+  `pool_options`/`delete_terminal_pool`'s lockdown pattern, not an
+  internal role check. `/admin/reports` (current-state operational
+  reporting: house revenue, pools-by-status, job health) is untouched —
+  `/admin/analytics`'s job is trends over time and the top-users table,
+  which Reports doesn't have.
+
+An `admin_hierarchy` schema (`user_profiles.parent_admin_id`,
+`get_branch_member_ids()`, `20260101000063`/`20260101000066`/
+`20260101000068`) exists for a future "admin sees only their own branch"
+scoping, but is currently unused by any query — there's exactly one
+`super_admin` today and no real branch to scope against yet, so
+`/admin/analytics` deliberately stays platform-wide rather than wiring
+untested cross-user RLS for a capability nobody can exercise. Wire it up
+when there's a second admin and a real need to restrict what they see.
+
 ## Local development
 
 ```bash

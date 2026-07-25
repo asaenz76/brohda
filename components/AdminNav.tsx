@@ -11,6 +11,7 @@ const TABS: Array<{ href: string; label: string; superAdminOnly?: boolean }> = [
   { href: "/admin/pools", label: "Pools" },
   { href: "/admin/wallet-requests", label: "Ledger Requests", superAdminOnly: true },
   { href: "/admin/reports", label: "Reports", superAdminOnly: true },
+  { href: "/admin/analytics", label: "Analytics", superAdminOnly: true },
   { href: "/admin/audit-log", label: "Audit Log", superAdminOnly: true },
   { href: "/admin/settings", label: "Settings", superAdminOnly: true },
 ];
