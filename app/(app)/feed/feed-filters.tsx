@@ -5,14 +5,16 @@ import { useRouter, useSearchParams } from "next/navigation";
 export function FeedFilters({
   sportOptions,
   leagueOptions,
+  activeSort,
 }: {
   sportOptions: string[];
   leagueOptions: string[];
+  activeSort: string;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  function updateParam(key: "sport" | "league", value: string) {
+  function updateParam(key: "sport" | "league" | "sort", value: string) {
     const params = new URLSearchParams(searchParams.toString());
     if (value) {
       params.set(key, value);
@@ -25,6 +27,15 @@ export function FeedFilters({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
+      <select
+        aria-label="Sort by"
+        value={activeSort}
+        onChange={(e) => updateParam("sort", e.target.value === "newest" ? "" : e.target.value)}
+        className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm"
+      >
+        <option value="newest">Newest</option>
+        <option value="locking_soon">Locking soon</option>
+      </select>
       <select
         aria-label="Filter by sport"
         value={searchParams.get("sport") ?? ""}

@@ -18,9 +18,10 @@ function unwrapEmbed<T>(raw: unknown): T | null {
 export default async function FeedPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sport?: string; league?: string }>;
+  searchParams: Promise<{ sport?: string; league?: string; sort?: string }>;
 }) {
-  const { sport: sportParam, league: leagueParam } = await searchParams;
+  const { sport: sportParam, league: leagueParam, sort: sortParam } = await searchParams;
+  const sortByLockingSoon = sortParam === "locking_soon";
 
   const user = await requireUser();
   const supabase = await createClient();
@@ -98,7 +99,11 @@ export default async function FeedPage({
   const filteredRows = rows
     .filter((r) => (sportParam ? r.sport === sportParam : true))
     .filter((r) => (leagueParam ? r.league === leagueParam : true))
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    .sort((a, b) =>
+      sortByLockingSoon
+        ? new Date(a.locksAt).getTime() - new Date(b.locksAt).getTime()
+        : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
 
   const poolIds = filteredRows.map((r) => r.id);
   const viewModelsUnordered = await getPoolCardViewModels(poolIds, user.id);
@@ -114,7 +119,7 @@ export default async function FeedPage({
     <div className="space-y-[18px] sm:space-y-[22px]">
       <h1 className="sr-only">Feed</h1>
       <StoriesRow entries={storyEntries} />
-      <FeedFilters sportOptions={sportOptions} leagueOptions={leagueOptions} />
+      <FeedFilters sportOptions={sportOptions} leagueOptions={leagueOptions} activeSort={sortParam ?? "newest"} />
       {viewModels.length === 0 ? (
         <EmptyFeedState
           icon={Rss}
