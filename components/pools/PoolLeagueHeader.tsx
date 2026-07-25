@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import type { PoolVisibility } from "@/lib/pools/card-state";
 import type { PoolType } from "@/lib/pools/templates";
 
@@ -61,6 +64,18 @@ export function PoolLeagueHeader({
   isLocked,
   isResolved,
 }: PoolLeagueHeaderProps) {
+  // relativeTime()/countdown() below are pure reads of Date.now() — with
+  // nothing else ticking this component's re-render (no interval anywhere
+  // upstream), the very first render's text would otherwise freeze in the
+  // DOM for as long as the card stays mounted, showing an increasingly
+  // stale "Posted Xm ago"/"Locks in Xm" the longer the tab sits open. 30s
+  // matches the minute-level display granularity without over-rendering.
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => forceTick((n) => n + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
   const label = competitionName
     ? competitionCountry
       ? `${competitionCountry} | ${competitionName}`

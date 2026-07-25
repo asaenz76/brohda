@@ -1,13 +1,12 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { importFixturesAction } from "@/lib/actions/fixtures";
-import type { NormalizedFixture } from "@/lib/sports-data/types";
+import { importFixturesAction, type FixtureSearchResult } from "@/lib/actions/fixtures";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { FixtureResultRow } from "./fixture-result-row";
 
-export function FixtureResultsList({ fixtures }: { fixtures: NormalizedFixture[] }) {
+export function FixtureResultsList({ fixtures }: { fixtures: FixtureSearchResult[] }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [imported, setImported] = useState<Set<string>>(new Set());
   const [bulkError, setBulkError] = useState<string | null>(null);

@@ -13,11 +13,40 @@ import {
   setFixturesHiddenSchema,
 } from "@/lib/validations/fixtures";
 
+// Deliberately not NormalizedFixture — that type's providerPayload holds
+// the entire raw provider JSON response per fixture. useActionState binds
+// the previous state into every subsequent form submission (it's sent back
+// to the server as part of the action call, not just kept client-side), so
+// holding the full payload for every search result here made a large
+// league/season search exceed Next's 1MB Server Action body limit on the
+// *next* submit. This trims each result down to only what the UI actually
+// renders (FixtureResultRow/FixtureResultsList) and what import needs
+// (just the id).
+export type FixtureSearchResult = {
+  externalFixtureId: string;
+  homeTeamName: string;
+  awayTeamName: string;
+  competitionName: string | null;
+  round: string | null;
+  scheduledStartUtc: string;
+};
+
 export type FixtureSearchState = {
   error: string | null;
   providerDisabled: boolean;
-  results: NormalizedFixture[];
+  results: FixtureSearchResult[];
 };
+
+function toSearchResult(f: NormalizedFixture): FixtureSearchResult {
+  return {
+    externalFixtureId: f.externalFixtureId,
+    homeTeamName: f.homeTeamName,
+    awayTeamName: f.awayTeamName,
+    competitionName: f.competitionName,
+    round: f.round,
+    scheduledStartUtc: f.scheduledStartUtc,
+  };
+}
 
 export async function searchFixturesAction(
   _prevState: FixtureSearchState,
@@ -53,7 +82,7 @@ export async function searchFixturesAction(
       season: parsed.data.season,
       date: parsed.data.date,
     });
-    return { error: null, providerDisabled: false, results };
+    return { error: null, providerDisabled: false, results: results.map(toSearchResult) };
   } catch {
     return {
       error: "Could not reach the sports data provider. Try again shortly.",

@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { importFixturesAction } from "@/lib/actions/fixtures";
-import type { NormalizedFixture } from "@/lib/sports-data/types";
+import { importFixturesAction, type FixtureSearchResult } from "@/lib/actions/fixtures";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -14,7 +13,7 @@ export function FixtureResultRow({
   imported,
   onImported,
 }: {
-  fixture: NormalizedFixture;
+  fixture: FixtureSearchResult;
   selected: boolean;
   onToggleSelect: () => void;
   imported: boolean;
