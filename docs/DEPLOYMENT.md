@@ -44,7 +44,7 @@ sourced from `.env.example`):
 | `DEFAULT_TIMEZONE` | `America/Costa_Rica` — used for the same-calendar-day anomaly-void grace window (X.7.2) |
 | `APP_URL` | The deployed app's public URL |
 | `CRON_SECRET` | Random secret; see below |
-| `RESEND_API_KEY` | Not used by the app directly — see Resend setup below |
+| `RESEND_API_KEY` | Used both by Supabase Auth's SMTP relay and directly by the app for pool-published emails — see Resend setup below |
 | `NEXT_PUBLIC_SENTRY_DSN` | Optional — see Sentry setup below. Leave unset to disable error monitoring entirely |
 | `SENTRY_ORG` / `SENTRY_PROJECT` / `SENTRY_AUTH_TOKEN` | Optional, build-time only — enables source-map upload for readable stack traces |
 
@@ -53,10 +53,13 @@ sourced from `.env.example`):
 Supabase's built-in email sending is capped at 2/hour, which is enough for
 demo/testing but not for real password-reset traffic. This project uses
 [Resend](https://resend.com) as a custom SMTP relay for Supabase Auth's
-transactional emails (password reset, etc.) instead. `RESEND_API_KEY` in the
-table above is for documentation/reference — Supabase Auth's own SMTP
-settings need it, not the app's Next.js code, which never calls Resend
-directly today.
+transactional emails (password reset, etc.). `RESEND_API_KEY` in the table
+above is needed for both that SMTP relay (Supabase Auth's own settings) and
+directly by the app's Next.js code (`lib/email/resend.ts`), which calls
+Resend's HTTP API to email every opted-in player when a coordinator publishes
+a new pool (`lib/email/notify-pool-published.ts`). Without a key set,
+`sendEmail` no-ops silently (same pattern as `API_FOOTBALL_ENABLED`) — no
+key is needed for local dev/CI.
 
 1. **Sign up at [resend.com](https://resend.com)** (do this yourself — I
    won't create third-party accounts on your behalf).
@@ -81,6 +84,11 @@ directly today.
 5. Send a test password-reset email once configured and confirm it lands
    (check spam on the first send) — this replaces Supabase's 2/hour default
    limit with whatever Resend's plan allows.
+6. Pool-published emails send from `notifications@brohda.com` — no
+   additional Resend setup needed beyond the domain verification in step 2,
+   since that covers every address on `brohda.com`. Players can opt out
+   individually from their Edit Profile tab (`email_notifications_enabled`
+   on `user_profiles`, defaults to on).
 
 ## 4. Error monitoring (Sentry)
 

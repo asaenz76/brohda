@@ -199,8 +199,18 @@ describe.skipIf(!SERVICE_ROLE_KEY)("platform-wide admin analytics RPCs", () => {
     await createPayout(poolA.settlementId, entryA, 1800, playerA.userId, poolA.poolId);
     await createEntry(playerB.userId, poolB.poolId, poolB.optionAId, 500, "LOST");
 
-    const wideFrom = "2000-01-01T00:00:00.000Z";
-    const wideTo = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    // Pin both settlements to the same controlled instant and query a tight
+    // window around it, so ambient data from other tests/seed runs can't
+    // leak into the unscoped platform-wide aggregate below.
+    const settledAt = new Date().toISOString();
+    const { error: settledAtError } = await admin
+      .from("settlements")
+      .update({ created_at: settledAt })
+      .in("id", [poolA.settlementId, poolB.settlementId]);
+    if (settledAtError) throw settledAtError;
+
+    const wideFrom = new Date(Date.parse(settledAt) - 1000).toISOString();
+    const wideTo = new Date(Date.parse(settledAt) + 1000).toISOString();
 
     const { data: overviewRows, error: overviewError } = await admin.rpc("get_platform_overview", {
       p_date_from: null,

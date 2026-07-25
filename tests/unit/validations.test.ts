@@ -52,7 +52,12 @@ describe("acceptInvitationSchema", () => {
 });
 
 describe("updateProfileSchema", () => {
-  const requiredVisibilityFlags = { showPronouns: true, showGender: true, showBio: true };
+  const requiredVisibilityFlags = {
+    showPronouns: true,
+    showGender: true,
+    showBio: true,
+    emailNotificationsEnabled: true,
+  };
 
   it("rejects a display name with no username — username is required", () => {
     expect(

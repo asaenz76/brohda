@@ -27,7 +27,7 @@ export default async function ProfilePage({
       // guards/middleware) — fetched separately for this page's edit form.
       supabase
         .from("user_profiles")
-        .select("pronouns, gender, bio, show_pronouns, show_gender, show_bio")
+        .select("pronouns, gender, bio, show_pronouns, show_gender, show_bio, email_notifications_enabled")
         .eq("id", user.id)
         .single(),
       supabase.rpc("get_profile_stats", { p_user_id: user.id }),
@@ -87,6 +87,7 @@ export default async function ProfilePage({
                   showPronouns={editableFields?.show_pronouns ?? true}
                   showGender={editableFields?.show_gender ?? true}
                   showBio={editableFields?.show_bio ?? true}
+                  emailNotificationsEnabled={editableFields?.email_notifications_enabled ?? true}
                 />
               </CardContent>
             </Card>

@@ -9,6 +9,7 @@ import { generatePoolTemplate, getTemplateEligibility, type PoolType } from "@/l
 import { getTemplate, TEMPLATE_CONFIG_SCHEMAS } from "@/lib/pools/templates/registry";
 import { resolvePoolAnalyticsCategory } from "@/lib/pools/templates/category-labels";
 import { getPoolLiveStats, type PoolLiveStats } from "@/lib/pools/fetch";
+import { notifyPoolPublished } from "@/lib/email/notify-pool-published";
 import { parseDollarsToCents, parsePercentToBps } from "@/lib/utils/money";
 import {
   createPoolFromTemplateSchema,
@@ -293,7 +294,14 @@ export async function createPoolFromTemplate(
   });
 
   revalidatePath("/admin/pools");
-  if (publishImmediately) revalidatePath("/feed");
+  if (publishImmediately) {
+    revalidatePath("/feed");
+    await notifyPoolPublished({
+      id: pool.id as string,
+      question,
+      visibility: parsed.data.visibility,
+    });
+  }
   redirect(`/admin/pools/${pool.id}`);
 }
 
@@ -325,6 +333,14 @@ export async function publishPoolAction(poolId: string) {
   revalidatePath("/admin/pools");
   revalidatePath(`/admin/pools/${poolId}`);
   revalidatePath("/feed");
+
+  if (before) {
+    await notifyPoolPublished({
+      id: poolId,
+      question: before.question as string,
+      visibility: before.visibility as string,
+    });
+  }
 }
 
 export type UpdatePoolState = { error: string | null };
