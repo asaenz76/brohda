@@ -15,17 +15,34 @@ const supabaseWsOrigin = supabaseHostname
   : "";
 
 const nextConfig: NextConfig = {
-  // sharp (app/api/avatar/route.ts) ships native .node bindings that dlopen
-  // a separate libvips-cpp.so at runtime — a dependency Next's file tracer
-  // can't see statically, so without this the deployed function is missing
-  // that .so and every avatar upload 500s with ERR_DLOPEN_FAILED. Two parts
-  // to the fix: serverExternalPackages stops sharp from being bundled (so
-  // its own package-relative dlopen path stays intact), and
-  // outputFileTracingIncludes force-includes the whole package — including
-  // its @img/sharp-libvips-* optional dependency — into the function.
+  // sharp (app/api/avatar/route.ts) ships a native .node binding that
+  // dlopen()s a separate libvips-cpp shared library at runtime. Leaving
+  // sharp external (not bundled by Turbopack) lets Vercel's own build step
+  // trace and copy it — confirmed via a local `vercel build` that this
+  // alone already includes the .node binary correctly (@img/sharp-*-*'s
+  // lib/*.node). The one file it does NOT pick up is the actual
+  // libvips-cpp.so/.dylib itself: dlopen() is invisible to static
+  // analysis, so nothing traces it automatically, and every avatar upload
+  // 500s in production with ERR_DLOPEN_FAILED without the explicit include
+  // below.
+  //
+  // That include must point at pnpm's real, non-symlinked package
+  // directory (node_modules/.pnpm/@img+sharp-libvips-linux-x64@<version>/…)
+  // rather than the usual node_modules/sharp or node_modules/@img paths —
+  // pnpm makes those a chain of symlinks, and Turbopack's output packaging
+  // rejects any traced file reached through one ("invalid deployment
+  // package … symlinked directories",
+  // https://github.com/vercel/next.js/issues/88335), which fails the
+  // build outright — strictly worse than the runtime error this is fixing.
+  // Verified locally: `vercel build` succeeds with this exact glob shape
+  // (tested against the darwin-x64 equivalent, since only that platform's
+  // optional dependency is installed on this machine) and fails with the
+  // symlink error the moment the glob targets node_modules/sharp instead.
   serverExternalPackages: ["sharp"],
   outputFileTracingIncludes: {
-    "/api/avatar": ["./node_modules/sharp/**/*", "./node_modules/@img/**/*"],
+    "/api/avatar": [
+      "./node_modules/.pnpm/@img+sharp-libvips-linux-x64@*/node_modules/@img/sharp-libvips-linux-x64/**/*",
+    ],
   },
   images: {
     remotePatterns: supabaseHostname
