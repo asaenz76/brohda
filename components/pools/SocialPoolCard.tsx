@@ -229,7 +229,7 @@ export function SocialPoolCard({
       {showDistribution && <PotentialPayoutFooter />}
 
       <p className="text-xs text-text-muted">
-        Entry {formatCents(viewModel.entryFee)} · Coordinator Fee{" "}
+        Entry {formatCents(viewModel.entryFee)} · Platform Fee{" "}
         {formatBps(viewModel.houseFeeBasisPoints)}
         {(isPreVote || isPostVote) && (
           <>

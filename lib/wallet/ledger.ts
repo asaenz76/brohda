@@ -148,7 +148,7 @@ export async function getLedgerEntries(userId: string): Promise<LedgerEntry[]> {
   return shapeLedgerRows(data ?? []);
 }
 
-/** The platform's own singleton house account — coordinator fees, rounding
+/** The platform's own singleton house account — platform fees, rounding
  *  remainders, and reversal debits, spanning every settlement ever produced
  *  rather than one user's history. Used by the super_admin's own "wallet". */
 export async function getHouseLedgerEntries(): Promise<LedgerEntry[]> {

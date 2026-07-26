@@ -156,7 +156,7 @@ export default async function AdminPoolDetailPage({
           <h1 className="text-lg font-semibold text-text-primary">{pool.question}</h1>
           <p className="text-sm text-text-secondary">
             Status: {humanizeEnum(pool.status)}
-            {pool.archived_at && " · Archived"} · Entry {formatCents(pool.entry_fee)} · Coordinator Fee{" "}
+            {pool.archived_at && " · Archived"} · Entry {formatCents(pool.entry_fee)} · Platform Fee{" "}
             {formatBps(pool.house_fee_bps)}
           </p>
           <p className="text-xs text-text-muted">
@@ -283,7 +283,7 @@ export default async function AdminPoolDetailPage({
               </dd>
               <dt className="text-text-muted">Gross pool</dt>
               <dd className="text-text-primary">{formatCents(currentSettlement.gross_pool)}</dd>
-              <dt className="text-text-muted">Coordinator fee</dt>
+              <dt className="text-text-muted">Platform fee</dt>
               <dd className="text-text-primary">{formatCents(currentSettlement.house_fee_amount)}</dd>
               <dt className="text-text-muted">Net prize pool</dt>
               <dd className="text-text-primary">{formatCents(currentSettlement.net_prize_pool)}</dd>
@@ -341,7 +341,7 @@ export default async function AdminPoolDetailPage({
           <CardContent className="space-y-3 pt-6">
             <h2 className="text-sm font-semibold text-text-primary">Settlement reversal</h2>
             <p className="text-sm text-text-secondary">
-              Reversing debits every winner and the coordinator fee back, then returns this pool to
+              Reversing debits every winner and the platform fee back, then returns this pool to
               review with a fresh result snapshot.
             </p>
             <ReversalRequestForm poolId={pool.id} />

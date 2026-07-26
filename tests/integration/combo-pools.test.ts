@@ -433,7 +433,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("COMBO pools", () => {
     expect(voidedPool.void_reason).toBe("NO_WINNING_ENTRIES_FEE_RETAINED");
 
     // Unlike every other refund reason (full amount, no fee), this one
-    // retains the 10% coordinator fee: $10.00 entry -> $9.00 refunded.
+    // retains the 10% platform fee: $10.00 entry -> $9.00 refunded.
     expect(await getBalance(p1.userId)).toBe(5000 - 1000 + 900);
     expect(await getBalance(p2.userId)).toBe(5000 - 1000 + 900);
     expect(await getHouseBalance()).toBe(houseBefore + 200); // 2 entries x $1.00 fee each

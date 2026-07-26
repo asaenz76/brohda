@@ -8,7 +8,7 @@ import { TransactionList } from "@/components/activity/TransactionList";
 // The admin's own wallet_balances row (account_type='user') is always
 // empty — admins don't enter pools. What an admin actually means by "my
 // wallet" is the platform's house account: the singleton row
-// (account_type='house', user_id=null) that accrues coordinator fees on
+// (account_type='house', user_id=null) that accrues platform fees on
 // every settlement. See lib/reports/fetch.ts's getHouseRevenue() for the
 // same balance already surfaced on /admin/reports as an aggregate; this
 // view adds the per-transaction breakdown.
@@ -23,7 +23,7 @@ export async function HouseRevenueView() {
         <p className="text-sm text-text-muted">Platform revenue</p>
         <p className="text-2xl font-bold text-text-primary">{formatCents(revenue.currentBalance)}</p>
         <p className="mt-1 text-xs text-text-muted">
-          Coordinator fees collected across all pools, net of anything reversed.
+          Platform fees collected across all pools, net of anything reversed.
         </p>
         <dl className="mt-3 grid grid-cols-3 gap-2 text-xs">
           <div>
@@ -47,7 +47,7 @@ export async function HouseRevenueView() {
           <EmptyFeedState
             icon={Landmark}
             title="No revenue yet"
-            description="Coordinator fees from settled pools will show up here."
+            description="Platform fees from settled pools will show up here."
           />
         )}
         {entries.length > 0 && <TransactionList entries={entries} />}

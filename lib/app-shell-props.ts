@@ -12,7 +12,7 @@ import type { UserProfile } from "@/lib/auth/session";
 export async function getAppShellProps(user: UserProfile) {
   const supabase = await createClient();
 
-  // Only super_admin sees the house account (coordinator fees collected
+  // Only super_admin sees the house account (platform fees collected
   // across all pools) — this stays super_admin-only specifically, not
   // "any staff role", since it's money-visibility, not admin-panel
   // content. 'admin' falls through to their own (always-empty)

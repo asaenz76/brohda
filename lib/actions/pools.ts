@@ -371,7 +371,7 @@ export async function updatePoolAction(
     return { error: "Pool not found." };
   }
 
-  // Entry fee and Coordinator fee stay editable even after entries exist
+  // Entry fee and Platform fee stay editable even after entries exist
   // (beta testing needs the fee droppable to 0% mid-pool) — everything
   // else that touches the entry window or who can see what is frozen once
   // money is committed, matching the DB trigger's own remaining checks.
@@ -382,7 +382,7 @@ export async function updatePoolAction(
       parsed.data.participationVisibility !== before.participation_visibility)
   ) {
     return {
-      error: "This pool already has entries — only the entry fee and Coordinator fee can change.",
+      error: "This pool already has entries — only the entry fee and Platform fee can change.",
     };
   }
 

@@ -44,7 +44,7 @@ export async function confirmSettlementAction(
   // needs to actually route to the refund path instead of just surfacing a
   // dead-end error — same zero/all check gradeComboLegsAction already does,
   // generalized here for every manually-graded pool type, not just COMBO.
-  // Per product decision, this refunds in full with no coordinator fee
+  // Per product decision, this refunds in full with no platform fee
   // (unlike COMBO's confirm_combo_refund_fee_retained), matching the existing
   // automatic NO_WINNING_ENTRIES_REFUND/ALL_ENTRIES_WINNING_REFUND behavior.
   if (parsed.data.winningOptionId) {

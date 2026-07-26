@@ -15,7 +15,7 @@ const WALLET_TRANSACTION_COPY: Record<string, string> = {
   admin_adjustment_debit: "Admin balance adjustment",
   settlement_reversal_debit: "Settlement reversal debit",
   settlement_reversal_credit: "Settlement reversal credit",
-  house_fee_credit: "Coordinator fee collected",
+  house_fee_credit: "Platform fee collected",
   rounding_remainder_credit: "Rounding remainder retained",
 };
 

@@ -696,7 +696,7 @@ just because this rule changed. Neutral totals/estimates (balances,
 potential-payout estimates, fee disclosures) are untouched.
 
 Separately: `wallet_balances` has always had a real `'house'`-type row (a
-singleton, `user_id=null`) that accrues coordinator fee revenue on every
+singleton, `user_id=null`) that accrues platform fee revenue on every
 settlement via `apply_wallet_transaction` — but every wallet query in
 `app/(app)/` (the header balance pill in `layout.tsx`, `/wallet`) filtered
 by `user_id = auth.uid()`, which can never match a `user_id=null` row for
@@ -740,7 +740,7 @@ capped at 50 fixtures per call (`importFixturesSchema`) as a sanity bound.
 `app/(admin)/admin/pools/pools-table.tsx` rows are now expandable
 (chevron toggle, one at a time) to a read-only detail panel — pool ID,
 match (fixture home/away/kickoff/competition, joined in
-`admin/pools/page.tsx`), question, entry/coordinator fee, options with
+`admin/pools/page.tsx`), question, entry/platform fee, options with
 vote tallies, settlement history, and the full entries table — all data
 the full `/admin/pools/[id]` "manage" page already shows, but with zero
 editable controls (no force-lock/void/settlement-review/reversal forms).

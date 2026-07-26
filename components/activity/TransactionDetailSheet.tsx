@@ -134,7 +134,7 @@ export function TransactionDetailSheet({ entry, onClose }: TransactionDetailShee
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-xl border border-border-subtle p-3 text-sm">
             <dt className="text-text-muted">Gross pool</dt>
             <dd className="text-text-primary">{formatCents(entry.settlement.grossPool)}</dd>
-            <dt className="text-text-muted">Coordinator fee</dt>
+            <dt className="text-text-muted">Platform fee</dt>
             <dd className="text-text-primary">{formatCents(entry.settlement.houseFeeAmount)}</dd>
             <dt className="text-text-muted">Net prize pool</dt>
             <dd className="text-text-primary">{formatCents(entry.settlement.netPrizePool)}</dd>

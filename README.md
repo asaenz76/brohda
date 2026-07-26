@@ -4,7 +4,7 @@ A private, invite-only sports pool platform for small friend groups. Invited
 users pay a fixed entry fee, pick one outcome on a curated soccer fixture,
 and split the prize pool with everyone who picked the winning outcome — no
 odds, no sportsbook, no exposure for the house beyond a transparent
-coordinator fee.
+platform fee.
 
 Built with Next.js 16 (App Router), TypeScript, Supabase (Postgres + Auth +
 RLS), and Tailwind CSS v4 + shadcn/ui.

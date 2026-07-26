@@ -111,7 +111,7 @@ function PoolDetailPanel({ pool }: { pool: PoolRow }) {
         <p className="text-xs font-medium uppercase tracking-wide text-text-muted">Question</p>
         <p className="text-sm text-text-primary">{pool.question}</p>
         <p className="text-xs text-text-muted">
-          Entry {formatCents(pool.entryFeeCents)} · Coordinator Fee {formatBps(pool.houseFeeBps)}
+          Entry {formatCents(pool.entryFeeCents)} · Platform Fee {formatBps(pool.houseFeeBps)}
         </p>
       </div>
 

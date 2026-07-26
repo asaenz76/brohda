@@ -219,7 +219,7 @@ describe("buildNoticeCopy", () => {
           houseFeeBasisPoints: 1000, // 10%
         })?.message,
       ).toBe(
-        "Nobody picked the graded outcome, so this pool has been refunded. Your $9.00 entry (net of the coordinator fee) has been credited back to your balance.",
+        "Nobody picked the graded outcome, so this pool has been refunded. Your $9.00 entry (net of the platform fee) has been credited back to your balance.",
       );
     });
 

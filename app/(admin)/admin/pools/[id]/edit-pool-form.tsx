@@ -36,7 +36,7 @@ interface EditPoolFormProps {
   visibility: string;
   participationVisibility: string;
   locksAtIso: string;
-  // Entry fee and Coordinator fee stay editable even with entries (beta
+  // Entry fee and Platform fee stay editable even with entries (beta
   // testing needs the fee droppable to 0% mid-pool) — lock time,
   // visibility, and distribution settings freeze once money is committed,
   // matching updatePoolAction's own check (the DB trigger is the backstop).
@@ -69,7 +69,7 @@ export function EditPoolForm({
       <input type="hidden" name="poolId" value={poolId} />
       {hasEntries && (
         <p className="text-sm text-text-secondary">
-          This pool already has entries — only the entry fee and Coordinator fee can still change.
+          This pool already has entries — only the entry fee and Platform fee can still change.
         </p>
       )}
       <div className="grid grid-cols-2 gap-3">
@@ -78,7 +78,7 @@ export function EditPoolForm({
           <Input id="entryFee" name="entryFee" defaultValue={entryFeeDollars} required />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="houseFeePercent">Coordinator fee (%)</Label>
+          <Label htmlFor="houseFeePercent">Platform fee (%)</Label>
           <Input
             id="houseFeePercent"
             name="houseFeePercent"

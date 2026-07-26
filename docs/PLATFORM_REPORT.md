@@ -25,7 +25,7 @@ The core loop:
    allowed.
 4. Once the real-world result is known, the pool **settles**: everyone who
    picked correctly splits the total money wagered, minus a small
-   transparent "coordinator fee" that funds the house. Everyone who picked
+   transparent "platform fee" that funds the house. Everyone who picked
    wrong gets nothing.
 5. If nothing can be graded fairly (match postponed, nobody picked the
    winning side, not enough people entered, etc.) the pool **voids or
@@ -122,7 +122,7 @@ pools eventually be cleaned up (§8).
 Players can request deposits/withdrawals (`/wallet`, reviewed by an admin on
 `/admin/wallet-requests`); a super admin can also adjust a balance directly
 from `/admin/users` for ad-hoc cases. The house's own wallet — which accrues
-the coordinator fee on every settlement — is visible only to `super_admin`
+the platform fee on every settlement — is visible only to `super_admin`
 accounts via `/wallet`, showing a dedicated revenue breakdown (fees,
 rounding remainder, reversal debits).
 
@@ -145,7 +145,7 @@ references them (see §8).
 ### Pools and entries
 
 A **pool** is one question with 2+ **options**. A **entry** is one player's
-paid pick on one option in one pool. Entry fee and coordinator fee (in basis
+paid pick on one option in one pool. Entry fee and platform fee (in basis
 points) are frozen the moment the first entry is placed — a database trigger
 (`enforce_pool_fee_immutability`) physically rejects any later change to
 `entry_fee`, `house_fee_bps`, `question`, `pool_type`, or `title`, and only
@@ -268,7 +268,7 @@ for between winners and the house.
   Since there's no losing money to redistribute, it's simplest and fairest
   to just refund everyone in full, no fee.
 - **`NO_WINNING_ENTRIES_FEE_RETAINED`** — a COMBO-specific outcome that used
-  to retain the coordinator fee even on a full refund. **This is retired**:
+  to retain the platform fee even on a full refund. **This is retired**:
   per a later product decision, a COMBO pool's "nobody picked correctly"
   case now goes through the same full-refund-no-fee path as every other
   pool type. The database function still exists (old settlement rows may

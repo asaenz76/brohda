@@ -65,8 +65,8 @@ export function SettlementReviewForm({
           {isGradedWithNoEntries
             ? `"${gradedWinningOptionLabel}" was the graded result, but nobody entered this pool — there's nothing to refund. Confirming just closes it out.`
             : outcome === "NO_WINNING_ENTRIES_REFUND"
-              ? "No valid entry selected the winning option. Proposing a full refund — no coordinator fee taken."
-              : "Every valid entry selected the winning option. Proposing a full refund — no coordinator fee taken."}
+              ? "No valid entry selected the winning option. Proposing a full refund — no platform fee taken."
+              : "Every valid entry selected the winning option. Proposing a full refund — no platform fee taken."}
         </p>
 
         {refundState.error && (

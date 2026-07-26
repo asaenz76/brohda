@@ -682,7 +682,7 @@ export function PoolTemplateBuilder({ fixtures }: { fixtures: FixtureOption[] })
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="houseFeePercent">Coordinator fee (%)</Label>
+                <Label htmlFor="houseFeePercent">Platform fee (%)</Label>
                 <Input
                   id="houseFeePercent"
                   name="houseFeePercent"
@@ -768,7 +768,7 @@ export function PoolTemplateBuilder({ fixtures }: { fixtures: FixtureOption[] })
                 </ul>
               )}
               <p className="mt-1 text-text-muted">
-                Entry ${entryFee || "0.00"} · Coordinator fee {houseFeePercent || "0"}%
+                Entry ${entryFee || "0.00"} · Platform fee {houseFeePercent || "0"}%
               </p>
             </div>
 

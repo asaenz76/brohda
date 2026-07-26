@@ -175,7 +175,7 @@ function buildVoidNotice(
 
   const amount = formatCents(entryAmount);
   // Only this one void reason ever refunds less than entryAmount — the
-  // coordinator fee is retained instead of refunded, unlike every other
+  // platform fee is retained instead of refunded, unlike every other
   // reason. Mirrors confirm_combo_refund_fee_retained's per-entry SQL exactly.
   const netAmount = formatCents(
     computeFeeRetainedRefund(entryAmount, houseFeeBasisPoints ?? 0).netRefund,
@@ -225,7 +225,7 @@ function buildVoidNotice(
     case "NO_WINNING_ENTRIES_FEE_RETAINED":
       return {
         type: voidReason,
-        message: `Nobody picked the graded outcome, so this pool has been refunded. Your ${netAmount} entry (net of the coordinator fee) has been credited back to your balance.`,
+        message: `Nobody picked the graded outcome, so this pool has been refunded. Your ${netAmount} entry (net of the platform fee) has been credited back to your balance.`,
       };
     case "COMBO_PLAYER_DID_NOT_PLAY":
       return {

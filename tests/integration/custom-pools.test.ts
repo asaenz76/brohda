@@ -381,7 +381,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("CUSTOM pools + manual grading", () => {
     expect(pool?.status).toBe("VOIDED");
     expect(pool?.void_reason).toBe("NO_WINNING_ENTRIES");
 
-    // Full refund, no coordinator fee taken — per product decision, unlike
+    // Full refund, no platform fee taken — per product decision, unlike
     // COMBO's confirm_combo_refund_fee_retained.
     expect(await getBalance(p1.userId)).toBe(5000);
 
