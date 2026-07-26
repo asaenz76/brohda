@@ -15,6 +15,18 @@ const supabaseWsOrigin = supabaseHostname
   : "";
 
 const nextConfig: NextConfig = {
+  // sharp (app/api/avatar/route.ts) ships native .node bindings that dlopen
+  // a separate libvips-cpp.so at runtime — a dependency Next's file tracer
+  // can't see statically, so without this the deployed function is missing
+  // that .so and every avatar upload 500s with ERR_DLOPEN_FAILED. Two parts
+  // to the fix: serverExternalPackages stops sharp from being bundled (so
+  // its own package-relative dlopen path stays intact), and
+  // outputFileTracingIncludes force-includes the whole package — including
+  // its @img/sharp-libvips-* optional dependency — into the function.
+  serverExternalPackages: ["sharp"],
+  outputFileTracingIncludes: {
+    "/api/avatar": ["./node_modules/sharp/**/*", "./node_modules/@img/**/*"],
+  },
   images: {
     remotePatterns: supabaseHostname
       ? [

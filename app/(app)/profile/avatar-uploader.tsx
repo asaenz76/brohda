@@ -27,18 +27,26 @@ export function AvatarUploader({
     const formData = new FormData();
     formData.set("file", file);
 
-    const response = await fetch("/api/avatar", { method: "POST", body: formData });
-    const result = await response.json();
+    // A server-side crash (e.g. a 500 with an HTML/plain-text body instead
+    // of JSON) would otherwise throw out of response.json() and skip
+    // setPending(false) below, leaving the button stuck on "Uploading…"
+    // forever with no way to retry.
+    try {
+      const response = await fetch("/api/avatar", { method: "POST", body: formData });
+      const result = await response.json().catch(() => null);
 
-    setPending(false);
-    e.target.value = "";
+      if (!response.ok) {
+        setError(result?.error ?? "Could not upload image.");
+        return;
+      }
 
-    if (!response.ok) {
-      setError(result.error ?? "Could not upload image.");
-      return;
+      router.refresh();
+    } catch {
+      setError("Could not upload image. Try again.");
+    } finally {
+      setPending(false);
+      e.target.value = "";
     }
-
-    router.refresh();
   }
 
   return (

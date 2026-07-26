@@ -53,6 +53,9 @@ importers:
       shadcn:
         specifier: ^4.13.0
         version: 4.13.0(typescript@5.9.3)
+      sharp:
+        specifier: ^0.35.3
+        version: 0.35.3(@types/node@20.19.43)
       tailwind-merge:
         specifier: ^3.6.0
         version: 3.6.0
@@ -99,9 +102,6 @@ importers:
       jsdom:
         specifier: ^29.1.1
         version: 29.1.1(@noble/hashes@1.8.0)
-      sharp:
-        specifier: ^0.35.3
-        version: 0.35.3(@types/node@20.19.43)
       supabase:
         specifier: ^2.109.1
         version: 2.109.1
