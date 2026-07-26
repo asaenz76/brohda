@@ -32,6 +32,13 @@ export async function POST(request: Request) {
   let resized: Buffer;
   try {
     resized = await sharp(bytes)
+      // Phone photos store raw sensor pixels plus an EXIF Orientation tag
+      // saying how to rotate for display — .rotate() with no args reads
+      // that tag and actually rotates the pixels before resize/crop math
+      // runs. Without it, cover-fit crops the unrotated image and webp
+      // re-encoding drops the tag entirely, leaving no way to recover the
+      // correct orientation downstream.
+      .rotate()
       .resize(AVATAR_OUTPUT_SIZE, AVATAR_OUTPUT_SIZE, { fit: "cover" })
       .webp({ quality: 85 })
       .toBuffer();
