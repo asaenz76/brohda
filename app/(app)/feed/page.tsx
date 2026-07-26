@@ -15,6 +15,20 @@ function unwrapEmbed<T>(raw: unknown): T | null {
   return (Array.isArray(raw) ? raw[0] : raw) as T | null;
 }
 
+// Several countries have leagues that share the exact same name (e.g.
+// "Primera División" — Costa Rica, Peru, Chile, Uruguay all use it), so the
+// league filter needs country baked into both the option's value (to
+// actually disambiguate what gets filtered) and its label (so the admin can
+// tell them apart in the dropdown). Mirrors the "{country} | {name}"
+// convention already used by PoolLeagueHeader and the admin pool-creation
+// fixture picker.
+function leagueKey(name: string, country: string | null): string {
+  return country ? `${country}|${name}` : name;
+}
+function leagueLabel(name: string, country: string | null): string {
+  return country ? `${country} | ${name}` : name;
+}
+
 export default async function FeedPage({
   searchParams,
 }: {
@@ -53,7 +67,8 @@ export default async function FeedPage({
     .update({ stories_last_seen_at: new Date().toISOString() })
     .eq("id", user.id);
 
-  const poolsSelect = "id, status, locks_at, created_at, fixtures(sport, competition_name)";
+  const poolsSelect =
+    "id, status, locks_at, created_at, fixtures(sport, competition_name, competition_country)";
 
   // Feed only ever shows open pools — fetched by DB status, then refined by
   // effectivePoolStatus() below to exclude pools past their locks_at that
@@ -78,7 +93,11 @@ export default async function FeedPage({
   const rows = (pools ?? [])
     .filter((pool) => !enteredPoolIds.has(pool.id))
     .map((pool) => {
-      const fixture = unwrapEmbed<{ sport: string; competition_name: string | null }>(pool.fixtures);
+      const fixture = unwrapEmbed<{
+        sport: string;
+        competition_name: string | null;
+        competition_country: string | null;
+      }>(pool.fixtures);
       return {
         id: pool.id as string,
         status: pool.status as string,
@@ -86,19 +105,27 @@ export default async function FeedPage({
         createdAt: pool.created_at as string,
         sport: fixture?.sport ?? null,
         league: fixture?.competition_name ?? null,
+        leagueCountry: fixture?.competition_country ?? null,
       };
     })
     .filter((row) => effectivePoolStatus(row) === "OPEN");
 
   const sportOptions = [...new Set(rows.map((r) => r.sport).filter((s): s is string => s != null))].sort();
   const leagueOptions = [
-    ...new Set(rows.map((r) => r.league).filter((l): l is string => l != null)),
-  ].sort();
+    ...new Map(
+      rows
+        .filter((r): r is typeof r & { league: string } => r.league != null)
+        .map((r) => {
+          const key = leagueKey(r.league, r.leagueCountry);
+          return [key, { key, label: leagueLabel(r.league, r.leagueCountry) }] as const;
+        }),
+    ).values(),
+  ].sort((a, b) => a.label.localeCompare(b.label));
 
   const isFiltered = Boolean(sportParam || leagueParam);
   const filteredRows = rows
     .filter((r) => (sportParam ? r.sport === sportParam : true))
-    .filter((r) => (leagueParam ? r.league === leagueParam : true))
+    .filter((r) => (leagueParam ? r.league != null && leagueKey(r.league, r.leagueCountry) === leagueParam : true))
     .sort((a, b) =>
       sortByLockingSoon
         ? new Date(a.locksAt).getTime() - new Date(b.locksAt).getTime()

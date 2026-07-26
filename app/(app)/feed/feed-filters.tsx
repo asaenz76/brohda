@@ -8,7 +8,7 @@ export function FeedFilters({
   activeSort,
 }: {
   sportOptions: string[];
-  leagueOptions: string[];
+  leagueOptions: { key: string; label: string }[];
   activeSort: string;
 }) {
   const router = useRouter();
@@ -57,8 +57,8 @@ export function FeedFilters({
       >
         <option value="">All leagues</option>
         {leagueOptions.map((league) => (
-          <option key={league} value={league}>
-            {league}
+          <option key={league.key} value={league.key}>
+            {league.label}
           </option>
         ))}
       </select>
