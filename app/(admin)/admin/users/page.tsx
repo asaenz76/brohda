@@ -69,11 +69,35 @@ export default async function AdminUsersPage({
   const ownerIds = [
     ...new Set((users ?? []).map((u) => u.invited_by).filter((id): id is string => id != null)),
   ];
-  const { data: owners } =
+  const pageUserIds = (users ?? []).map((u) => u.id);
+
+  const [{ data: owners }, { data: activeEntries }] = await Promise.all([
     ownerIds.length > 0
-      ? await supabase.from("user_profiles").select("id, display_name").in("id", ownerIds)
-      : { data: [] };
+      ? supabase.from("user_profiles").select("id, display_name").in("id", ownerIds)
+      : Promise.resolve({ data: [] }),
+    // "Pending" column — money still at risk in pools that haven't settled
+    // yet. Fetched alongside wallet_balances, same super_admin-only gating
+    // (this is money visibility, same as Balance). Filtered to ACTIVE here
+    // (a plain column on entries, safe to filter server-side); OPEN/LOCKED
+    // is checked in JS below since it's on the joined pools row, not
+    // entries itself.
+    isSuperAdmin && pageUserIds.length > 0
+      ? supabase.from("entries").select("user_id, amount, pools(status)").eq("status", "ACTIVE").in("user_id", pageUserIds)
+      : Promise.resolve({ data: null }),
+  ]);
   const ownerNameById = new Map((owners ?? []).map((o) => [o.id, o.display_name]));
+
+  const pendingByUserId = new Map<string, number>();
+  for (const e of activeEntries ?? []) {
+    // Without generated DB types, Supabase infers a to-one embed like this
+    // as an array — actual shape at runtime is a single row, since each
+    // entry belongs to exactly one pool.
+    const poolsField = e.pools as unknown as { status: string } | { status: string }[] | null;
+    const poolStatus = Array.isArray(poolsField) ? poolsField[0]?.status : poolsField?.status;
+    if (poolStatus === "OPEN" || poolStatus === "LOCKED") {
+      pendingByUserId.set(e.user_id, (pendingByUserId.get(e.user_id) ?? 0) + e.amount);
+    }
+  }
 
   const totalPages = Math.max(1, Math.ceil((count ?? 0) / PAGE_SIZE));
   const statusQuery = status === "active" ? "" : `status=${status}&`;
@@ -99,21 +123,28 @@ export default async function AdminUsersPage({
               <th className="px-3 py-2 font-medium">Status</th>
               <th className="px-3 py-2 font-medium">Created by</th>
               {isSuperAdmin && <th className="px-3 py-2 font-medium">Balance</th>}
+              {isSuperAdmin && <th className="px-3 py-2 font-medium">Pending</th>}
               <th className="px-3 py-2 font-medium"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border-subtle">
             {(users ?? []).map((u) => {
               const balance = balanceByUserId.get(u.id) ?? 0;
+              const pending = pendingByUserId.get(u.id) ?? 0;
               const isSelf = u.id === viewer.id;
               return (
                 <tr key={u.id}>
-                  <td className="flex items-center gap-2 px-3 py-2">
-                    <Avatar displayName={u.display_name} avatarUrl={u.avatar_url} size="sm" />
-                    <div>
-                      <div className="font-medium text-text-primary">{u.display_name}</div>
-                      {u.username && <div className="text-xs text-text-muted">@{u.username}</div>}
-                    </div>
+                  <td className="px-3 py-2">
+                    <Link
+                      href={`/profile/${u.username ?? u.id}`}
+                      className="flex items-center gap-2 hover:underline"
+                    >
+                      <Avatar displayName={u.display_name} avatarUrl={u.avatar_url} size="sm" />
+                      <div>
+                        <div className="font-medium text-text-primary">{u.display_name}</div>
+                        {u.username && <div className="text-xs text-text-muted">@{u.username}</div>}
+                      </div>
+                    </Link>
                   </td>
                   <td className="px-3 py-2 text-text-secondary">{humanizeEnum(u.role)}</td>
                   <td className="px-3 py-2">
@@ -126,6 +157,11 @@ export default async function AdminUsersPage({
                   </td>
                   {isSuperAdmin && (
                     <td className="px-3 py-2 text-text-primary">{formatCents(balance)}</td>
+                  )}
+                  {isSuperAdmin && (
+                    <td className="px-3 py-2 text-text-secondary">
+                      {pending > 0 ? formatCents(pending) : "—"}
+                    </td>
                   )}
                   <td className="px-3 py-2">
                     <div className="flex flex-col items-end gap-2">
