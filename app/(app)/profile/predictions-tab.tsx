@@ -108,6 +108,7 @@ export async function PredictionsTab({
               balanceCents={balanceCents}
               paymentMethods={enabledPaymentMethods}
               viewer={viewer}
+              collapsible
             />
           ))}
         </section>
@@ -123,6 +124,7 @@ export async function PredictionsTab({
               balanceCents={balanceCents}
               paymentMethods={enabledPaymentMethods}
               viewer={viewer}
+              collapsible
             />
           ))}
         </section>

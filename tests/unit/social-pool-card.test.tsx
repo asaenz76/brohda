@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SocialPoolCardViewModel } from "@/lib/pools/view-model";
 import type { PoolLiveStats } from "@/lib/pools/fetch";
@@ -243,5 +243,35 @@ describe("SocialPoolCard pre-entry distribution (default SHOW_BEFORE_ENTRY)", ()
     expect(screen.getAllByText("Est. payout $9.00").length).toBeGreaterThan(0);
     // PoolDistributionBar's combined "Community sentiment: Alpha 50%  |  Beta 50%" summary line.
     expect(screen.getByText(/Alpha 50%/)).toBeInTheDocument();
+  });
+});
+
+describe("SocialPoolCard collapsible mode", () => {
+  it("renders fully with no collapse toggle when collapsible isn't set (Feed/pool-detail behavior unchanged)", () => {
+    render(
+      <SocialPoolCard viewModel={buildViewModel()} balanceCents={5000} paymentMethods={[]} viewer={{ id: "u1", isModerator: false }} />,
+    );
+
+    expect(screen.getByText("Who wins?")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Show pick details|Hide pick details/)).not.toBeInTheDocument();
+  });
+
+  it("starts collapsed (header only) and reveals the rest of the card on toggle", () => {
+    render(
+      <SocialPoolCard
+        viewModel={buildViewModel()}
+        balanceCents={5000}
+        paymentMethods={[]}
+        viewer={{ id: "u1", isModerator: false }}
+        collapsible
+      />,
+    );
+
+    expect(screen.queryByText("Who wins?")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Show pick details"));
+
+    expect(screen.getByText("Who wins?")).toBeInTheDocument();
+    expect(screen.getByLabelText("Hide pick details")).toBeInTheDocument();
   });
 });

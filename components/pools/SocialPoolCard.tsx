@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MessageCircle } from "lucide-react";
+import { ChevronDown, MessageCircle } from "lucide-react";
 import type { SocialPoolCardViewModel } from "@/lib/pools/view-model";
 import type { PoolLiveStats } from "@/lib/pools/fetch";
 import type { PaymentMethodRow } from "@/lib/payment-methods/fetch";
@@ -31,16 +31,25 @@ export function SocialPoolCard({
   balanceCents,
   paymentMethods,
   viewer,
+  // Profile "Predictions" tab opts into this to save space (the list reads
+  // like a second Feed otherwise) — Feed/pool-detail/fixture-detail leave
+  // this unset and render exactly as before. Only the league/match header
+  // stays visible while collapsed; a comment sheet or entry sheet already
+  // open stays open regardless (those are excluded from the collapse gate
+  // below), since the collapse toggle sits in that same persistent header.
+  collapsible = false,
 }: {
   viewModel: SocialPoolCardViewModel;
   balanceCents: number;
   paymentMethods: PaymentMethodRow[];
   viewer: { id: string; isModerator: boolean };
+  collapsible?: boolean;
 }) {
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [commentCount, setCommentCount] = useState(viewModel.commentCount);
   const [liveStats, setLiveStats] = useState<PoolLiveStats | null>(null);
+  const [collapsed, setCollapsed] = useState(collapsible);
 
   // A fresh SSR-rendered viewModel (e.g. after the current user's own entry
   // triggers Next's post-action route refresh) must always win over a stale
@@ -119,17 +128,32 @@ export function SocialPoolCard({
         isLocked && "opacity-70 grayscale-[0.4]",
       )}
     >
-      <PoolLeagueHeader
-        competitionName={viewModel.fixture.competitionName}
-        competitionCountry={viewModel.fixture.competitionCountry}
-        competitionLogoUrl={viewModel.fixture.competitionLogoUrl}
-        poolType={viewModel.poolType}
-        visibility={viewModel.visibility}
-        createdAt={viewModel.postedAt}
-        locksAt={viewModel.locksAt}
-        isLocked={isLocked || isLive}
-        isResolved={!isPreVote && !isPostVote && !isLocked && !isLive}
-      />
+      <div className="flex items-start gap-2">
+        <div className="flex-1">
+          <PoolLeagueHeader
+            competitionName={viewModel.fixture.competitionName}
+            competitionCountry={viewModel.fixture.competitionCountry}
+            competitionLogoUrl={viewModel.fixture.competitionLogoUrl}
+            poolType={viewModel.poolType}
+            visibility={viewModel.visibility}
+            createdAt={viewModel.postedAt}
+            locksAt={viewModel.locksAt}
+            isLocked={isLocked || isLive}
+            isResolved={!isPreVote && !isPostVote && !isLocked && !isLive}
+          />
+        </div>
+        {collapsible && (
+          <button
+            type="button"
+            onClick={() => setCollapsed((c) => !c)}
+            aria-label={collapsed ? "Show pick details" : "Hide pick details"}
+            aria-expanded={!collapsed}
+            className="shrink-0 rounded-full p-1 text-text-muted hover:bg-surface-secondary"
+          >
+            <ChevronDown className={cn("size-5 transition-transform", !collapsed && "rotate-180")} />
+          </button>
+        )}
+      </div>
 
       {/* homeTeamName is the fetch-layer sentinel for "has a real fixture" —
           empty string only for CUSTOM pools' synthesized stand-in
@@ -139,105 +163,111 @@ export function SocialPoolCard({
           to a match should show the same team badges + kickoff date/time
           as WHO_WILL_ADVANCE/REGULATION_RESULT, not just its title. */}
       {viewModel.fixture.homeTeamName && <MatchIdentity fixture={viewModel.fixture} />}
-      {viewModel.title && (
-        <p className="text-sm font-medium text-text-secondary">{viewModel.title}</p>
+
+      {!collapsed && (
+        <>
+          {viewModel.title && (
+            <p className="text-sm font-medium text-text-secondary">{viewModel.title}</p>
+          )}
+
+          {isLive && (
+            <LiveMatchStatus
+              homeTeamName={viewModel.fixture.homeTeamName}
+              awayTeamName={viewModel.fixture.awayTeamName}
+              homeScore={viewModel.fixture.homeScore}
+              awayScore={viewModel.fixture.awayScore}
+              elapsedMinutes={viewModel.fixture.elapsedMinutes}
+            />
+          )}
+
+          <div>
+            <h3 className="text-lg font-bold text-text-primary">{viewModel.question}</h3>
+            <div className="mt-1.5">
+              <RulePill label={viewModel.ruleLabel} />
+            </div>
+          </div>
+
+          {/* Read-only context for what Yes/No actually grades against —
+              never itself selectable, only the two options below take
+              entries. */}
+          {viewModel.comboLegs && viewModel.comboLegs.length > 0 && (
+            <ul className="space-y-1 rounded-xl border border-border-subtle bg-surface-secondary px-3 py-2">
+              {viewModel.comboLegs.map((leg) => (
+                <li key={leg.id} className="flex items-center gap-2 text-sm text-text-secondary">
+                  <span className="size-1.5 shrink-0 rounded-full bg-text-muted" aria-hidden="true" />
+                  {leg.label}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="space-y-2">
+            {mergedOptions.map((option) => (
+              <PoolOptionButton
+                key={option.optionId}
+                label={option.label}
+                logoUrl={option.teamLogoUrl}
+                percentage={option.percentage}
+                estimatedPayout={option.estimatedPayout}
+                isCurrentUserChoice={option.isCurrentUserChoice}
+                // Admins/super_admins coordinate pools, they don't play in
+                // them — create_pool_entry rejects this server-side too, but
+                // hiding the affordance here avoids a pointless round trip.
+                disabled={!isPreVote || viewer.isModerator}
+                onSelect={() => isPreVote && !viewer.isModerator && setSelectedOptionId(option.optionId)}
+              />
+            ))}
+          </div>
+
+          {showDistribution && <PoolDistributionBar options={mergedOptions} />}
+
+          <PoolStatusNotice notice={viewModel.notice} />
+
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-3">
+              <AvatarStack
+                participants={viewModel.socialProof.visibleParticipants}
+                totalCount={viewModel.socialProof.participantCount}
+              />
+              <span className="text-xs font-medium text-text-secondary">
+                {formatCents(mergedGrossPool)} volume
+              </span>
+            </div>
+            <div className="flex items-center gap-0.5 text-text-muted">
+              <LikeButton
+                poolId={viewModel.poolId}
+                initiallyLiked={viewModel.isLikedByCurrentUser}
+                initialCount={viewModel.likeCount}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setCommentsOpen(true)}
+                aria-label="Comments"
+                className="px-1.5 text-text-muted"
+              >
+                <MessageCircle className="size-5" aria-hidden="true" />
+                {commentCount > 0 && <span className="text-xs font-medium">{commentCount}</span>}
+              </Button>
+              <SharePoolButton poolId={viewModel.poolId} question={viewModel.question} />
+            </div>
+          </div>
+
+          {showDistribution && <PotentialPayoutFooter />}
+
+          <p className="text-xs text-text-muted">
+            Entry {formatCents(viewModel.entryFee)} · Platform Fee{" "}
+            {formatBps(viewModel.houseFeeBasisPoints)}
+            {(isPreVote || isPostVote) && (
+              <>
+                {" · Requires "}
+                {viewModel.minTotalEntries}+ entries to run
+              </>
+            )}
+          </p>
+        </>
       )}
-
-      {isLive && (
-        <LiveMatchStatus
-          homeTeamName={viewModel.fixture.homeTeamName}
-          awayTeamName={viewModel.fixture.awayTeamName}
-          homeScore={viewModel.fixture.homeScore}
-          awayScore={viewModel.fixture.awayScore}
-          elapsedMinutes={viewModel.fixture.elapsedMinutes}
-        />
-      )}
-
-      <div>
-        <h3 className="text-lg font-bold text-text-primary">{viewModel.question}</h3>
-        <div className="mt-1.5">
-          <RulePill label={viewModel.ruleLabel} />
-        </div>
-      </div>
-
-      {/* Read-only context for what Yes/No actually grades against — never
-          itself selectable, only the two options below take entries. */}
-      {viewModel.comboLegs && viewModel.comboLegs.length > 0 && (
-        <ul className="space-y-1 rounded-xl border border-border-subtle bg-surface-secondary px-3 py-2">
-          {viewModel.comboLegs.map((leg) => (
-            <li key={leg.id} className="flex items-center gap-2 text-sm text-text-secondary">
-              <span className="size-1.5 shrink-0 rounded-full bg-text-muted" aria-hidden="true" />
-              {leg.label}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <div className="space-y-2">
-        {mergedOptions.map((option) => (
-          <PoolOptionButton
-            key={option.optionId}
-            label={option.label}
-            logoUrl={option.teamLogoUrl}
-            percentage={option.percentage}
-            estimatedPayout={option.estimatedPayout}
-            isCurrentUserChoice={option.isCurrentUserChoice}
-            // Admins/super_admins coordinate pools, they don't play in
-            // them — create_pool_entry rejects this server-side too, but
-            // hiding the affordance here avoids a pointless round trip.
-            disabled={!isPreVote || viewer.isModerator}
-            onSelect={() => isPreVote && !viewer.isModerator && setSelectedOptionId(option.optionId)}
-          />
-        ))}
-      </div>
-
-      {showDistribution && <PoolDistributionBar options={mergedOptions} />}
-
-      <PoolStatusNotice notice={viewModel.notice} />
-
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-3">
-          <AvatarStack
-            participants={viewModel.socialProof.visibleParticipants}
-            totalCount={viewModel.socialProof.participantCount}
-          />
-          <span className="text-xs font-medium text-text-secondary">
-            {formatCents(mergedGrossPool)} volume
-          </span>
-        </div>
-        <div className="flex items-center gap-0.5 text-text-muted">
-          <LikeButton
-            poolId={viewModel.poolId}
-            initiallyLiked={viewModel.isLikedByCurrentUser}
-            initialCount={viewModel.likeCount}
-          />
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => setCommentsOpen(true)}
-            aria-label="Comments"
-            className="px-1.5 text-text-muted"
-          >
-            <MessageCircle className="size-5" aria-hidden="true" />
-            {commentCount > 0 && <span className="text-xs font-medium">{commentCount}</span>}
-          </Button>
-          <SharePoolButton poolId={viewModel.poolId} question={viewModel.question} />
-        </div>
-      </div>
-
-      {showDistribution && <PotentialPayoutFooter />}
-
-      <p className="text-xs text-text-muted">
-        Entry {formatCents(viewModel.entryFee)} · Platform Fee{" "}
-        {formatBps(viewModel.houseFeeBasisPoints)}
-        {(isPreVote || isPostVote) && (
-          <>
-            {" · Requires "}
-            {viewModel.minTotalEntries}+ entries to run
-          </>
-        )}
-      </p>
 
       {selectedOption &&
         (balanceCents < viewModel.entryFee ? (
