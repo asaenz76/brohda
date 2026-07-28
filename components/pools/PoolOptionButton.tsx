@@ -55,10 +55,10 @@ export function PoolOptionButton({
         )}
         {percentage != null && (
           <div className="flex flex-col items-end leading-tight">
-            <span className="text-sm font-medium text-text-secondary">{percentage}%</span>
+            <span className="text-sm font-medium text-text-secondary">Picked by {percentage}%</span>
             {estimatedPayout != null && (
               <span className="text-xs font-semibold text-accent-primary">
-                Win {formatCents(estimatedPayout)}
+                Est. payout {formatCents(estimatedPayout)}
               </span>
             )}
           </div>

@@ -104,14 +104,14 @@ describe("SocialPoolCard live payout updates", () => {
       <SocialPoolCard viewModel={buildViewModel()} balanceCents={5000} paymentMethods={[]} viewer={{ id: "u1", isModerator: false }} />,
     );
 
-    expect(screen.getAllByText("50%").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Picked by 50%").length).toBeGreaterThan(0);
 
     // Simulate a realtime broadcast arriving.
     expect(broadcastCallback).not.toBeNull();
     broadcastCallback!();
 
-    await waitFor(() => expect(screen.getAllByText("33%").length).toBeGreaterThan(0));
-    expect(screen.getByText("Win $9.00")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByText("Picked by 33%").length).toBeGreaterThan(0));
+    expect(screen.getByText("Est. payout $9.00")).toBeInTheDocument();
 
     // A fresh SSR render (different totalEntries/grossPool) must win over
     // the stale live-broadcast override, not be masked by it.
@@ -128,8 +128,8 @@ describe("SocialPoolCard live payout updates", () => {
       <SocialPoolCard viewModel={freshViewModel} balanceCents={5000} paymentMethods={[]} viewer={{ id: "u1", isModerator: false }} />,
     );
 
-    expect(screen.getAllByText("25%").length).toBeGreaterThan(0);
-    expect(screen.queryByText("33%")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Picked by 25%").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Picked by 33%")).not.toBeInTheDocument();
   });
 });
 
@@ -239,9 +239,9 @@ describe("SocialPoolCard pre-entry distribution (default SHOW_BEFORE_ENTRY)", ()
 
     render(<SocialPoolCard viewModel={viewModel} balanceCents={5000} paymentMethods={[]} viewer={{ id: "u1", isModerator: false }} />);
 
-    expect(screen.getAllByText("50%").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Win $9.00").length).toBeGreaterThan(0);
-    // PoolDistributionBar's combined "Alpha 50%  |  Beta 50%" summary line.
+    expect(screen.getAllByText("Picked by 50%").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Est. payout $9.00").length).toBeGreaterThan(0);
+    // PoolDistributionBar's combined "Community sentiment: Alpha 50%  |  Beta 50%" summary line.
     expect(screen.getByText(/Alpha 50%/)).toBeInTheDocument();
   });
 });

@@ -21,7 +21,7 @@ export function PoolDistributionBar({ options }: { options: DistributionOption[]
         ))}
       </div>
       <p className="text-xs text-text-secondary">
-        {visible.map((o) => `${o.label} ${o.percentage}%`).join("  |  ")}
+        Community sentiment: {visible.map((o) => `${o.label} ${o.percentage}%`).join("  |  ")}
       </p>
     </div>
   );
