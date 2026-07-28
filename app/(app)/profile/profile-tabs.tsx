@@ -23,10 +23,9 @@ export function ProfileTabs({
   predictions: React.ReactNode;
   edit: React.ReactNode;
 }) {
-  // Read once on mount — lets the profile-completion redirect
-  // (?tab=edit&required=1) land the user directly on Edit profile.
-  // Deliberately not kept in sync afterward: switching tabs by clicking
-  // stays purely client-state, same as before.
+  // Read once on mount — lets a deep link (?tab=edit) land the user
+  // directly on Edit profile. Deliberately not kept in sync afterward:
+  // switching tabs by clicking stays purely client-state, same as before.
   const searchParams = useSearchParams();
   const initialTab = isTabId(searchParams.get("tab")) ? (searchParams.get("tab") as TabId) : "predictions";
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);

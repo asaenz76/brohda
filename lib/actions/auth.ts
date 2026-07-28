@@ -41,7 +41,10 @@ export async function loginAction(
 export async function logoutAction() {
   const supabase = await createClient();
   await supabase.auth.signOut();
-  redirect("/login");
+  // "/" itself decides where a logged-out visitor lands (the marketing
+  // landing page when self-service registration is open, /login when it
+  // isn't) — logout shouldn't hardcode /login and skip that.
+  redirect("/");
 }
 
 export type RequestPasswordResetState = { sent: boolean; error: string | null };
@@ -108,10 +111,11 @@ export type RegisterState = { error: string | null };
  * Self-service signup — off by default (platform_settings.registration_
  * enabled), so re-checked here even though the page itself already hides
  * the form when disabled (a direct POST must not bypass the gate). Mirrors
- * acceptInvitationAction's create-user → insert-profile → sign-in shape,
- * except there's no invitation row and no username collected here — the
- * new account lands on the same forced profile-completion redirect as
- * every other creation path, which is where username actually gets set.
+ * acceptInvitationAction's create-user → insert-profile → sign-in shape.
+ * Username is collected in the same wizard (register-form.tsx's 4th step)
+ * and set atomically on the profile insert — no more forced post-signup
+ * "complete your profile" redirect, and once set here it can never be
+ * changed again (see updateProfileAction).
  */
 export async function registerAction(
   _prevState: RegisterState,
@@ -126,6 +130,8 @@ export async function registerAction(
     email: formData.get("email"),
     password: formData.get("password"),
     displayName: formData.get("displayName"),
+    username: formData.get("username"),
+    acceptedTerms: formData.get("acceptedTerms") === "on",
   });
 
   if (!parsed.success) {
@@ -155,13 +161,16 @@ export async function registerAction(
   const { error: profileError } = await adminClient.from("user_profiles").insert({
     id: created.user.id,
     display_name: parsed.data.displayName,
+    username: parsed.data.username,
     role: "player",
     is_active: true,
   });
 
   if (profileError) {
     await adminClient.auth.admin.deleteUser(created.user.id);
-    return { error: "Could not finish setting up your account." };
+    return {
+      error: profileError.code === "23505" ? "That username is taken." : "Could not finish setting up your account.",
+    };
   }
 
   const supabase = await createClient();
@@ -174,5 +183,5 @@ export async function registerAction(
     redirect("/login");
   }
 
-  redirect("/profile?tab=edit&required=1");
+  redirect("/feed");
 }

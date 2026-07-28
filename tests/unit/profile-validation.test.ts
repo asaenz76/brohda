@@ -63,10 +63,10 @@ describe("updateProfileSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects a missing username", () => {
+  it("accepts a missing username — optional here since it's disabled/omitted from the form once already set", () => {
     const rest = { ...validUpdate } as Partial<typeof validUpdate>;
     delete rest.username;
-    expect(updateProfileSchema.safeParse(rest).success).toBe(false);
+    expect(updateProfileSchema.safeParse(rest).success).toBe(true);
   });
 
   it("rejects a username shorter than 3 characters", () => {
@@ -124,6 +124,8 @@ describe("registerSchema", () => {
     email: "New.Player@Example.com",
     password: "supersecret1",
     displayName: "New Player",
+    username: "newplayer",
+    acceptedTerms: true as const,
   };
 
   it("accepts a valid signup and lowercases the email", () => {
@@ -148,8 +150,31 @@ describe("registerSchema", () => {
     expect(registerSchema.safeParse(rest).success).toBe(false);
   });
 
-  it("does not accept a username field (strict — signup never collects one)", () => {
-    const result = registerSchema.safeParse({ ...validRegistration, username: "shouldfail" });
+  it("rejects a missing username — set atomically at signup now, in the same 4-step wizard", () => {
+    const rest = { ...validRegistration } as Partial<typeof validRegistration>;
+    delete rest.username;
+    expect(registerSchema.safeParse(rest).success).toBe(false);
+  });
+
+  it("rejects an invalid username format", () => {
+    const result = registerSchema.safeParse({ ...validRegistration, username: "no spaces!" });
     expect(result.success).toBe(false);
+  });
+
+  it("lowercases a mixed-case username", () => {
+    const result = registerSchema.safeParse({ ...validRegistration, username: "NewPlayer" });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.username).toBe("newplayer");
+  });
+
+  it("rejects when acceptedTerms is not true", () => {
+    const result = registerSchema.safeParse({ ...validRegistration, acceptedTerms: false });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a missing acceptedTerms", () => {
+    const rest = { ...validRegistration } as Partial<typeof validRegistration>;
+    delete rest.acceptedTerms;
+    expect(registerSchema.safeParse(rest).success).toBe(false);
   });
 });

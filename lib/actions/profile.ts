@@ -29,12 +29,21 @@ export async function updateProfileAction(
     return { error: "Check your profile fields.", success: false };
   }
 
+  // Username is permanent once set — it's what ties a profile to its
+  // public URL/mentions/leaderboard row, so letting it change later would
+  // silently break every existing link to this person. The form disables
+  // the field client-side once set, but that's just UX; this is the real
+  // enforcement — whatever was submitted for username is ignored in favor
+  // of the existing value, except on the one-time initial set (username
+  // still null).
+  const nextUsername = user.username ?? parsed.data.username ?? null;
+
   const supabase = await createClient();
   const { error } = await supabase
     .from("user_profiles")
     .update({
       display_name: parsed.data.displayName,
-      username: parsed.data.username || null,
+      username: nextUsername,
       pronouns: parsed.data.pronouns || null,
       gender: parsed.data.gender || null,
       bio: parsed.data.bio || null,

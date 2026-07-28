@@ -110,8 +110,13 @@ export function ProfileForm({
           pattern="[a-zA-Z0-9_]+"
           placeholder="Letters, numbers, or underscores"
           required
+          disabled={username != null}
         />
-        <p className="text-xs text-text-secondary">Required — you can&apos;t use the rest of the site without it.</p>
+        <p className="text-xs text-text-secondary">
+          {username != null
+            ? "Permanent — usernames can't be changed once set."
+            : "Required — you can't use the rest of the site without it."}
+        </p>
       </div>
 
       <PresetTextField

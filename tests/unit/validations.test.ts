@@ -59,10 +59,10 @@ describe("updateProfileSchema", () => {
     emailNotificationsEnabled: true,
   };
 
-  it("rejects a display name with no username — username is required", () => {
+  it("accepts a display name with no username — optional now (disabled/omitted from the form once already set)", () => {
     expect(
       updateProfileSchema.safeParse({ displayName: "Andre", ...requiredVisibilityFlags }).success,
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("rejects an invalid username format", () => {

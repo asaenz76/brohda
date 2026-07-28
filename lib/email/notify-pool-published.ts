@@ -2,6 +2,12 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buildPoolPublishedEmail, sendEmail, type PoolPublishedEmailFixture } from "./resend";
 
+// TEMPORARILY DISABLED (beta feedback: one email per published pool was
+// too frequent/annoying). Left in place rather than deleted — the plan is
+// to bring this back once there's a better cadence (a digest, opt-in per
+// league, etc.). Flip this back to false to re-enable.
+const POOL_PUBLISHED_EMAILS_DISABLED = true;
+
 // Fires when an admin publishes a pool (DRAFT -> OPEN). Emails every
 // active player who hasn't opted out — never admins/super_admins (they
 // coordinate pools, they don't enter them), and never for a HIDDEN
@@ -12,6 +18,7 @@ export async function notifyPoolPublished(pool: {
   question: string;
   visibility: string;
 }): Promise<void> {
+  if (POOL_PUBLISHED_EMAILS_DISABLED) return;
   if (pool.visibility !== "VISIBLE_TO_ALL_MEMBERS") return;
   if (!process.env.RESEND_API_KEY) return;
 

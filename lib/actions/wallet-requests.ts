@@ -12,6 +12,8 @@ import {
   createFollowerEntryNotifications,
   createQuickTopUpEntrySuccessNotification,
   createQuickTopUpFundsAvailableNotification,
+  createWalletRequestApprovedNotification,
+  createWalletRequestRejectedNotification,
   createWalletRequestSubmittedNotification,
 } from "@/lib/notifications/create";
 
@@ -207,7 +209,7 @@ export async function approveWalletRequestAction(
         : request.note
       : null;
 
-  const { error: rpcError } = await adminClient.rpc("apply_wallet_transaction", {
+  const { data: transaction, error: rpcError } = await adminClient.rpc("apply_wallet_transaction", {
     p_account_type: "user",
     p_user_id: request.user_id,
     p_type: request.type === "deposit" ? "manual_deposit" : "manual_withdrawal",
@@ -257,6 +259,13 @@ export async function approveWalletRequestAction(
       intended_pool_id: request.intended_pool_id,
       intended_option_id: request.intended_option_id,
     });
+  } else {
+    await createWalletRequestApprovedNotification({
+      userId: request.user_id,
+      requestType: request.type as "deposit" | "withdrawal",
+      amountCents: request.amount,
+      transactionId: (transaction as { id: string } | null)?.id ?? null,
+    });
   }
 
   revalidatePath("/admin/wallet-requests");
@@ -290,7 +299,7 @@ export async function rejectWalletRequestAction(
     })
     .eq("id", parsed.data.requestId)
     .eq("status", "pending")
-    .select("id")
+    .select("id, user_id, type, amount")
     .single();
 
   if (updateError || !request) {
@@ -305,6 +314,13 @@ export async function rejectWalletRequestAction(
     before: { status: "pending" },
     after: { status: "rejected" },
     reason: parsed.data.adminNote,
+  });
+
+  await createWalletRequestRejectedNotification({
+    userId: request.user_id,
+    requestType: request.type as "deposit" | "withdrawal",
+    amountCents: request.amount,
+    adminNote: parsed.data.adminNote ?? null,
   });
 
   revalidatePath("/admin/wallet-requests");

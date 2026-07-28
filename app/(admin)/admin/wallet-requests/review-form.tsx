@@ -30,8 +30,9 @@ export function ReviewForm({ requestId }: { requestId: string }) {
           {approvePending ? "Approving…" : "Approve"}
         </Button>
       </form>
-      <form action={rejectFormAction}>
+      <form action={rejectFormAction} className="flex items-center gap-2">
         <input type="hidden" name="requestId" value={requestId} />
+        <Input name="adminNote" placeholder="Reason (optional)" className="h-8 w-32 text-xs" />
         <Button type="submit" variant="outline" size="sm" disabled={rejectPending}>
           {rejectPending ? "Rejecting…" : "Reject"}
         </Button>

@@ -257,6 +257,71 @@ export async function createWalletRequestSubmittedNotification({
   await admin.from("notifications").insert(rows);
 }
 
+/**
+ * Notifies a player that their deposit/withdrawal request was approved.
+ * Skipped for a deposit that completed a quick top-up (intended_pool_id +
+ * intended_option_id set) — completeQuickTopUpEntry already sends a more
+ * specific notification for that case (entered the pool, or funds
+ * available if the pool locked in the meantime), so this would just be a
+ * redundant second one about the same event.
+ */
+export async function createWalletRequestApprovedNotification({
+  userId,
+  requestType,
+  amountCents,
+  transactionId,
+}: {
+  userId: string;
+  requestType: "deposit" | "withdrawal";
+  amountCents: number;
+  transactionId: string | null;
+}) {
+  const admin = createAdminClient();
+
+  await admin.from("notifications").insert({
+    user_id: userId,
+    type: requestType === "deposit" ? "DEPOSIT_APPROVED" : "WITHDRAWAL_APPROVED",
+    title: requestType === "deposit" ? "Deposit approved" : "Withdrawal approved",
+    body:
+      requestType === "deposit"
+        ? `Your deposit of ${formatCents(amountCents)} was approved and added to your wallet.`
+        : `Your withdrawal of ${formatCents(amountCents)} was approved.`,
+    transaction_id: transactionId,
+  });
+}
+
+/**
+ * Notifies a player that their deposit/withdrawal request was denied — no
+ * money moved, so no transaction_id/pool_id to attach; resolveNotificationHref
+ * falls back to a non-clickable notification, same as any other type with
+ * neither set.
+ */
+export async function createWalletRequestRejectedNotification({
+  userId,
+  requestType,
+  amountCents,
+  adminNote,
+}: {
+  userId: string;
+  requestType: "deposit" | "withdrawal";
+  amountCents: number;
+  adminNote: string | null;
+}) {
+  const admin = createAdminClient();
+
+  const base =
+    requestType === "deposit"
+      ? `Your deposit request of ${formatCents(amountCents)} was denied.`
+      : `Your withdrawal request of ${formatCents(amountCents)} was denied.`;
+
+  await admin.from("notifications").insert({
+    user_id: userId,
+    type: requestType === "deposit" ? "DEPOSIT_REJECTED" : "WITHDRAWAL_REJECTED",
+    title: requestType === "deposit" ? "Deposit request denied" : "Withdrawal request denied",
+    body: adminNote ? `${base} Reason: ${adminNote}` : base,
+  });
+}
+
 /** Same idea as above, for a normal WON/LOST settlement. */
 export async function createSettlementNotifications(poolId: string) {
   const admin = createAdminClient();

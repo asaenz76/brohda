@@ -10,13 +10,8 @@ import { PredictionsTab } from "./predictions-tab";
 import { ProfileTabs } from "./profile-tabs";
 import { CloseAccountForm } from "./close-account-form";
 
-export default async function ProfilePage({
-  searchParams,
-}: {
-  searchParams: Promise<{ tab?: string; required?: string }>;
-}) {
+export default async function ProfilePage() {
   const user = await requireUser();
-  const { required } = await searchParams;
   const supabase = await createClient();
 
   const [{ data: countsRows }, { data: pickCount }, { data: editableFields }, { data: statsRows }] =
@@ -38,12 +33,6 @@ export default async function ProfilePage({
 
   return (
     <div className="space-y-6">
-      {required === "1" && !user.username && (
-        <p role="alert" className="rounded-lg bg-surface-secondary p-3 text-sm text-text-secondary">
-          Please choose a username to continue.
-        </p>
-      )}
-
       <ProfileHeader
         displayName={user.display_name}
         username={user.username}
