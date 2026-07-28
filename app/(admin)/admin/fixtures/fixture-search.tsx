@@ -25,7 +25,24 @@ export function FixtureSearch({
 }) {
   const [mode, setMode] = useState<"by_league" | "by_id">("by_league");
   const [selectedLeague, setSelectedLeague] = useState<NormalizedLeague | null>(null);
+  const [season, setSeason] = useState("");
+  const [date, setDate] = useState("");
   const [state, formAction, pending] = useActionState(searchFixturesAction, initialSearchState);
+
+  // The API requires a season alongside a league on every search — picking
+  // a date without knowing that produced a confusing "enter a league and
+  // season" error even though a date was given. Auto-fill season from the
+  // league's own season calendar (start/end vary per league — most run
+  // Aug-May, some run calendar-year, so there's no universal formula) —
+  // only while the admin hasn't typed a season themselves.
+  function handleDateChange(value: string) {
+    setDate(value);
+    if (season || !selectedLeague || !value) return;
+    const matchingSeason = selectedLeague.seasons.find(
+      (s) => value >= s.startDate && value <= s.endDate,
+    );
+    if (matchingSeason) setSeason(matchingSeason.year);
+  }
 
   if (providerDisabled) {
     return (
@@ -92,11 +109,25 @@ export function FixtureSearch({
                     </div>
                     <div className="space-y-1.5">
                       <Label htmlFor="season">Season</Label>
-                      <Input id="season" name="season" placeholder="2024" className="w-24" />
+                      <Input
+                        id="season"
+                        name="season"
+                        placeholder="2024"
+                        className="w-24"
+                        value={season}
+                        onChange={(e) => setSeason(e.target.value)}
+                      />
                     </div>
                     <div className="space-y-1.5">
                       <Label htmlFor="date">Date (optional)</Label>
-                      <Input id="date" name="date" type="date" className="w-40" />
+                      <Input
+                        id="date"
+                        name="date"
+                        type="date"
+                        className="w-40"
+                        value={date}
+                        onChange={(e) => handleDateChange(e.target.value)}
+                      />
                     </div>
                   </>
                 )}

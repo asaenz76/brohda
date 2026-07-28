@@ -71,10 +71,19 @@ export function LeagueSelect({
     return { inSeason, otherPriority, countries };
   }, [leagues]);
 
+  // A league with zero season entries has no real coverage from the
+  // provider at all (as opposed to just being out of season right now —
+  // that's still a perfectly valid pick, e.g. searching a preseason opener
+  // before a new season officially starts) — grayed out here is a data-
+  // completeness failsafe, not a "currently active" filter, since the
+  // latter would block exactly that kind of near-future search.
+  const hasSeasonData = (league: NormalizedLeague) => league.seasons.length > 0;
+
   const renderOption = (league: NormalizedLeague) => (
-    <option key={league.externalLeagueId} value={league.externalLeagueId}>
+    <option key={league.externalLeagueId} value={league.externalLeagueId} disabled={!hasSeasonData(league)}>
       {league.name}
       {league.type ? ` (${league.type})` : ""}
+      {hasSeasonData(league) ? "" : " — no season data"}
     </option>
   );
 
@@ -83,10 +92,11 @@ export function LeagueSelect({
   // — so a name shared across countries (e.g. two "Serie A"s, Brazil's and
   // Italy's) needs the country spelled out here to stay unambiguous.
   const renderPriorityOption = (league: NormalizedLeague) => (
-    <option key={league.externalLeagueId} value={league.externalLeagueId}>
+    <option key={league.externalLeagueId} value={league.externalLeagueId} disabled={!hasSeasonData(league)}>
       {league.name}
       {league.type ? ` (${league.type})` : ""}
       {league.countryName ? ` — ${league.countryName}` : ""}
+      {hasSeasonData(league) ? "" : " — no season data"}
     </option>
   );
 

@@ -74,6 +74,17 @@ export interface FixtureSearchParams {
   externalFixtureId?: string;
 }
 
+// A league's own season calendar — start/end vary per league (most run
+// Aug-May, some run calendar-year) which is exactly why these dates are
+// kept instead of just the year: it's what lets the fixture-import date
+// picker figure out the right `season` param for a given date without
+// guessing at a universal convention (see fixture-search.tsx).
+export interface LeagueSeason {
+  year: string;
+  startDate: string; // ISO YYYY-MM-DD
+  endDate: string; // ISO YYYY-MM-DD
+}
+
 export interface NormalizedLeague {
   provider: string;
   externalLeagueId: string;
@@ -81,7 +92,7 @@ export interface NormalizedLeague {
   type: string | null; // "League" | "Cup" etc.
   countryName: string | null;
   logoUrl: string | null;
-  seasons: string[];
+  seasons: LeagueSeason[];
 }
 
 // Internal event vocabulary — application logic (lib/pools/templates/)
@@ -119,6 +130,36 @@ export interface NormalizedPlayer {
   jerseyNumber: number | null;
 }
 
+// A single bookmaker's Over/Under total-goals line — only `.5`-point lines
+// are ever normalized into this shape (see api-football-provider.ts's
+// parseGoalsLines): the standard, unambiguous over/under convention with
+// no "push"/void case, unlike a whole-number line.
+export interface OddsGoalsLine {
+  point: number; // e.g. 2.5
+  overOdd: number;
+  underOdd: number;
+}
+
+// A single bookmaker's full-match exact-goals-count distribution for one
+// team (no Over/Under line market exists for this, unlike match/first-half
+// totals — "Home/Away Team Exact Goals Number" is the closest equivalent).
+// `count` is the exact goal count for a normal bucket; for the open-ended
+// last bucket (API-Football's "more N" value), `count` is `N + 1` and
+// `isTail` is true, meaning "this many goals or more."
+export interface OddsExactGoalsBucket {
+  count: number;
+  isTail: boolean;
+  odd: number;
+}
+
+export interface NormalizedFixtureOdds {
+  externalFixtureId: string;
+  matchGoalsLines: OddsGoalsLine[]; // bet id 5, "Goals Over/Under"
+  firstHalfGoalsLines: OddsGoalsLine[]; // bet id 6, "Goals Over/Under First Half"
+  homeTeamGoalsDistributions: OddsExactGoalsBucket[][]; // bet id 40, one array per bookmaker
+  awayTeamGoalsDistributions: OddsExactGoalsBucket[][]; // bet id 41, one array per bookmaker
+}
+
 export interface SportsDataProvider {
   readonly name: string;
   isEnabled(): boolean;
@@ -128,4 +169,5 @@ export interface SportsDataProvider {
   getLeagueType(externalLeagueId: string): Promise<string | null>;
   getFixtureEvents(externalFixtureId: string): Promise<NormalizedFixtureEvent[]>;
   getTeamSquad(externalTeamId: string): Promise<NormalizedPlayer[]>;
+  getFixtureOdds(externalFixtureId: string): Promise<NormalizedFixtureOdds | null>;
 }

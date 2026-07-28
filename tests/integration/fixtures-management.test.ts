@@ -1,7 +1,9 @@
 /**
  * Integration tests for fixture management: the
  * fixtures_available_for_pool_creation view (excludes a fixture once every
- * pool referencing it has been graded) and the FK-level guard that backs
+ * pool referencing it has been graded, or once the fixture itself reaches a
+ * terminal status — COMPLETED/CANCELLED/ABANDONED/AWARDED — regardless of
+ * whether it has any pools at all) and the FK-level guard that backs
  * deleteFixtureAction (a fixture with any pool attached can't be deleted).
  * Run with: pnpm test:integration (requires `pnpm supabase:start`).
  */
@@ -27,7 +29,7 @@ async function getAdminId(): Promise<string> {
   return data!.id as string;
 }
 
-async function createTestFixture(): Promise<string> {
+async function createTestFixture(internalStatus = "NOT_STARTED"): Promise<string> {
   const { data, error } = await admin
     .from("fixtures")
     .insert({
@@ -35,7 +37,7 @@ async function createTestFixture(): Promise<string> {
       home_team_name: "Home Test FC",
       away_team_name: "Away Test FC",
       scheduled_start_utc: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      internal_status: "NOT_STARTED",
+      internal_status: internalStatus,
     })
     .select("id")
     .single();
@@ -156,6 +158,20 @@ describe.skipIf(!SERVICE_ROLE_KEY)("fixture management", () => {
     await createPool(fixtureId, adminId, "AWAITING_RESULT");
 
     expect(await isAvailableForPoolCreation(fixtureId)).toBe(true);
+  });
+
+  it("fixtures_available_for_pool_creation excludes a COMPLETED fixture with no pools", async () => {
+    const fixtureId = await createTestFixture("COMPLETED");
+    createdFixtureIds.push(fixtureId);
+
+    expect(await isAvailableForPoolCreation(fixtureId)).toBe(false);
+  });
+
+  it("fixtures_available_for_pool_creation excludes a CANCELLED fixture with no pools", async () => {
+    const fixtureId = await createTestFixture("CANCELLED");
+    createdFixtureIds.push(fixtureId);
+
+    expect(await isAvailableForPoolCreation(fixtureId)).toBe(false);
   });
 
   it("a fixture with zero pools can be hard-deleted", async () => {

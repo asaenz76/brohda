@@ -1,17 +1,12 @@
 import { requireAdminOrAbove } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
-import { apiFootballProvider } from "@/lib/sports-data/api-football-provider";
 import { TERMINAL_STATUSES } from "@/lib/sports-data/status-map";
-import { FixtureSearch } from "./fixture-search";
-import { ImportedFixturesList } from "./imported-fixtures-list";
+import { ImportedFixturesList } from "../fixtures/imported-fixtures-list";
 
-export default async function AdminFixturesPage() {
+export default async function FixtureArchivePage() {
   const viewer = await requireAdminOrAbove();
   const isSuperAdmin = viewer.role === "super_admin";
   const supabase = await createClient();
-
-  const providerEnabled = apiFootballProvider.isEnabled();
-  const leagues = providerEnabled ? await apiFootballProvider.searchLeagues("").catch(() => []) : [];
 
   const [{ data: fixtures }, { data: pools }] = await Promise.all([
     supabase
@@ -19,7 +14,7 @@ export default async function AdminFixturesPage() {
       .select(
         "id, external_fixture_id, home_team_name, away_team_name, competition_name, scheduled_start_utc, hidden_from_pool_creation",
       )
-      .not("internal_status", "in", `(${TERMINAL_STATUSES.join(",")})`)
+      .in("internal_status", TERMINAL_STATUSES)
       .order("scheduled_start_utc", { ascending: false }),
     supabase.from("pools").select("fixture_id").not("fixture_id", "is", null),
   ]);
@@ -30,7 +25,7 @@ export default async function AdminFixturesPage() {
     poolCountByFixtureId.set(fixtureId, (poolCountByFixtureId.get(fixtureId) ?? 0) + 1);
   }
 
-  const importedFixtures = (fixtures ?? []).map((f) => ({
+  const archivedFixtures = (fixtures ?? []).map((f) => ({
     id: f.id as string,
     externalFixtureId: f.external_fixture_id as string,
     homeTeamName: f.home_team_name as string,
@@ -43,9 +38,14 @@ export default async function AdminFixturesPage() {
 
   return (
     <div className="space-y-8">
-      <h1 className="sr-only">Fixtures</h1>
-      <FixtureSearch leagues={leagues} providerDisabled={!providerEnabled} />
-      <ImportedFixturesList fixtures={importedFixtures} isSuperAdmin={isSuperAdmin} />
+      <div>
+        <h1 className="text-lg font-semibold text-text-primary">Fixture Archive</h1>
+        <p className="text-sm text-text-secondary">
+          Fixtures that have finished, been cancelled, abandoned, or awarded — moved out of the main
+          Fixtures list automatically once settled.
+        </p>
+      </div>
+      <ImportedFixturesList fixtures={archivedFixtures} isSuperAdmin={isSuperAdmin} heading="Archived fixtures" />
     </div>
   );
 }

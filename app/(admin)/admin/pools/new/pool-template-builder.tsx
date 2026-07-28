@@ -1,8 +1,9 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { createPoolFromTemplate, type CreatePoolFromTemplateState } from "@/lib/actions/pools";
+import { getFixtureGoalsLinesAction } from "@/lib/actions/odds";
 import { MINIMUM_POOL_ENTRIES, MINIMUM_LOCK_LEAD_MINUTES } from "@/lib/validations/pools";
 import { generatePoolTemplate, getRuleLabel, getTemplateEligibility } from "@/lib/pools/templates";
 import { getTemplate, listByCategory } from "@/lib/pools/templates/registry";
@@ -14,8 +15,11 @@ import { Switch } from "@/components/ui/switch";
 import { PlayerPicker } from "./player-picker";
 import { cn } from "@/lib/utils";
 
+const GOALS_LINE_TEMPLATE_IDS = new Set(["MATCH_TOTAL_GOALS", "FIRST_HALF_TOTAL_GOALS", "TEAM_TOTAL_GOALS"]);
+
 interface FixtureOption {
   id: string;
+  externalFixtureId: string | null;
   homeTeamExternalId: string | null;
   homeTeamName: string;
   homeTeamLogoUrl: string | null;
@@ -164,6 +168,14 @@ export function PoolTemplateBuilder({ fixtures }: { fixtures: FixtureOption[] })
   const [visibility, setVisibility] = useState("VISIBLE_TO_ALL_MEMBERS");
   const [participationVisibility, setParticipationVisibility] = useState("SHOW_BEFORE_ENTRY");
   const [publishImmediately, setPublishImmediately] = useState(false);
+  const [goalsLines, setGoalsLines] = useState<{
+    forFixtureId: string;
+    matchLine: number | null;
+    firstHalfLine: number | null;
+    homeTeamLine: number | null;
+    awayTeamLine: number | null;
+  } | null>(null);
+  const oddsFetchedForFixtureId = useRef<string | null>(null);
 
   const locksAtIso = locksAtLocal ? new Date(locksAtLocal).toISOString() : "";
   const selectedFixture = fixtures.find((f) => f.id === fixtureId) ?? null;
@@ -171,6 +183,45 @@ export function PoolTemplateBuilder({ fixtures }: { fixtures: FixtureOption[] })
   const isLegacy = selectedCardId != null && isLegacyId(selectedCardId);
   const registryTemplate = selectedCardId && !isLegacy ? getTemplate(selectedCardId) : null;
   const eligibility = getTemplateEligibility(selectedFixture?.competitionType ?? null);
+  const needsGoalsLine = selectedCardId != null && GOALS_LINE_TEMPLATE_IDS.has(selectedCardId);
+
+  // Fetches the fixture's odds-derived goals suggestion at most once per
+  // fixture (not per template switch) — MATCH_TOTAL_GOALS and
+  // FIRST_HALF_TOTAL_GOALS both read off the one fetch's two lines.
+  useEffect(() => {
+    if (!needsGoalsLine || !selectedFixture?.externalFixtureId) return;
+    if (oddsFetchedForFixtureId.current === selectedFixture.id) return;
+    oddsFetchedForFixtureId.current = selectedFixture.id;
+    const fixtureId = selectedFixture.id;
+    getFixtureGoalsLinesAction(selectedFixture.externalFixtureId).then((lines) => {
+      setGoalsLines({ forFixtureId: fixtureId, ...lines });
+    });
+  }, [needsGoalsLine, selectedFixture]);
+
+  // Which of the fetch's four suggestions applies to the currently active
+  // template (and, for TEAM_TOTAL_GOALS, the currently selected side) —
+  // null while the fetch for this fixture hasn't resolved yet.
+  function currentGoalsSuggestion(): number | null {
+    if (!goalsLines || goalsLines.forFixtureId !== selectedFixture?.id) return null;
+    if (selectedCardId === "FIRST_HALF_TOTAL_GOALS") return goalsLines.firstHalfLine;
+    if (selectedCardId === "TEAM_TOTAL_GOALS") {
+      return configValues.team === "AWAY" ? goalsLines.awayTeamLine : goalsLines.homeTeamLine;
+    }
+    return goalsLines.matchLine;
+  }
+
+  // Pure derived value (no effect/setState) for "minimumGoals" specifically
+  // — read by both the field's displayed value and typedTemplateConfig
+  // below, so what's shown and what's submitted always agree. Only applies
+  // the odds suggestion while the field still holds its untouched default;
+  // once the admin edits it, configValues.minimumGoals itself takes over.
+  function resolveMinimumGoals(field: { min: number }): string {
+    const raw = configValues.minimumGoals ?? String(field.min);
+    if (raw !== String(field.min)) return raw;
+    if (!needsGoalsLine) return raw;
+    const suggested = currentGoalsSuggestion();
+    return suggested != null ? String(suggested) : raw;
+  }
 
   // The pool creator can lock earlier than this, never later — the server
   // action re-checks this too (it's the real gate), this is just instant
@@ -282,12 +333,16 @@ export function PoolTemplateBuilder({ fixtures }: { fixtures: FixtureOption[] })
         config.playerName = configValues.playerName ?? "";
         continue;
       }
-      const raw = configValues[field.key];
+      const raw =
+        field.key === "minimumGoals" && field.type === "INTEGER"
+          ? resolveMinimumGoals(field)
+          : configValues[field.key];
       config[field.key] =
         field.type === "INTEGER" ? Number(raw) : field.type === "BOOLEAN" ? raw === "true" : raw;
     }
     return config;
-  }, [registryTemplate, configValues]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- resolveMinimumGoals closes over these same values, listed explicitly
+  }, [registryTemplate, configValues, goalsLines, selectedCardId, selectedFixture?.id, needsGoalsLine]);
 
   const registryQuestion =
     registryTemplate && selectedFixture
@@ -575,12 +630,27 @@ export function PoolTemplateBuilder({ fixtures }: { fixtures: FixtureOption[] })
                         type="number"
                         min={field.min}
                         max={field.max}
-                        value={configValues[field.key] ?? ""}
+                        value={field.key === "minimumGoals" ? resolveMinimumGoals(field) : (configValues[field.key] ?? "")}
                         onChange={(e) =>
                           setConfigValues((prev) => ({ ...prev, [field.key]: e.target.value }))
                         }
                         className="w-32"
                       />
+                      {field.key === "minimumGoals" && needsGoalsLine && (() => {
+                        const stillLoading = !goalsLines || goalsLines.forFixtureId !== selectedFixture?.id;
+                        const suggested = stillLoading ? null : currentGoalsSuggestion();
+                        if (stillLoading) {
+                          return <p className="text-xs text-text-muted">Checking today&apos;s odds…</p>;
+                        }
+                        if (suggested != null) {
+                          return (
+                            <p className="text-xs text-text-muted">
+                              Prefilled from today&apos;s odds — feel free to change it.
+                            </p>
+                          );
+                        }
+                        return null;
+                      })()}
                     </div>
                   );
                 })}

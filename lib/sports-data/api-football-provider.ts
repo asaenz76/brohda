@@ -7,8 +7,11 @@ import type {
   FixtureSearchParams,
   NormalizedFixture,
   NormalizedFixtureEvent,
+  NormalizedFixtureOdds,
   NormalizedLeague,
   NormalizedPlayer,
+  OddsExactGoalsBucket,
+  OddsGoalsLine,
   SportsDataProvider,
 } from "./types";
 
@@ -50,7 +53,7 @@ interface ApiFootballListResponse {
 interface ApiFootballLeagueResponse {
   league: { id: number; name: string; type: string | null; logo: string | null };
   country: { name: string | null; code: string | null; flag: string | null };
-  seasons: Array<{ year: number }>;
+  seasons: Array<{ year: number; start: string; end: string }>;
 }
 
 interface ApiFootballLeagueListResponse {
@@ -88,6 +91,45 @@ interface ApiFootballSquadResponse {
 interface ApiFootballSquadListResponse {
   response: ApiFootballSquadResponse[];
 }
+
+interface ApiFootballOddsValue {
+  // "Over 2.5"-style bets always send a string; "Exact Goals Number"-style
+  // bets send a raw JSON number for every bucket except the open-ended
+  // last one ("more 2"), which is a string — the API's shape genuinely
+  // varies by bet type, not a normalization choice made here.
+  value: string | number;
+  odd: string; // e.g. "2.55"
+}
+
+interface ApiFootballOddsBet {
+  id: number;
+  values: ApiFootballOddsValue[];
+}
+
+interface ApiFootballOddsBookmaker {
+  bets: ApiFootballOddsBet[];
+}
+
+interface ApiFootballOddsResponseItem {
+  bookmakers: ApiFootballOddsBookmaker[];
+}
+
+interface ApiFootballOddsListResponse {
+  response: ApiFootballOddsResponseItem[];
+}
+
+// "Goals Over/Under" (full match), "Goals Over/Under First Half", "Home/
+// Away Team Exact Goals Number" — confirmed against /odds/bets, ids are
+// stable across the API. There's no full-match single-team Over/Under
+// line market — the exact-goals-count distribution is the closest
+// equivalent, handled differently (see parseExactGoalsDistributions).
+const MATCH_TOTAL_GOALS_BET_ID = 5;
+const FIRST_HALF_TOTAL_GOALS_BET_ID = 6;
+const HOME_TEAM_EXACT_GOALS_BET_ID = 40;
+const AWAY_TEAM_EXACT_GOALS_BET_ID = 41;
+
+const OVER_UNDER_VALUE_PATTERN = /^(Over|Under) (\d+(?:\.\d+)?)$/;
+const MORE_THAN_VALUE_PATTERN = /^more (\d+)$/i;
 
 function isEnabled(): boolean {
   return process.env.API_FOOTBALL_ENABLED === "true";
@@ -167,7 +209,7 @@ function mapLeague(raw: ApiFootballLeagueResponse): NormalizedLeague {
     type: raw.league.type ?? null,
     countryName: raw.country?.name ?? null,
     logoUrl: raw.league.logo ?? null,
-    seasons: (raw.seasons ?? []).map((s) => String(s.year)),
+    seasons: (raw.seasons ?? []).map((s) => ({ year: String(s.year), startDate: s.start, endDate: s.end })),
   };
 }
 
@@ -238,6 +280,80 @@ async function callSquadEndpoint(externalTeamId: string): Promise<NormalizedPlay
   return (body.response?.[0]?.players ?? []).map(mapPlayer);
 }
 
+// Only `.5`-point Over/Under pairs are kept — the standard, unambiguous
+// line convention (no "push"/void case, unlike a whole-number line), and
+// the only shape lib/pools/templates/goals-odds.ts's suggestion algorithm
+// is designed to consume. Pooled across every bookmaker offering this bet
+// (the caller doesn't care which bookmaker, just the full set of lines).
+function parseGoalsLines(bookmakers: ApiFootballOddsBookmaker[], betId: number): OddsGoalsLine[] {
+  const lines: OddsGoalsLine[] = [];
+  for (const bookmaker of bookmakers) {
+    const bet = bookmaker.bets.find((b) => b.id === betId);
+    if (!bet) continue;
+
+    const byPoint = new Map<number, { overOdd?: number; underOdd?: number }>();
+    for (const raw of bet.values) {
+      const match = OVER_UNDER_VALUE_PATTERN.exec(String(raw.value));
+      if (!match) continue;
+      const point = Number(match[2]);
+      if (Math.abs((point % 1) - 0.5) > 1e-9) continue; // whole/quarter lines excluded
+
+      const entry = byPoint.get(point) ?? {};
+      if (match[1] === "Over") entry.overOdd = Number(raw.odd);
+      else entry.underOdd = Number(raw.odd);
+      byPoint.set(point, entry);
+    }
+
+    for (const [point, { overOdd, underOdd }] of byPoint) {
+      if (overOdd != null && underOdd != null) {
+        lines.push({ point, overOdd, underOdd });
+      }
+    }
+  }
+  return lines;
+}
+
+// Each bookmaker's full exact-goals-count distribution for one team, kept
+// separate per bookmaker (not merged) — lib/pools/templates/goals-odds.ts's
+// suggestion algorithm evaluates each bookmaker's own distribution
+// independently, same spirit as parseGoalsLines above.
+function parseExactGoalsDistributions(bookmakers: ApiFootballOddsBookmaker[], betId: number): OddsExactGoalsBucket[][] {
+  const distributions: OddsExactGoalsBucket[][] = [];
+  for (const bookmaker of bookmakers) {
+    const bet = bookmaker.bets.find((b) => b.id === betId);
+    if (!bet) continue;
+
+    const buckets: OddsExactGoalsBucket[] = [];
+    for (const raw of bet.values) {
+      const odd = Number(raw.odd);
+      if (typeof raw.value === "number") {
+        buckets.push({ count: raw.value, isTail: false, odd });
+        continue;
+      }
+      const match = MORE_THAN_VALUE_PATTERN.exec(raw.value.trim());
+      if (match) {
+        buckets.push({ count: Number(match[1]) + 1, isTail: true, odd });
+      }
+    }
+    if (buckets.length > 0) distributions.push(buckets);
+  }
+  return distributions;
+}
+
+async function callOddsEndpoint(externalFixtureId: string): Promise<ApiFootballOddsResponseItem | null> {
+  const url = new URL(`${baseUrl()}/odds`);
+  url.searchParams.set("fixture", externalFixtureId);
+
+  const response = await fetchWithRetry(
+    url.toString(),
+    { headers: authHeaders() },
+    { provider: PROVIDER_NAME, requestType: "get_odds", requestParams: { fixture: externalFixtureId } },
+  );
+
+  const body = (await response.json()) as ApiFootballOddsListResponse;
+  return body.response?.[0] ?? null;
+}
+
 export class ApiFootballProvider implements SportsDataProvider {
   readonly name = PROVIDER_NAME;
 
@@ -305,6 +421,23 @@ export class ApiFootballProvider implements SportsDataProvider {
   async getTeamSquad(externalTeamId: string): Promise<NormalizedPlayer[]> {
     if (!this.isEnabled()) return [];
     return callSquadEndpoint(externalTeamId);
+  }
+
+  // Backs the "Match total goals"/"First-half total goals"/"Team total
+  // goals" templates' odds-derived default (lib/actions/odds.ts) — never
+  // cached (odds move as kickoff approaches, and this is only ever called
+  // once per pool-creation session, unlike the squad list above).
+  async getFixtureOdds(externalFixtureId: string): Promise<NormalizedFixtureOdds | null> {
+    if (!this.isEnabled()) return null;
+    const item = await callOddsEndpoint(externalFixtureId);
+    if (!item) return null;
+    return {
+      externalFixtureId,
+      matchGoalsLines: parseGoalsLines(item.bookmakers, MATCH_TOTAL_GOALS_BET_ID),
+      firstHalfGoalsLines: parseGoalsLines(item.bookmakers, FIRST_HALF_TOTAL_GOALS_BET_ID),
+      homeTeamGoalsDistributions: parseExactGoalsDistributions(item.bookmakers, HOME_TEAM_EXACT_GOALS_BET_ID),
+      awayTeamGoalsDistributions: parseExactGoalsDistributions(item.bookmakers, AWAY_TEAM_EXACT_GOALS_BET_ID),
+    };
   }
 }
 

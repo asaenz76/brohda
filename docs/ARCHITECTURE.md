@@ -226,7 +226,58 @@ var isn't set at all (never silently open).
 Import (`/admin/fixtures`, `lib/actions/fixtures.ts`) lets an admin search
 by league+season(+date) or by a direct fixture ID, then import (upsert)
 selected results — audit-logged (`fixture.imported`) like every other admin
-action.
+action. `season` is a real, hard requirement of API-Football's own
+`/fixtures` endpoint whenever `league` is given — not a validation choice
+made in this codebase — so `fixture-search.tsx` auto-fills it from the
+picked date using the *selected league's own* season calendar
+(`NormalizedLeague.seasons[].startDate`/`endDate`, preserved from
+`/leagues`'s raw response) rather than a hardcoded "Aug–May" assumption,
+since not every league's season follows that convention. Only fills in
+while the admin hasn't typed a season themselves.
+
+**Fixture archiving is fully derived, no stored flag.** `/admin/fixtures`
+excludes and `/admin/fixture-archive` includes exactly the fixtures whose
+`internal_status` is in `TERMINAL_STATUSES` — there's no `archived`/
+`archived_at` column and no job that sets one, since a fixture's terminal
+status is itself permanent (the sync job already stops polling it) and
+recomputing membership at query time can never drift out of sync. This is
+a deliberately different shape from **pool** archiving
+(`pools.archived_at`, spec-independent, added later): pool archiving is a
+manual, reversible admin choice, whereas fixture archiving is a strict
+function of a field that never reverts. The `fixtures_available_for_pool_creation`
+view (`hidden_from_pool_creation` flag + this same terminal-status check +
+no unresolved pools referencing the fixture) is what actually backs the
+"Create a pool" fixture dropdown — a fixture only needs one of the three
+conditions to disappear from it.
+
+**Odds-derived goals-line prefill, deliberately uncached.**
+`apiFootballProvider.getFixtureOdds()` calls `/odds?fixture={id}` once and
+derives suggestions for three templates from that single response:
+- Bet ids `5`/`6` ("Goals Over/Under" full match / first half) — only
+  `.5`-point Over/Under pairs are kept (the standard, unambiguous line
+  convention — a whole-number line has a "push"/void case that doesn't map
+  onto this app's binary YES/NO grading). `suggestMinimumGoalsFromOdds()`
+  picks the line closest to a 50/50 split and rounds up to an integer.
+- Bet ids `40`/`41` ("Home/Away Team Exact Goals Number") back
+  `TEAM_TOTAL_GOALS` — there's no Over/Under line market for a single
+  team's full-match total, only a per-bookmaker exact-goals-count
+  distribution (0, 1, 2, "3 or more", each with its own price).
+  `suggestMinimumGoalsFromExactDistribution()` removes each bookmaker's
+  overround (odds always imply >100% because the margin is baked in),
+  then finds the goal-count threshold whose cumulative "scores this many
+  or more" probability is closest to 50%.
+
+`lib/pools/templates/goals-odds.ts` holds both derivations;
+`lib/actions/odds.ts` is the only thing the wizard calls, and it only
+ever returns four integers (or `null`), never the underlying bookmaker
+odds. This prefills `MATCH_TOTAL_GOALS`/`FIRST_HALF_TOTAL_GOALS`/
+`TEAM_TOTAL_GOALS`'s `minimumGoals` field in the pool-creation wizard
+(admins can still edit it). Unlike the "Player to score" template's
+squad-list cache (`lib/actions/squads.ts`'s `team_players` table, 24h
+TTL — the same team's squad is looked up repeatedly across many pool
+creations and rarely changes) this is never persisted: odds move as
+kickoff approaches and are only ever looked up once per pool-creation
+session, so caching would only risk staleness for no benefit.
 
 ## Pools and entries (Phase 4, spec §10-§13, §21, X.5/X.9/X.15)
 

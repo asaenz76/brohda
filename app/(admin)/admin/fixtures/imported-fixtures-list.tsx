@@ -22,9 +22,11 @@ export interface ImportedFixture {
 export function ImportedFixturesList({
   fixtures,
   isSuperAdmin,
+  heading = "Imported fixtures",
 }: {
   fixtures: ImportedFixture[];
   isSuperAdmin: boolean;
+  heading?: string;
 }) {
   const [removed, setRemoved] = useState<Set<string>>(new Set());
   const [hiddenOverrides, setHiddenOverrides] = useState<Map<string, boolean>>(new Map());
@@ -78,7 +80,9 @@ export function ImportedFixturesList({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-text-primary">Imported fixtures ({visible.length})</h2>
+        <h2 className="text-sm font-semibold text-text-primary">
+          {heading} ({visible.length})
+        </h2>
       </div>
       {isSuperAdmin && (
         <div className="space-y-1.5">
