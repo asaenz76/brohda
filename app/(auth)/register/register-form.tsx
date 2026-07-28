@@ -134,11 +134,11 @@ export function RegisterForm() {
               <Label htmlFor="acceptedTerms" className="text-xs font-normal text-text-secondary">
                 I have read and agree to the{" "}
                 <Link href="/terms" target="_blank" className="underline underline-offset-4">
-                  Terms of Service
+                  Terms
                 </Link>{" "}
                 and{" "}
                 <Link href="/privacy" target="_blank" className="underline underline-offset-4">
-                  Privacy Policy
+                  Policy
                 </Link>
                 .
               </Label>
