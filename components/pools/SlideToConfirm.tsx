@@ -26,7 +26,20 @@ export function SlideToConfirm({
   const [dragX, setDragX] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [trackWidthPx, setTrackWidthPx] = useState(1);
+  const [justConfirmed, setJustConfirmed] = useState(false);
   const startXRef = useRef(0);
+
+  // Instant micro-feedback at the moment of the gesture itself — not
+  // gated on the server round trip, so it lands immediately regardless of
+  // network latency. Vibration is feature-detected (unsupported on iOS
+  // Safari) and silently no-ops there; the visual pop still plays either
+  // way. Reduced-motion is already handled globally (globals.css zeroes
+  // every animation duration under prefers-reduced-motion), so no extra
+  // guard is needed here.
+  function fireConfirmFeedback() {
+    setJustConfirmed(true);
+    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(15);
+  }
 
   // Ref reads (clientWidth) belong in an effect, not render — measure via
   // ResizeObserver rather than computing from trackRef.current during render.
@@ -63,6 +76,7 @@ export function SlideToConfirm({
     const ratio = dragX / trackWidthPx;
     if (ratio >= THRESHOLD) {
       setDragX(trackWidthPx);
+      fireConfirmFeedback();
       onConfirm();
     } else {
       setDragX(0);
@@ -103,6 +117,8 @@ export function SlideToConfirm({
             if (pending) return;
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
+              setDragX(trackWidthPx);
+              fireConfirmFeedback();
               onConfirm();
             }
           }}
@@ -110,6 +126,7 @@ export function SlideToConfirm({
             "absolute top-0.5 left-0.5 flex touch-none items-center justify-center rounded-full bg-accent-primary text-white shadow outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
             !dragging && "transition-[left] duration-200",
             pending && "opacity-70",
+            justConfirmed && "animate-[celebrate-pop_0.4s_ease-out]",
           )}
           style={{ left: `${dragX + 2}px`, width: THUMB_SIZE, height: THUMB_SIZE }}
         >
@@ -118,7 +135,12 @@ export function SlideToConfirm({
       </div>
       <button
         type="button"
-        onClick={() => !pending && onConfirm()}
+        onClick={() => {
+          if (pending) return;
+          setDragX(trackWidthPx);
+          fireConfirmFeedback();
+          onConfirm();
+        }}
         disabled={pending}
         className="w-full text-center text-xs text-text-muted underline underline-offset-4 disabled:opacity-50"
       >
