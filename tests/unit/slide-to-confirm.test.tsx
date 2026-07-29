@@ -64,4 +64,47 @@ describe("SlideToConfirm confirm feedback", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("plays a two-note chime via Web Audio when confirming — the one channel that actually reaches iOS", () => {
+    const onConfirm = vi.fn();
+    const oscillators: Array<{ start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> }> = [];
+    class FakeAudioContext {
+      currentTime = 0;
+      close = vi.fn();
+      createOscillator() {
+        const osc = { type: "sine", frequency: { value: 0 }, connect: vi.fn(), start: vi.fn(), stop: vi.fn() };
+        oscillators.push(osc);
+        return osc;
+      }
+      createGain() {
+        return {
+          gain: { setValueAtTime: vi.fn(), linearRampToValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() },
+          connect: vi.fn(),
+        };
+      }
+    }
+    vi.stubGlobal("AudioContext", FakeAudioContext);
+
+    render(<SlideToConfirm onConfirm={onConfirm} pending={false} />);
+    fireEvent.click(screen.getByText("Or tap here to confirm"));
+
+    expect(oscillators).toHaveLength(2); // two ascending notes
+    oscillators.forEach((osc) => {
+      expect(osc.start).toHaveBeenCalledTimes(1);
+      expect(osc.stop).toHaveBeenCalledTimes(1);
+    });
+
+    vi.unstubAllGlobals();
+  });
+
+  it("silently no-ops when Web Audio isn't available at all", () => {
+    const onConfirm = vi.fn();
+    vi.stubGlobal("AudioContext", undefined);
+
+    render(<SlideToConfirm onConfirm={onConfirm} pending={false} />);
+    expect(() => fireEvent.click(screen.getByText("Or tap here to confirm"))).not.toThrow();
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+
+    vi.unstubAllGlobals();
+  });
 });

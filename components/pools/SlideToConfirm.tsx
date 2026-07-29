@@ -13,6 +13,48 @@ interface SlideToConfirmProps {
 const THRESHOLD = 0.85;
 const THUMB_SIZE = 40;
 
+// iOS never implemented the Vibration API (no Safari, no third-party iOS
+// browser — they're all WebKit under the hood) and never will, so a chime
+// is the only one of the three feedback channels that actually reaches an
+// iPhone. Synthesized via Web Audio rather than an audio file — no asset
+// to ship, and playing it directly inside the confirming tap/drag-release
+// (a genuine user gesture) satisfies Safari's autoplay-unlock rule. Web
+// Audio already respects the hardware silent switch on iOS, unlike some
+// <audio>-element playback configurations, so a muted phone stays muted.
+function playConfirmChime() {
+  try {
+    const AudioContextClass = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    const now = ctx.currentTime;
+
+    // Two quick ascending notes — a short, unmistakable "confirmed" chime.
+    [660, 880].forEach((frequency, i) => {
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.value = frequency;
+      const start = now + i * 0.09;
+      // Ramped envelope (not an instant on/off) so each note doesn't click.
+      gain.gain.setValueAtTime(0, start);
+      gain.gain.linearRampToValueAtTime(0.2, start + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.15);
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.start(start);
+      oscillator.stop(start + 0.16);
+    });
+
+    // Browsers cap how many AudioContext instances can be alive at once —
+    // close it shortly after both notes finish rather than leaking one per
+    // confirmed entry.
+    setTimeout(() => ctx.close(), 400);
+  } catch {
+    // Unsupported browser, blocked by a permissions policy, etc. — the
+    // visual pop (and vibration where supported) already cover this.
+  }
+}
+
 // X.5.9: a real pointer-drag gesture (not a styled button) — disables
 // during submission, prevents repeated taps, and ships a keyboard-
 // accessible + standard-button fallback for accessibility settings.
@@ -31,14 +73,15 @@ export function SlideToConfirm({
 
   // Instant micro-feedback at the moment of the gesture itself — not
   // gated on the server round trip, so it lands immediately regardless of
-  // network latency. Vibration is feature-detected (unsupported on iOS
-  // Safari) and silently no-ops there; the visual pop still plays either
-  // way. Reduced-motion is already handled globally (globals.css zeroes
-  // every animation duration under prefers-reduced-motion), so no extra
-  // guard is needed here.
+  // network latency. Vibration is feature-detected (unsupported on iOS —
+  // see playConfirmChime's comment) and silently no-ops there; the chime
+  // and visual pop still play on every platform. Reduced-motion is
+  // already handled globally (globals.css zeroes every animation duration
+  // under prefers-reduced-motion), so no extra guard is needed here.
   function fireConfirmFeedback() {
     setJustConfirmed(true);
     if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(15);
+    playConfirmChime();
   }
 
   // Ref reads (clientWidth) belong in an effect, not render — measure via
