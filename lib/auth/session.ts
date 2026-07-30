@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { isUsableSession, isSuperAdmin, isAdminOrAbove } from "./guards";
@@ -12,7 +13,12 @@ export type UserProfile = {
   is_active: boolean;
 };
 
-export async function getCurrentUser(): Promise<UserProfile | null> {
+// cache()-wrapped so the layout, a page, and anything else calling
+// requireUser()/requireAdminOrAbove()/requireSuperAdmin() within the same
+// RSC render pass share one auth+profile lookup instead of each re-querying
+// from scratch — proxy.ts's own middleware check is a separate phase of the
+// request lifecycle and isn't affected by (or mergeable with) this.
+export const getCurrentUser = cache(async (): Promise<UserProfile | null> => {
   const supabase = await createClient();
   const {
     data: { user },
@@ -27,7 +33,7 @@ export async function getCurrentUser(): Promise<UserProfile | null> {
     .single();
 
   return profile as UserProfile | null;
-}
+});
 
 export async function requireUser(): Promise<UserProfile> {
   const profile = await getCurrentUser();

@@ -1503,6 +1503,76 @@ team's email switch off and published a second pool, confirming in-app
 still fired unconditionally; confirmed the Unfollow button removes the
 row cleanly.
 
+## Navigation/action performance pass (post-Phase-7)
+
+Users reported general slowness clicking around the app. Three independent,
+confirmed causes (not the earlier reverted service-worker incident):
+
+1. **Duplicate per-navigation auth check.** `proxy.ts`'s middleware
+   (`lib/supabase/middleware.ts`) does its own `getUser()` + `user_profiles`
+   select on every request; separately, `app/(app)/layout.tsx` and most
+   individual pages call `requireUser()`/`requireAdminOrAbove()` again,
+   each re-triggering the identical query from scratch — up to 2-3 times
+   per navigation, with zero memoization anywhere in the codebase. Fixed
+   by wrapping `getCurrentUser` (`lib/auth/session.ts`) in React's
+   `cache()` — dedupes repeated calls within one RSC render pass (layout +
+   page) down to one. Doesn't touch (and can't merge with) the
+   middleware's own separate call — that's a distinct phase of the
+   request lifecycle, and remains the correct place for the redirect-gate
+   logic. Verified live: a single `/profile` or `/feed` navigation now
+   logs exactly one `getCurrentUser` fetch, not 2-3.
+2. **Per-pool query fan-out.** `lib/pools/fetch.ts`'s
+   `getPoolCardViewModels` called `get_pool_totals`/`get_pool_participants`
+   **per pool** inside a `Promise.all` — 2×N round trips for N pools on
+   any page (Feed, Predictions tab). Fixed with two new bulk RPCs,
+   `get_pool_totals_bulk`/`get_pool_participants_bulk`
+   (`supabase/migrations/20260101000083_pool_totals_participants_bulk.sql`,
+   additive — the original single-pool functions stay, still used by
+   `getPoolLiveStats`'s realtime per-card refetch and the landing page's
+   own already-capped fan-out), each accepting `p_pool_ids uuid[]` and
+   returning one row per pool. `get_pool_totals_bulk` always returns a row
+   per pool (`pool_options` rows exist from pool creation, zero entries
+   just means zero-valued totals); `get_pool_participants_bulk` omits a
+   pool entirely if it has zero entries (keyed off `entries`, which
+   genuinely has no rows for an unentered pool) — callers must treat a
+   missing key as the empty/zero fallback, not assume every input id comes
+   back. The JS-side grouping (`groupPoolTotalsByPoolId`/
+   `groupPoolParticipantsByPoolId` in `lib/pools/fetch.ts`) is exported and
+   unit-tested directly (`tests/unit/pool-totals-grouping.test.ts`) since
+   `getPoolCardViewModels` itself can't be called from a bare test —
+   it depends on `next/headers`'s `cookies()`, unavailable outside a real
+   Next.js request context. Net effect: 2 round trips total regardless of
+   pool count. Cross-pool-attribution correctness (the real regression
+   risk in a `group by`/`join`-based bulk function) is covered by
+   `tests/integration/pool-bulk-rpc.test.ts`, which also cross-checks the
+   bulk result against the original single-pool functions row-for-row.
+3. **Unbounded result sets.** Neither the Feed page's open-pools query nor
+   the Predictions tab's entries query had a `.limit()` — every open pool /
+   every entry ever got fetched, feeding directly into #2's per-item cost
+   and degrading further as the app grows. Added a defensive
+   `FEED_PAGE_SIZE`/`PREDICTIONS_PAGE_SIZE` cap (50) to each — not full
+   pagination/infinite-scroll (a separate, deliberately deferred product
+   decision). Feed's query orders by whichever field the active sort mode
+   needs (`locks_at` for "locking soon", `created_at` otherwise) *before*
+   applying the cap, so "locking soon" surfaces the genuinely soonest-to-
+   lock pools rather than just re-sorting the 50 newest —
+   `tests/integration/feed-pool-cap.test.ts` seeds pools where the two
+   orderings deliberately disagree at the extremes to prove this.
+
+Explicitly deferred, not part of this pass: `revalidatePath` after small
+actions (like/follow) re-running a page's full data fetch — a real
+secondary contributor, but needs case-by-case correctness review per
+action rather than a blanket change.
+
+**A safety note surfaced during this work**: `package.json`'s
+`test:integration` script runs `dotenv -e .env.local -- vitest run ...`,
+and this repo's `.env.local` currently holds **production** Supabase
+credentials, not local ones. Do not run `pnpm test:integration` as
+configured — it would seed/query the live database. Run vitest directly
+with local credentials injected inline instead (see any of the
+`tests/integration/*.test.ts` files added in this pass for the exact
+local anon/service-role keys used), never by editing `.env.local` itself.
+
 ## Local development
 
 ```bash

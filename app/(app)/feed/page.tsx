@@ -29,6 +29,14 @@ function leagueLabel(name: string, country: string | null): string {
   return country ? `${country} | ${name}` : name;
 }
 
+// A defensive cap, not real pagination — every open pool used to be
+// fetched unbounded, feeding directly into getPoolCardViewModels's
+// per-pool cost. Ordered by whichever field the active sort mode actually
+// needs (see the query below) before this cap applies, so "locking soon"
+// still surfaces the genuinely soonest-to-lock pools rather than just the
+// newest ones re-sorted.
+const FEED_PAGE_SIZE = 50;
+
 export default async function FeedPage({
   searchParams,
 }: {
@@ -78,7 +86,9 @@ export default async function FeedPage({
     .from("pools")
     .select(poolsSelect)
     .eq("visibility", "VISIBLE_TO_ALL_MEMBERS")
-    .eq("status", "OPEN");
+    .eq("status", "OPEN")
+    .order(sortByLockingSoon ? "locks_at" : "created_at", { ascending: sortByLockingSoon })
+    .limit(FEED_PAGE_SIZE);
 
   const [{ data: pools }, { data: myEntries }, { data: wallet }, paymentMethods] = await Promise.all([
     poolsQuery,

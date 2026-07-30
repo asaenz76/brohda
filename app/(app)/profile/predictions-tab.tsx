@@ -25,6 +25,11 @@ const HISTORY_STATES: ReadonlySet<CardState> = new Set([
 ]);
 const EXCLUDED_STATES: ReadonlySet<CardState> = new Set(["OPEN_PRE_VOTE"]);
 
+// A defensive cap, not real pagination — every entry ever made used to be
+// fetched unbounded, feeding directly into getPoolCardViewModels's
+// per-pool cost.
+const PREDICTIONS_PAGE_SIZE = 50;
+
 // Factored out of the old standalone /my-picks page so the Profile page's
 // "Predictions" tab (Phase 3) can render it for the current user, and the
 // public /profile/[username] page (Phase 4) can reuse it scoped to
@@ -65,7 +70,8 @@ export async function PredictionsTab({
       .select("pool_id")
       .eq("user_id", userId)
       .in("status", statuses)
-      .order("created_at", { ascending: false }),
+      .order("created_at", { ascending: false })
+      .limit(PREDICTIONS_PAGE_SIZE),
     supabase.from("wallet_balances").select("balance").eq("user_id", userId).single(),
     getPaymentMethods(),
   ]);

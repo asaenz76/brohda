@@ -4,6 +4,46 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { buildPoolCardViewModel, computeOptionStats, type FollowState, type SocialPoolCardViewModel } from "./view-model";
 import type { EntryStatusForCard } from "./card-state";
 
+export interface PoolTotalsBulkRow {
+  pool_id: string;
+  total_entries: number;
+  gross_pool: number;
+}
+
+export interface PoolParticipantBulkRow {
+  pool_id: string;
+  user_id: string;
+  display_name: string;
+  avatar_url: string | null;
+}
+
+/** Pure grouping step for get_pool_totals_bulk's flat rows — every real
+ *  pool has a row here (pool_options rows exist from pool creation, zero
+ *  entries just means zero-valued totals), so a missing key only happens
+ *  for a pool_id that was never actually queried for. Exported and
+ *  independently unit-tested since this is the one piece of the bulk-RPC
+ *  migration that isn't itself exercised by a database round trip. */
+export function groupPoolTotalsByPoolId(
+  rows: PoolTotalsBulkRow[],
+): Map<string, { total_entries: number; gross_pool: number }> {
+  return new Map(rows.map((r) => [r.pool_id, { total_entries: r.total_entries, gross_pool: r.gross_pool }]));
+}
+
+/** Pure grouping step for get_pool_participants_bulk's flat rows — order
+ *  within each pool's list follows the RPC's own `order by pool_id,
+ *  created_at asc`, so simple push-in-order preserves it correctly. */
+export function groupPoolParticipantsByPoolId(
+  rows: PoolParticipantBulkRow[],
+): Map<string, Array<{ display_name: string; avatar_url: string | null }>> {
+  const map = new Map<string, Array<{ display_name: string; avatar_url: string | null }>>();
+  for (const row of rows) {
+    const list = map.get(row.pool_id) ?? [];
+    list.push({ display_name: row.display_name, avatar_url: row.avatar_url });
+    map.set(row.pool_id, list);
+  }
+  return map;
+}
+
 // PostgREST encodes an .in(column, ids) filter directly into the request
 // URL — past a few hundred UUIDs (~580 in practice) that URL exceeds the
 // proxy's length limit and the request fails with a bare "URI too long"
@@ -168,24 +208,17 @@ export async function getPoolCardViewModels(
     return { id, following: emailByEntityId.has(id), emailEnabled: emailByEntityId.get(id) ?? false };
   }
 
-  const perPoolExtras = await Promise.all(
-    pools.map(async (pool) => {
-      const [{ data: totalsRows }, { data: participantsRows }] = await Promise.all([
-        supabase.rpc("get_pool_totals", { p_pool_id: pool.id }),
-        supabase.rpc("get_pool_participants", { p_pool_id: pool.id }),
-      ]);
-
-      const totalsRaw = Array.isArray(totalsRows) ? totalsRows[0] : totalsRows;
-
-      return {
-        poolId: pool.id as string,
-        totals: totalsRaw ?? { total_entries: 0, gross_pool: 0 },
-        participants: (participantsRows ?? []) as Array<{
-          display_name: string;
-          avatar_url: string | null;
-        }>,
-      };
-    }),
+  // Bulk-batched (2 round trips regardless of pool count) rather than the
+  // old per-pool Promise.all fan-out (2×N round trips) — the dominant cost
+  // on any page rendering more than a handful of pools (Feed, Predictions).
+  const poolIdList = pools.map((p) => p.id as string);
+  const [{ data: totalsRowsBulk }, { data: participantsRowsBulk }] = await Promise.all([
+    supabase.rpc("get_pool_totals_bulk", { p_pool_ids: poolIdList }),
+    supabase.rpc("get_pool_participants_bulk", { p_pool_ids: poolIdList }),
+  ]);
+  const totalsByPoolId = groupPoolTotalsByPoolId((totalsRowsBulk ?? []) as PoolTotalsBulkRow[]);
+  const participantsByPoolId = groupPoolParticipantsByPoolId(
+    (participantsRowsBulk ?? []) as PoolParticipantBulkRow[],
   );
 
   const viewModels: SocialPoolCardViewModel[] = [];
@@ -224,7 +257,8 @@ export async function getPoolCardViewModels(
 
     const poolOptions = options.filter((o) => o.pool_id === pool.id);
     const entry = entries.find((e) => e.pool_id === pool.id);
-    const extras = perPoolExtras.find((e) => e.poolId === pool.id);
+    const poolTotals = totalsByPoolId.get(pool.id);
+    const poolParticipants = participantsByPoolId.get(pool.id) ?? [];
 
     viewModels.push(
       buildPoolCardViewModel({
@@ -254,9 +288,9 @@ export async function getPoolCardViewModels(
         currentUserEntry: entry
           ? { option_id: entry.option_id, amount: entry.amount, status: entry.status as EntryStatusForCard }
           : null,
-        totals: extras?.totals ?? { total_entries: 0, gross_pool: 0 },
-        participants: extras?.participants ?? [],
-        participantCount: extras?.participants.length ?? 0,
+        totals: poolTotals ?? { total_entries: 0, gross_pool: 0 },
+        participants: poolParticipants,
+        participantCount: poolParticipants.length,
         finalPayout: entry ? (payoutByEntryId.get(entry.id) ?? null) : null,
         isLikedByCurrentUser: likedPoolIds.has(pool.id),
         comboLegs: comboLegs.filter((leg) => leg.pool_id === pool.id),
