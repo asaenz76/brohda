@@ -165,6 +165,9 @@ export default async function AdminUsersPage({
                   )}
                   <td className="px-3 py-2">
                     <div className="flex flex-col items-end gap-2">
+                      <Link href={`/admin/users/${u.id}`} className="text-xs text-text-secondary hover:underline">
+                        Admin view
+                      </Link>
                       {isSuperAdmin && (
                         <>
                           <WalletAdjustmentForm key={`${u.id}-${balance}`} userId={u.id} />
