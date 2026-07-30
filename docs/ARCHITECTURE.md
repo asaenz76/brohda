@@ -1352,6 +1352,72 @@ scoping, but is currently unused by any query — there's exactly one
 untested cross-user RLS for a capability nobody can exercise. Wire it up
 when there's a second admin and a real need to restrict what they see.
 
+## "Get the app" — home-screen install (post-Phase-7)
+
+No native App Store/Play Store presence — this is a same-origin web app
+manifest (`app/manifest.ts`, auto-served at `/manifest.webmanifest`) plus a
+service worker (`public/sw.js` — see "Offline support" below for what it
+caches) and `InstallAppButton` (`components/InstallAppButton.tsx`, wired
+into `LandingNav`). Icons (`public/icons/icon-{192,512}.png`,
+`app/apple-icon.png`) are rasterized from the existing `app/icon.svg`
+brand mark (same "b." glyph already used as the browser-tab favicon), not
+new artwork.
+
+The two platforms need genuinely different handling, not a single unified
+API — this is a real constraint, not a design choice:
+- **Android/desktop Chrome/Edge**: fire `beforeinstallprompt`, captured
+  and `preventDefault()`-ed so the button can trigger the native prompt
+  on click instead of the browser's own mini-infobar.
+- **iOS Safari**: has no install API at all — Apple has never shipped
+  one. `InstallAppButton` detects it via user-agent sniffing (the only
+  option) and shows a bottom sheet with manual Share -> "Add to Home
+  Screen" instructions instead. `app/layout.tsx`'s `metadata.other`
+  manually adds the `apple-mobile-web-app-capable` meta tag — Next 16's
+  typed `appleWebApp.capable` field stopped emitting it (checked the
+  compiled output), and that tag is still what makes older iOS versions
+  open the installed icon full-screen instead of inside Safari's chrome.
+
+The button hides itself entirely once already installed
+(`display-mode: standalone` / iOS's own `navigator.standalone` flag) and
+on any browser supporting neither path — never a dead button that does
+nothing on click. `next.config.ts`'s CSP gained one additive line
+(`worker-src 'self'`) for the service worker registration; nothing else
+in the existing policy changed.
+
+### Offline support (post-Phase-7)
+
+`public/sw.js` caches static assets only — `/_next/static/*` (content-hashed,
+can never go stale across a deploy), `/icons/*`, `/apple-icon.png`,
+`/favicon.ico`, `/manifest.webmanifest`, plus the offline fallback page
+itself (`public/offline.html` + `public/offline.css`). Everything else is
+network-only, with no exceptions:
+
+- **Every server action is a POST**, and the fetch handler bails out
+  immediately for any non-`GET` request — mutations (pool entries, wallet
+  requests, everything that touches money or pool state) are never even
+  seen by the service worker, let alone cached.
+- **Every page navigation and RSC/data fetch** goes straight to the
+  network. A failed data fetch just fails as a normal error; only a full
+  top-level navigation gets a graceful fallback, and that fallback is
+  always the static `/offline.html` page, never a cached copy of real app
+  content.
+
+This is what keeps a late pool entry impossible even with offline support
+in place: there is no code path where a stale "pool still open" view can
+be shown or acted on. The server's own atomic `locks_at` check inside
+`create_pool_entry` remains the authoritative backstop regardless — this
+is a second, independent guardrail, not a replacement for it.
+
+Verified live (not just by code review) by stopping the dev server
+entirely and navigating with it down: static assets and the offline page
+still loaded from cache, page navigations correctly fell back to
+`/offline.html` styled and readable, and once the server came back the
+"Try again" button re-fetched real content through normal auth/redirect
+logic rather than serving anything stale. Also verified the reverse case
+— with the server running, a normal logged-in navigation (Feed) loads
+exactly as before, with the feed's own data request going out as a POST
+that bypasses the service worker entirely.
+
 ## Local development
 
 ```bash

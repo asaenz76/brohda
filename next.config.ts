@@ -101,6 +101,11 @@ const nextConfig: NextConfig = {
               // since the SDK sends nothing without one.
               `connect-src 'self' ${supabaseUrl ?? ""} ${supabaseWsOrigin} https://*.sentry.io https://*.ingest.sentry.io${process.env.NODE_ENV !== "production" ? " ws://localhost:* http://localhost:*" : ""}`,
               "frame-ancestors 'none'",
+              // Same-origin only — backs public/sw.js (InstallAppButton's
+              // beforeinstallprompt support). Some browsers don't fall back
+              // to default-src for worker-src, so this is explicit rather
+              // than relying on that fallback.
+              "worker-src 'self'",
             ].join("; "),
           },
         ],

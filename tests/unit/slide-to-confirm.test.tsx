@@ -107,4 +107,45 @@ describe("SlideToConfirm confirm feedback", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("confirms a drag gesture even when pointerup fires on window rather than the thumb (the real-device case this fixes — WebKit doesn't reliably re-deliver pointerup to the drag's origin element)", () => {
+    const onConfirm = vi.fn();
+    const vibrate = vi.fn();
+    vi.stubGlobal("navigator", { ...navigator, vibrate });
+
+    render(<SlideToConfirm onConfirm={onConfirm} pending={false} />);
+    const thumb = screen.getByRole("slider");
+
+    fireEvent.pointerDown(thumb, { clientX: 0 });
+    window.dispatchEvent(new PointerEvent("pointermove", { clientX: 50 }));
+    window.dispatchEvent(new PointerEvent("pointerup", { clientX: 50 }));
+
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(vibrate).toHaveBeenCalledWith(15);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("snaps back without confirming when released below the threshold", () => {
+    const onConfirm = vi.fn();
+    render(<SlideToConfirm onConfirm={onConfirm} pending={false} />);
+    const thumb = screen.getByRole("slider");
+
+    fireEvent.pointerDown(thumb, { clientX: 0 });
+    window.dispatchEvent(new PointerEvent("pointerup", { clientX: 0 }));
+
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it("snaps back without confirming on pointercancel, even mid-drag past the threshold position", () => {
+    const onConfirm = vi.fn();
+    render(<SlideToConfirm onConfirm={onConfirm} pending={false} />);
+    const thumb = screen.getByRole("slider");
+
+    fireEvent.pointerDown(thumb, { clientX: 0 });
+    window.dispatchEvent(new PointerEvent("pointermove", { clientX: 50 }));
+    window.dispatchEvent(new PointerEvent("pointercancel", { clientX: 50 }));
+
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
 });

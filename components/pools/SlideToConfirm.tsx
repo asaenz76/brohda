@@ -70,6 +70,16 @@ export function SlideToConfirm({
   const [trackWidthPx, setTrackWidthPx] = useState(1);
   const [justConfirmed, setJustConfirmed] = useState(false);
   const startXRef = useRef(0);
+  // Callers (EntryConfirmationSheet) pass a fresh onConfirm closure every
+  // render — read the latest one through a ref inside the window-level
+  // drag listeners below instead of depending on it directly, so those
+  // listeners never need to tear down and re-attach mid-drag. Updated in
+  // an effect (not during render) since refs aren't meant to be written
+  // while rendering.
+  const onConfirmRef = useRef(onConfirm);
+  useEffect(() => {
+    onConfirmRef.current = onConfirm;
+  });
 
   // Instant micro-feedback at the moment of the gesture itself — not
   // gated on the server round trip, so it lands immediately regardless of
@@ -104,27 +114,61 @@ export function SlideToConfirm({
     if (pending) return;
     setDragging(true);
     startXRef.current = e.clientX - dragX;
-    e.currentTarget.setPointerCapture(e.pointerId);
   }
 
-  function handlePointerMove(e: React.PointerEvent<HTMLDivElement>) {
-    if (!dragging || pending) return;
-    const next = Math.min(Math.max(0, e.clientX - startXRef.current), trackWidthPx);
-    setDragX(next);
-  }
-
-  function handlePointerUp() {
+  // Listening on window (not just the thumb's own onPointerMove/onPointerUp)
+  // once dragging starts, rather than relying solely on setPointerCapture —
+  // real touch gestures on iOS Safari don't reliably re-deliver pointerup
+  // to the origin element (a known WebKit quirk), which silently dropped
+  // both the entry and the confirm feedback on a real device even though a
+  // slower mouse-simulated drag in desktop testing never showed it. Also
+  // computes the final ratio directly from the release event's own
+  // coordinate rather than trusting the last committed dragX, since a fast
+  // swipe can outrun however many intermediate pointermove events actually
+  // arrive before the finger lifts.
+  useEffect(() => {
     if (!dragging) return;
-    setDragging(false);
-    const ratio = dragX / trackWidthPx;
-    if (ratio >= THRESHOLD) {
-      setDragX(trackWidthPx);
-      fireConfirmFeedback();
-      onConfirm();
-    } else {
+
+    function clamp(clientX: number) {
+      return Math.min(Math.max(0, clientX - startXRef.current), trackWidthPx);
+    }
+
+    function handleMove(e: PointerEvent) {
+      setDragX(clamp(e.clientX));
+    }
+
+    function handleUp(e: PointerEvent) {
+      setDragging(false);
+      const finalX = clamp(e.clientX);
+      const ratio = trackWidthPx > 0 ? finalX / trackWidthPx : 0;
+      if (ratio >= THRESHOLD) {
+        setDragX(trackWidthPx);
+        fireConfirmFeedback();
+        onConfirmRef.current();
+      } else {
+        setDragX(0);
+      }
+    }
+
+    // A cancelled gesture (e.g. an incoming call, iOS's own edge-swipe
+    // taking over) always snaps back, regardless of how far it had
+    // dragged — cancellation means the gesture didn't complete normally,
+    // so it must never still count as a confirm the way handleUp's
+    // threshold check would.
+    function handleCancel() {
+      setDragging(false);
       setDragX(0);
     }
-  }
+
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+    window.addEventListener("pointercancel", handleCancel);
+    return () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleCancel);
+    };
+  }, [dragging, trackWidthPx]);
 
   const ratio = trackWidthPx > 0 ? dragX / trackWidthPx : 0;
 
@@ -154,8 +198,6 @@ export function SlideToConfirm({
           aria-label={label}
           aria-disabled={pending}
           onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
           onKeyDown={(e) => {
             if (pending) return;
             if (e.key === "Enter" || e.key === " ") {
