@@ -22,6 +22,8 @@ function stubMatchMedia(matches: boolean) {
 const ANDROID_CHROME_UA =
   "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
 const IOS_SAFARI_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+const IOS_CHROME_UA =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/120.0.0.0 Mobile/15E148 Safari/604.1";
 
 afterEach(() => {
   cleanup();
@@ -64,6 +66,17 @@ describe("InstallAppButton", () => {
 
     expect(screen.getByRole("dialog", { name: "Add brohda. to your Home Screen" })).toBeInTheDocument();
     expect(screen.getByText(/Add to Home/)).toBeInTheDocument();
+  });
+
+  it("shows Chrome-specific Share icon wording on iOS Chrome (Apple requires every iOS browser to be WebKit, so Chrome's UA also matches isIosSafari, but its Share icon sits next to the address bar, not in a Safari-style toolbar)", () => {
+    stubUserAgent(IOS_CHROME_UA, 5);
+    stubMatchMedia(false);
+    render(<InstallAppButton />);
+
+    fireEvent.click(screen.getByLabelText("Get the app"));
+
+    expect(screen.getByText(/next to the address bar/)).toBeInTheDocument();
+    expect(screen.queryByText(/Safari's toolbar/)).not.toBeInTheDocument();
   });
 
   it("portals the iOS instructions sheet to document.body, not the trigger's own DOM subtree", () => {

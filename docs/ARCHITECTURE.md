@@ -1355,13 +1355,13 @@ when there's a second admin and a real need to restrict what they see.
 ## "Get the app" — home-screen install (post-Phase-7)
 
 No native App Store/Play Store presence — this is a same-origin web app
-manifest (`app/manifest.ts`, auto-served at `/manifest.webmanifest`) plus a
-service worker (`public/sw.js` — see "Offline support" below for what it
-caches) and `InstallAppButton` (`components/InstallAppButton.tsx`, wired
-into `LandingNav`). Icons (`public/icons/icon-{192,512}.png`,
+manifest (`app/manifest.ts`, auto-served at `/manifest.webmanifest`) and
+`InstallAppButton` (`components/InstallAppButton.tsx`, wired into
+`LandingNav`). Icons (`public/icons/icon-{192,512}.png`,
 `app/apple-icon.png`) are rasterized from the existing `app/icon.svg`
 brand mark (same "b." glyph already used as the browser-tab favicon), not
-new artwork.
+new artwork. There is deliberately **no active service worker** — see
+"Offline support (reverted)" below for why one was tried and pulled.
 
 The two platforms need genuinely different handling, not a single unified
 API — this is a real constraint, not a design choice:
@@ -1380,43 +1380,47 @@ API — this is a real constraint, not a design choice:
 The button hides itself entirely once already installed
 (`display-mode: standalone` / iOS's own `navigator.standalone` flag) and
 on any browser supporting neither path — never a dead button that does
-nothing on click. `next.config.ts`'s CSP gained one additive line
-(`worker-src 'self'`) for the service worker registration; nothing else
-in the existing policy changed.
+nothing on click. `next.config.ts`'s CSP still carries `worker-src 'self'`
+even with no service worker actively registered — `public/sw.js` still
+needs to be a legally executable worker script for the tombstone below to
+run on any device that registered the old one.
 
-### Offline support (post-Phase-7)
+### Offline support (reverted — real production incident)
 
-`public/sw.js` caches static assets only — `/_next/static/*` (content-hashed,
-can never go stale across a deploy), `/icons/*`, `/apple-icon.png`,
-`/favicon.ico`, `/manifest.webmanifest`, plus the offline fallback page
-itself (`public/offline.html` + `public/offline.css`). Everything else is
-network-only, with no exceptions:
+An earlier version of this feature added `public/sw.js`, a service worker
+caching static assets (`/_next/static/*`, icons, manifest) cache-first and
+falling back to a static `/offline.html` page on failed navigations, with
+everything mutable (server actions, page data) strictly network-only. It
+was **reverted** after it broke login and general responsiveness for a
+live beta tester on their installed home-screen copy:
 
-- **Every server action is a POST**, and the fetch handler bails out
-  immediately for any non-`GET` request — mutations (pool entries, wallet
-  requests, everything that touches money or pool state) are never even
-  seen by the service worker, let alone cached.
-- **Every page navigation and RSC/data fetch** goes straight to the
-  network. A failed data fetch just fails as a normal error; only a full
-  top-level navigation gets a graceful fallback, and that fallback is
-  always the static `/offline.html` page, never a cached copy of real app
-  content.
+- **Login hung indefinitely.** Login is a Next.js Server Action, and
+  Server Actions are tied to an ID baked into the JS bundle at build time.
+  iOS suspends an installed home-screen app across app-switches instead of
+  reloading it — a tester whose app stayed open in the background across a
+  deploy kept running the old JS bundle, whose Server Action ID no longer
+  matched the redeployed server. Not a caching bug per se (navigations and
+  server-action POSTs were both correctly excluded from caching) — a gap
+  in handling a new deploy landing while the app sat suspended.
+- **Every tap took 1+ second.** Independent of the above: iOS Safari's
+  service worker implementation adds real per-request latency just from
+  having *any* active service worker in scope, regardless of what it
+  actually intercepts or caches — a known WebKit weakness, not specific to
+  this service worker's logic.
 
-This is what keeps a late pool entry impossible even with offline support
-in place: there is no code path where a stale "pool still open" view can
-be shown or acted on. The server's own atomic `locks_at` check inside
-`create_pool_entry` remains the authoritative backstop regardless — this
-is a second, independent guardrail, not a replacement for it.
-
-Verified live (not just by code review) by stopping the dev server
-entirely and navigating with it down: static assets and the offline page
-still loaded from cache, page navigations correctly fell back to
-`/offline.html` styled and readable, and once the server came back the
-"Try again" button re-fetched real content through normal auth/redirect
-logic rather than serving anything stale. Also verified the reverse case
-— with the server running, a normal logged-in navigation (Feed) loads
-exactly as before, with the feed's own data request going out as a POST
-that bypasses the service worker entirely.
+Both symptoms trace back to the mere presence of an active service
+worker, not to a fixable detail of its caching strategy, so the fix was
+full removal rather than a patch. `public/sw.js` is now a tombstone: any
+browser that already registered the old version fetches it on its next
+update check, wipes every cache, unregisters itself, and force-reloads any
+open client. `app/providers.tsx` no longer registers a service worker at
+all, and additionally actively unregisters any existing registration and
+clears any cache on every load — deliberately not waiting on the slower,
+browser-driven update-check cycle to reach affected devices.
+`public/offline.html`/`public/offline.css` were deleted (unreferenced
+once the service worker stopped caching anything). `InstallAppButton`
+needed no changes — "Add to Home Screen" was never dependent on an active
+service worker.
 
 ## Local development
 

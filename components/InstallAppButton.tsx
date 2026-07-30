@@ -22,6 +22,21 @@ function isIosSafari(): boolean {
   return /iPad|iPhone|iPod/.test(ua) || (ua.includes("Macintosh") && navigator.maxTouchPoints > 1);
 }
 
+// Apple requires every iOS browser to be a WebKit wrapper around Safari,
+// so Chrome/Firefox/Edge on iOS all pass isIosSafari() above too (their
+// UA still contains "iPhone") and all use the same system Share sheet for
+// "Add to Home Screen" — but the Share icon isn't in the same place for
+// each: Safari puts it in the toolbar, Chrome puts it next to the address
+// bar. Only Chrome is special-cased with real wording (its UA token and
+// icon position are known); Firefox/Edge fall back to a generic hint
+// rather than guessing a position that hasn't been verified.
+function iosBrowserKind(): "safari" | "chrome" | "other" {
+  const ua = navigator.userAgent;
+  if (ua.includes("CriOS")) return "chrome";
+  if (ua.includes("FxiOS") || ua.includes("EdgiOS")) return "other";
+  return "safari";
+}
+
 function isStandalone(): boolean {
   // iOS Safari's own (non-standard) flag, plus the standard display-mode
   // media query every other install-capable browser sets once installed.
@@ -47,8 +62,9 @@ function useIsMounted() {
 /**
  * "Get the app" — the closest thing to an App Store presence without one.
  * Android/desktop Chrome/Edge get a real one-tap install via
- * beforeinstallprompt; iOS Safari (no install API exists) gets a short
- * instructional sheet for the manual Share -> Add to Home Screen flow.
+ * beforeinstallprompt; any iOS browser (Safari, Chrome, etc. — all are
+ * WebKit wrappers with no install API) gets a short instructional sheet
+ * for the manual Share -> Add to Home Screen flow.
  * Hidden entirely once already installed, and on browsers that support
  * neither path (nothing useful for the button to do there).
  */
@@ -104,6 +120,13 @@ export function InstallAppButton() {
 
 function IosInstallSheet({ onClose }: { onClose: () => void }) {
   const sheetRef = useRef<HTMLDivElement>(null);
+  const browserKind = iosBrowserKind();
+  const shareIconHint =
+    browserKind === "chrome"
+      ? "next to the address bar"
+      : browserKind === "safari"
+        ? "in Safari's toolbar"
+        : "in your browser's toolbar";
 
   useEffect(() => {
     sheetRef.current?.focus();
@@ -141,7 +164,7 @@ function IosInstallSheet({ onClose }: { onClose: () => void }) {
               1
             </span>
             <span className="flex items-center gap-1.5">
-              Tap the Share icon <Share className="size-4 shrink-0 text-text-primary" aria-hidden="true" /> in Safari&apos;s toolbar.
+              Tap the Share icon <Share className="size-4 shrink-0 text-text-primary" aria-hidden="true" /> {shareIconHint}.
             </span>
           </li>
           <li className="flex items-center gap-3">
