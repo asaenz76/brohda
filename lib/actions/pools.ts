@@ -9,7 +9,9 @@ import { generatePoolTemplate, getTemplateEligibility, type PoolType } from "@/l
 import { getTemplate, TEMPLATE_CONFIG_SCHEMAS } from "@/lib/pools/templates/registry";
 import { resolvePoolAnalyticsCategory } from "@/lib/pools/templates/category-labels";
 import { getPoolLiveStats, type PoolLiveStats } from "@/lib/pools/fetch";
-import { notifyPoolPublished } from "@/lib/email/notify-pool-published";
+import { notifyFollowedPoolPublished } from "@/lib/email/notify-followed-pool-published";
+import { getPoolPublishFollowRecipients } from "@/lib/pools/follow-recipients";
+import { createPoolPublishedFollowNotifications } from "@/lib/notifications/create";
 import { parseDollarsToCents, parsePercentToBps } from "@/lib/utils/money";
 import {
   createPoolFromTemplateSchema,
@@ -37,6 +39,29 @@ function readPoolConfigFromForm(formData: FormData) {
 function isLockTooCloseToKickoff(locksAtIso: string, kickoffIso: string): boolean {
   const latestAllowed = new Date(kickoffIso).getTime() - MINIMUM_LOCK_LEAD_MINUTES * 60_000;
   return new Date(locksAtIso).getTime() > latestAllowed;
+}
+
+// Shared by both places a pool transitions DRAFT -> OPEN (create-and-publish
+// and the explicit publish action) so the visibility guard and recipient
+// resolution exist in exactly one place. Skips HIDDEN (link-only) pools
+// entirely — in-app included, not just email — since blasting notifications
+// about an invite-only pool to arbitrary team/league followers who weren't
+// invited would defeat the point of hiding it (same reasoning the old
+// blanket email flow used).
+async function notifyFollowersOfPublish(pool: { id: string; question: string; fixtureId: string | null; visibility: string }) {
+  if (pool.visibility !== "VISIBLE_TO_ALL_MEMBERS") return;
+
+  const recipients = await getPoolPublishFollowRecipients(pool.fixtureId);
+  if (recipients.length === 0) return;
+
+  await createPoolPublishedFollowNotifications({
+    poolId: pool.id,
+    question: pool.question,
+    recipientUserIds: recipients.map((r) => r.userId),
+  });
+
+  const emailUserIds = recipients.filter((r) => r.emailEnabled).map((r) => r.userId);
+  await notifyFollowedPoolPublished({ pool: { id: pool.id, question: pool.question }, emailUserIds });
 }
 
 export type CreatePoolFromTemplateState = { error: string | null };
@@ -296,9 +321,10 @@ export async function createPoolFromTemplate(
   revalidatePath("/admin/pools");
   if (publishImmediately) {
     revalidatePath("/feed");
-    await notifyPoolPublished({
+    await notifyFollowersOfPublish({
       id: pool.id as string,
       question,
+      fixtureId: parsed.data.fixtureId,
       visibility: parsed.data.visibility,
     });
   }
@@ -335,9 +361,10 @@ export async function publishPoolAction(poolId: string) {
   revalidatePath("/feed");
 
   if (before) {
-    await notifyPoolPublished({
+    await notifyFollowersOfPublish({
       id: poolId,
       question: before.question as string,
+      fixtureId: before.fixture_id as string | null,
       visibility: before.visibility as string,
     });
   }

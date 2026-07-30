@@ -8,6 +8,7 @@ import { ProfileForm } from "./profile-form";
 import { ChangePasswordForm } from "./change-password-form";
 import { PredictionsTab } from "./predictions-tab";
 import { ProfileTabs } from "./profile-tabs";
+import { FollowedTeamsLeaguesTab } from "./followed-teams-leagues-tab";
 import { CloseAccountForm } from "./close-account-form";
 
 export default async function ProfilePage() {
@@ -22,7 +23,7 @@ export default async function ProfilePage() {
       // guards/middleware) — fetched separately for this page's edit form.
       supabase
         .from("user_profiles")
-        .select("pronouns, gender, bio, show_pronouns, show_gender, show_bio, email_notifications_enabled")
+        .select("pronouns, gender, bio, show_pronouns, show_gender, show_bio")
         .eq("id", user.id)
         .single(),
       supabase.rpc("get_profile_stats", { p_user_id: user.id }),
@@ -56,6 +57,7 @@ export default async function ProfilePage() {
             viewer={{ id: user.id, isModerator: isAdminOrAbove(user) }}
           />
         }
+        following={<FollowedTeamsLeaguesTab />}
         edit={
           <div className="space-y-6">
             <Card>
@@ -76,7 +78,6 @@ export default async function ProfilePage() {
                   showPronouns={editableFields?.show_pronouns ?? true}
                   showGender={editableFields?.show_gender ?? true}
                   showBio={editableFields?.show_bio ?? true}
-                  emailNotificationsEnabled={editableFields?.email_notifications_enabled ?? true}
                 />
               </CardContent>
             </Card>

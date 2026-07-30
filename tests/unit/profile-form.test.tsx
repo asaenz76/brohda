@@ -23,7 +23,6 @@ describe("ProfileForm bio character countdown", () => {
         showPronouns
         showGender
         showBio
-        emailNotificationsEnabled
       />,
     );
 
@@ -47,7 +46,6 @@ describe("ProfileForm bio character countdown", () => {
         showPronouns
         showGender
         showBio
-        emailNotificationsEnabled
       />,
     );
 

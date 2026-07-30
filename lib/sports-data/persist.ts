@@ -49,3 +49,38 @@ export function toFixtureRow(fixture: NormalizedFixture) {
     sync_error: null,
   };
 }
+
+/** Maps a NormalizedFixture to `teams` upsert rows (home + away), shared
+ * by the sync job and the admin import action alongside toFixtureRow —
+ * the same fixture payload is the only place a team's external_id, name,
+ * and logo are all available together. Teams with no external_id are
+ * skipped (teams.external_id is not null). */
+export function toTeamRows(fixture: NormalizedFixture) {
+  return [
+    {
+      provider: fixture.provider,
+      external_id: fixture.homeTeamExternalId,
+      name: fixture.homeTeamName,
+      logo_url: fixture.homeTeamLogoUrl,
+    },
+    {
+      provider: fixture.provider,
+      external_id: fixture.awayTeamExternalId,
+      name: fixture.awayTeamName,
+      logo_url: fixture.awayTeamLogoUrl,
+    },
+  ].filter((row): row is typeof row & { external_id: string } => row.external_id != null);
+}
+
+/** Maps a NormalizedFixture to a `leagues` upsert row, or null when the
+ * fixture is missing the external_id or name leagues.name requires (both
+ * are nullable on NormalizedFixture, unlike the team name fields). */
+export function toLeagueRow(fixture: NormalizedFixture) {
+  if (fixture.competitionExternalId == null || fixture.competitionName == null) return null;
+  return {
+    provider: fixture.provider,
+    external_id: fixture.competitionExternalId,
+    name: fixture.competitionName,
+    logo_url: fixture.competitionLogoUrl,
+  };
+}

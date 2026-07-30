@@ -1,15 +1,18 @@
 import { cn } from "@/lib/utils";
 import { LocalDateTime } from "@/components/LocalDateTime";
+import { TeamFollowToggle } from "@/components/pools/TeamFollowToggle";
 import type { SocialPoolCardViewModel } from "@/lib/pools/view-model";
 
 function TeamBadge({
   name,
   logoUrl,
   align = "left",
+  follow,
 }: {
   name: string;
   logoUrl: string | null;
   align?: "left" | "right";
+  follow: SocialPoolCardViewModel["fixture"]["homeTeamFollow"];
 }) {
   return (
     <div
@@ -28,6 +31,10 @@ function TeamBadge({
         <span className="size-7 rounded-full bg-surface-elevated" aria-hidden="true" />
       )}
       <span className="text-sm font-semibold text-text-primary">{name}</span>
+      {/* Null whenever there's no viewer to follow as (logged-out landing
+          preview) or the team hasn't been backfilled into `teams` yet —
+          the icon simply doesn't render rather than acting on a missing id. */}
+      {follow && <TeamFollowToggle teamId={follow.id} teamName={name} initiallyFollowing={follow.following} />}
     </div>
   );
 }
@@ -36,9 +43,14 @@ export function MatchIdentity({ fixture }: { fixture: SocialPoolCardViewModel["f
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between gap-3">
-        <TeamBadge name={fixture.homeTeamName} logoUrl={fixture.homeTeamLogoUrl} />
+        <TeamBadge name={fixture.homeTeamName} logoUrl={fixture.homeTeamLogoUrl} follow={fixture.homeTeamFollow} />
         <span className="text-xs font-semibold text-text-muted">VS</span>
-        <TeamBadge name={fixture.awayTeamName} logoUrl={fixture.awayTeamLogoUrl} align="right" />
+        <TeamBadge
+          name={fixture.awayTeamName}
+          logoUrl={fixture.awayTeamLogoUrl}
+          align="right"
+          follow={fixture.awayTeamFollow}
+        />
       </div>
       <p className="text-center text-xs text-text-muted">
         {/* Full date + time + zone abbreviation, personalized to each

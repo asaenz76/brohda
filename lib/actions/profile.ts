@@ -22,7 +22,6 @@ export async function updateProfileAction(
     showPronouns: formData.get("showPronouns") === "on",
     showGender: formData.get("showGender") === "on",
     showBio: formData.get("showBio") === "on",
-    emailNotificationsEnabled: formData.get("emailNotificationsEnabled") === "on",
   });
 
   if (!parsed.success) {
@@ -50,7 +49,6 @@ export async function updateProfileAction(
       show_pronouns: parsed.data.showPronouns,
       show_gender: parsed.data.showGender,
       show_bio: parsed.data.showBio,
-      email_notifications_enabled: parsed.data.emailNotificationsEnabled,
     })
     .eq("id", user.id);
 

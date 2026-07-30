@@ -22,7 +22,6 @@ export const updateProfileSchema = z
     showPronouns: z.boolean(),
     showGender: z.boolean(),
     showBio: z.boolean(),
-    emailNotificationsEnabled: z.boolean(),
   })
   .strict();
 

@@ -2,51 +2,36 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buildPoolPublishedEmail, sendEmail, type PoolPublishedEmailFixture } from "./resend";
 
-// TEMPORARILY DISABLED (beta feedback: one email per published pool was
-// too frequent/annoying). Left in place rather than deleted — the plan is
-// to bring this back once there's a better cadence (a digest, opt-in per
-// league, etc.). Flip this back to false to re-enable.
-const POOL_PUBLISHED_EMAILS_DISABLED = true;
-
-// Fires when an admin publishes a pool (DRAFT -> OPEN). Emails every
-// active player who hasn't opted out — never admins/super_admins (they
-// coordinate pools, they don't enter them), and never for a HIDDEN
-// (link-only) pool, since blasting an invite-only pool to everyone would
-// defeat the point of hiding it.
-export async function notifyPoolPublished(pool: {
-  id: string;
-  question: string;
-  visibility: string;
+// Fires when an admin publishes a pool (DRAFT -> OPEN), replacing the old
+// blanket "email every opted-in active player" flow (removed along with
+// user_profiles.email_notifications_enabled) — this targets exactly the
+// recipient list lib/pools/follow-recipients.ts already resolved and
+// filtered to those with email on for the team/league that matched.
+export async function notifyFollowedPoolPublished({
+  pool,
+  emailUserIds,
+}: {
+  pool: { id: string; question: string };
+  emailUserIds: string[];
 }): Promise<void> {
-  if (POOL_PUBLISHED_EMAILS_DISABLED) return;
-  if (pool.visibility !== "VISIBLE_TO_ALL_MEMBERS") return;
+  if (emailUserIds.length === 0) return;
   if (!process.env.RESEND_API_KEY) return;
 
   const admin = createAdminClient();
 
-  const { data: recipients } = await admin
-    .from("user_profiles")
-    .select("id")
-    .eq("role", "player")
-    .eq("is_active", true)
-    .eq("email_notifications_enabled", true);
-
-  if (!recipients || recipients.length === 0) return;
-
-  const recipientIds = new Set(recipients.map((r) => r.id as string));
-
   // auth.admin.listUsers() is the only way to read email addresses from
   // this client — it returns every user, not just the ids we asked for,
-  // so the filtering happens here rather than in the query above.
+  // so the filtering happens here rather than in a query.
+  const idSet = new Set(emailUserIds);
   const { data: userList } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
   const emails = (userList?.users ?? [])
-    .filter((u) => recipientIds.has(u.id) && u.email)
+    .filter((u) => idSet.has(u.id) && u.email)
     .map((u) => u.email as string);
 
   if (emails.length === 0) return;
 
   // The rest of the pool card content (fixture identity, options, lock time)
-  // is fetched here rather than widening every call site's argument list,
+  // is fetched here rather than widening the call site's argument list,
   // since this notifier is the only place that needs it.
   const { data: poolRow } = await admin
     .from("pools")

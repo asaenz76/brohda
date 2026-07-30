@@ -77,7 +77,6 @@ export function ProfileForm({
   showPronouns,
   showGender,
   showBio,
-  emailNotificationsEnabled,
 }: {
   displayName: string;
   username: string | null;
@@ -87,7 +86,6 @@ export function ProfileForm({
   showPronouns: boolean;
   showGender: boolean;
   showBio: boolean;
-  emailNotificationsEnabled: boolean;
 }) {
   const [state, formAction, pending] = useActionState(updateProfileAction, initialState);
   const [bioLength, setBioLength] = useState(bio?.length ?? 0);
@@ -165,17 +163,6 @@ export function ProfileForm({
         <Checkbox id="showBio" name="showBio" defaultChecked={showBio} />
         <Label htmlFor="showBio" className="text-sm font-normal text-text-secondary">
           Show bio on my public profile
-        </Label>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <Checkbox
-          id="emailNotificationsEnabled"
-          name="emailNotificationsEnabled"
-          defaultChecked={emailNotificationsEnabled}
-        />
-        <Label htmlFor="emailNotificationsEnabled" className="text-sm font-normal text-text-secondary">
-          Email me when a new pool is published
         </Label>
       </div>
 

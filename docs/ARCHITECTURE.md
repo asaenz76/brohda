@@ -1422,6 +1422,87 @@ once the service worker stopped caching anything). `InstallAppButton`
 needed no changes — "Add to Home Screen" was never dependent on an active
 service worker.
 
+## Follow teams/leagues → notifications (post-Phase-7)
+
+Users can follow specific teams and leagues and get notified when a pool
+publishes for one — replacing the old global "email me about every
+published pool" toggle (`user_profiles.email_notifications_enabled`,
+dropped in `20260101000081_drop_email_notifications_preference.sql`),
+which was disabled after beta feedback that a blanket "every pool"
+email was too frequent. This feature is the "opt-in per league" cadence
+that disabling comment said would eventually replace it.
+
+**Data model**: `teams`/`leagues` (`20260101000078_teams_and_leagues.sql`)
+are first-class reference tables for the first time — previously only
+denormalized `external_id`/`name`/`logo_url` text columns existed on
+`fixtures`/`pool_options`. Same RLS shape as `fixtures`: `select` to
+`authenticated`, all writes `service_role` only. Kept fresh by the sync
+job (`lib/sports-data/persist.ts`'s `toTeamRows`/`toLeagueRow`, upserted
+in `lib/sports-data/sync.ts`'s `upsertFixture` and
+`lib/actions/fixtures.ts`'s admin import, `onConflict: "provider,
+external_id"` so a rename/rebrand stays current) and one-time-backfilled
+from existing fixtures (`20260101000080_...sql`, `on conflict do
+nothing` — a best-effort seed, not ongoing sync).
+
+`team_follows`/`league_follows` (`20260101000079_...sql`) mirror
+`follows`' junction-table-with-unique-index shape, but — unlike
+`follows` (a cross-user privacy-sensitive graph with no direct grant to
+`authenticated` at all) — this is the current user's own private
+preference data, so it gets a simpler own-row RLS policy
+(`user_id = auth.uid()`) with a real `select`/`update (email_enabled)`
+grant to `authenticated`. The follow/unfollow toggle still only ever
+happens through a service-role server action
+(`lib/actions/team-follows.ts`/`league-follows.ts`, mirroring
+`lib/actions/follows.ts`'s `toggleFollowAction` exactly, including the
+23505-means-already-succeeded idempotent-retry handling and a
+`lib/rate-limit/team-follows.ts` limiter). Each follow row has its own
+`email_enabled` (default `true`) — email is opted in **per followed
+item**, not globally.
+
+**Fan-out**: `lib/pools/follow-recipients.ts`'s
+`getPoolPublishFollowRecipients(fixtureId)` is the single choke point
+both channels call — resolves a fixture's home/away team + league
+external ids to `teams`/`leagues` rows, then to matching follow rows,
+deduped by user (so following both the home team and its league means
+exactly one notification/email, not two — `email_enabled` is OR'd
+across every matching reason). Called from both places a pool goes
+`DRAFT -> OPEN` in `lib/actions/pools.ts` (`createPoolFromTemplate`,
+`publishPoolAction`), skipped entirely for `HIDDEN` pools (same
+reasoning the old blanket-email flow used — an invite-only pool
+shouldn't get blasted to arbitrary followers who weren't invited).
+
+**In-app notification fires unconditionally** for every matched
+follower (`createPoolPublishedFollowNotifications` in
+`lib/notifications/create.ts`, modeled on the existing
+`createFollowerEntryNotifications` fan-out) — the per-item
+`email_enabled` toggle only gates the **email** half
+(`lib/email/notify-followed-pool-published.ts`, replacing the deleted
+`lib/email/notify-pool-published.ts`, same Resend/`buildPoolPublishedEmail`
+plumbing, just targeting an explicit recipient list instead of
+"everyone opted in").
+
+**UI**: a small `Star`/`StarOff` follow icon (`lucide-react`, distinct
+from the `Heart` like-button already on the same card) sits next to each
+team badge in `MatchIdentity.tsx` and the league label in
+`PoolLeagueHeader.tsx` — inline on pool cards, no dedicated team/league
+browse pages. `lib/pools/view-model.ts`/`lib/pools/fetch.ts` thread
+per-viewer follow state (`FollowState { id, following, emailEnabled }`)
+through `SocialPoolCardViewModel["fixture"]` so cards render correct
+icon state without an extra per-card round trip. A new "Teams & Leagues"
+tab on the current user's own `/profile` (`profile-tabs.tsx` +
+`followed-teams-leagues-tab.tsx`) is the private management view — lists
+everything followed with a per-item email switch and an unfollow
+button; unlike the public `/profile/[username]/following` (people)
+list, this is never a public route, since it's private preference data.
+
+Verified live end-to-end: followed a team inline on a pool card,
+confirmed it persisted after reload and appeared correctly in the
+profile tab with email default-on; published a pool for that team as
+admin and confirmed exactly one in-app notification fired; toggled the
+team's email switch off and published a second pool, confirming in-app
+still fired unconditionally; confirmed the Unfollow button removes the
+row cleanly.
+
 ## Local development
 
 ```bash

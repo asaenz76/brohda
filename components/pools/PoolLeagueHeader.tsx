@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import type { PoolVisibility } from "@/lib/pools/card-state";
 import type { PoolType } from "@/lib/pools/templates";
+import type { SocialPoolCardViewModel } from "@/lib/pools/view-model";
+import { LeagueFollowToggle } from "@/components/pools/LeagueFollowToggle";
 
 interface PoolLeagueHeaderProps {
   competitionName: string | null;
@@ -12,6 +14,10 @@ interface PoolLeagueHeaderProps {
   visibility: PoolVisibility;
   createdAt: string;
   locksAt: string;
+  // Null whenever there's no viewer to follow as (logged-out landing
+  // preview) or the league hasn't been backfilled into `leagues` yet, or
+  // the pool has no competition at all (CUSTOM/COMBO).
+  leagueFollow?: SocialPoolCardViewModel["fixture"]["leagueFollow"];
   // True only while choices are genuinely still closed with no result yet
   // (LOCKED/LIVE) — not "anything that isn't open." A resolved pool
   // (settled, voided, ready for review, an anomaly notice, ...) has its own
@@ -63,6 +69,7 @@ export function PoolLeagueHeader({
   locksAt,
   isLocked,
   isResolved,
+  leagueFollow = null,
 }: PoolLeagueHeaderProps) {
   // relativeTime()/countdown() below are pure reads of Date.now() — with
   // nothing else ticking this component's re-render (no interval anywhere
@@ -104,6 +111,13 @@ export function PoolLeagueHeader({
           <span className="rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] font-medium text-text-muted">
             {visibility === "HIDDEN" ? "Private" : "Public"}
           </span>
+          {leagueFollow && (
+            <LeagueFollowToggle
+              leagueId={leagueFollow.id}
+              leagueName={competitionName ?? label}
+              initiallyFollowing={leagueFollow.following}
+            />
+          )}
         </div>
         <p className="text-xs text-text-muted">Posted {relativeTime(createdAt)}</p>
         {!isResolved && (

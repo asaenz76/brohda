@@ -173,6 +173,40 @@ export async function createFollowerEntryNotifications({
 }
 
 /**
+ * Notifies everyone who follows a published pool's home team, away team,
+ * or league — one row per recipient, unconditional (in-app fires for every
+ * follower regardless of their per-item email preference; that toggle only
+ * gates the email half of this fan-out, handled separately in
+ * lib/email/notify-followed-pool-published.ts). `recipientUserIds` is
+ * expected to already be deduped by lib/pools/follow-recipients.ts, so a
+ * user following via more than one path (e.g. both the home team and the
+ * league) still gets exactly one notification, not one per match.
+ */
+export async function createPoolPublishedFollowNotifications({
+  poolId,
+  question,
+  recipientUserIds,
+}: {
+  poolId: string;
+  question: string;
+  recipientUserIds: string[];
+}) {
+  if (recipientUserIds.length === 0) return;
+
+  const admin = createAdminClient();
+
+  const rows = recipientUserIds.map((userId) => ({
+    user_id: userId,
+    type: "POOL_PUBLISHED_FOLLOWED",
+    title: "New pool for a team you follow",
+    body: `New pool: ${question}`,
+    pool_id: poolId,
+  }));
+
+  await admin.from("notifications").insert(rows);
+}
+
+/**
  * Notifies a player that their quick top-up (a deposit requested to cover a
  * shortfall on a specific pool entry, see TopUpAndJoinModal) was approved
  * and their entry was placed automatically.

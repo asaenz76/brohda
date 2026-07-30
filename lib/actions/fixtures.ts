@@ -5,7 +5,7 @@ import { requireAdminOrAbove, requireSuperAdmin } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAuditLog } from "@/lib/audit/log";
 import { apiFootballProvider } from "@/lib/sports-data/api-football-provider";
-import { toFixtureRow } from "@/lib/sports-data/persist";
+import { toFixtureRow, toLeagueRow, toTeamRows } from "@/lib/sports-data/persist";
 import type { NormalizedFixture } from "@/lib/sports-data/types";
 import {
   fixtureSearchSchema,
@@ -115,6 +115,15 @@ async function importOneFixture(externalFixtureId: string, adminId: string): Pro
 
   if (error) {
     return { externalFixtureId, success: false, error: "Could not import this fixture." };
+  }
+
+  const teamRows = toTeamRows(fixture);
+  if (teamRows.length > 0) {
+    await adminClient.from("teams").upsert(teamRows, { onConflict: "provider,external_id" });
+  }
+  const leagueRow = toLeagueRow(fixture);
+  if (leagueRow) {
+    await adminClient.from("leagues").upsert(leagueRow, { onConflict: "provider,external_id" });
   }
 
   await writeAuditLog({

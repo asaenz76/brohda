@@ -56,7 +56,6 @@ describe("updateProfileSchema", () => {
     showPronouns: true,
     showGender: true,
     showBio: true,
-    emailNotificationsEnabled: true,
   };
 
   it("accepts a display name with no username — optional now (disabled/omitted from the form once already set)", () => {

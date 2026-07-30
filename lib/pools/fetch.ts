@@ -1,7 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { buildPoolCardViewModel, computeOptionStats, type SocialPoolCardViewModel } from "./view-model";
+import { buildPoolCardViewModel, computeOptionStats, type FollowState, type SocialPoolCardViewModel } from "./view-model";
 import type { EntryStatusForCard } from "./card-state";
 
 // PostgREST encodes an .in(column, ids) filter directly into the request
@@ -107,6 +107,67 @@ export async function getPoolCardViewModels(
     ),
   ]);
 
+  // Resolves each fixture's home/away team + league external_id to a
+  // teams/leagues row id, then to the viewer's own follow state for it —
+  // keyed on `${provider}:${external_id}` since a bare external_id isn't
+  // guaranteed unique across providers (this app only has one today, but
+  // the key stays correct either way rather than assuming that holds).
+  const teamExternalIds = [
+    ...new Set(
+      fixtures
+        .flatMap((f) => [f.home_team_external_id, f.away_team_external_id])
+        .filter((id): id is string => id != null),
+    ),
+  ];
+  const leagueExternalIds = [
+    ...new Set(fixtures.map((f) => f.competition_external_id).filter((id): id is string => id != null)),
+  ];
+
+  const [teamRows, leagueRows] = await Promise.all([
+    fetchInChunks(teamExternalIds, (chunk) =>
+      supabase.from("teams").select("id, provider, external_id").in("external_id", chunk),
+    ),
+    fetchInChunks(leagueExternalIds, (chunk) =>
+      supabase.from("leagues").select("id, provider, external_id").in("external_id", chunk),
+    ),
+  ]);
+
+  const teamIdByExternal = new Map(teamRows.map((t) => [`${t.provider}:${t.external_id}`, t.id as string]));
+  const leagueIdByExternal = new Map(leagueRows.map((l) => [`${l.provider}:${l.external_id}`, l.id as string]));
+
+  const teamIds = teamRows.map((t) => t.id as string);
+  const leagueIds = leagueRows.map((l) => l.id as string);
+
+  const [teamFollowRows, leagueFollowRows] = await Promise.all([
+    fetchInChunks(teamIds, (chunk) =>
+      supabase.from("team_follows").select("team_id, email_enabled").eq("user_id", viewerId).in("team_id", chunk),
+    ),
+    fetchInChunks(leagueIds, (chunk) =>
+      supabase
+        .from("league_follows")
+        .select("league_id, email_enabled")
+        .eq("user_id", viewerId)
+        .in("league_id", chunk),
+    ),
+  ]);
+
+  const teamFollowEmailByTeamId = new Map(teamFollowRows.map((f) => [f.team_id as string, f.email_enabled as boolean]));
+  const leagueFollowEmailByLeagueId = new Map(
+    leagueFollowRows.map((f) => [f.league_id as string, f.email_enabled as boolean]),
+  );
+
+  function resolveFollowState(
+    provider: string | undefined,
+    externalId: string | null | undefined,
+    idByExternal: Map<string, string>,
+    emailByEntityId: Map<string, boolean>,
+  ): FollowState | null {
+    if (!provider || !externalId) return null;
+    const id = idByExternal.get(`${provider}:${externalId}`);
+    if (!id) return null;
+    return { id, following: emailByEntityId.has(id), emailEnabled: emailByEntityId.get(id) ?? false };
+  }
+
   const perPoolExtras = await Promise.all(
     pools.map(async (pool) => {
       const [{ data: totalsRows }, { data: participantsRows }] = await Promise.all([
@@ -168,7 +229,27 @@ export async function getPoolCardViewModels(
     viewModels.push(
       buildPoolCardViewModel({
         pool,
-        fixture,
+        fixture: {
+          ...fixture,
+          home_team_follow: resolveFollowState(
+            fixture.provider,
+            fixture.home_team_external_id,
+            teamIdByExternal,
+            teamFollowEmailByTeamId,
+          ),
+          away_team_follow: resolveFollowState(
+            fixture.provider,
+            fixture.away_team_external_id,
+            teamIdByExternal,
+            teamFollowEmailByTeamId,
+          ),
+          league_follow: resolveFollowState(
+            fixture.provider,
+            fixture.competition_external_id,
+            leagueIdByExternal,
+            leagueFollowEmailByLeagueId,
+          ),
+        },
         options: poolOptions,
         currentUserEntry: entry
           ? { option_id: entry.option_id, amount: entry.amount, status: entry.status as EntryStatusForCard }

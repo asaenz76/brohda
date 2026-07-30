@@ -140,6 +140,7 @@ export function SocialPoolCard({
             locksAt={viewModel.locksAt}
             isLocked={isLocked || isLive}
             isResolved={!isPreVote && !isPostVote && !isLocked && !isLive}
+            leagueFollow={viewModel.fixture.leagueFollow}
           />
         </div>
         {collapsible && (

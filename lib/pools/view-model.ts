@@ -10,6 +10,18 @@ import { buildNoticeCopy, type Notice } from "./notices";
 import type { PoolVoidReason } from "./anomaly";
 import type { FixtureInternalStatus } from "@/lib/sports-data/types";
 
+/** Per-viewer follow state for a single team or league, threaded through
+ *  so a pool card can render correct follow-icon state without a separate
+ *  per-card round trip. Null when the underlying team/league row itself
+ *  doesn't exist (e.g. a CUSTOM pool's synthesized fixture stand-in, or a
+ *  fixture whose team/league hasn't been backfilled into teams/leagues
+ *  yet) — nothing to follow in that case. */
+export interface FollowState {
+  id: string;
+  following: boolean;
+  emailEnabled: boolean;
+}
+
 export interface SocialPoolCardViewModel {
   poolId: string;
   status: CardState;
@@ -32,6 +44,9 @@ export interface SocialPoolCardViewModel {
     elapsedMinutes: number | null;
     homeScore: number | null;
     awayScore: number | null;
+    homeTeamFollow: FollowState | null;
+    awayTeamFollow: FollowState | null;
+    leagueFollow: FollowState | null;
   };
   question: string;
   /** Short context line for CUSTOM/COMBO pools (e.g. "2026 World Cup
@@ -114,6 +129,9 @@ export interface BuildViewModelInput {
     elapsed_minutes: number | null;
     home_score: number | null;
     away_score: number | null;
+    home_team_follow?: FollowState | null;
+    away_team_follow?: FollowState | null;
+    league_follow?: FollowState | null;
   };
   options: Array<{
     id: string;
@@ -247,6 +265,9 @@ export function buildPoolCardViewModel(input: BuildViewModelInput): SocialPoolCa
       elapsedMinutes: fixture.elapsed_minutes,
       homeScore: fixture.home_score,
       awayScore: fixture.away_score,
+      homeTeamFollow: fixture.home_team_follow ?? null,
+      awayTeamFollow: fixture.away_team_follow ?? null,
+      leagueFollow: fixture.league_follow ?? null,
     },
     question: pool.question,
     title: pool.title,

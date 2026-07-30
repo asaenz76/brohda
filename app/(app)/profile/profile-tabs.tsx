@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 
 const TABS = [
   { id: "predictions", label: "Predictions" },
+  { id: "following", label: "Teams & Leagues" },
   { id: "edit", label: "Edit profile" },
 ] as const;
 
@@ -18,9 +19,11 @@ function isTabId(value: string | null): value is TabId {
 
 export function ProfileTabs({
   predictions,
+  following,
   edit,
 }: {
   predictions: React.ReactNode;
+  following: React.ReactNode;
   edit: React.ReactNode;
 }) {
   // Read once on mount — lets a deep link (?tab=edit) land the user
@@ -66,6 +69,7 @@ export function ProfileTabs({
       </div>
 
       <div className={activeTab === "predictions" ? "block" : "hidden"}>{predictions}</div>
+      <div className={activeTab === "following" ? "block" : "hidden"}>{following}</div>
       <div className={activeTab === "edit" ? "block" : "hidden"}>{edit}</div>
     </div>
   );

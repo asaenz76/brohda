@@ -10,7 +10,6 @@ const validUpdate = {
   showPronouns: true,
   showGender: true,
   showBio: true,
-  emailNotificationsEnabled: true,
 };
 
 describe("updateProfileSchema", () => {
