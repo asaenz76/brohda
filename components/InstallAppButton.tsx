@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import { Download, Share, SquarePlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -113,7 +114,15 @@ function IosInstallSheet({ onClose }: { onClose: () => void }) {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  return (
+  // Portalled to document.body rather than rendered in place: LandingNav's
+  // header has backdrop-blur, and backdrop-filter (like filter) creates a
+  // new containing block for position:fixed descendants — without the
+  // portal, this sheet's "fixed inset-0" resolves against the header's own
+  // small box instead of the viewport, confining it to a sliver under the
+  // nav bar instead of covering the screen (caught via a real iPhone
+  // screenshot, not local testing — the dev layout doesn't reproduce it
+  // because it never renders through LandingNav's header).
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" role="presentation" onClick={onClose}>
       <div
         ref={sheetRef}
@@ -155,6 +164,7 @@ function IosInstallSheet({ onClose }: { onClose: () => void }) {
           Got it
         </Button>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

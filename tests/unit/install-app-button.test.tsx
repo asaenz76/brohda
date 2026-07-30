@@ -66,6 +66,29 @@ describe("InstallAppButton", () => {
     expect(screen.getByText(/Add to Home/)).toBeInTheDocument();
   });
 
+  it("portals the iOS instructions sheet to document.body, not the trigger's own DOM subtree", () => {
+    // Regression test for a real production bug: LandingNav's header has
+    // backdrop-blur, and backdrop-filter (like filter) creates a new
+    // containing block for position:fixed descendants — without the
+    // portal, "fixed inset-0" resolves against that header's own small box
+    // instead of the viewport, confining the sheet to a sliver under the
+    // nav bar. jsdom doesn't compute real CSS layout so it can't catch the
+    // visual symptom directly; this at least locks in the portal target.
+    stubUserAgent(IOS_SAFARI_UA, 5);
+    stubMatchMedia(false);
+    const { container } = render(
+      <div style={{ filter: "blur(0px)" }}>
+        <InstallAppButton />
+      </div>,
+    );
+
+    fireEvent.click(screen.getByLabelText("Get the app"));
+
+    const dialog = screen.getByRole("dialog");
+    expect(container.contains(dialog)).toBe(false);
+    expect(document.body.contains(dialog)).toBe(true);
+  });
+
   it("closes the iOS instructions sheet on Escape or backdrop click", () => {
     stubUserAgent(IOS_SAFARI_UA, 5);
     stubMatchMedia(false);
