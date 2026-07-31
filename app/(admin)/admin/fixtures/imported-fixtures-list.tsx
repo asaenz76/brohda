@@ -11,12 +11,25 @@ import { Label } from "@/components/ui/label";
 export interface ImportedFixture {
   id: string;
   externalFixtureId: string;
+  sport: string | null;
   homeTeamName: string;
   awayTeamName: string;
   competitionName: string | null;
+  competitionCountry: string | null;
   scheduledStartUtc: string;
   poolCount: number;
   hidden: boolean;
+}
+
+// Several countries have leagues that share the exact same name (e.g.
+// "Primera División" — Costa Rica, Peru, Chile, Uruguay all use it) —
+// same disambiguation convention already used by the Feed page's league
+// filter and PoolLeagueHeader.
+function leagueKey(name: string, country: string | null): string {
+  return country ? `${country}|${name}` : name;
+}
+function leagueLabel(name: string, country: string | null): string {
+  return country ? `${country} | ${name}` : name;
 }
 
 export function ImportedFixturesList({
@@ -34,10 +47,27 @@ export function ImportedFixturesList({
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [fixtureIdFilter, setFixtureIdFilter] = useState("");
+  const [sportFilter, setSportFilter] = useState("");
+  const [leagueFilter, setLeagueFilter] = useState("");
 
   const remaining = fixtures.filter((f) => !removed.has(f.id));
+
+  const sportOptions = [...new Set(remaining.map((f) => f.sport).filter((s): s is string => s != null))].sort();
+  const leagueOptions = [
+    ...new Map(
+      remaining
+        .filter((f): f is typeof f & { competitionName: string } => f.competitionName != null)
+        .map((f) => {
+          const key = leagueKey(f.competitionName, f.competitionCountry);
+          return [key, { key, label: leagueLabel(f.competitionName, f.competitionCountry) }] as const;
+        }),
+    ).values(),
+  ].sort((a, b) => a.label.localeCompare(b.label));
+
   const visible = remaining
     .filter((f) => f.externalFixtureId.includes(fixtureIdFilter.trim()))
+    .filter((f) => (sportFilter ? f.sport === sportFilter : true))
+    .filter((f) => (leagueFilter ? leagueKey(f.competitionName ?? "", f.competitionCountry) === leagueFilter : true))
     .map((f) => ({ ...f, hidden: hiddenOverrides.get(f.id) ?? f.hidden }));
 
   const allSelected = visible.length > 0 && visible.every((f) => selected.has(f.id));
@@ -84,20 +114,56 @@ export function ImportedFixturesList({
           {heading} ({visible.length})
         </h2>
       </div>
-      {isSuperAdmin && (
+      <div className="flex flex-wrap items-end gap-3">
         <div className="space-y-1.5">
-          <Label htmlFor="filter-fixture-id">Fixture ID</Label>
-          <Input
-            id="filter-fixture-id"
-            value={fixtureIdFilter}
-            onChange={(e) => setFixtureIdFilter(e.target.value)}
-            placeholder="Search fixture ID"
-            className="w-56"
-          />
+          <Label htmlFor="filter-sport">Sport</Label>
+          <select
+            id="filter-sport"
+            aria-label="Filter by sport"
+            value={sportFilter}
+            onChange={(e) => setSportFilter(e.target.value)}
+            className="h-8 w-40 rounded-lg border border-input bg-transparent px-2.5 text-sm"
+          >
+            <option value="">All sports</option>
+            {sportOptions.map((sport) => (
+              <option key={sport} value={sport}>
+                {sport.charAt(0).toUpperCase() + sport.slice(1)}
+              </option>
+            ))}
+          </select>
         </div>
-      )}
+        <div className="space-y-1.5">
+          <Label htmlFor="filter-league">League</Label>
+          <select
+            id="filter-league"
+            aria-label="Filter by league"
+            value={leagueFilter}
+            onChange={(e) => setLeagueFilter(e.target.value)}
+            className="h-8 w-56 rounded-lg border border-input bg-transparent px-2.5 text-sm"
+          >
+            <option value="">All leagues</option>
+            {leagueOptions.map((league) => (
+              <option key={league.key} value={league.key}>
+                {league.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        {isSuperAdmin && (
+          <div className="space-y-1.5">
+            <Label htmlFor="filter-fixture-id">Fixture ID</Label>
+            <Input
+              id="filter-fixture-id"
+              value={fixtureIdFilter}
+              onChange={(e) => setFixtureIdFilter(e.target.value)}
+              placeholder="Search fixture ID"
+              className="w-56"
+            />
+          </div>
+        )}
+      </div>
       {visible.length === 0 ? (
-        <p className="text-sm text-text-muted">No imported fixtures match that ID.</p>
+        <p className="text-sm text-text-muted">No imported fixtures match these filters.</p>
       ) : (
         <>
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border-subtle bg-surface-secondary px-4 py-2.5">

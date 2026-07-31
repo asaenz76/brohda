@@ -17,7 +17,7 @@ export default async function AdminFixturesPage() {
     supabase
       .from("fixtures")
       .select(
-        "id, external_fixture_id, home_team_name, away_team_name, competition_name, scheduled_start_utc, hidden_from_pool_creation",
+        "id, external_fixture_id, sport, home_team_name, away_team_name, competition_name, competition_country, scheduled_start_utc, hidden_from_pool_creation",
       )
       .not("internal_status", "in", `(${TERMINAL_STATUSES.join(",")})`)
       .order("scheduled_start_utc", { ascending: false }),
@@ -33,9 +33,11 @@ export default async function AdminFixturesPage() {
   const importedFixtures = (fixtures ?? []).map((f) => ({
     id: f.id as string,
     externalFixtureId: f.external_fixture_id as string,
+    sport: f.sport as string | null,
     homeTeamName: f.home_team_name as string,
     awayTeamName: f.away_team_name as string,
     competitionName: f.competition_name as string | null,
+    competitionCountry: f.competition_country as string | null,
     scheduledStartUtc: f.scheduled_start_utc as string,
     poolCount: poolCountByFixtureId.get(f.id as string) ?? 0,
     hidden: f.hidden_from_pool_creation as boolean,

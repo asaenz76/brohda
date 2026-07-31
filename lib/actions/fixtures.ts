@@ -11,7 +11,9 @@ import {
   fixtureSearchSchema,
   importFixturesSchema,
   setFixturesHiddenSchema,
+  teamSearchSchema,
 } from "@/lib/validations/fixtures";
+import type { NormalizedTeam } from "@/lib/sports-data/types";
 
 // Deliberately not NormalizedFixture — that type's providerPayload holds
 // the entire raw provider JSON response per fixture. useActionState binds
@@ -58,18 +60,20 @@ export async function searchFixturesAction(
     return { error: null, providerDisabled: true, results: [] };
   }
 
-  const mode = formData.get("mode") === "by_id" ? "by_id" : "by_league";
+  const modeRaw = formData.get("mode");
+  const mode = modeRaw === "by_id" ? "by_id" : modeRaw === "by_team" ? "by_team" : "by_league";
   const parsed = fixtureSearchSchema.safeParse({
     mode,
     externalFixtureId: formData.get("externalFixtureId") || undefined,
     competitionExternalId: formData.get("competitionExternalId") || undefined,
+    teamExternalId: formData.get("teamExternalId") || undefined,
     season: formData.get("season") || undefined,
     date: formData.get("date") || undefined,
   });
 
   if (!parsed.success) {
     return {
-      error: "Enter a fixture ID, or a league and season.",
+      error: "Enter a fixture ID, a league and season, or a team.",
       providerDisabled: false,
       results: [],
     };
@@ -79,10 +83,44 @@ export async function searchFixturesAction(
     const results = await apiFootballProvider.searchFixtures({
       externalFixtureId: parsed.data.externalFixtureId,
       competitionExternalId: parsed.data.competitionExternalId,
+      teamExternalId: parsed.data.teamExternalId,
       season: parsed.data.season,
       date: parsed.data.date,
     });
     return { error: null, providerDisabled: false, results: results.map(toSearchResult) };
+  } catch {
+    return {
+      error: "Could not reach the sports data provider. Try again shortly.",
+      providerDisabled: false,
+      results: [],
+    };
+  }
+}
+
+export type TeamSearchState = {
+  error: string | null;
+  providerDisabled: boolean;
+  results: NormalizedTeam[];
+};
+
+export async function searchTeamsAction(
+  _prevState: TeamSearchState,
+  formData: FormData,
+): Promise<TeamSearchState> {
+  await requireAdminOrAbove();
+
+  if (!apiFootballProvider.isEnabled()) {
+    return { error: null, providerDisabled: true, results: [] };
+  }
+
+  const parsed = teamSearchSchema.safeParse({ query: formData.get("query") });
+  if (!parsed.success) {
+    return { error: "Enter a team name.", providerDisabled: false, results: [] };
+  }
+
+  try {
+    const results = await apiFootballProvider.searchTeams(parsed.data.query);
+    return { error: null, providerDisabled: false, results };
   } catch {
     return {
       error: "Could not reach the sports data provider. Try again shortly.",

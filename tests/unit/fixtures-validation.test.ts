@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fixtureSearchSchema, importFixturesSchema } from "@/lib/validations/fixtures";
+import { fixtureSearchSchema, importFixturesSchema, teamSearchSchema } from "@/lib/validations/fixtures";
 
 describe("fixtureSearchSchema", () => {
   it("accepts a valid by_id search", () => {
@@ -47,6 +47,24 @@ describe("fixtureSearchSchema", () => {
         season: "24",
       }).success,
     ).toBe(false);
+  });
+
+  it("accepts a valid by_team search with no season/date (defaults to next 10 upstream)", () => {
+    expect(fixtureSearchSchema.safeParse({ mode: "by_team", teamExternalId: "42" }).success).toBe(true);
+  });
+
+  it("rejects by_team mode with no team id", () => {
+    expect(fixtureSearchSchema.safeParse({ mode: "by_team" }).success).toBe(false);
+  });
+});
+
+describe("teamSearchSchema", () => {
+  it("accepts a non-empty query", () => {
+    expect(teamSearchSchema.safeParse({ query: "Arsenal" }).success).toBe(true);
+  });
+
+  it("rejects an empty query", () => {
+    expect(teamSearchSchema.safeParse({ query: "" }).success).toBe(false);
   });
 });
 

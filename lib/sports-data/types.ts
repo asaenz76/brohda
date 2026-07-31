@@ -72,6 +72,19 @@ export interface FixtureSearchParams {
   season?: string;
   date?: string; // YYYY-MM-DD
   externalFixtureId?: string;
+  teamExternalId?: string;
+}
+
+// A provider search result for "find a team by name" — deliberately thin
+// (just enough to disambiguate one team from another with a similar name
+// and to key a follow-up fixtures-by-team search), not the full team
+// profile API-Football's /teams endpoint returns.
+export interface NormalizedTeam {
+  provider: string;
+  externalTeamId: string;
+  name: string;
+  countryName: string | null;
+  logoUrl: string | null;
 }
 
 // A league's own season calendar — start/end vary per league (most run
@@ -166,6 +179,7 @@ export interface SportsDataProvider {
   searchFixtures(params: FixtureSearchParams): Promise<NormalizedFixture[]>;
   getFixtureById(externalFixtureId: string): Promise<NormalizedFixture | null>;
   searchLeagues(query: string): Promise<NormalizedLeague[]>;
+  searchTeams(query: string): Promise<NormalizedTeam[]>;
   getLeagueType(externalLeagueId: string): Promise<string | null>;
   getFixtureEvents(externalFixtureId: string): Promise<NormalizedFixtureEvent[]>;
   getTeamSquad(externalTeamId: string): Promise<NormalizedPlayer[]>;

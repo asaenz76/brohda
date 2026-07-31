@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   createPoolFromTemplateSchema,
+  createPoolsForFixturesSchema,
   updatePoolSchema,
   enterPoolSchema,
   voidEntrySchema,
+  MINIMUM_LOCK_LEAD_MINUTES,
 } from "@/lib/validations/pools";
 import { winningMarginConfigSchema, teamSideOnlyConfigSchema } from "@/lib/pools/templates/goals";
 import { teamSideConfigSchema } from "@/lib/pools/templates/match-result";
@@ -182,6 +184,107 @@ describe("createPoolFromTemplateSchema — TEMPLATE_GRADED branch", () => {
   it("rejects unknown fields", () => {
     expect(
       createPoolFromTemplateSchema.safeParse({ ...validTemplate, extra: "nope" }).success,
+    ).toBe(false);
+  });
+});
+
+describe("createPoolsForFixturesSchema", () => {
+  const validLegacy = {
+    poolType: "WHO_WILL_ADVANCE" as const,
+    fixtureIds: [
+      "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+    ],
+    lockMinutesBeforeKickoff: MINIMUM_LOCK_LEAD_MINUTES,
+    entryFeeCents: 1000,
+    houseFeeBps: 500,
+    visibility: "VISIBLE_TO_ALL_MEMBERS" as const,
+    participationVisibility: "SHOW_AFTER_ENTRY" as const,
+  };
+
+  it("accepts a valid legacy (WHO_WILL_ADVANCE/REGULATION_RESULT) payload", () => {
+    expect(createPoolsForFixturesSchema.safeParse(validLegacy).success).toBe(true);
+    expect(
+      createPoolsForFixturesSchema.safeParse({ ...validLegacy, poolType: "REGULATION_RESULT" }).success,
+    ).toBe(true);
+  });
+
+  it("rejects fewer than 2 fixture ids", () => {
+    expect(
+      createPoolsForFixturesSchema.safeParse({ ...validLegacy, fixtureIds: [validLegacy.fixtureIds[0]] })
+        .success,
+    ).toBe(false);
+  });
+
+  it("accepts exactly 50 fixture ids", () => {
+    const fixtureIds = Array.from({ length: 50 }, (_, i) => `3fa85f64-5717-4562-b3fc-2c963f66${String(i).padStart(4, "0")}`);
+    expect(createPoolsForFixturesSchema.safeParse({ ...validLegacy, fixtureIds }).success).toBe(true);
+  });
+
+  it("rejects more than 50 fixture ids", () => {
+    const fixtureIds = Array.from({ length: 51 }, (_, i) => `3fa85f64-5717-4562-b3fc-2c963f66${String(i).padStart(4, "0")}`);
+    expect(createPoolsForFixturesSchema.safeParse({ ...validLegacy, fixtureIds }).success).toBe(false);
+  });
+
+  it("rejects COMBO — free-typed text isn't portable across fixtures", () => {
+    expect(
+      createPoolsForFixturesSchema.safeParse({
+        ...validLegacy,
+        poolType: "COMBO",
+        title: "t",
+        question: "q",
+        legs: ["a", "b"],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects lockMinutesBeforeKickoff below the platform minimum", () => {
+    expect(
+      createPoolsForFixturesSchema.safeParse({
+        ...validLegacy,
+        lockMinutesBeforeKickoff: MINIMUM_LOCK_LEAD_MINUTES - 1,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts a valid TEMPLATE_GRADED payload", () => {
+    expect(
+      createPoolsForFixturesSchema.safeParse({
+        poolType: "TEMPLATE_GRADED",
+        fixtureIds: validLegacy.fixtureIds,
+        lockMinutesBeforeKickoff: MINIMUM_LOCK_LEAD_MINUTES,
+        templateId: "MATCH_TOTAL_GOALS",
+        templateConfig: { minimumGoals: 3 },
+        entryFeeCents: validLegacy.entryFeeCents,
+        houseFeeBps: validLegacy.houseFeeBps,
+        visibility: validLegacy.visibility,
+        participationVisibility: validLegacy.participationVisibility,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects a TEMPLATE_GRADED payload missing templateId", () => {
+    expect(
+      createPoolsForFixturesSchema.safeParse({
+        poolType: "TEMPLATE_GRADED",
+        fixtureIds: validLegacy.fixtureIds,
+        lockMinutesBeforeKickoff: MINIMUM_LOCK_LEAD_MINUTES,
+        templateConfig: {},
+        entryFeeCents: validLegacy.entryFeeCents,
+        houseFeeBps: validLegacy.houseFeeBps,
+        visibility: validLegacy.visibility,
+        participationVisibility: validLegacy.participationVisibility,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects unknown fields", () => {
+    expect(createPoolsForFixturesSchema.safeParse({ ...validLegacy, extra: "nope" }).success).toBe(false);
+  });
+
+  it("has no locksAt field — each fixture computes its own from lockMinutesBeforeKickoff", () => {
+    expect(
+      createPoolsForFixturesSchema.safeParse({ ...validLegacy, locksAt: new Date().toISOString() }).success,
     ).toBe(false);
   });
 });

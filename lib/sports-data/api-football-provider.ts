@@ -10,6 +10,7 @@ import type {
   NormalizedFixtureOdds,
   NormalizedLeague,
   NormalizedPlayer,
+  NormalizedTeam,
   OddsExactGoalsBucket,
   OddsGoalsLine,
   SportsDataProvider,
@@ -58,6 +59,14 @@ interface ApiFootballLeagueResponse {
 
 interface ApiFootballLeagueListResponse {
   response: ApiFootballLeagueResponse[];
+}
+
+interface ApiFootballTeamResponse {
+  team: { id: number; name: string; logo: string | null; country: string | null };
+}
+
+interface ApiFootballTeamListResponse {
+  response: ApiFootballTeamResponse[];
 }
 
 interface ApiFootballEventResponse {
@@ -230,6 +239,33 @@ async function callLeaguesEndpoint(
   return (body.response ?? []).map(mapLeague);
 }
 
+function mapTeam(raw: ApiFootballTeamResponse): NormalizedTeam {
+  return {
+    provider: PROVIDER_NAME,
+    externalTeamId: String(raw.team.id),
+    name: raw.team.name,
+    countryName: raw.team.country ?? null,
+    logoUrl: raw.team.logo ?? null,
+  };
+}
+
+async function callTeamsEndpoint(
+  params: Record<string, string>,
+  requestType: string,
+): Promise<NormalizedTeam[]> {
+  const url = new URL(`${baseUrl()}/teams`);
+  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
+
+  const response = await fetchWithRetry(
+    url.toString(),
+    { headers: authHeaders() },
+    { provider: PROVIDER_NAME, requestType, requestParams: params },
+  );
+
+  const body = (await response.json()) as ApiFootballTeamListResponse;
+  return (body.response ?? []).map(mapTeam);
+}
+
 function mapEvent(raw: ApiFootballEventResponse): NormalizedFixtureEvent {
   return {
     effectiveMinute: (raw.time?.elapsed ?? 0) + (raw.time?.extra ?? 0),
@@ -369,6 +405,20 @@ export class ApiFootballProvider implements SportsDataProvider {
       return fixture ? [fixture] : [];
     }
 
+    if (params.teamExternalId) {
+      const query: Record<string, string> = { team: params.teamExternalId };
+      if (params.season) query.season = params.season;
+      if (params.date) query.date = params.date;
+      // Neither season nor date given — the common case, since an admin
+      // searching by team almost always wants an upcoming match, not a
+      // historical one, and API-Football's /fixtures requires a season
+      // whenever a date isn't given directly. "next": the next 10
+      // fixtures for this team, unlike league search which has no
+      // equivalent season-free default.
+      if (!params.season && !params.date) query.next = "10";
+      return callFixturesEndpoint(query, "search_by_team");
+    }
+
     const query: Record<string, string> = {};
     if (params.competitionExternalId) query.league = params.competitionExternalId;
     if (params.season) query.season = params.season;
@@ -394,6 +444,14 @@ export class ApiFootballProvider implements SportsDataProvider {
     return trimmed
       ? callLeaguesEndpoint({ search: trimmed }, "search_leagues")
       : callLeaguesEndpoint({}, "list_leagues");
+  }
+
+  async searchTeams(query: string): Promise<NormalizedTeam[]> {
+    if (!this.isEnabled()) return [];
+
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+    return callTeamsEndpoint({ search: trimmed }, "search_teams");
   }
 
   // The /fixtures endpoint never returns league.type ("League"/"Cup") —

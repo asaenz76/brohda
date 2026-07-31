@@ -1573,6 +1573,162 @@ with local credentials injected inline instead (see any of the
 `tests/integration/*.test.ts` files added in this pass for the exact
 local anon/service-role keys used), never by editing `.env.local` itself.
 
+## Admin experience improvements (post-Phase-7)
+
+A survey of the super-admin workflow (fixture import, fixture archiving,
+pool creation) turned up: pool creation's entry fee / platform fee had no
+saved default (retyped from "5.00"/"5" on every single pool); fixture
+archiving had no filters at all beyond an ID search box; fixture import
+had no team-name search (only "by league" or "by exact fixture ID"); and
+pool creation had no way to create pools for multiple fixtures at once or
+duplicate an existing pool's settings.
+
+**Pool fee defaults** — the first and highest-value fix, since it's hit
+on every single pool. `platform_settings` gained
+`default_entry_fee_cents`/`default_house_fee_bps`
+(`supabase/migrations/20260101000084_pool_fee_defaults.sql`, no new
+grants needed — that table already has no per-column grants, the whole
+row is select-able by anyone and service-role-write-only). Same
+service-role-update-plus-audit-log shape as the existing
+`setRegistrationEnabledAction` — see `setPoolFeeDefaultsAction`
+(`lib/actions/settings.ts`), validated through the existing
+`parseDollarsToCents`/`parsePercentToBps` (`lib/utils/money.ts`) before
+writing. A new "Pool fee defaults" card on `/admin/settings`
+(`pool-fee-defaults-form.tsx`) edits it; `PoolTemplateBuilder`
+(`app/(admin)/admin/pools/new/pool-template-builder.tsx`) now takes
+`defaultEntryFee`/`defaultHouseFeePercent` props (fetched via
+`getPoolFeeDefaults()`, `lib/settings/pool-defaults.ts`) instead of
+hardcoding `"5.00"`/`"5"` as initial state — still fully editable per
+pool, just no longer retyped from scratch every time. Verified live: set
+a custom default ($12.34 / 7.5%) on the settings page, confirmed a fresh
+pool-creation session pre-filled exactly those values through to the
+step-3 review preview.
+
+**Fixture archive/list sport+league filters** — `ImportedFixturesList`
+(`app/(admin)/admin/fixtures/imported-fixtures-list.tsx`, shared by both
+`/admin/fixtures` and `/admin/fixture-archive`) previously only had a
+super-admin-only fixture-ID search box; with no sport/league narrowing,
+the archive in particular becomes an unusable wall of rows as fixtures
+accumulate over time. Added `sport`/`competitionCountry` to both pages'
+`fixtures` select (they already had `competitionName`) and two plain
+`<select>` filters — same country-disambiguated league-key convention as
+`app/(app)/feed/feed-filters.tsx` (`leagueKey`/`leagueLabel`, since
+several countries share league names like "Primera División"). Purely
+client-side state (`sportFilter`/`leagueFilter`), consistent with the
+existing fixture-ID filter's approach in this same component — no new
+server round trip. Unlike the fixture-ID filter, visible to every admin,
+not just super admins (narrowing a list isn't privileged information the
+way raw provider IDs are). Verified live against real archived fixtures:
+selecting "Premier League" correctly narrowed 17 archived fixtures down
+to the 1 that matched.
+
+**Fixture import team-name search** — the two existing search modes on
+`/admin/fixtures` (by league+season, by exact fixture ID) both require
+knowing something an admin importing a specific upcoming match often
+doesn't have handy: a league requires a season, and nobody has fixture
+IDs memorized. Added a third "By team" mode. `SportsDataProvider` gained
+`searchTeams(query)` (`lib/sports-data/types.ts`), implemented in
+`ApiFootballProvider` (`lib/sports-data/api-football-provider.ts`) via a
+new `callTeamsEndpoint` hitting API-Football's `/teams?search=`; `Normal
+izedTeam` mirrors the existing normalized-fixture/league shape. `searchFi
+xtures` gained a `teamExternalId` param: `/fixtures?team=X`, with
+`next=10` appended only when neither `season` nor `date` is given (a team
+search has no natural season the way a league search does, so "next 10
+upcoming" is the sane default instead of erroring). New
+`searchTeamsAction`/`teamSearchSchema` (`lib/actions/fixtures.ts`,
+`lib/validations/fixtures.ts`) follow the same
+`requireAdminOrAbove()`-then-validate-then-call-provider shape as the
+existing `searchFixturesAction`. New `TeamSearch` component
+(`app/(admin)/admin/fixtures/team-search.tsx`) is a genuine
+type-to-search-then-pick flow — unlike `LeagueSelect`'s preloaded
+`<select>`, there's no feasible "every team" list to preload. `FixtureSea
+rch` (`fixture-search.tsx`) wires it into a third mode tab, storing the
+selected team and rendering a hidden `teamExternalId` input plus an
+optional date field once picked. Verified live against the real
+API-Football service: searching "Arsenal" returned the real English club
+first alongside 20+ unrelated same-named clubs worldwide (Arsenal
+Sarandi, Arsenal Tula, Arsenal Kyiv, etc. — confirming the country label
+is necessary, not decorative); selecting it and searching with no
+season/date returned that team's actual next 10 fixtures in chronological
+order (pre-season friendlies, the Community Shield, then real Premier
+League fixtures).
+
+**Multi-fixture pool creation** — the last and biggest of the four:
+running the same pool template across a whole round of fixtures used to
+mean redoing the full 3-step wizard (`app/(admin)/admin/pools/new/pool-
+template-builder.tsx`) from scratch per fixture, since picking a new
+fixture wipes the just-configured template (`selectFixture`, lines
+~264-276). Added an opt-in "Multiple fixtures" mode alongside the
+existing "Single fixture" one (a plain toggle at the top of the wizard —
+the single-fixture path is untouched). In this mode, a coordinator
+checkbox-multi-selects several eligible fixtures (`Set<string>` +
+`toggleSelect`/`toggleAll`, the same pattern already used by `Imported
+FixturesList`), configures the template and financials once, and gets one
+pool per fixture. New component `app/(admin)/admin/pools/new/multi-
+fixture-builder.tsx`; the template-card metadata (`ALL_CARDS`,
+`CATEGORY_LABELS`, `isLegacyId`, etc.) was extracted out of `pool-
+template-builder.tsx` into `template-cards.ts` so both components import
+the same catalog instead of duplicating or circularly importing it.
+
+Only `PLAYER_TO_SCORE` (category `PLAYER_PROPS`) has a `PLAYER`-type
+config field — it bakes in one specific fixture's roster
+(`playerExternalId`, fetched per-fixture via `lib/actions/squads.ts`) —
+and `COMBO` pools are free-typed text tied to one match. Neither is
+portable across different fixtures, so multi-fixture mode hides both the
+"Players" and "Combos" tabs entirely, and the server enforces the same
+restriction independently (`createPoolsForFixturesAction` rejects a
+`PLAYER_PROPS` template even if a client somehow submitted one). Every
+other template only uses `TEAM_SIDE`/`INTEGER`/`BOOLEAN` config, which is
+generic ("home team", "2.5", "yes/no") and applies unchanged regardless of
+which two teams are actually playing — the client shows a placeholder-team
+preview ("Home team"/"Away team") since there's no single fixture to
+derive real names from client-side. The two legacy templates (`WHO_WILL
+_ADVANCE`/`REGULATION_RESULT`) are only selectable when *every* selected
+fixture is eligible (mixing a knockout and a league fixture in one batch
+means neither is safe to apply to all of them at once).
+
+Server side: the tail of `createPoolFromTemplate` (`lib/actions/pools.ts`)
+— fixture-eligibility checks, question/option derivation, the `pools`/
+`pool_options`/`pool_combo_legs` inserts, audit log — was extracted into a
+private `createPoolForFixture(adminClient, admin, input, fixture, locksAt,
+publishImmediately)` helper shared by both the single-fixture action and
+the new `createPoolsForFixturesAction`. The bulk action is a plain async
+function (not a `<form action>`/`useActionState` pair, since there's no
+single redirect target once N pools might be created), called from the
+client via `useTransition`, modeled directly on `importFixturesAction`'s
+shape (`lib/actions/fixtures.ts`): validate the whole batch once via the
+new `createPoolsForFixturesSchema` (`lib/validations/pools.ts`), then loop
+sequentially, one fixture's failure (ineligible template, fixture no
+longer found) never aborting the rest. Each fixture gets its own
+`locks_at`, computed from *that fixture's own* `scheduled_start_utc` minus
+an admin-set `lockMinutesBeforeKickoff` — there's no single shared
+absolute lock time the way the single-fixture flow has, since every
+fixture kicks off at a different time. Results render inline in the wizard
+as a per-fixture list ("Costa Rica vs Panama — Created", linking to the
+new pool; "Real Madrid vs Barcelona — Failed: …"), not just an aggregate
+count, since a coordinator creating paid pools needs to know exactly which
+fixtures succeeded.
+
+Not built in this pass (a deliberate scope call, not an oversight):
+"duplicate an existing pool's settings into a new one" — a different,
+smaller problem (reverse-mapping one already-created pool's config back
+into wizard state) that wasn't the actual pain point reported.
+
+No integration test calls `createPoolsForFixturesAction` directly — same
+reason no integration test calls any other `requireSuperAdmin`-gated
+action in this codebase (see `tests/integration/pool-deletion.test.ts`'s
+header comment): it needs a real Next.js request/cookie context a bare
+Vitest process can't provide. Covered instead by a unit test with a mocked
+Supabase client exercising the real registry/template logic
+(`tests/unit/create-pools-for-fixtures-action.test.ts`) plus live
+verification against the real local database: created 3 pools in one
+batch (one per fixture, `MATCH_TOTAL_GOALS`), confirmed via direct SQL
+that each pool attached to its own fixture with its own correctly-computed
+`locks_at`; then, with two fixtures temporarily marked `Cup` and one
+`League`, confirmed "Who will advance?"/"Result after regulation" both
+correctly disabled with fixture-specific reasons ("not every selected
+fixture is a knockout match" / "…allows a draw as a final outcome").
+
 ## Local development
 
 ```bash

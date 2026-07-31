@@ -2,13 +2,14 @@
 
 import { useActionState, useState } from "react";
 import { searchFixturesAction, type FixtureSearchState } from "@/lib/actions/fixtures";
-import type { NormalizedLeague } from "@/lib/sports-data/types";
+import type { NormalizedLeague, NormalizedTeam } from "@/lib/sports-data/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { FixtureResultsList } from "./fixture-results-list";
 import { LeagueSelect } from "./league-select";
+import { TeamSearch } from "./team-search";
 
 const initialSearchState: FixtureSearchState = {
   error: null,
@@ -23,8 +24,9 @@ export function FixtureSearch({
   leagues: NormalizedLeague[];
   providerDisabled: boolean;
 }) {
-  const [mode, setMode] = useState<"by_league" | "by_id">("by_league");
+  const [mode, setMode] = useState<"by_league" | "by_id" | "by_team">("by_league");
   const [selectedLeague, setSelectedLeague] = useState<NormalizedLeague | null>(null);
+  const [selectedTeam, setSelectedTeam] = useState<NormalizedTeam | null>(null);
   const [season, setSeason] = useState("");
   const [date, setDate] = useState("");
   const [state, formAction, pending] = useActionState(searchFixturesAction, initialSearchState);
@@ -72,11 +74,20 @@ export function FixtureSearch({
         >
           By fixture ID
         </Button>
+        <Button
+          type="button"
+          variant={mode === "by_team" ? "default" : "outline"}
+          size="sm"
+          onClick={() => setMode("by_team")}
+        >
+          By team
+        </Button>
       </div>
 
       {mode === "by_league" && !selectedLeague && (
         <LeagueSelect leagues={leagues} onSelect={setSelectedLeague} />
       )}
+      {mode === "by_team" && !selectedTeam && <TeamSearch onSelect={setSelectedTeam} />}
 
       <Card>
         <CardContent className="space-y-4 pt-6">
@@ -132,7 +143,7 @@ export function FixtureSearch({
                   </>
                 )}
               </>
-            ) : (
+            ) : mode === "by_id" ? (
               <div className="space-y-1.5">
                 <Label htmlFor="externalFixtureId">Fixture ID</Label>
                 <Input
@@ -142,8 +153,49 @@ export function FixtureSearch({
                   className="w-36"
                 />
               </div>
+            ) : (
+              selectedTeam && (
+                <>
+                  <input type="hidden" name="teamExternalId" value={selectedTeam.externalTeamId} />
+                  <div className="space-y-1.5">
+                    <Label>Team</Label>
+                    <p className="flex items-center gap-2 text-sm">
+                      <span className="font-medium text-text-primary">{selectedTeam.name}</span>
+                      <span className="text-text-secondary">
+                        {selectedTeam.countryName ? `(${selectedTeam.countryName})` : ""}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTeam(null)}
+                        className="text-xs text-accent-primary underline underline-offset-4"
+                      >
+                        Change
+                      </button>
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="team-date">Date (optional)</Label>
+                    <Input
+                      id="team-date"
+                      name="date"
+                      type="date"
+                      className="w-40"
+                      value={date}
+                      onChange={(e) => setDate(e.target.value)}
+                    />
+                    <p className="text-xs text-text-muted">Defaults to this team&apos;s next 10 fixtures.</p>
+                  </div>
+                </>
+              )
             )}
-            <Button type="submit" disabled={pending || (mode === "by_league" && !selectedLeague)}>
+            <Button
+              type="submit"
+              disabled={
+                pending ||
+                (mode === "by_league" && !selectedLeague) ||
+                (mode === "by_team" && !selectedTeam)
+              }
+            >
               {pending ? "Searching…" : "Search"}
             </Button>
           </form>

@@ -15,11 +15,13 @@ import { createPoolPublishedFollowNotifications } from "@/lib/notifications/crea
 import { parseDollarsToCents, parsePercentToBps } from "@/lib/utils/money";
 import {
   createPoolFromTemplateSchema,
+  createPoolsForFixturesSchema,
   updatePoolSchema,
   voidEntrySchema,
   MINIMUM_POOL_ENTRIES,
   MINIMUM_LOCK_LEAD_MINUTES,
 } from "@/lib/validations/pools";
+import type { UserProfile } from "@/lib/auth/session";
 
 function readPoolConfigFromForm(formData: FormData) {
   return {
@@ -66,13 +68,245 @@ async function notifyFollowersOfPublish(pool: { id: string; question: string; fi
 
 export type CreatePoolFromTemplateState = { error: string | null };
 
+const FIXTURE_SELECT_FOR_POOL_CREATION =
+  "id, home_team_external_id, home_team_name, home_team_logo_url, away_team_external_id, away_team_name, away_team_logo_url, competition_type, scheduled_start_utc";
+
+type PoolFixtureRow = {
+  id: string;
+  home_team_external_id: string | null;
+  home_team_name: string;
+  home_team_logo_url: string | null;
+  away_team_external_id: string | null;
+  away_team_name: string;
+  away_team_logo_url: string | null;
+  competition_type: string | null;
+  scheduled_start_utc: string;
+};
+
+// The fixture-independent part of a pool's configuration — shared by the
+// single-fixture wizard and the multi-fixture bulk action, which both
+// resolve their own fixtureId(s)/locksAt separately before calling
+// createPoolForFixture per fixture.
+type PoolCreationInput =
+  | {
+      poolType: "WHO_WILL_ADVANCE" | "REGULATION_RESULT";
+      entryFeeCents: number;
+      houseFeeBps: number;
+      visibility: string;
+      participationVisibility: string;
+    }
+  | {
+      poolType: "COMBO";
+      title: string;
+      question: string;
+      legs: string[];
+      entryFeeCents: number;
+      houseFeeBps: number;
+      visibility: string;
+      participationVisibility: string;
+    }
+  | {
+      poolType: "TEMPLATE_GRADED";
+      templateId: string;
+      templateConfig: Record<string, unknown>;
+      entryFeeCents: number;
+      houseFeeBps: number;
+      visibility: string;
+      participationVisibility: string;
+    };
+
+type CreatedPool = { id: string; question: string; fixtureId: string; visibility: string };
+
 /**
- * The structured template builder's single entry point — every template
- * (REGULATION_RESULT, WHO_WILL_ADVANCE, COMBO) is fixture-backed, so this
- * always looks the fixture up first. CUSTOM (free-text, no fixture) pools
- * are no longer creatable here; existing CUSTOM pools already in the
- * database are untouched (grading/settlement/deletion all still work the
- * same, only this creation path changed).
+ * The actual pool + pool_options (+ pool_combo_legs) insert for one fixture
+ * — shared by the single-fixture wizard (createPoolFromTemplate) and the
+ * multi-fixture bulk action (createPoolsForFixturesAction), so a template
+ * applied across N fixtures goes through the exact same eligibility-check/
+ * question-derivation/insert logic N times, once per fixture (each pool's
+ * question/options always come from that fixture's own team names, not
+ * whatever was cached client-side). Never throws — every failure path
+ * returns { error } so a bulk caller's loop can't be aborted by one bad
+ * fixture.
+ */
+async function createPoolForFixture(
+  adminClient: ReturnType<typeof createAdminClient>,
+  admin: UserProfile,
+  input: PoolCreationInput,
+  fixture: PoolFixtureRow,
+  locksAt: string,
+  publishImmediately: boolean,
+): Promise<{ pool: CreatedPool } | { error: string }> {
+  if (isLockTooCloseToKickoff(locksAt, fixture.scheduled_start_utc)) {
+    return {
+      error: `Lock time must be at least ${MINIMUM_LOCK_LEAD_MINUTES} minutes before kickoff.`,
+    };
+  }
+
+  // Re-checked here, not just in the client's disabled-card UI — a knockout
+  // fixture (Cup) can never end in a draw, so "Result after regulation"
+  // isn't a valid template for it, and vice versa for "Who will advance?"
+  // on a League fixture.
+  if (input.poolType === "WHO_WILL_ADVANCE" || input.poolType === "REGULATION_RESULT") {
+    const eligibility = getTemplateEligibility(fixture.competition_type);
+    if (input.poolType === "WHO_WILL_ADVANCE" && !eligibility.whoWillAdvanceEnabled) {
+      return { error: "\"Who will advance?\" isn't available for this fixture — it isn't a knockout match." };
+    }
+    if (input.poolType === "REGULATION_RESULT" && !eligibility.regulationResultEnabled) {
+      return {
+        error:
+          "\"Result after regulation\" isn't available for this fixture — it's a knockout match, so a draw isn't a possible final outcome.",
+      };
+    }
+  }
+
+  const templateFixtureScore = {
+    homeTeamName: fixture.home_team_name,
+    awayTeamName: fixture.away_team_name,
+    homeTeamExternalId: fixture.home_team_external_id,
+    awayTeamExternalId: fixture.away_team_external_id,
+    regulationHomeScore: null,
+    regulationAwayScore: null,
+    halftimeHomeScore: null,
+    halftimeAwayScore: null,
+  };
+
+  let selectedTemplate: ReturnType<typeof getTemplate> = null;
+  if (input.poolType === "TEMPLATE_GRADED") {
+    selectedTemplate = getTemplate(input.templateId);
+    if (!selectedTemplate) {
+      return { error: "Unknown template." };
+    }
+    // Re-checked here, not just in the client's disabled-card UI — mirrors
+    // the WHO_WILL_ADVANCE/REGULATION_RESULT eligibility re-check above.
+    const availability = selectedTemplate.availabilityCheck(templateFixtureScore, {
+      FIXTURE: true,
+      FIXTURE_EVENTS: true,
+      FIXTURE_STATISTICS: false,
+      FIXTURE_PLAYERS: false,
+      LINEUPS: false,
+    });
+    if (!availability.available) {
+      return { error: availability.reason };
+    }
+  }
+
+  let title: string | null = null;
+  let question: string;
+  let poolOptions: Array<{
+    label: string;
+    external_team_id: string | null;
+    team_name: string | null;
+    logo_url: string | null;
+    sort_order: number;
+  }>;
+  let comboLegs: string[] | null = null;
+
+  if (input.poolType === "COMBO") {
+    title = input.title;
+    question = input.question;
+    // Fixed pair, not admin-input — the N leg conditions (below) are what
+    // determine which of these two wins, not free-text choices.
+    poolOptions = [
+      { label: "Yes", external_team_id: null, team_name: null, logo_url: null, sort_order: 0 },
+      { label: "No", external_team_id: null, team_name: null, logo_url: null, sort_order: 1 },
+    ];
+    comboLegs = input.legs;
+  } else if (input.poolType === "TEMPLATE_GRADED" && selectedTemplate) {
+    question = selectedTemplate.questionBuilder(templateFixtureScore, input.templateConfig);
+    // Same fixed pair as COMBO — every Phase-1 template is binary YES/NO;
+    // gradeTemplatePool looks these up by label ("Yes"/"No"), not by id.
+    poolOptions = [
+      { label: "Yes", external_team_id: null, team_name: null, logo_url: null, sort_order: 0 },
+      { label: "No", external_team_id: null, team_name: null, logo_url: null, sort_order: 1 },
+    ];
+  } else {
+    const template = generatePoolTemplate(input.poolType as PoolType, {
+      homeTeamExternalId: fixture.home_team_external_id,
+      homeTeamName: fixture.home_team_name,
+      homeTeamLogoUrl: fixture.home_team_logo_url,
+      awayTeamExternalId: fixture.away_team_external_id,
+      awayTeamName: fixture.away_team_name,
+      awayTeamLogoUrl: fixture.away_team_logo_url,
+    });
+
+    question = template.question;
+    poolOptions = template.options.map((option) => ({
+      label: option.label,
+      external_team_id: option.externalTeamId,
+      team_name: option.teamName,
+      logo_url: option.logoUrl,
+      sort_order: option.sortOrder,
+    }));
+  }
+
+  const { data: pool, error: poolError } = await adminClient
+    .from("pools")
+    .insert({
+      fixture_id: fixture.id,
+      created_by: admin.id,
+      pool_type: input.poolType,
+      template_id: input.poolType === "TEMPLATE_GRADED" ? input.templateId : null,
+      template_config: input.poolType === "TEMPLATE_GRADED" ? input.templateConfig : null,
+      analytics_category: resolvePoolAnalyticsCategory(
+        input.poolType,
+        input.poolType === "TEMPLATE_GRADED" ? input.templateId : null,
+      ),
+      title,
+      question,
+      entry_fee: input.entryFeeCents,
+      house_fee_bps: input.houseFeeBps,
+      min_total_entries: MINIMUM_POOL_ENTRIES,
+      visibility: input.visibility,
+      participation_visibility: input.participationVisibility,
+      open_at: new Date().toISOString(),
+      locks_at: locksAt,
+      status: publishImmediately ? "OPEN" : "DRAFT",
+    })
+    .select("id")
+    .single();
+
+  if (poolError || !pool) {
+    return { error: "Could not create the pool." };
+  }
+
+  const { error: optionsError } = await adminClient
+    .from("pool_options")
+    .insert(poolOptions.map((option) => ({ ...option, pool_id: pool.id })));
+
+  if (optionsError) {
+    return { error: "Could not create pool options." };
+  }
+
+  if (comboLegs) {
+    const { error: legsError } = await adminClient
+      .from("pool_combo_legs")
+      .insert(comboLegs.map((label, i) => ({ pool_id: pool.id, label, sort_order: i })));
+
+    if (legsError) {
+      return { error: "Could not create combo conditions." };
+    }
+  }
+
+  await writeAuditLog({
+    actorId: admin.id,
+    action: publishImmediately ? "pool.created_and_published" : "pool.created",
+    entityType: "pool",
+    entityId: pool.id as string,
+    after: { question, poolType: input.poolType, status: publishImmediately ? "OPEN" : "DRAFT" },
+  });
+
+  return {
+    pool: { id: pool.id as string, question, fixtureId: fixture.id, visibility: input.visibility },
+  };
+}
+
+/**
+ * The structured template builder's single-fixture entry point — every
+ * template (REGULATION_RESULT, WHO_WILL_ADVANCE, COMBO) is fixture-backed,
+ * so this always looks the fixture up first. CUSTOM (free-text, no
+ * fixture) pools are no longer creatable here; existing CUSTOM pools
+ * already in the database are untouched (grading/settlement/deletion all
+ * still work the same, only this creation path changed).
  */
 export async function createPoolFromTemplate(
   _prevState: CreatePoolFromTemplateState,
@@ -132,9 +366,8 @@ export async function createPoolFromTemplate(
   // The specific template's own schema validates templateConfig's exact
   // shape now that templateId is known — createPoolFromTemplateSchema only
   // checked it was a plain object.
-  let selectedTemplate: ReturnType<typeof getTemplate> = null;
   if (parsed.data.poolType === "TEMPLATE_GRADED") {
-    selectedTemplate = getTemplate(parsed.data.templateId);
+    const selectedTemplate = getTemplate(parsed.data.templateId);
     const configSchema = selectedTemplate ? TEMPLATE_CONFIG_SCHEMAS[selectedTemplate.id] : null;
     if (!selectedTemplate || !configSchema) {
       return { error: "Unknown template." };
@@ -148,112 +381,12 @@ export async function createPoolFromTemplate(
 
   const { data: fixture } = await adminClient
     .from("fixtures")
-    .select(
-      "home_team_external_id, home_team_name, home_team_logo_url, away_team_external_id, away_team_name, away_team_logo_url, competition_type, scheduled_start_utc",
-    )
+    .select(FIXTURE_SELECT_FOR_POOL_CREATION)
     .eq("id", parsed.data.fixtureId)
     .single();
 
   if (!fixture) {
     return { error: "Fixture not found." };
-  }
-
-  if (isLockTooCloseToKickoff(parsed.data.locksAt, fixture.scheduled_start_utc)) {
-    return {
-      error: `Lock time must be at least ${MINIMUM_LOCK_LEAD_MINUTES} minutes before kickoff.`,
-    };
-  }
-
-  // Re-checked here, not just in the client's disabled-card UI — a knockout
-  // fixture (Cup) can never end in a draw, so "Result after regulation"
-  // isn't a valid template for it, and vice versa for "Who will advance?"
-  // on a League fixture.
-  if (parsed.data.poolType === "WHO_WILL_ADVANCE" || parsed.data.poolType === "REGULATION_RESULT") {
-    const eligibility = getTemplateEligibility(fixture.competition_type);
-    if (parsed.data.poolType === "WHO_WILL_ADVANCE" && !eligibility.whoWillAdvanceEnabled) {
-      return { error: "\"Who will advance?\" isn't available for this fixture — it isn't a knockout match." };
-    }
-    if (parsed.data.poolType === "REGULATION_RESULT" && !eligibility.regulationResultEnabled) {
-      return {
-        error:
-          "\"Result after regulation\" isn't available for this fixture — it's a knockout match, so a draw isn't a possible final outcome.",
-      };
-    }
-  }
-
-  const templateFixtureScore = {
-    homeTeamName: fixture.home_team_name,
-    awayTeamName: fixture.away_team_name,
-    homeTeamExternalId: fixture.home_team_external_id,
-    awayTeamExternalId: fixture.away_team_external_id,
-    regulationHomeScore: null,
-    regulationAwayScore: null,
-    halftimeHomeScore: null,
-    halftimeAwayScore: null,
-  };
-
-  // Re-checked here, not just in the client's disabled-card UI — mirrors
-  // the WHO_WILL_ADVANCE/REGULATION_RESULT eligibility re-check above.
-  if (parsed.data.poolType === "TEMPLATE_GRADED" && selectedTemplate) {
-    const availability = selectedTemplate.availabilityCheck(templateFixtureScore, {
-      FIXTURE: true,
-      FIXTURE_EVENTS: true,
-      FIXTURE_STATISTICS: false,
-      FIXTURE_PLAYERS: false,
-      LINEUPS: false,
-    });
-    if (!availability.available) {
-      return { error: availability.reason };
-    }
-  }
-
-  let title: string | null = null;
-  let question: string;
-  let poolOptions: Array<{
-    label: string;
-    external_team_id: string | null;
-    team_name: string | null;
-    logo_url: string | null;
-    sort_order: number;
-  }>;
-  let comboLegs: string[] | null = null;
-
-  if (parsed.data.poolType === "COMBO") {
-    title = parsed.data.title;
-    question = parsed.data.question;
-    // Fixed pair, not admin-input — the N leg conditions (below) are what
-    // determine which of these two wins, not free-text choices.
-    poolOptions = [
-      { label: "Yes", external_team_id: null, team_name: null, logo_url: null, sort_order: 0 },
-      { label: "No", external_team_id: null, team_name: null, logo_url: null, sort_order: 1 },
-    ];
-    comboLegs = parsed.data.legs;
-  } else if (parsed.data.poolType === "TEMPLATE_GRADED" && selectedTemplate) {
-    question = selectedTemplate.questionBuilder(templateFixtureScore, parsed.data.templateConfig);
-    // Same fixed pair as COMBO — every Phase-1 template is binary YES/NO;
-    // gradeTemplatePool looks these up by label ("Yes"/"No"), not by id.
-    poolOptions = [
-      { label: "Yes", external_team_id: null, team_name: null, logo_url: null, sort_order: 0 },
-      { label: "No", external_team_id: null, team_name: null, logo_url: null, sort_order: 1 },
-    ];
-  } else {
-    const template = generatePoolTemplate(parsed.data.poolType as PoolType, {
-      homeTeamExternalId: fixture.home_team_external_id,
-      homeTeamName: fixture.home_team_name,
-      homeTeamLogoUrl: fixture.home_team_logo_url,
-      awayTeamExternalId: fixture.away_team_external_id,
-      awayTeamName: fixture.away_team_name,
-      awayTeamLogoUrl: fixture.away_team_logo_url,
-    });
-
-    question = template.question;
-    poolOptions = template.options.map((option) => ({
-      label: option.label,
-      external_team_id: option.externalTeamId,
-      team_name: option.teamName,
-      logo_url: option.logoUrl,
-      sort_order: option.sortOrder,
-    }));
   }
 
   // "Publish immediately" (spec's Step 4 Publish/Save Draft choice) skips
@@ -262,73 +395,164 @@ export async function createPoolFromTemplate(
   // wizard's single submit can do it in one round trip.
   const publishImmediately = formData.get("publishImmediately") === "on";
 
-  const { data: pool, error: poolError } = await adminClient
-    .from("pools")
-    .insert({
-      fixture_id: parsed.data.fixtureId,
-      created_by: admin.id,
-      pool_type: parsed.data.poolType,
-      template_id: parsed.data.poolType === "TEMPLATE_GRADED" ? parsed.data.templateId : null,
-      template_config: parsed.data.poolType === "TEMPLATE_GRADED" ? parsed.data.templateConfig : null,
-      analytics_category: resolvePoolAnalyticsCategory(
-        parsed.data.poolType,
-        parsed.data.poolType === "TEMPLATE_GRADED" ? parsed.data.templateId : null,
-      ),
-      title,
-      question,
-      entry_fee: parsed.data.entryFeeCents,
-      house_fee_bps: parsed.data.houseFeeBps,
-      min_total_entries: MINIMUM_POOL_ENTRIES,
-      visibility: parsed.data.visibility,
-      participation_visibility: parsed.data.participationVisibility,
-      open_at: new Date().toISOString(),
-      locks_at: parsed.data.locksAt,
-      status: publishImmediately ? "OPEN" : "DRAFT",
-    })
-    .select("id")
-    .single();
+  const outcome = await createPoolForFixture(
+    adminClient,
+    admin,
+    parsed.data as PoolCreationInput,
+    fixture as PoolFixtureRow,
+    parsed.data.locksAt,
+    publishImmediately,
+  );
 
-  if (poolError || !pool) {
-    return { error: "Could not create the pool." };
+  if ("error" in outcome) {
+    return { error: outcome.error };
   }
-
-  const { error: optionsError } = await adminClient
-    .from("pool_options")
-    .insert(poolOptions.map((option) => ({ ...option, pool_id: pool.id })));
-
-  if (optionsError) {
-    return { error: "Could not create pool options." };
-  }
-
-  if (comboLegs) {
-    const { error: legsError } = await adminClient
-      .from("pool_combo_legs")
-      .insert(comboLegs.map((label, i) => ({ pool_id: pool.id, label, sort_order: i })));
-
-    if (legsError) {
-      return { error: "Could not create combo conditions." };
-    }
-  }
-
-  await writeAuditLog({
-    actorId: admin.id,
-    action: publishImmediately ? "pool.created_and_published" : "pool.created",
-    entityType: "pool",
-    entityId: pool.id,
-    after: { question, poolType: parsed.data.poolType, status: publishImmediately ? "OPEN" : "DRAFT" },
-  });
 
   revalidatePath("/admin/pools");
   if (publishImmediately) {
     revalidatePath("/feed");
-    await notifyFollowersOfPublish({
-      id: pool.id as string,
-      question,
-      fixtureId: parsed.data.fixtureId,
-      visibility: parsed.data.visibility,
-    });
+    await notifyFollowersOfPublish(outcome.pool);
   }
-  redirect(`/admin/pools/${pool.id}`);
+  redirect(`/admin/pools/${outcome.pool.id}`);
+}
+
+export type CreatePoolsForFixturesResult = { fixtureId: string; poolId: string | null; error: string | null };
+
+export type CreatePoolsForFixturesActionInput = {
+  poolType: "WHO_WILL_ADVANCE" | "REGULATION_RESULT" | "TEMPLATE_GRADED";
+  fixtureIds: string[];
+  entryFee: string;
+  houseFeePercent: string;
+  visibility: string;
+  participationVisibility: string;
+  lockMinutesBeforeKickoff: number;
+  templateId?: string;
+  templateConfig?: Record<string, unknown>;
+  publishImmediately: boolean;
+};
+
+/**
+ * The "multiple fixtures" wizard mode's entry point — applies one template
+ * across every selected fixture, one pool per fixture. Called directly from
+ * the client (not a <form action>, since there's no single redirect target
+ * once N pools might be created) via useTransition, mirroring
+ * importFixturesAction's shape (lib/actions/fixtures.ts): validate once,
+ * then loop sequentially, never letting one fixture's failure (already
+ * locked, ineligible template, etc.) abort the rest.
+ */
+export async function createPoolsForFixturesAction(
+  input: CreatePoolsForFixturesActionInput,
+): Promise<{ error: string | null; results: CreatePoolsForFixturesResult[] }> {
+  const admin = await requireSuperAdmin();
+  const adminClient = createAdminClient();
+
+  const entryFeeCents = parseDollarsToCents(input.entryFee);
+  const houseFeeBps = parsePercentToBps(input.houseFeePercent);
+  if (entryFeeCents == null || houseFeeBps == null) {
+    return { error: "Check the pool configuration — something's missing or invalid.", results: [] };
+  }
+
+  const parsed = createPoolsForFixturesSchema.safeParse(
+    input.poolType === "TEMPLATE_GRADED"
+      ? {
+          poolType: "TEMPLATE_GRADED",
+          fixtureIds: input.fixtureIds,
+          lockMinutesBeforeKickoff: input.lockMinutesBeforeKickoff,
+          templateId: input.templateId,
+          templateConfig: input.templateConfig ?? {},
+          entryFeeCents,
+          houseFeeBps,
+          visibility: input.visibility,
+          participationVisibility: input.participationVisibility,
+        }
+      : {
+          poolType: input.poolType,
+          fixtureIds: input.fixtureIds,
+          lockMinutesBeforeKickoff: input.lockMinutesBeforeKickoff,
+          entryFeeCents,
+          houseFeeBps,
+          visibility: input.visibility,
+          participationVisibility: input.participationVisibility,
+        },
+  );
+
+  if (!parsed.success) {
+    return { error: "Check the pool configuration — something's missing or invalid.", results: [] };
+  }
+
+  if (parsed.data.poolType === "TEMPLATE_GRADED") {
+    const selectedTemplate = getTemplate(parsed.data.templateId);
+    const configSchema = selectedTemplate ? TEMPLATE_CONFIG_SCHEMAS[selectedTemplate.id] : null;
+    if (!selectedTemplate || !configSchema) {
+      return { error: "Unknown template.", results: [] };
+    }
+    // Player props bake in one specific fixture's roster (the picked
+    // player's external id) — never portable across different fixtures,
+    // unlike every other registered template's TEAM_SIDE/INTEGER/BOOLEAN
+    // config, which is generic ("home team", "2.5", "yes/no").
+    if (selectedTemplate.category === "PLAYER_PROPS") {
+      return {
+        error: "Player prop templates aren't available when creating pools for multiple fixtures at once.",
+        results: [],
+      };
+    }
+    const configParsed = configSchema.safeParse(parsed.data.templateConfig);
+    if (!configParsed.success) {
+      return { error: "Check the template configuration — something's missing or invalid.", results: [] };
+    }
+    parsed.data.templateConfig = configParsed.data as Record<string, unknown>;
+  }
+
+  const { data: fixtureRows } = await adminClient
+    .from("fixtures")
+    .select(FIXTURE_SELECT_FOR_POOL_CREATION)
+    .in("id", parsed.data.fixtureIds);
+
+  const fixturesById = new Map(
+    (fixtureRows ?? []).map((row) => [row.id as string, row as PoolFixtureRow]),
+  );
+
+  const results: CreatePoolsForFixturesResult[] = [];
+  const publishedPools: CreatedPool[] = [];
+
+  for (const fixtureId of parsed.data.fixtureIds) {
+    const fixture = fixturesById.get(fixtureId);
+    if (!fixture) {
+      results.push({ fixtureId, poolId: null, error: "Fixture not found." });
+      continue;
+    }
+
+    const locksAt = new Date(
+      new Date(fixture.scheduled_start_utc).getTime() - parsed.data.lockMinutesBeforeKickoff * 60_000,
+    ).toISOString();
+
+    const outcome = await createPoolForFixture(
+      adminClient,
+      admin,
+      parsed.data as PoolCreationInput,
+      fixture,
+      locksAt,
+      input.publishImmediately,
+    );
+
+    if ("error" in outcome) {
+      results.push({ fixtureId, poolId: null, error: outcome.error });
+      continue;
+    }
+
+    results.push({ fixtureId, poolId: outcome.pool.id, error: null });
+    if (input.publishImmediately) publishedPools.push(outcome.pool);
+  }
+
+  revalidatePath("/admin/pools");
+  if (publishedPools.length > 0) {
+    revalidatePath("/feed");
+    for (const pool of publishedPools) {
+      await notifyFollowersOfPublish(pool);
+    }
+  }
+
+  return { error: null, results };
 }
 
 export async function publishPoolAction(poolId: string) {

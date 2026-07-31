@@ -1,14 +1,18 @@
 import { requireSuperAdmin } from "@/lib/auth/session";
 import { getRegistrationEnabled } from "@/lib/settings/registration";
+import { getPoolFeeDefaults } from "@/lib/settings/pool-defaults";
 import { getPaymentMethods } from "@/lib/payment-methods/fetch";
+import { formatBps } from "@/lib/utils/money";
 import { Card, CardContent } from "@/components/ui/card";
 import { RegistrationToggle } from "./registration-toggle";
 import { PaymentMethodsSettings } from "./payment-methods-settings";
+import { PoolFeeDefaultsForm } from "./pool-fee-defaults-form";
 
 export default async function AdminSettingsPage() {
   await requireSuperAdmin();
-  const [registrationEnabled, paymentMethods] = await Promise.all([
+  const [registrationEnabled, poolFeeDefaults, paymentMethods] = await Promise.all([
     getRegistrationEnabled(),
+    getPoolFeeDefaults(),
     getPaymentMethods(),
   ]);
 
@@ -18,6 +22,14 @@ export default async function AdminSettingsPage() {
       <Card>
         <CardContent className="pt-6">
           <RegistrationToggle initialEnabled={registrationEnabled} />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardContent className="pt-6">
+          <PoolFeeDefaultsForm
+            initialEntryFee={(poolFeeDefaults.entryFeeCents / 100).toFixed(2)}
+            initialHouseFeePercent={formatBps(poolFeeDefaults.houseFeeBps).replace("%", "")}
+          />
         </CardContent>
       </Card>
       <Card>

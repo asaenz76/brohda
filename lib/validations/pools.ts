@@ -30,11 +30,15 @@ const participationVisibilityEnum = z.enum([
 // minTotalEntries is deliberately absent here — every pool now requires the
 // platform-wide MINIMUM_POOL_ENTRIES floor (lib/actions/pools.ts), not an
 // admin-chosen value, so it's no longer client-submitted input.
-const sharedPoolFields = {
+const sharedPoolFinancialFields = {
   entryFeeCents: z.number().int().positive(),
   houseFeeBps: z.number().int().min(0).max(10000),
   visibility: visibilityEnum,
   participationVisibility: participationVisibilityEnum,
+};
+
+const sharedPoolFields = {
+  ...sharedPoolFinancialFields,
   locksAt: z.string().datetime(),
 };
 
@@ -87,6 +91,43 @@ export const createPoolFromTemplateSchema = z.discriminatedUnion("poolType", [
 ]);
 
 export type CreatePoolFromTemplateInput = z.infer<typeof createPoolFromTemplateSchema>;
+
+// Backs the "multiple fixtures" wizard mode (create-the-same-template-
+// across-a-round) — a coordinator configures the template/financials once
+// and it's applied per fixture. COMBO is deliberately not a variant here:
+// its title/question/legs are free-typed text tied to one specific match,
+// so the same literal text applied to every selected fixture is never what
+// an admin actually wants. TEMPLATE_GRADED's PLAYER_PROPS category is
+// rejected in the action itself (lib/actions/pools.ts) rather than here —
+// it needs the resolved template's category, which requires a registry
+// lookup this schema doesn't have access to.
+//
+// Each fixture gets its own locks_at, computed from its own kickoff minus
+// lockMinutesBeforeKickoff — there's no single shared absolute lock time
+// the way the single-fixture flow has, since every fixture kicks off at a
+// different time.
+export const createPoolsForFixturesSchema = z.discriminatedUnion("poolType", [
+  z
+    .object({
+      poolType: z.enum(["WHO_WILL_ADVANCE", "REGULATION_RESULT"]),
+      fixtureIds: z.array(z.string().uuid()).min(2).max(50),
+      lockMinutesBeforeKickoff: z.number().int().min(MINIMUM_LOCK_LEAD_MINUTES),
+      ...sharedPoolFinancialFields,
+    })
+    .strict(),
+  z
+    .object({
+      poolType: z.literal("TEMPLATE_GRADED"),
+      fixtureIds: z.array(z.string().uuid()).min(2).max(50),
+      lockMinutesBeforeKickoff: z.number().int().min(MINIMUM_LOCK_LEAD_MINUTES),
+      templateId: z.string().min(1),
+      templateConfig: z.record(z.string(), z.unknown()),
+      ...sharedPoolFinancialFields,
+    })
+    .strict(),
+]);
+
+export type CreatePoolsForFixturesInput = z.infer<typeof createPoolsForFixturesSchema>;
 
 // Also excludes minTotalEntries — an existing pool's minimum is left
 // untouched on update (preserves pools grandfathered in under the old

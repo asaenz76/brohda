@@ -2,9 +2,10 @@ import { z } from "zod";
 
 export const fixtureSearchSchema = z
   .object({
-    mode: z.enum(["by_id", "by_league"]),
+    mode: z.enum(["by_id", "by_league", "by_team"]),
     externalFixtureId: z.string().trim().min(1).optional(),
     competitionExternalId: z.string().trim().min(1).optional(),
+    teamExternalId: z.string().trim().min(1).optional(),
     season: z
       .string()
       .trim()
@@ -18,14 +19,19 @@ export const fixtureSearchSchema = z
   })
   .strict()
   .refine(
-    (data) =>
-      data.mode === "by_id"
-        ? !!data.externalFixtureId
-        : !!data.competitionExternalId && !!data.season,
-    { message: "Enter a fixture ID, or a league and season." },
+    (data) => {
+      if (data.mode === "by_id") return !!data.externalFixtureId;
+      if (data.mode === "by_team") return !!data.teamExternalId;
+      return !!data.competitionExternalId && !!data.season;
+    },
+    { message: "Enter a fixture ID, a league and season, or a team." },
   );
 
 export type FixtureSearchInput = z.infer<typeof fixtureSearchSchema>;
+
+export const teamSearchSchema = z.object({ query: z.string().trim().min(1) }).strict();
+
+export type TeamSearchInput = z.infer<typeof teamSearchSchema>;
 
 // Bulk import is capped at 50 per request — a sanity bound, not a real
 // expected volume (a single league/date search realistically returns a

@@ -180,4 +180,75 @@ describe("ApiFootballProvider", () => {
     expect(await provider.getLeagueType("39")).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("searches teams by name via the /teams endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          response: [
+            { team: { id: 42, name: "Arsenal", logo: "https://example.com/arsenal.png", country: "England" } },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new ApiFootballProvider();
+    const teams = await provider.searchTeams("Arsenal");
+
+    expect(teams).toEqual([
+      {
+        provider: "api_football",
+        externalTeamId: "42",
+        name: "Arsenal",
+        countryName: "England",
+        logoUrl: "https://example.com/arsenal.png",
+      },
+    ]);
+    const requestedUrl = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(requestedUrl.pathname).toContain("/teams");
+    expect(requestedUrl.searchParams.get("search")).toBe("Arsenal");
+  });
+
+  it("returns an empty result without calling fetch for a blank team query", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new ApiFootballProvider();
+    expect(await provider.searchTeams("   ")).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("searches fixtures by team, defaulting to the next 10 when no season/date is given", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(SAMPLE_RESPONSE), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new ApiFootballProvider();
+    await provider.searchFixtures({ teamExternalId: "42" });
+
+    const requestedUrl = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(requestedUrl.pathname).toContain("/fixtures");
+    expect(requestedUrl.searchParams.get("team")).toBe("42");
+    expect(requestedUrl.searchParams.get("next")).toBe("10");
+    expect(requestedUrl.searchParams.has("season")).toBe(false);
+  });
+
+  it("searches fixtures by team and season/date without the next-10 default when given", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(SAMPLE_RESPONSE), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new ApiFootballProvider();
+    await provider.searchFixtures({ teamExternalId: "42", season: "2024", date: "2024-05-01" });
+
+    const requestedUrl = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(requestedUrl.searchParams.get("team")).toBe("42");
+    expect(requestedUrl.searchParams.get("season")).toBe("2024");
+    expect(requestedUrl.searchParams.get("date")).toBe("2024-05-01");
+    expect(requestedUrl.searchParams.has("next")).toBe(false);
+  });
 });

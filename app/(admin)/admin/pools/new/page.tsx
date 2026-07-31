@@ -1,10 +1,13 @@
 import { requireSuperAdmin } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
+import { getPoolFeeDefaults } from "@/lib/settings/pool-defaults";
+import { formatBps } from "@/lib/utils/money";
 import { PoolTemplateBuilder } from "./pool-template-builder";
 
 export default async function NewPoolPage() {
   await requireSuperAdmin();
   const supabase = await createClient();
+  const poolFeeDefaults = await getPoolFeeDefaults();
 
   // Excludes any fixture whose every pool has already been graded (SETTLED/
   // CANCELLED/VOIDED) — nothing left to attach a new pool to. Team name/
@@ -45,7 +48,11 @@ export default async function NewPoolPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-lg font-semibold text-text-primary">Create a pool</h1>
-      <PoolTemplateBuilder fixtures={fixtureOptions} />
+      <PoolTemplateBuilder
+        fixtures={fixtureOptions}
+        defaultEntryFee={(poolFeeDefaults.entryFeeCents / 100).toFixed(2)}
+        defaultHouseFeePercent={formatBps(poolFeeDefaults.houseFeeBps).replace("%", "")}
+      />
     </div>
   );
 }
