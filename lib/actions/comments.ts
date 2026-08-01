@@ -130,8 +130,10 @@ export async function addCommentAction(
     });
   }
 
-  revalidatePath("/feed");
-  revalidatePath("/profile");
+  // CommentSheet already fully owns the acting user's own view via local
+  // optimistic state (appends the new comment / pushes the updated count
+  // locally) — see lib/actions/likes.ts's toggleLikeAction for the same
+  // reasoning. Keep /pool/[id] only.
   revalidatePath(`/pool/${parsed.data.poolId}`);
   return {
     error: null,
@@ -171,8 +173,6 @@ export async function deleteCommentAction(
     return { error: "Could not delete this comment." };
   }
 
-  revalidatePath("/feed");
-  revalidatePath("/profile");
   revalidatePath(`/pool/${poolId}`);
   return { error: null };
 }

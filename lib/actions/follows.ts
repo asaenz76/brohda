@@ -8,15 +8,17 @@ import { checkFollowRateLimit } from "@/lib/rate-limit/follows";
 
 export type ToggleFollowResult = { error: string | null; following: boolean };
 
-// A follow/unfollow changes counts and button state on the profile itself,
-// its followers/following lists, and (for the acting user) their own
-// /profile header — every surface that reads get_follow_counts/is_following
-// or renders a FollowButton.
+// A follow/unfollow changes counts and button state on the profile itself
+// and its followers/following lists — every surface that reads
+// get_follow_counts/is_following or renders a FollowButton. Not the acting
+// user's own /profile: FollowButton is already fully optimistic locally
+// (lib/components/profile/FollowButton.tsx flips state on click, rolls
+// back only on error), and /profile's Predictions tab fetch is expensive
+// (getPoolCardViewModels) for a page this toggle doesn't otherwise affect.
 function revalidateFollowSurfaces() {
   revalidatePath("/profile/[username]", "page");
   revalidatePath("/profile/[username]/followers", "page");
   revalidatePath("/profile/[username]/following", "page");
-  revalidatePath("/profile");
 }
 
 // requireUser() scopes this to the caller's own id server-side — the
@@ -67,6 +69,6 @@ export async function toggleFollowAction(
     return { error: "Could not follow this profile.", following: false };
   }
 
-  revalidatePath("/profile/[username]", "page");
+  revalidateFollowSurfaces();
   return { error: null, following: true };
 }

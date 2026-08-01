@@ -9,12 +9,15 @@ import { checkTeamFollowRateLimit } from "@/lib/rate-limit/team-follows";
 
 export type ToggleTeamFollowResult = { error: string | null; following: boolean };
 
-// A follow/unfollow changes the follow icon on every pool card showing this
-// team and the "Teams & Leagues" profile tab.
+// TeamFollowToggle is already fully optimistic locally (flips its own icon
+// on click, rolls back only on error) — /feed and /profile aren't
+// revalidated here since that would just force an expensive
+// getPoolCardViewModels recomputation to patch in state the client already
+// shows correctly. /pool/[id] (note: the real route segment is [id], not
+// [poolId] — this used to silently no-op) is kept as a cheap,
+// single-pool eventual-consistency safety net.
 function revalidateTeamFollowSurfaces() {
-  revalidatePath("/feed");
-  revalidatePath("/pool/[poolId]", "page");
-  revalidatePath("/profile");
+  revalidatePath("/pool/[id]", "page");
 }
 
 // requireUser() scopes this to the caller's own id server-side. Written via

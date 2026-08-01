@@ -38,8 +38,13 @@ export async function toggleLikeAction(
     return { error: "Could not update your like.", liked: isCurrentlyLiked };
   }
 
-  revalidatePath("/feed");
-  revalidatePath("/profile");
+  // LikeButton already fully owns the acting user's own view via local
+  // optimistic state (flip on click, rollback on error) — revalidating
+  // /feed or /profile here would just force a same-render recomputation of
+  // getPoolCardViewModels for up to 50 pools to patch in one heart icon
+  // that's already correct on screen. Keep /pool/[id] only: cheap
+  // (single-pool fetch) and a useful eventual-consistency safety net for
+  // that one pool's own page.
   revalidatePath(`/pool/${parsed.data.poolId}`);
   return { error: null, liked: Boolean(liked) };
 }

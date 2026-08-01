@@ -1559,10 +1559,52 @@ confirmed causes (not the earlier reverted service-worker incident):
    `tests/integration/feed-pool-cap.test.ts` seeds pools where the two
    orderings deliberately disagree at the extremes to prove this.
 
-Explicitly deferred, not part of this pass: `revalidatePath` after small
-actions (like/follow) re-running a page's full data fetch — a real
-secondary contributor, but needs case-by-case correctness review per
-action rather than a blanket change.
+**Follow-up: `revalidatePath` cleanup for small mutation actions.** The
+item above was deferred pending a case-by-case correctness review, done in
+a later pass. `toggleLikeAction` (`lib/actions/likes.ts`),
+`addCommentAction`/`deleteCommentAction` (`lib/actions/comments.ts`), and
+the follow toggles (`lib/actions/follows.ts`, `team-follows.ts`,
+`league-follows.ts`) all called `revalidatePath("/feed")`/
+`revalidatePath("/profile")` afterward — and since a Server Action's
+`revalidatePath` call causes Next to re-render the *currently active*
+route as part of resolving that action (not just invalidate a future
+visit), liking a pool card sitting on `/feed` forced the entire feed's
+`getPoolCardViewModels` (up to 50 pools) to recompute just to patch in one
+heart icon. A survey confirmed every one of these actions already has
+complete client-side optimistic handling (`LikeButton`, `CommentSheet`,
+`FollowButton`, `TeamFollowToggle`, `LeagueFollowToggle` all flip local
+state on click, rolling back only on error) — so those two revalidations
+produced zero additional correctness for the acting user's own screen,
+purely repeated cost on the hottest, most-frequent actions in the app.
+Removed both from likes/comments/team-follows/league-follows, keeping only
+the cheap single-pool `revalidatePath(`/pool/${poolId}`)` as an
+eventual-consistency safety net. Two related bugs found and fixed in
+passing: `toggleFollowAction`'s follow branch revalidated fewer surfaces
+than its unfollow branch (now both call the same
+`revalidateFollowSurfaces()`, minus the expensive `/profile` call, which
+was also dropped); and `toggleTeamFollowAction`/`toggleLeagueFollowAction`
+both called `revalidatePath("/pool/[poolId]", "page")` — the real route
+folder is `app/(app)/pool/[id]`, so that call was a silent no-op, now
+fixed to `/pool/[id]`. Verified live: liking/commenting/following update
+instantly with no full-feed re-render, and DB writes plus the surviving
+revalidations were confirmed correct via direct SQL and fresh page loads
+of `/profile`, `/pool/[id]`, and the followed profile's page.
+
+Left untouched, on purpose: `enterPoolAction` (`lib/actions/entries.ts`) —
+unlike the others, it has no existing client-side optimistic update, and a
+code comment there explicitly documents that its `/feed`/`/pool/[id]`
+revalidation is what refreshes the *entering user's own* percentages/
+payout estimate (the realtime broadcast only covers other viewers). This
+is money-moving and higher-risk to narrow without first adding real client
+optimism — left as a separate, future decision. Also untouched: `Profile
+Page` (`app/(app)/profile/page.tsx`) eagerly server-renders all three tabs
+(Predictions, Teams & Leagues, Edit) every request — `ProfileTabs` just
+CSS-hides the inactive ones — so every `revalidatePath("/profile")`
+anywhere still re-runs the Predictions tab's `getPoolCardViewModels` fetch
+regardless of which tab is active. Fixing that is the single biggest
+remaining lever here, but requires switching tab-switching from instant
+client state to URL-driven (`?tab=`) server rendering — a real UX
+behavior change the user chose to leave for a separate pass.
 
 **A safety note surfaced during this work**: `package.json`'s
 `test:integration` script runs `dotenv -e .env.local -- vitest run ...`,

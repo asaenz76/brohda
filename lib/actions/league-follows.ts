@@ -9,10 +9,11 @@ import { checkLeagueFollowRateLimit } from "@/lib/rate-limit/team-follows";
 
 export type ToggleLeagueFollowResult = { error: string | null; following: boolean };
 
+// See lib/actions/team-follows.ts's revalidateTeamFollowSurfaces for the
+// full reasoning — LeagueFollowToggle is equally fully optimistic locally,
+// and the route segment is [id], not [poolId] (that used to silently no-op).
 function revalidateLeagueFollowSurfaces() {
-  revalidatePath("/feed");
-  revalidatePath("/pool/[poolId]", "page");
-  revalidatePath("/profile");
+  revalidatePath("/pool/[id]", "page");
 }
 
 // Mirrors lib/actions/team-follows.ts's toggleTeamFollowAction exactly —
