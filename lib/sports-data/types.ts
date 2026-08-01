@@ -96,6 +96,11 @@ export interface LeagueSeason {
   year: string;
   startDate: string; // ISO YYYY-MM-DD
   endDate: string; // ISO YYYY-MM-DD
+  // API-Football's own "is this the season currently being played" flag —
+  // the real signal for the fixture-import league picker's "In season now"
+  // group (lib/sports-data/league-picker.ts), instead of a hand-guessed
+  // calendar approximation.
+  current: boolean;
 }
 
 export interface NormalizedLeague {

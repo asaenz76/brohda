@@ -54,7 +54,7 @@ interface ApiFootballListResponse {
 interface ApiFootballLeagueResponse {
   league: { id: number; name: string; type: string | null; logo: string | null };
   country: { name: string | null; code: string | null; flag: string | null };
-  seasons: Array<{ year: number; start: string; end: string }>;
+  seasons: Array<{ year: number; start: string; end: string; current?: boolean }>;
 }
 
 interface ApiFootballLeagueListResponse {
@@ -218,7 +218,12 @@ function mapLeague(raw: ApiFootballLeagueResponse): NormalizedLeague {
     type: raw.league.type ?? null,
     countryName: raw.country?.name ?? null,
     logoUrl: raw.league.logo ?? null,
-    seasons: (raw.seasons ?? []).map((s) => ({ year: String(s.year), startDate: s.start, endDate: s.end })),
+    seasons: (raw.seasons ?? []).map((s) => ({
+      year: String(s.year),
+      startDate: s.start,
+      endDate: s.end,
+      current: s.current ?? false,
+    })),
   };
 }
 

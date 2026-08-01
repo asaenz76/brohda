@@ -1826,6 +1826,52 @@ that each pool attached to its own fixture with its own correctly-computed
 correctly disabled with fixture-specific reasons ("not every selected
 fixture is a knockout match" / "…allows a draw as a final outcome").
 
+**Fixture import league picker missing active cups.** The "By league"
+dropdown on `/admin/fixtures` (`app/(admin)/admin/fixtures/league-select.tsx`)
+puts a curated set of major competitions in "⭐ In season now"/"Other major
+leagues" at the top, so a super admin isn't stuck browsing hundreds of
+countries. A super admin reported the CONCACAF Central American Cup —
+being played right now — wasn't showing up there. Root cause: "in season
+now" was computed from a hand-guessed, year-agnostic `activeMonths`
+calendar approximation per curated league (`lib/sports-data/priority-leagues.ts`,
+its own comment admitted this was "NOT exact per-season start/end dates"),
+and the cup was never added to the curated list at all — while API-
+Football's real `/leagues` response includes a genuine `current: true/false`
+flag per season that was being fetched and then silently discarded at the
+`mapLeague` mapping boundary (`lib/sports-data/api-football-provider.ts`).
+
+Fixed both problems: `ApiFootballLeagueResponse.seasons[]`/`LeagueSeason`
+now carry the real `current` flag through end-to-end, and `priority-leagues.ts`
+dropped `activeMonths`/`isLeagueInSeason` entirely in favor of checking
+`league.seasons.some((s) => s.current)` against live data — accurate for
+every entry, including irregularly-scheduled cups an annual-month-range
+could never represent. Added 4 curated entries matching this platform's
+already CONCACAF/Latin-America-heavy league coverage: CONCACAF Central
+American Cup (id `1028`), CONCACAF Gold Cup (`22`), CONCACAF Nations League
+(`536`), Copa América (`9`) — exact ids looked up live against the real
+API-Football service, not guessed. Deliberately did **not** switch to
+surfacing every currently-active competition worldwide instead of a
+curated list — API-Football tracks well over a thousand leagues/cups, and
+an uncurated "current" filter would flood the top group with youth/
+qualifier/regional competitions nobody runs pools on; a new cup still
+needs to be added here once someone notices it's missing, but once added
+its timing is now always accurate instead of hand-guessed.
+
+The categorization itself was pulled out of the `"use client"` picker
+component into a new pure, unit-tested function,
+`categorizeLeaguesForPicker` (`lib/sports-data/league-picker.ts`) — same
+"extract pure logic so it's testable" pattern as `groupPoolTotalsByPoolId`/
+`groupPoolParticipantsByPoolId` in `lib/pools/fetch.ts`.
+`tests/unit/league-picker.test.ts` specifically covers the curated-list
+guard (a non-priority cup with a real `current: true` season still falls
+through to its per-country group, not the top). Verified live against the
+real API-Football service (not mocked) by calling the actual production
+code path (`apiFootballProvider.searchLeagues("")` →
+`categorizeLeaguesForPicker`) directly in a script: all 4 newly-added cups
+correctly landed in "in season now" (including the reported Central
+American Cup), and none of the other ~1,200 fetched leagues/cups leaked
+into that group, confirming the curated-list guard held.
+
 ## Local development
 
 ```bash

@@ -181,6 +181,66 @@ describe("ApiFootballProvider", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("searches leagues and carries each season's real current flag through", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          response: [
+            {
+              league: { id: 1028, name: "CONCACAF Central American Cup", type: "Cup", logo: null },
+              country: { name: "World", code: null, flag: null },
+              seasons: [
+                { year: 2024, start: "2024-06-01", end: "2024-08-01", current: false },
+                { year: 2026, start: "2026-06-01", end: "2026-08-01", current: true },
+              ],
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new ApiFootballProvider();
+    const [league] = await provider.searchLeagues("Central American Cup");
+
+    expect(league).toMatchObject({
+      externalLeagueId: "1028",
+      name: "CONCACAF Central American Cup",
+      type: "Cup",
+    });
+    expect(league.seasons).toEqual([
+      { year: "2024", startDate: "2024-06-01", endDate: "2024-08-01", current: false },
+      { year: "2026", startDate: "2026-06-01", endDate: "2026-08-01", current: true },
+    ]);
+    const requestedUrl = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(requestedUrl.pathname).toContain("/leagues");
+    expect(requestedUrl.searchParams.get("search")).toBe("Central American Cup");
+  });
+
+  it("defaults a season's current flag to false when the provider omits it", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          response: [
+            {
+              league: { id: 39, name: "Premier League", type: "League", logo: null },
+              country: { name: "England", code: "GB", flag: null },
+              seasons: [{ year: 2020, start: "2020-08-01", end: "2021-05-01" }],
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new ApiFootballProvider();
+    const [league] = await provider.searchLeagues("Premier League");
+
+    expect(league.seasons[0].current).toBe(false);
+  });
+
   it("searches teams by name via the /teams endpoint", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
