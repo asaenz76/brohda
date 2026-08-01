@@ -123,6 +123,45 @@ describe("ApiFootballProvider", () => {
     expect(requestedUrl.searchParams.get("date")).toBe("2021-04-25");
   });
 
+  it("searches a league+season with no date using a from/to range starting today, not just season", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-01T12:00:00.000Z"));
+
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(SAMPLE_RESPONSE), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new ApiFootballProvider();
+    await provider.searchFixtures({ competitionExternalId: "39", season: "2020" });
+
+    const requestedUrl = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(requestedUrl.searchParams.get("league")).toBe("39");
+    expect(requestedUrl.searchParams.get("season")).toBe("2020");
+    expect(requestedUrl.searchParams.has("date")).toBe(false);
+    // Without this, a league+season search returns every fixture ever
+    // played in that season, past included — the actual bug reported.
+    expect(requestedUrl.searchParams.get("from")).toBe("2026-08-01");
+    expect(requestedUrl.searchParams.get("to")).toBe("2028-08-01");
+
+    vi.useRealTimers();
+  });
+
+  it("does not add a from/to range when an explicit date is given alongside league+season", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(SAMPLE_RESPONSE), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new ApiFootballProvider();
+    await provider.searchFixtures({ competitionExternalId: "39", season: "2020", date: "2020-05-01" });
+
+    const requestedUrl = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(requestedUrl.searchParams.get("date")).toBe("2020-05-01");
+    expect(requestedUrl.searchParams.has("from")).toBe(false);
+    expect(requestedUrl.searchParams.has("to")).toBe(false);
+  });
+
   it("fetches a single fixture by external id", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify(SAMPLE_RESPONSE), { status: 200 }),

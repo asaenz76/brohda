@@ -427,7 +427,22 @@ export class ApiFootballProvider implements SportsDataProvider {
     const query: Record<string, string> = {};
     if (params.competitionExternalId) query.league = params.competitionExternalId;
     if (params.season) query.season = params.season;
-    if (params.date) query.date = params.date;
+    if (params.date) {
+      query.date = params.date;
+    } else if (params.competitionExternalId && params.season) {
+      // No specific date given — an admin browsing a league+season wants
+      // fixtures still worth importing, not ones already played. API-
+      // Football has no "upcoming only" flag for this combo (unlike team
+      // search's `next`), so this uses a from/to range instead: from today,
+      // to a generously-far future bound (API-Football 400s if `from` is
+      // given without `to`, and there's no real "season end" to reach for
+      // here without an extra lookup).
+      const today = new Date();
+      const farFuture = new Date(today);
+      farFuture.setFullYear(farFuture.getFullYear() + 2);
+      query.from = today.toISOString().slice(0, 10);
+      query.to = farFuture.toISOString().slice(0, 10);
+    }
 
     return callFixturesEndpoint(query, "search");
   }

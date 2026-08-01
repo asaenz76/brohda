@@ -1872,6 +1872,28 @@ correctly landed in "in season now" (including the reported Central
 American Cup), and none of the other ~1,200 fetched leagues/cups leaked
 into that group, confirming the curated-list guard held.
 
+**Fixture import by-league search returned already-played fixtures.**
+Follow-up to the league picker fix above — once the Central American Cup
+was selectable, searching it by league+season with no specific date (the
+common case: an admin browsing a whole season to import upcoming matches)
+returned every fixture ever played in that season, past included, since
+`apiFootballProvider.searchFixtures`'s league branch
+(`lib/sports-data/api-football-provider.ts`) only ever forwarded
+`league`/`season`/`date` as given — with no date, that's just "everything
+in this season." Fixed by adding a `from`/`to` date range (today through
+today + 2 years) whenever a date isn't given alongside league+season —
+mirrors team search's existing `next=10`-when-no-date-given default
+(same method, `teamExternalId` branch) in spirit, just shaped differently
+since API-Football has no "upcoming only" flag for the league+season combo
+the way it does for team search. `to` is a generous placeholder bound, not
+a real season end date — confirmed live that API-Football 400s if `from`
+is given without `to`, and there's no season-end lookup available at this
+call site without extra plumbing. An explicit `date` still takes the exact
+match unchanged. Verified against the real API-Football service: the same
+from/to values the code now computes cut the Central American Cup's group
+stage results from 40 to 32, dropping every already-played fixture with
+zero already-upcoming ones excluded.
+
 ## Local development
 
 ```bash
