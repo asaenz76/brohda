@@ -2,12 +2,94 @@ import { requireSuperAdmin } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getPoolFeeDefaults } from "@/lib/settings/pool-defaults";
 import { formatBps } from "@/lib/utils/money";
-import { PoolTemplateBuilder } from "./pool-template-builder";
+import { getTemplate } from "@/lib/pools/templates/registry";
+import { PoolTemplateBuilder, type DuplicateTemplate } from "./pool-template-builder";
 
-export default async function NewPoolPage() {
+// Converts a TEMPLATE_GRADED pool's typed template_config JSON back into
+// the wizard's Record<string,string> shape (every config input is a plain
+// text/number/toggle field bound to a string). PLAYER-type fields are
+// skipped — the original player is tied to the source fixture's roster and
+// almost certainly isn't on whatever new fixture the admin picks; the
+// template itself still pre-selects, but PlayerPicker starts empty so the
+// admin picks a real player from the new fixture's actual squad.
+function templateConfigToConfigValues(
+  templateId: string,
+  config: Record<string, unknown>,
+): Record<string, string> {
+  const template = getTemplate(templateId);
+  if (!template) return {};
+  const values: Record<string, string> = {};
+  for (const field of template.requiredConfigFields) {
+    if (field.type === "PLAYER") continue;
+    const raw = config[field.key];
+    if (raw === undefined || raw === null) continue;
+    values[field.key] = String(raw);
+  }
+  return values;
+}
+
+export default async function NewPoolPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ duplicateFrom?: string }>;
+}) {
   await requireSuperAdmin();
   const supabase = await createClient();
   const poolFeeDefaults = await getPoolFeeDefaults();
+  const { duplicateFrom } = await searchParams;
+
+  // "Duplicate this pool" — pre-fills the wizard's template/financial
+  // config from an existing pool for a *new* fixture (the fixture itself
+  // is never duplicated, that's still picked fresh in Step 1). Silently
+  // ignored if the source pool is missing or is a CUSTOM pool (no wizard
+  // equivalent) — lands on a fresh wizard rather than erroring.
+  let duplicateTemplate: DuplicateTemplate | null = null;
+  let duplicateEntryFee: string | null = null;
+  let duplicateHouseFeePercent: string | null = null;
+  let duplicateVisibility: string | null = null;
+  let duplicateParticipationVisibility: string | null = null;
+
+  if (duplicateFrom) {
+    const { data: sourcePool } = await supabase
+      .from("pools")
+      .select(
+        "pool_type, template_id, template_config, entry_fee, house_fee_bps, visibility, participation_visibility, title, question",
+      )
+      .eq("id", duplicateFrom)
+      .single();
+
+    if (sourcePool && sourcePool.pool_type !== "CUSTOM") {
+      duplicateEntryFee = (sourcePool.entry_fee / 100).toFixed(2);
+      duplicateHouseFeePercent = formatBps(sourcePool.house_fee_bps).replace("%", "");
+      duplicateVisibility = sourcePool.visibility;
+      duplicateParticipationVisibility = sourcePool.participation_visibility;
+
+      let legs: string[] | null = null;
+      if (sourcePool.pool_type === "COMBO") {
+        const { data: comboLegs } = await supabase
+          .from("pool_combo_legs")
+          .select("label")
+          .eq("pool_id", duplicateFrom)
+          .order("sort_order");
+        legs = (comboLegs ?? []).map((leg) => leg.label);
+      }
+
+      duplicateTemplate = {
+        poolType: sourcePool.pool_type,
+        templateId: sourcePool.template_id,
+        configValues:
+          sourcePool.pool_type === "TEMPLATE_GRADED" && sourcePool.template_id
+            ? templateConfigToConfigValues(
+                sourcePool.template_id,
+                (sourcePool.template_config as Record<string, unknown>) ?? {},
+              )
+            : null,
+        title: sourcePool.title,
+        question: sourcePool.question,
+        legs,
+      };
+    }
+  }
 
   // Excludes any fixture whose every pool has already been graded (SETTLED/
   // CANCELLED/VOIDED) — nothing left to attach a new pool to. Team name/
@@ -50,8 +132,13 @@ export default async function NewPoolPage() {
       <h1 className="text-lg font-semibold text-text-primary">Create a pool</h1>
       <PoolTemplateBuilder
         fixtures={fixtureOptions}
-        defaultEntryFee={(poolFeeDefaults.entryFeeCents / 100).toFixed(2)}
-        defaultHouseFeePercent={formatBps(poolFeeDefaults.houseFeeBps).replace("%", "")}
+        defaultEntryFee={duplicateEntryFee ?? (poolFeeDefaults.entryFeeCents / 100).toFixed(2)}
+        defaultHouseFeePercent={
+          duplicateHouseFeePercent ?? formatBps(poolFeeDefaults.houseFeeBps).replace("%", "")
+        }
+        defaultVisibility={duplicateVisibility ?? undefined}
+        defaultParticipationVisibility={duplicateParticipationVisibility ?? undefined}
+        duplicateTemplate={duplicateTemplate}
       />
     </div>
   );

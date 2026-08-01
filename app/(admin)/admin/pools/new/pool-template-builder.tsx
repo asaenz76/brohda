@@ -29,6 +29,23 @@ import { cn } from "@/lib/utils";
 
 export type { FixtureOption };
 
+// The fixture-independent part of an existing pool's template selection,
+// carried over by "Duplicate this pool" (app/(admin)/admin/pools/[id]/page.tsx)
+// so the wizard can pre-select the same kind of pool for a newly-picked
+// fixture. Built server-side (app/(admin)/admin/pools/new/page.tsx) from
+// the source pool's own row — configValues is already converted from the
+// typed template_config JSON into this component's string-keyed shape,
+// with any PLAYER-type field omitted (the original player belongs to a
+// different fixture's roster).
+export interface DuplicateTemplate {
+  poolType: string;
+  templateId: string | null;
+  configValues: Record<string, string> | null;
+  title: string | null;
+  question: string | null;
+  legs: string[] | null;
+}
+
 const GOALS_LINE_TEMPLATE_IDS = new Set(["MATCH_TOTAL_GOALS", "FIRST_HALF_TOTAL_GOALS", "TEAM_TOTAL_GOALS"]);
 
 const initialState: CreatePoolFromTemplateState = { error: null };
@@ -44,10 +61,16 @@ export function PoolTemplateBuilder({
   fixtures,
   defaultEntryFee = "5.00",
   defaultHouseFeePercent = "5",
+  defaultVisibility = "VISIBLE_TO_ALL_MEMBERS",
+  defaultParticipationVisibility = "SHOW_BEFORE_ENTRY",
+  duplicateTemplate = null,
 }: {
   fixtures: FixtureOption[];
   defaultEntryFee?: string;
   defaultHouseFeePercent?: string;
+  defaultVisibility?: string;
+  defaultParticipationVisibility?: string;
+  duplicateTemplate?: DuplicateTemplate | null;
 }) {
   const [state, formAction, pending] = useActionState(createPoolFromTemplate, initialState);
   const [mode, setMode] = useState<"single" | "multi">("single");
@@ -64,8 +87,8 @@ export function PoolTemplateBuilder({
   const [entryFee, setEntryFee] = useState(defaultEntryFee);
   const [houseFeePercent, setHouseFeePercent] = useState(defaultHouseFeePercent);
   const [locksAtLocal, setLocksAtLocal] = useState("");
-  const [visibility, setVisibility] = useState("VISIBLE_TO_ALL_MEMBERS");
-  const [participationVisibility, setParticipationVisibility] = useState("SHOW_BEFORE_ENTRY");
+  const [visibility, setVisibility] = useState(defaultVisibility);
+  const [participationVisibility, setParticipationVisibility] = useState(defaultParticipationVisibility);
   const [publishImmediately, setPublishImmediately] = useState(false);
   const [goalsLines, setGoalsLines] = useState<{
     forFixtureId: string;
@@ -75,6 +98,12 @@ export function PoolTemplateBuilder({
     awayTeamLine: number | null;
   } | null>(null);
   const oddsFetchedForFixtureId = useRef<string | null>(null);
+  // Duplicate-apply is one-shot — only the *first* fixture pick in this
+  // wizard session gets the duplicated template auto-selected; picking a
+  // different fixture afterward resets Step 2 to blank same as it always
+  // has, rather than re-applying (and re-fighting any manual edits/
+  // eligibility mismatches) on every subsequent change.
+  const duplicateAppliedRef = useRef(false);
 
   const locksAtIso = locksAtLocal ? new Date(locksAtLocal).toISOString() : "";
   const selectedFixture = fixtures.find((f) => f.id === fixtureId) ?? null;
@@ -164,6 +193,57 @@ export function PoolTemplateBuilder({
     setTitle("");
     setQuestion("");
     setConfigValues({});
+
+    if (duplicateTemplate && !duplicateAppliedRef.current) {
+      duplicateAppliedRef.current = true;
+      applyDuplicateTemplate(duplicateTemplate, fixture);
+    }
+  }
+
+  // Auto-selects the duplicated pool's template for the just-picked
+  // fixture — same branches as selectCard below, but restoring the
+  // duplicated values instead of seeding fresh defaults. Only ever called
+  // once, from selectFixture's one-shot guard above.
+  function applyDuplicateTemplate(duplicate: DuplicateTemplate, fixture: FixtureOption) {
+    const cardId = duplicate.templateId ?? duplicate.poolType;
+    const card = ALL_CARDS.find((c) => c.id === cardId);
+    if (!card) return;
+
+    if (cardId === "WHO_WILL_ADVANCE" || cardId === "REGULATION_RESULT") {
+      const fixtureEligibility = getTemplateEligibility(fixture.competitionType);
+      const eligible =
+        cardId === "WHO_WILL_ADVANCE"
+          ? fixtureEligibility.whoWillAdvanceEnabled
+          : fixtureEligibility.regulationResultEnabled;
+      // The newly-picked fixture may not support this template (e.g. a
+      // knockout-only pick duplicated onto a league fixture) — same
+      // eligibility gate selectCard already enforces on a manual click.
+      // Leave Step 2 blank rather than force-selecting an invalid card.
+      if (!eligible) return;
+    }
+
+    setActiveTab(card.category);
+    setSelectedCardId(cardId);
+
+    if (cardId === "COMBO") {
+      setTitle(duplicate.title ?? `${fixture.homeTeamName} vs ${fixture.awayTeamName}`);
+      setQuestion(duplicate.question ?? "");
+      setLegs(duplicate.legs && duplicate.legs.length >= 2 ? duplicate.legs : ["", ""]);
+      return;
+    }
+    if (isLegacyId(cardId)) {
+      const template = generatePoolTemplate(cardId, {
+        homeTeamExternalId: fixture.homeTeamExternalId,
+        homeTeamName: fixture.homeTeamName,
+        homeTeamLogoUrl: fixture.homeTeamLogoUrl,
+        awayTeamExternalId: fixture.awayTeamExternalId,
+        awayTeamName: fixture.awayTeamName,
+        awayTeamLogoUrl: fixture.awayTeamLogoUrl,
+      });
+      setQuestion(template.question);
+      return;
+    }
+    setConfigValues(duplicate.configValues ?? {});
   }
 
   function selectCard(card: TemplateCard) {

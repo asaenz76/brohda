@@ -1751,10 +1751,65 @@ new pool; "Real Madrid vs Barcelona — Failed: …"), not just an aggregate
 count, since a coordinator creating paid pools needs to know exactly which
 fixtures succeeded.
 
-Not built in this pass (a deliberate scope call, not an oversight):
-"duplicate an existing pool's settings into a new one" — a different,
-smaller problem (reverse-mapping one already-created pool's config back
-into wizard state) that wasn't the actual pain point reported.
+Deliberately not built in that pass: "duplicate an existing pool's
+settings into a new one" — a different, smaller problem (reverse-mapping
+one already-created pool's config back into wizard state), picked up
+separately below.
+
+**Duplicate an existing pool.** A "Duplicate" link on the admin pool
+detail page (`app/(admin)/admin/pools/[id]/page.tsx`, same header row as
+`PublishButton`/etc., gated on `isSuperAdmin` — `/admin/pools/new` itself
+requires `requireSuperAdmin()` — and on `pool.pool_type !== "CUSTOM"`,
+which has no wizard equivalent) links to
+`/admin/pools/new?duplicateFrom=<poolId>`. `NewPoolPage` reads that
+`searchParams` value, fetches the source pool's `pool_type`/`template_id`/
+`template_config`/fees/visibility (and `pool_combo_legs` for a `COMBO`
+pool), and passes the fixture-independent parts down to
+`PoolTemplateBuilder` as new props — `defaultVisibility`/
+`defaultParticipationVisibility` (parameterizing what used to be hardcoded
+`useState` initial values, the same way `defaultEntryFee`/
+`defaultHouseFeePercent` already worked) and a new `duplicateTemplate`
+prop. The fixture itself is never duplicated — the admin still picks a new
+one in Step 1, which is the whole point (reuse the *kind* of pool for a
+*different* match).
+
+`selectFixture` gained a one-shot apply: the first time a fixture is
+picked in a duplicate session, it auto-selects the matching template card
+(switching `activeTab` to its category so it's visible without hunting)
+and restores its config — `COMBO`'s `title`/`question`/`legs` verbatim
+(reusable free text, unlike the multi-fixture flow which excludes `COMBO`
+entirely since there there's no single admin reviewing one submission
+before it fans out); legacy `WHO_WILL_ADVANCE`/`REGULATION_RESULT` re-
+derive their question for the *new* fixture via the same
+`generatePoolTemplate` call `selectCard` already makes (skipping the
+auto-select entirely if the new fixture fails the same eligibility check);
+`TEMPLATE_GRADED` restores its `configValues` (server-converted from the
+typed `template_config` JSON via `getTemplate(...).requiredConfigFields`,
+stringifying each field). One-shot, not re-applied on every subsequent
+fixture change, to avoid extra eligibility-mismatch edge cases — picking a
+different fixture afterward resets Step 2 to blank same as it always has.
+
+`PLAYER_TO_SCORE` (the one template with a `PLAYER`-type config field) is
+still duplicable — the template pre-selects — but the player value itself
+is never carried over (the original player belongs to a different
+fixture's roster); `PlayerPicker` starts empty, forcing a fresh pick from
+the new fixture's actual squad.
+
+No server-action changes — submission still goes through the existing
+`createPoolFromTemplate` untouched. Verified live against the real local
+database across all three duplicable shapes: a `TEMPLATE_GRADED`
+`MATCH_TOTAL_GOALS` pool's `minimumGoals` restored correctly (generated
+question read "Will there be 4 or more goals?" for the new fixture); a
+`WHO_WILL_ADVANCE` pool's question correctly re-derived for a newly-picked
+fixture; a `COMBO` pool's title/question/both legs restored verbatim; and
+in every case the entry fee/platform fee/visibility/participation
+visibility pre-filled exactly from the source pool. Confirmed the
+Duplicate link is absent for a `CUSTOM` pool. (The equivalent check for a
+plain, non-super-admin viewer hit an unrelated, pre-existing redirect loop
+in this environment's seeded test data — `/profile?tab=edit&required=1`
+redirecting to itself for that specific account — so that one case is
+verified by code inspection only: `isSuperAdmin` is a plain boolean gate
+identical to every other super-admin-only control already on this page.)
 
 No integration test calls `createPoolsForFixturesAction` directly — same
 reason no integration test calls any other `requireSuperAdmin`-gated

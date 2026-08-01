@@ -1,9 +1,11 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { requireAdminOrAbove } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatCents, formatBps } from "@/lib/utils/money";
 import { humanizeEnum } from "@/lib/utils/humanize";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { PublishButton } from "./publish-button";
 import { EditPoolForm } from "./edit-pool-form";
@@ -164,6 +166,19 @@ export default async function AdminPoolDetailPage({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Pre-fills the creation wizard from this pool's template/
+              financial config for a new fixture — not a data mutation, so
+              no super-admin-only comment needed the way the buttons below
+              have; gated on isSuperAdmin only because /admin/pools/new
+              itself is (a plain admin would otherwise hit a dead-end
+              redirect). CUSTOM pools have no wizard equivalent to land on. */}
+          {isSuperAdmin && pool.pool_type !== "CUSTOM" && (
+            <Link href={`/admin/pools/new?duplicateFrom=${pool.id}`}>
+              <Button variant="outline" size="sm">
+                Duplicate
+              </Button>
+            </Link>
+          )}
           {pool.status === "DRAFT" && <PublishButton poolId={pool.id} />}
           {pool.status === "OPEN" && <ForceLockButton poolId={pool.id} />}
           {/* Can auto-refund below minimum entries — money movement, super_admin only. */}
