@@ -9,6 +9,8 @@ export type PlayerToScoreConfig = z.infer<typeof playerToScoreConfigSchema>;
 
 export const playerToScore: PoolTemplate<PlayerToScoreConfig> = {
   id: "PLAYER_TO_SCORE",
+  version: 1,
+  activeForCreation: true,
   category: "PLAYER_PROPS",
   name: "Player to score",
   description: "Will the selected player score a valid goal?",

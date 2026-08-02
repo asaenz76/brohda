@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { requireSuperAdmin, requireAdminOrAbove } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAuditLog } from "@/lib/audit/log";
-import { isBelowMinimum } from "@/lib/pools/settlement-logic";
 import {
   hasCalendarDayEnded,
   isAnomalyStatus,
@@ -59,52 +58,52 @@ export async function forceLockPoolAction(poolId: string) {
 }
 
 /**
- * Manual advance for a LOCKED pool — mirrors `lockDuePools()`'s second pass
- * for a single pool: below `min_total_entries` cancels and refunds via
- * `confirm_pool_refund`, otherwise advances to AWAITING_RESULT.
+ * Manual advance for a LOCKED pool — calls the same atomic
+ * `advance_or_cancel_locked_pool` RPC `lockDuePools()`'s second pass uses,
+ * so cron and manual triggers can never disagree on the decision: below
+ * `min_total_entries` cancels and refunds (MINIMUM_ENTRIES_NOT_REACHED); a
+ * TEMPLATE_GRADED pool where every valid entry landed on the same side
+ * cancels and refunds too (ONE_SIDED_POOL); unresolvable binary options
+ * route to MANUAL_REVIEW; otherwise the pool advances to AWAITING_RESULT.
  */
 export async function advanceLockedPoolAction(poolId: string) {
   const admin = await requireSuperAdmin();
   const adminClient = createAdminClient();
 
-  const { data: pool } = await adminClient
-    .from("pools")
-    .select("id, status, min_total_entries, pool_options(entry_count)")
-    .eq("id", poolId)
-    .single();
+  const { data: pool } = await adminClient.from("pools").select("id, status").eq("id", poolId).single();
 
   if (!pool || pool.status !== "LOCKED") {
     throw new Error("This pool isn't locked, so it can't be advanced.");
   }
 
-  const options = (pool.pool_options ?? []) as { entry_count: number }[];
-  const validEntryCount = options.reduce((sum, o) => sum + o.entry_count, 0);
+  const { data: updatedPool, error } = await adminClient.rpc("advance_or_cancel_locked_pool", {
+    p_pool_id: poolId,
+    p_admin_id: admin.id,
+  });
+  if (error || !updatedPool) throw new Error("Could not advance this pool.");
 
-  if (isBelowMinimum(validEntryCount, pool.min_total_entries)) {
-    const { error } = await adminClient.rpc("confirm_pool_refund", {
-      p_pool_id: poolId,
-      p_void_reason: "MINIMUM_ENTRIES_NOT_REACHED",
-      p_idempotency_key: `${poolId}:void:MINIMUM_ENTRIES_NOT_REACHED`,
-      p_admin_id: admin.id,
-    });
-    if (error) throw new Error("Could not cancel this pool.");
-
+  if (updatedPool.status === "CANCELLED") {
     await writeAuditLog({
       actorId: admin.id,
-      action: "pool.force_cancelled_below_minimum",
+      action:
+        updatedPool.void_reason === "ONE_SIDED_POOL"
+          ? "pool.force_cancelled_one_sided"
+          : "pool.force_cancelled_below_minimum",
       entityType: "pool",
       entityId: poolId,
       before: { status: "LOCKED" },
       after: { status: "CANCELLED" },
     });
+  } else if (updatedPool.status === "MANUAL_REVIEW") {
+    await writeAuditLog({
+      actorId: admin.id,
+      action: "pool.routed_to_manual_review",
+      entityType: "pool",
+      entityId: poolId,
+      before: { status: "LOCKED" },
+      after: { status: "MANUAL_REVIEW" },
+    });
   } else {
-    const { error } = await adminClient
-      .from("pools")
-      .update({ status: "AWAITING_RESULT" })
-      .eq("id", poolId)
-      .eq("status", "LOCKED");
-    if (error) throw new Error("Could not advance this pool.");
-
     await writeAuditLog({
       actorId: admin.id,
       action: "pool.force_advanced_to_awaiting_result",
@@ -185,7 +184,7 @@ export async function checkPoolResultNowAction(
   const { data: pool } = await adminClient
     .from("pools")
     .select(
-      "id, status, pool_type, template_id, template_config, fixtures(internal_status, scheduled_start_utc, venue_timezone, home_team_name, away_team_name, home_team_external_id, away_team_external_id, regulation_home_score, regulation_away_score, halftime_home_score, halftime_away_score, provider_events_payload)",
+      "id, status, pool_type, template_id, template_config, template_version, fixtures(internal_status, scheduled_start_utc, venue_timezone, home_team_name, away_team_name, home_team_external_id, away_team_external_id, regulation_home_score, regulation_away_score, halftime_home_score, halftime_away_score, provider_events_payload)",
     )
     .eq("id", poolId)
     .single();
@@ -277,6 +276,21 @@ export async function checkPoolResultNowAction(
     if (outcome === "pending") {
       return { message: "Regulation score isn't available yet — try again shortly.", error: null };
     }
+    if (outcome === "manualReview") {
+      await writeAuditLog({
+        actorId: admin.id,
+        action: "pool.routed_to_manual_review",
+        entityType: "pool",
+        entityId: poolId,
+        before: { status: "AWAITING_RESULT" },
+        after: { status: "MANUAL_REVIEW" },
+      });
+      revalidatePoolPaths(poolId);
+      return {
+        message: "This pool couldn't be graded automatically and now needs manual review.",
+        error: null,
+      };
+    }
 
     await writeAuditLog({
       actorId: admin.id,
@@ -310,14 +324,17 @@ export async function checkPoolResultNowAction(
 
 export type CancelPoolState = { error: string | null };
 
-const CANCELLABLE_STATUSES = ["DRAFT", "OPEN", "LOCKED", "AWAITING_RESULT"];
+const CANCELLABLE_STATUSES = ["DRAFT", "OPEN", "LOCKED", "AWAITING_RESULT", "MANUAL_REVIEW"];
 
 /**
  * Super-admin "Cancel Pool" — voids a pool outright on demand (not from an
  * automatic trigger like below-minimum-entries or a fixture anomaly),
  * refunding every active entry in full. Only offered for DRAFT/OPEN/LOCKED/
- * AWAITING_RESULT; READY_FOR_REVIEW already has its own dedicated refund
- * flow (SettlementReviewForm) that this shouldn't duplicate.
+ * AWAITING_RESULT/MANUAL_REVIEW; READY_FOR_REVIEW already has its own
+ * dedicated refund flow (SettlementReviewForm) that this shouldn't
+ * duplicate. Cancelling a MANUAL_REVIEW pool is the only way out of that
+ * status today — confirm_pool_refund clears review_reason on every
+ * transition, so nothing stale is left behind.
  */
 export async function cancelPoolAction(
   _prevState: CancelPoolState,

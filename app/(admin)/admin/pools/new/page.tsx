@@ -2,7 +2,7 @@ import { requireSuperAdmin } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getPoolFeeDefaults } from "@/lib/settings/pool-defaults";
 import { formatBps } from "@/lib/utils/money";
-import { getTemplate } from "@/lib/pools/templates/registry";
+import { getLatestTemplate } from "@/lib/pools/templates/registry";
 import { PoolTemplateBuilder, type DuplicateTemplate } from "./pool-template-builder";
 
 // Converts a TEMPLATE_GRADED pool's typed template_config JSON back into
@@ -16,7 +16,7 @@ function templateConfigToConfigValues(
   templateId: string,
   config: Record<string, unknown>,
 ): Record<string, string> {
-  const template = getTemplate(templateId);
+  const template = getLatestTemplate(templateId);
   if (!template) return {};
   const values: Record<string, string> = {};
   for (const field of template.requiredConfigFields) {

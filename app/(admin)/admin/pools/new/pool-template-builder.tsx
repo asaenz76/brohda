@@ -6,7 +6,7 @@ import { createPoolFromTemplate, type CreatePoolFromTemplateState } from "@/lib/
 import { getFixtureGoalsLinesAction } from "@/lib/actions/odds";
 import { MINIMUM_POOL_ENTRIES, MINIMUM_LOCK_LEAD_MINUTES } from "@/lib/validations/pools";
 import { generatePoolTemplate, getRuleLabel, getTemplateEligibility } from "@/lib/pools/templates";
-import { getTemplate } from "@/lib/pools/templates/registry";
+import { getLatestTemplate } from "@/lib/pools/templates/registry";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -109,7 +109,7 @@ export function PoolTemplateBuilder({
   const selectedFixture = fixtures.find((f) => f.id === fixtureId) ?? null;
   const isCombo = selectedCardId === "COMBO";
   const isLegacy = selectedCardId != null && isLegacyId(selectedCardId);
-  const registryTemplate = selectedCardId && !isLegacy ? getTemplate(selectedCardId) : null;
+  const registryTemplate = selectedCardId && !isLegacy ? getLatestTemplate(selectedCardId) : null;
   const eligibility = getTemplateEligibility(selectedFixture?.competitionType ?? null);
   const needsGoalsLine = selectedCardId != null && GOALS_LINE_TEMPLATE_IDS.has(selectedCardId);
 
@@ -274,7 +274,7 @@ export function PoolTemplateBuilder({
     // Registry template — question is computed live below from
     // configValues, once defaults are seeded (see the effect-free default
     // below: TEAM_SIDE defaults to HOME, INTEGER defaults to its minimum).
-    const template = getTemplate(card.id);
+    const template = getLatestTemplate(card.id);
     if (template) {
       const defaults: Record<string, string> = {};
       for (const field of template.requiredConfigFields) {

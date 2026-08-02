@@ -1,0 +1,12 @@
+-- New value only in this file — Postgres requires ADD VALUE to commit in
+-- its own transaction before it can be referenced (matches this repo's
+-- established convention, e.g. 20260101000026_pool_cancel_reason.sql).
+--
+-- MANUAL_REVIEW is a general-purpose "integrity failure, needs a human"
+-- status — distinct from REVERSAL_FAILED_MANUAL_REVIEW (a specific failed
+-- settlement-reversal clawback). It preserves funds (no refund/payout
+-- happens on entry into this status), rejects new entries (create_pool_entry
+-- already requires status = 'OPEN'), and is excluded from every automatic
+-- settlement/lock path by construction (those only ever act on LOCKED/
+-- AWAITING_RESULT pools).
+alter type public.pool_status add value 'MANUAL_REVIEW';

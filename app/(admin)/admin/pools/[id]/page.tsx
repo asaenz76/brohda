@@ -26,7 +26,7 @@ import {
   UndoGradingButton,
 } from "./lifecycle-actions";
 
-const CANCELLABLE_STATUSES = ["DRAFT", "OPEN", "LOCKED", "AWAITING_RESULT"];
+const CANCELLABLE_STATUSES = ["DRAFT", "OPEN", "LOCKED", "AWAITING_RESULT", "MANUAL_REVIEW"];
 
 export default async function AdminPoolDetailPage({
   params,
@@ -196,6 +196,27 @@ export default async function AdminPoolDetailPage({
           {isDeletable && isSuperAdmin && <DeletePoolButton poolId={pool.id} />}
         </div>
       </div>
+
+      {/* An integrity issue with the pool's own data (unresolvable binary
+          options/template version/config), not a normal settlement state —
+          funds are preserved, no entries were ever refunded or paid out.
+          Cancel Pool (above, already gated on CANCELLABLE_STATUSES
+          including MANUAL_REVIEW) is the only resolution path today. */}
+      {pool.status === "MANUAL_REVIEW" && (
+        <Card>
+          <CardContent className="space-y-2 pt-6">
+            <h2 className="text-sm font-semibold text-text-primary">Needs manual review</h2>
+            <p className="text-sm text-text-secondary">
+              {pool.review_reason
+                ? `Reason: ${humanizeEnum(pool.review_reason)}.`
+                : "No reason was recorded."}{" "}
+              No money has moved — entries are preserved and the pool won&rsquo;t enter automatic
+              settlement. Use Cancel Pool above to refund everyone in full once you&rsquo;ve looked
+              into it.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Can auto-void-and-refund on an anomaly — money movement, super_admin only. */}
       {(pool.status === "LOCKED" || pool.status === "AWAITING_RESULT") && isSuperAdmin && (

@@ -353,4 +353,111 @@ describe.skipIf(!SERVICE_ROLE_KEY)("TEMPLATE_GRADED pools — gradeTemplatePool"
     await deactivate(p1.userId);
     await deactivate(p2.userId);
   });
+
+  it("resolves the winner via binary_outcome even when labels are swapped from the usual Yes/No", async () => {
+    const fixture = await createTestFixture({ regulationHomeScore: 2, regulationAwayScore: 0 });
+    createdFixtureIds.push(fixture.id);
+    const { poolId } = await createTemplatePool(adminId, fixture.id, "BOTH_TEAMS_TO_SCORE", {});
+
+    // Swap the labels so a label-based lookup would pick the wrong option —
+    // binary_outcome is the primary lookup now, so this must still resolve
+    // to the correct (NO) option.
+    const { data: options } = await admin.from("pool_options").select("id, label").eq("pool_id", poolId);
+    const yesRow = options!.find((o) => o.label === "Yes")!;
+    const noRow = options!.find((o) => o.label === "No")!;
+    // Staged through a transient null so the (pool_id, binary_outcome)
+    // partial unique index is never briefly double-held by both rows.
+    await admin.from("pool_options").update({ binary_outcome: null }).eq("id", noRow.id);
+    await admin.from("pool_options").update({ label: "Swapped A", binary_outcome: "NO" }).eq("id", yesRow.id);
+    await admin.from("pool_options").update({ label: "Swapped B", binary_outcome: "YES" }).eq("id", noRow.id);
+
+    const outcome = await gradeTemplatePool(
+      { id: poolId, template_id: "BOTH_TEAMS_TO_SCORE", template_config: {}, template_version: 1 },
+      fixture,
+    );
+    expect(outcome).toBe("readyForReview");
+
+    const { data: pool } = await admin.from("pools").select("snapshot_version").eq("id", poolId).single();
+    const { data: settlement } = await admin
+      .from("settlements")
+      .select("winning_option_id")
+      .eq("pool_id", poolId)
+      .eq("grading_version", pool!.snapshot_version)
+      .single();
+    // 2-0 is not "both teams to score" -> NO -> the option now labeled
+    // "Swapped A" (binary_outcome NO), NOT the one still literally labeled "No".
+    expect(settlement?.winning_option_id).toBe(yesRow.id);
+  });
+
+  it("routes to MANUAL_REVIEW (TEMPLATE_VERSION_UNRESOLVABLE) when the stored template_version no longer exists", async () => {
+    const fixture = await createTestFixture({ regulationHomeScore: 2, regulationAwayScore: 1 });
+    createdFixtureIds.push(fixture.id);
+    const { poolId } = await createTemplatePool(
+      adminId,
+      fixture.id,
+      "HOME_TEAM_TO_WIN",
+      {},
+      "AWAITING_RESULT",
+    );
+
+    const outcome = await gradeTemplatePool(
+      { id: poolId, template_id: "HOME_TEAM_TO_WIN", template_config: {}, template_version: 999 },
+      fixture,
+    );
+    expect(outcome).toBe("manualReview");
+
+    const { data: pool } = await admin.from("pools").select("status, review_reason").eq("id", poolId).single();
+    expect(pool?.status).toBe("MANUAL_REVIEW");
+    expect(pool?.review_reason).toBe("TEMPLATE_VERSION_UNRESOLVABLE");
+  });
+
+  it("routes to MANUAL_REVIEW (TEMPLATE_CONFIG_INVALID) when the stored config no longer validates", async () => {
+    const fixture = await createTestFixture({ regulationHomeScore: 2, regulationAwayScore: 1 });
+    createdFixtureIds.push(fixture.id);
+    const { poolId } = await createTemplatePool(
+      adminId,
+      fixture.id,
+      "WINNING_MARGIN",
+      { team: "HOME", minimumMargin: 2 },
+      "AWAITING_RESULT",
+    );
+
+    // WINNING_MARGIN's schema is strict and requires team/minimumMargin —
+    // an empty config no longer validates against it.
+    const outcome = await gradeTemplatePool(
+      { id: poolId, template_id: "WINNING_MARGIN", template_config: {}, template_version: 1 },
+      fixture,
+    );
+    expect(outcome).toBe("manualReview");
+
+    const { data: pool } = await admin.from("pools").select("status, review_reason").eq("id", poolId).single();
+    expect(pool?.status).toBe("MANUAL_REVIEW");
+    expect(pool?.review_reason).toBe("TEMPLATE_CONFIG_INVALID");
+  });
+
+  it("routes to MANUAL_REVIEW (BINARY_OPTIONS_UNRESOLVABLE) when there's no NO option to resolve", async () => {
+    const fixture = await createTestFixture({ regulationHomeScore: 2, regulationAwayScore: 1 });
+    createdFixtureIds.push(fixture.id);
+    const { poolId } = await createTemplatePool(
+      adminId,
+      fixture.id,
+      "HOME_TEAM_TO_WIN",
+      {},
+      "AWAITING_RESULT",
+    );
+    // Corrupt the options: both end up labeled/outcome "Yes"/YES.
+    const { data: options } = await admin.from("pool_options").select("id, label").eq("pool_id", poolId);
+    const noRow = options!.find((o) => o.label === "No")!;
+    await admin.from("pool_options").update({ label: "Yes", binary_outcome: "YES" }).eq("id", noRow.id);
+
+    const outcome = await gradeTemplatePool(
+      { id: poolId, template_id: "HOME_TEAM_TO_WIN", template_config: {}, template_version: 1 },
+      fixture,
+    );
+    expect(outcome).toBe("manualReview");
+
+    const { data: pool } = await admin.from("pools").select("status, review_reason").eq("id", poolId).single();
+    expect(pool?.status).toBe("MANUAL_REVIEW");
+    expect(pool?.review_reason).toBe("BINARY_OPTIONS_UNRESOLVABLE");
+  });
 });

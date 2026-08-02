@@ -46,6 +46,8 @@ export type TeamSideOnlyConfig = z.infer<typeof teamSideOnlyConfigSchema>;
 
 export const matchTotalGoals: PoolTemplate<MinimumGoalsConfig> = {
   id: "MATCH_TOTAL_GOALS",
+  version: 1,
+  activeForCreation: true,
   category: "GOALS",
   name: "Match total goals",
   description: "Will there be a set number of goals or more, after regulation?",
@@ -75,6 +77,8 @@ export const matchTotalGoals: PoolTemplate<MinimumGoalsConfig> = {
 
 export const bothTeamsToScore: PoolTemplate<EmptyConfig> = {
   id: "BOTH_TEAMS_TO_SCORE",
+  version: 1,
+  activeForCreation: true,
   category: "GOALS",
   name: "Both teams to score",
   description: "Will both teams score at least once after regulation?",
@@ -103,6 +107,8 @@ export const bothTeamsToScore: PoolTemplate<EmptyConfig> = {
 
 export const teamTotalGoals: PoolTemplate<TeamMinimumGoalsConfig> = {
   id: "TEAM_TOTAL_GOALS",
+  version: 1,
+  activeForCreation: true,
   category: "GOALS",
   name: "Team total goals",
   description: "Will the selected team score a set number of goals or more?",
@@ -133,6 +139,8 @@ export const teamTotalGoals: PoolTemplate<TeamMinimumGoalsConfig> = {
 
 export const winningMargin: PoolTemplate<WinningMarginConfig> = {
   id: "WINNING_MARGIN",
+  version: 1,
+  activeForCreation: true,
   category: "GOALS",
   name: "Winning margin",
   description: "Will the selected team win by a set number of goals or more?",
@@ -168,6 +176,8 @@ export const winningMargin: PoolTemplate<WinningMarginConfig> = {
 
 export const cleanSheet: PoolTemplate<TeamSideOnlyConfig> = {
   id: "CLEAN_SHEET",
+  version: 1,
+  activeForCreation: true,
   category: "GOALS",
   name: "Clean sheet",
   description: "Will the selected team's opponent fail to score?",
@@ -194,6 +204,8 @@ export const cleanSheet: PoolTemplate<TeamSideOnlyConfig> = {
 
 export const winToNil: PoolTemplate<TeamSideOnlyConfig> = {
   id: "WIN_TO_NIL",
+  version: 1,
+  activeForCreation: true,
   category: "GOALS",
   name: "Win to nil",
   description: "Will the selected team win without conceding?",
@@ -224,6 +236,8 @@ export const winToNil: PoolTemplate<TeamSideOnlyConfig> = {
 
 export const firstHalfTotalGoals: PoolTemplate<MinimumGoalsConfig> = {
   id: "FIRST_HALF_TOTAL_GOALS",
+  version: 1,
+  activeForCreation: true,
   category: "GOALS",
   name: "First-half total goals",
   description: "Will there be a set number of goals or more in the first half?",

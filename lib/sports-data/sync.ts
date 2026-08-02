@@ -19,6 +19,9 @@ const POOL_TERMINAL_STATUSES = [
   "CANCELLED",
   "SETTLEMENT_REVERSED",
   "REVERSAL_FAILED_MANUAL_REVIEW",
+  // gradeTemplatePool never re-reads events for a pool once it's routed
+  // here — its only exit (an admin cancelling it) needs no fixture data.
+  "MANUAL_REVIEW",
 ];
 
 /**

@@ -6,7 +6,7 @@ import { requireSuperAdmin, requireAdminOrAbove, requireUser } from "@/lib/auth/
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAuditLog } from "@/lib/audit/log";
 import { generatePoolTemplate, getTemplateEligibility, type PoolType } from "@/lib/pools/templates";
-import { getTemplate, TEMPLATE_CONFIG_SCHEMAS } from "@/lib/pools/templates/registry";
+import { getLatestTemplate, getTemplateConfigSchema } from "@/lib/pools/templates/registry";
 import { resolvePoolAnalyticsCategory } from "@/lib/pools/templates/category-labels";
 import { getPoolLiveStats, type PoolLiveStats } from "@/lib/pools/fetch";
 import { notifyFollowedPoolPublished } from "@/lib/email/notify-followed-pool-published";
@@ -170,9 +170,9 @@ async function createPoolForFixture(
     halftimeAwayScore: null,
   };
 
-  let selectedTemplate: ReturnType<typeof getTemplate> = null;
+  let selectedTemplate: ReturnType<typeof getLatestTemplate> = null;
   if (input.poolType === "TEMPLATE_GRADED") {
-    selectedTemplate = getTemplate(input.templateId);
+    selectedTemplate = getLatestTemplate(input.templateId);
     if (!selectedTemplate) {
       return { error: "Unknown template." };
     }
@@ -198,6 +198,7 @@ async function createPoolForFixture(
     team_name: string | null;
     logo_url: string | null;
     sort_order: number;
+    binary_outcome: "YES" | "NO" | null;
   }>;
   let comboLegs: string[] | null = null;
 
@@ -207,17 +208,18 @@ async function createPoolForFixture(
     // Fixed pair, not admin-input — the N leg conditions (below) are what
     // determine which of these two wins, not free-text choices.
     poolOptions = [
-      { label: "Yes", external_team_id: null, team_name: null, logo_url: null, sort_order: 0 },
-      { label: "No", external_team_id: null, team_name: null, logo_url: null, sort_order: 1 },
+      { label: "Yes", external_team_id: null, team_name: null, logo_url: null, sort_order: 0, binary_outcome: "YES" },
+      { label: "No", external_team_id: null, team_name: null, logo_url: null, sort_order: 1, binary_outcome: "NO" },
     ];
     comboLegs = input.legs;
   } else if (input.poolType === "TEMPLATE_GRADED" && selectedTemplate) {
     question = selectedTemplate.questionBuilder(templateFixtureScore, input.templateConfig);
-    // Same fixed pair as COMBO — every Phase-1 template is binary YES/NO;
-    // gradeTemplatePool looks these up by label ("Yes"/"No"), not by id.
+    // Same fixed pair as COMBO — every Phase-1 template is binary YES/NO.
+    // gradeTemplatePool resolves the winner from binary_outcome now, with
+    // label matching kept only as a fallback for legacy rows.
     poolOptions = [
-      { label: "Yes", external_team_id: null, team_name: null, logo_url: null, sort_order: 0 },
-      { label: "No", external_team_id: null, team_name: null, logo_url: null, sort_order: 1 },
+      { label: "Yes", external_team_id: null, team_name: null, logo_url: null, sort_order: 0, binary_outcome: "YES" },
+      { label: "No", external_team_id: null, team_name: null, logo_url: null, sort_order: 1, binary_outcome: "NO" },
     ];
   } else {
     const template = generatePoolTemplate(input.poolType as PoolType, {
@@ -236,6 +238,7 @@ async function createPoolForFixture(
       team_name: option.teamName,
       logo_url: option.logoUrl,
       sort_order: option.sortOrder,
+      binary_outcome: null,
     }));
   }
 
@@ -247,6 +250,15 @@ async function createPoolForFixture(
       pool_type: input.poolType,
       template_id: input.poolType === "TEMPLATE_GRADED" ? input.templateId : null,
       template_config: input.poolType === "TEMPLATE_GRADED" ? input.templateConfig : null,
+      // Snapshotted so grading always resolves the exact version this pool
+      // was created against (see getTemplate(id, version) in grade.ts).
+      // Never stamped for COMBO — its options are a fixed Yes/No pair with
+      // no registry template behind them at all.
+      template_version: input.poolType === "TEMPLATE_GRADED" && selectedTemplate ? selectedTemplate.version : null,
+      // 2 = new balanced-participation check at lock time (see
+      // advance_or_cancel_locked_pool). Only ever stamped for newly-created
+      // TEMPLATE_GRADED pools — COMBO keeps its current (legacy) behavior.
+      participation_rule_version: input.poolType === "TEMPLATE_GRADED" ? 2 : null,
       analytics_category: resolvePoolAnalyticsCategory(
         input.poolType,
         input.poolType === "TEMPLATE_GRADED" ? input.templateId : null,
@@ -367,8 +379,10 @@ export async function createPoolFromTemplate(
   // shape now that templateId is known — createPoolFromTemplateSchema only
   // checked it was a plain object.
   if (parsed.data.poolType === "TEMPLATE_GRADED") {
-    const selectedTemplate = getTemplate(parsed.data.templateId);
-    const configSchema = selectedTemplate ? TEMPLATE_CONFIG_SCHEMAS[selectedTemplate.id] : null;
+    const selectedTemplate = getLatestTemplate(parsed.data.templateId);
+    const configSchema = selectedTemplate
+      ? getTemplateConfigSchema(selectedTemplate.id, selectedTemplate.version)
+      : null;
     if (!selectedTemplate || !configSchema) {
       return { error: "Unknown template." };
     }
@@ -481,8 +495,10 @@ export async function createPoolsForFixturesAction(
   }
 
   if (parsed.data.poolType === "TEMPLATE_GRADED") {
-    const selectedTemplate = getTemplate(parsed.data.templateId);
-    const configSchema = selectedTemplate ? TEMPLATE_CONFIG_SCHEMAS[selectedTemplate.id] : null;
+    const selectedTemplate = getLatestTemplate(parsed.data.templateId);
+    const configSchema = selectedTemplate
+      ? getTemplateConfigSchema(selectedTemplate.id, selectedTemplate.version)
+      : null;
     if (!selectedTemplate || !configSchema) {
       return { error: "Unknown template.", results: [] };
     }

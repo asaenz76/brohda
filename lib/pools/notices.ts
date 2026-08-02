@@ -31,7 +31,15 @@ export interface NoticeInput {
   /** Only needed for NO_WINNING_ENTRIES_FEE_RETAINED — every other void
    * reason refunds entryAmount in full, so this is otherwise unused. */
   houseFeeBasisPoints?: number;
+  /** Only present when poolStatus is MANUAL_REVIEW. */
+  reviewReason?: string | null;
 }
+
+const REVIEW_REASON_LABELS: Record<string, string> = {
+  BINARY_OPTIONS_UNRESOLVABLE: "its Yes/No options couldn't be verified",
+  TEMPLATE_VERSION_UNRESOLVABLE: "its question template couldn't be resolved",
+  TEMPLATE_CONFIG_INVALID: "its stored configuration couldn't be validated",
+};
 
 const ANOMALY_LABEL: Partial<Record<FixtureInternalStatus, string>> = {
   POSTPONED: "Match Postponed.",
@@ -53,6 +61,7 @@ const VOID_REASON_LABELS: Record<PoolVoidReason, string> = {
   ADMIN_MANUAL_CANCEL: "Cancelled by an admin",
   NO_WINNING_ENTRIES_FEE_RETAINED: "No winning picks (fee retained)",
   COMBO_PLAYER_DID_NOT_PLAY: "Player did not play",
+  ONE_SIDED_POOL: "Everyone picked the same side",
 };
 
 /**
@@ -87,9 +96,22 @@ export function buildNoticeCopy(input: NoticeInput): Notice | null {
     selectedOptionLabel,
     poolType,
     houseFeeBasisPoints,
+    reviewReason,
   } = input;
 
   const isCustom = poolType === "CUSTOM" || poolType === "COMBO";
+
+  if (poolStatus === "MANUAL_REVIEW") {
+    const detail = reviewReason ? REVIEW_REASON_LABELS[reviewReason] : null;
+    const hasActiveEntry = entryStatus === "ACTIVE";
+    const base = detail
+      ? `This pool needs a closer look — ${detail}.`
+      : "This pool needs a closer look before it can be settled.";
+    return {
+      type: "MANUAL_REVIEW",
+      message: hasActiveEntry ? `${base} Your entry is safe; nothing has been settled or refunded yet.` : base,
+    };
+  }
 
   if (poolStatus === "VOIDED" || poolStatus === "CANCELLED") {
     return buildVoidNotice(voidReason, entryStatus, entryAmount, houseFeeBasisPoints);
@@ -231,6 +253,11 @@ function buildVoidNotice(
       return {
         type: voidReason,
         message: `A featured player did not take the pitch, so this pool has been voided — no fee taken. Your ${amount} entry has been credited back to your balance.`,
+      };
+    case "ONE_SIDED_POOL":
+      return {
+        type: voidReason,
+        message: `Everyone picked the same side, so this pool has been cancelled — no fee taken. Your ${amount} entry has been credited back to your balance.`,
       };
     case "MATCH_AWARDED":
       // Not literal spec copy (§16.4 only lists AWARDED as never-settling;

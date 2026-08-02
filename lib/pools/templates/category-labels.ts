@@ -1,4 +1,4 @@
-import { getTemplate } from "./registry";
+import { getLatestTemplate } from "./registry";
 
 // Mirrors public.analytics_category (supabase/migrations/20260101000069_*.sql)
 // exactly — one stable code per category, snapshotted onto pools.analytics_category
@@ -43,7 +43,7 @@ const LEGACY_POOL_TYPE_CATEGORY: Record<string, AnalyticsCategoryCode> = {
 // call this at analytics read time; read pools.analytics_category instead.
 export function resolvePoolAnalyticsCategory(poolType: string, templateId: string | null): AnalyticsCategoryCode {
   if (poolType === "TEMPLATE_GRADED" && templateId) {
-    const template = getTemplate(templateId);
+    const template = getLatestTemplate(templateId);
     if (template) return template.category;
   }
   return LEGACY_POOL_TYPE_CATEGORY[poolType] ?? "UNKNOWN";

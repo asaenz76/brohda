@@ -36,15 +36,16 @@ export interface PendingReviewPool {
   status: string;
 }
 
-/** READY_FOR_REVIEW (awaiting a settlement decision) and
- * REVERSAL_FAILED_MANUAL_REVIEW (a blocked reversal) both need admin
- * attention right now — spec's "pending reviews" dashboard section. */
+/** READY_FOR_REVIEW (awaiting a settlement decision), REVERSAL_FAILED_
+ * MANUAL_REVIEW (a blocked reversal), and MANUAL_REVIEW (an integrity
+ * issue — unresolvable binary options/template version/config) all need
+ * admin attention right now — spec's "pending reviews" dashboard section. */
 export async function getPendingReviewPools(): Promise<PendingReviewPool[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("pools")
     .select("id, question, status")
-    .in("status", ["READY_FOR_REVIEW", "REVERSAL_FAILED_MANUAL_REVIEW"])
+    .in("status", ["READY_FOR_REVIEW", "REVERSAL_FAILED_MANUAL_REVIEW", "MANUAL_REVIEW"])
     .order("created_at", { ascending: false });
 
   return data ?? [];

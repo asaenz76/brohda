@@ -178,5 +178,27 @@ describe("createPoolsForFixturesAction", () => {
     expect(poolInserts).toHaveLength(2);
     expect(poolInserts[0].template_id).toBe("MATCH_TOTAL_GOALS");
     expect(poolInserts[0].question).toBe("Will there be 3 or more goals?");
+    // Stage 1: newly-created TEMPLATE_GRADED pools stamp the resolved
+    // template version and opt into the balanced-participation check.
+    expect(poolInserts[0].template_version).toBe(1);
+    expect(poolInserts[0].participation_rule_version).toBe(2);
+    expect(optionInserts[0]).toEqual([
+      expect.objectContaining({ label: "Yes", binary_outcome: "YES" }),
+      expect.objectContaining({ label: "No", binary_outcome: "NO" }),
+    ]);
+  });
+
+  it("never stamps participation_rule_version for a legacy WHO_WILL_ADVANCE pool", async () => {
+    fixtureRows = [fixtureRow({ id: "3fa85f64-5717-4562-b3fc-2c963f66afa6" }), fixtureRow({ id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8" })];
+
+    const result = await createPoolsForFixturesAction({
+      ...BASE_INPUT,
+      poolType: "WHO_WILL_ADVANCE",
+    });
+
+    expect(result.error).toBeNull();
+    expect(poolInserts[0].template_version).toBeNull();
+    expect(poolInserts[0].participation_rule_version).toBeNull();
+    expect(optionInserts[0].every((o) => o.binary_outcome === null)).toBe(true);
   });
 });

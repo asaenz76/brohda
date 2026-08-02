@@ -111,6 +111,8 @@ export interface BuildViewModelInput {
     status: PoolStatus;
     created_at: string;
     void_reason: PoolVoidReason | null;
+    /** Only meaningful when status is MANUAL_REVIEW. */
+    review_reason?: string | null;
     visibility: PoolVisibility;
     like_count: number;
     comment_count: number;
@@ -244,6 +246,7 @@ export function buildPoolCardViewModel(input: BuildViewModelInput): SocialPoolCa
     selectedOptionLabel: selectedOption?.label ?? null,
     poolType: pool.pool_type,
     houseFeeBasisPoints: pool.house_fee_bps,
+    reviewReason: pool.review_reason,
   });
 
   return {

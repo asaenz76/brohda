@@ -14,7 +14,15 @@ import {
   winToNil,
   winningMargin,
 } from "@/lib/pools/templates/goals";
-import { getTemplate, listByCategory, TEMPLATE_REGISTRY } from "@/lib/pools/templates/registry";
+import {
+  findDuplicateTemplateKeys,
+  getLatestTemplate,
+  getTemplate,
+  getTemplateConfigSchema,
+  listByCategory,
+  TEMPLATE_REGISTRY,
+} from "@/lib/pools/templates/registry";
+import type { PoolTemplate } from "@/lib/pools/templates/types";
 import type { TemplateFixtureScore } from "@/lib/pools/templates/types";
 
 function fixture(overrides: Partial<TemplateFixtureScore> = {}): TemplateFixtureScore {
@@ -36,9 +44,36 @@ describe("registry", () => {
     expect(TEMPLATE_REGISTRY).toHaveLength(17);
   });
 
-  it("getTemplate finds a template by id and returns null for an unknown one", () => {
-    expect(getTemplate("WINNING_MARGIN")?.name).toBe("Winning margin");
-    expect(getTemplate("NOT_A_TEMPLATE")).toBeNull();
+  it("getTemplate resolves an exact (id, version) pair and returns null otherwise", () => {
+    expect(getTemplate("WINNING_MARGIN", 1)?.name).toBe("Winning margin");
+    expect(getTemplate("WINNING_MARGIN", 2)).toBeNull();
+    expect(getTemplate("NOT_A_TEMPLATE", 1)).toBeNull();
+  });
+
+  it("getLatestTemplate resolves the highest activeForCreation version, and null for an unknown id", () => {
+    expect(getLatestTemplate("WINNING_MARGIN")?.name).toBe("Winning margin");
+    expect(getLatestTemplate("NOT_A_TEMPLATE")).toBeNull();
+  });
+
+  it("every registry template is version 1 and activeForCreation today", () => {
+    for (const template of TEMPLATE_REGISTRY) {
+      expect(template.version).toBe(1);
+      expect(template.activeForCreation).toBe(true);
+    }
+  });
+
+  it("getTemplateConfigSchema resolves by (id, version) and null otherwise", () => {
+    expect(getTemplateConfigSchema("WINNING_MARGIN", 1)).toBeTruthy();
+    expect(getTemplateConfigSchema("WINNING_MARGIN", 2)).toBeNull();
+    expect(getTemplateConfigSchema("NOT_A_TEMPLATE", 1)).toBeNull();
+  });
+
+  it("findDuplicateTemplateKeys rejects a duplicate (id, version) pair", () => {
+    const base = TEMPLATE_REGISTRY[0] as PoolTemplate<Record<string, unknown>>;
+    expect(findDuplicateTemplateKeys(TEMPLATE_REGISTRY)).toEqual([]);
+    expect(findDuplicateTemplateKeys([base, { ...base }])).toEqual([`${base.id}:${base.version}`]);
+    // A different version of the same id is NOT a duplicate.
+    expect(findDuplicateTemplateKeys([base, { ...base, version: base.version + 1 }])).toEqual([]);
   });
 
   it("listByCategory groups by category", () => {

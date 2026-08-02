@@ -92,6 +92,17 @@ export type CompetitionCoverage = Record<DataSource, boolean>;
 // in one homogeneous TEMPLATE_REGISTRY array without an unsafe cast.
 export interface PoolTemplate<TConfig = Record<string, unknown>> {
   id: string;
+  /** Exact-version identity for grading (getTemplate(id, version) never
+   * falls forward to a newer version) — bump only when a template's
+   * questionBuilder/gradingRule semantics genuinely change; a wording-only
+   * tweak doesn't need a new version. */
+  version: number;
+  /** Creation (getLatestTemplate) only ever offers the highest-version
+   * entry among those with activeForCreation === true for a given id;
+   * historical grading resolves the exact stored version regardless of
+   * this flag, so retiring a version from new pools never breaks grading
+   * pools already created against it. */
+  activeForCreation: boolean;
   category: PoolTemplateCategory;
   name: string;
   description: string;

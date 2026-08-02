@@ -11,7 +11,8 @@ export type PoolStatus =
   | "VOIDED"
   | "CANCELLED"
   | "SETTLEMENT_REVERSED"
-  | "REVERSAL_FAILED_MANUAL_REVIEW";
+  | "REVERSAL_FAILED_MANUAL_REVIEW"
+  | "MANUAL_REVIEW";
 
 export type CardState =
   | "OPEN_PRE_VOTE"
@@ -86,7 +87,10 @@ export function deriveCardState(
     case "READY_FOR_REVIEW":
     case "SETTLEMENT_REVERSED":
     case "REVERSAL_FAILED_MANUAL_REVIEW":
-      // Back under admin review either way, from a player's perspective.
+    case "MANUAL_REVIEW":
+      // Back under admin review either way, from a player's perspective —
+      // MANUAL_REVIEW included: an integrity issue with the pool's own
+      // data, not something a player's entry status distinguishes.
       return "READY_FOR_REVIEW";
 
     case "SETTLED":

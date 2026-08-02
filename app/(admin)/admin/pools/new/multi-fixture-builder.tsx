@@ -8,7 +8,7 @@ import {
 } from "@/lib/actions/pools";
 import { MINIMUM_POOL_ENTRIES, MINIMUM_LOCK_LEAD_MINUTES } from "@/lib/validations/pools";
 import { getTemplateEligibility } from "@/lib/pools/templates";
-import { getTemplate } from "@/lib/pools/templates/registry";
+import { getLatestTemplate } from "@/lib/pools/templates/registry";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -125,7 +125,7 @@ export function MultiFixtureBuilder({
     selectedFixtures.every((f) => getTemplateEligibility(f.competitionType).regulationResultEnabled);
 
   const isLegacy = selectedCardId != null && isLegacyId(selectedCardId);
-  const registryTemplate = selectedCardId && !isLegacy ? getTemplate(selectedCardId) : null;
+  const registryTemplate = selectedCardId && !isLegacy ? getLatestTemplate(selectedCardId) : null;
 
   function selectCard(card: (typeof MULTI_CARDS)[number]) {
     if (card.id === "WHO_WILL_ADVANCE" && !whoWillAdvanceEnabled) return;
@@ -135,7 +135,7 @@ export function MultiFixtureBuilder({
     setConfigValues({});
     if (isLegacyId(card.id)) return;
 
-    const template = getTemplate(card.id);
+    const template = getLatestTemplate(card.id);
     if (template) {
       const defaults: Record<string, string> = {};
       for (const field of template.requiredConfigFields) {

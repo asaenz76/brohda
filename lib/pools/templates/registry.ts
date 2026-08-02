@@ -61,6 +61,28 @@ export const TEMPLATE_REGISTRY: PoolTemplate<Record<string, unknown>>[] = [
   playerToScore,
 ];
 
+// Guards against a copy-paste mistake (two entries sharing an id+version)
+// silently shadowing each other in getTemplate/getLatestTemplate — thrown at
+// module load, not just documented, so it fails immediately rather than
+// surfacing as a confusing grading bug later. Exported as a pure function so
+// it's directly unit-testable against a synthetic list, not just this real
+// registry.
+export function findDuplicateTemplateKeys(templates: PoolTemplate<Record<string, unknown>>[]): string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const t of templates) {
+    const key = `${t.id}:${t.version}`;
+    if (seen.has(key)) duplicates.add(key);
+    seen.add(key);
+  }
+  return [...duplicates];
+}
+
+const duplicateTemplateKeys = findDuplicateTemplateKeys(TEMPLATE_REGISTRY);
+if (duplicateTemplateKeys.length > 0) {
+  throw new Error(`Duplicate template (id, version) pairs in TEMPLATE_REGISTRY: ${duplicateTemplateKeys.join(", ")}`);
+}
+
 // Single source of truth for "which template ids need FIXTURE_EVENTS" —
 // lib/sports-data/sync.ts imports this (not the full template objects) to
 // decide which fixtures are worth fetching /fixtures/events for, so a
@@ -70,34 +92,53 @@ export const EVENT_DEPENDENT_TEMPLATE_IDS: string[] = TEMPLATE_REGISTRY.filter((
   t.requiredDataSources.includes("FIXTURE_EVENTS"),
 ).map((t) => t.id);
 
-export function getTemplate(templateId: string): PoolTemplate<Record<string, unknown>> | null {
-  return TEMPLATE_REGISTRY.find((t) => t.id === templateId) ?? null;
+// Exact-version resolution — grading (grade.ts) always resolves the exact
+// version a pool was created against, even if that version is no longer
+// activeForCreation, so a template's later retirement/replacement never
+// changes how an already-created pool is graded.
+export function getTemplate(templateId: string, version: number): PoolTemplate<Record<string, unknown>> | null {
+  return TEMPLATE_REGISTRY.find((t) => t.id === templateId && t.version === version) ?? null;
 }
 
-// One Zod schema per template, keyed by id — validated against the
+// Creation-time resolution — the highest version among activeForCreation
+// entries for this id. Returns null if the id is unknown, or every version
+// of it has been retired from creation (still gradable via getTemplate).
+export function getLatestTemplate(templateId: string): PoolTemplate<Record<string, unknown>> | null {
+  const candidates = TEMPLATE_REGISTRY.filter((t) => t.id === templateId && t.activeForCreation);
+  if (candidates.length === 0) return null;
+  return candidates.reduce((latest, t) => (t.version > latest.version ? t : latest));
+}
+
+// One Zod schema per (template id, version) pair — validated against the
 // client-submitted templateConfig once templateId is known (see
 // createPoolFromTemplate). Kept here rather than on PoolTemplate itself so
 // the interface's gradingRule/questionBuilder stay bivariantly checkable
 // (see types.ts's comment) without also needing a generic schema field.
+// Composite string key (not a nested map) so a duplicate (id, version) pair
+// is a plain object-key collision, easy to unit-test for directly.
 export const TEMPLATE_CONFIG_SCHEMAS: Record<string, ZodType> = {
-  HOME_TEAM_TO_WIN: emptyConfigSchema,
-  AWAY_TEAM_TO_WIN: emptyConfigSchema,
-  EITHER_TEAM_TO_WIN: emptyConfigSchema,
-  TEAM_TO_AVOID_DEFEAT: teamSideConfigSchema,
-  MATCH_TOTAL_GOALS: minimumGoalsConfigSchema,
-  BOTH_TEAMS_TO_SCORE: emptyConfigSchema,
-  TEAM_TOTAL_GOALS: teamMinimumGoalsConfigSchema,
-  WINNING_MARGIN: winningMarginConfigSchema,
-  CLEAN_SHEET: teamSideOnlyConfigSchema,
-  WIN_TO_NIL: teamSideOnlyConfigSchema,
-  FIRST_HALF_TOTAL_GOALS: minimumGoalsConfigSchema,
-  FIRST_TEAM_TO_SCORE: teamSideConfigSchema,
-  RED_CARD: redCardConfigSchema,
-  PENALTY_AWARDED: emptyConfigSchema,
-  OWN_GOAL: emptyConfigSchema,
-  GOAL_AFTER_MINUTE: goalAfterMinuteConfigSchema,
-  PLAYER_TO_SCORE: playerToScoreConfigSchema,
+  "HOME_TEAM_TO_WIN:1": emptyConfigSchema,
+  "AWAY_TEAM_TO_WIN:1": emptyConfigSchema,
+  "EITHER_TEAM_TO_WIN:1": emptyConfigSchema,
+  "TEAM_TO_AVOID_DEFEAT:1": teamSideConfigSchema,
+  "MATCH_TOTAL_GOALS:1": minimumGoalsConfigSchema,
+  "BOTH_TEAMS_TO_SCORE:1": emptyConfigSchema,
+  "TEAM_TOTAL_GOALS:1": teamMinimumGoalsConfigSchema,
+  "WINNING_MARGIN:1": winningMarginConfigSchema,
+  "CLEAN_SHEET:1": teamSideOnlyConfigSchema,
+  "WIN_TO_NIL:1": teamSideOnlyConfigSchema,
+  "FIRST_HALF_TOTAL_GOALS:1": minimumGoalsConfigSchema,
+  "FIRST_TEAM_TO_SCORE:1": teamSideConfigSchema,
+  "RED_CARD:1": redCardConfigSchema,
+  "PENALTY_AWARDED:1": emptyConfigSchema,
+  "OWN_GOAL:1": emptyConfigSchema,
+  "GOAL_AFTER_MINUTE:1": goalAfterMinuteConfigSchema,
+  "PLAYER_TO_SCORE:1": playerToScoreConfigSchema,
 };
+
+export function getTemplateConfigSchema(templateId: string, version: number): ZodType | null {
+  return TEMPLATE_CONFIG_SCHEMAS[`${templateId}:${version}`] ?? null;
+}
 
 export function listByCategory(): Partial<Record<PoolTemplateCategory, PoolTemplate<Record<string, unknown>>[]>> {
   const grouped: Partial<Record<PoolTemplateCategory, PoolTemplate<Record<string, unknown>>[]>> = {};

@@ -12,7 +12,8 @@ export type PoolVoidReason =
   | "ALL_ENTRIES_WINNING"
   | "ADMIN_MANUAL_CANCEL"
   | "NO_WINNING_ENTRIES_FEE_RETAINED"
-  | "COMBO_PLAYER_DID_NOT_PLAY";
+  | "COMBO_PLAYER_DID_NOT_PLAY"
+  | "ONE_SIDED_POOL";
 
 // Spec §16.4: these statuses never enter normal settlement. X.7.1 names the
 // first four explicitly; AWARDED/UNKNOWN are folded into the same automatic

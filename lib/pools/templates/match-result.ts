@@ -36,6 +36,8 @@ export type TeamSideConfig = z.infer<typeof teamSideConfigSchema>;
 
 export const homeTeamToWin: PoolTemplate<EmptyConfig> = {
   id: "HOME_TEAM_TO_WIN",
+  version: 1,
+  activeForCreation: true,
   category: "MATCH_RESULT",
   name: "Home team to win",
   description: "Will the home team win after regulation?",
@@ -70,6 +72,8 @@ export const homeTeamToWin: PoolTemplate<EmptyConfig> = {
 
 export const awayTeamToWin: PoolTemplate<EmptyConfig> = {
   id: "AWAY_TEAM_TO_WIN",
+  version: 1,
+  activeForCreation: true,
   category: "MATCH_RESULT",
   name: "Away team to win",
   description: "Will the away team win after regulation?",
@@ -100,6 +104,8 @@ export const awayTeamToWin: PoolTemplate<EmptyConfig> = {
 
 export const eitherTeamToWin: PoolTemplate<EmptyConfig> = {
   id: "EITHER_TEAM_TO_WIN",
+  version: 1,
+  activeForCreation: true,
   category: "MATCH_RESULT",
   name: "Either team to win",
   description: "Will this match have a winner after regulation (not a draw)?",
@@ -130,6 +136,8 @@ export const eitherTeamToWin: PoolTemplate<EmptyConfig> = {
 
 export const teamToAvoidDefeat: PoolTemplate<TeamSideConfig> = {
   id: "TEAM_TO_AVOID_DEFEAT",
+  version: 1,
+  activeForCreation: true,
   category: "MATCH_RESULT",
   name: "Team to avoid defeat",
   description: "Will the selected team win or draw after regulation?",

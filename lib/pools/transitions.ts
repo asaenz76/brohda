@@ -9,14 +9,17 @@ const TRANSITIONS: Record<PoolStatus, readonly PoolStatus[]> = {
   DRAFT: ["SCHEDULED", "OPEN", "CANCELLED"],
   SCHEDULED: ["OPEN", "CANCELLED"],
   OPEN: ["LOCKED", "CANCELLED"],
-  LOCKED: ["AWAITING_RESULT", "VOIDED", "CANCELLED"],
-  AWAITING_RESULT: ["READY_FOR_REVIEW", "VOIDED"],
+  LOCKED: ["AWAITING_RESULT", "VOIDED", "CANCELLED", "MANUAL_REVIEW"],
+  AWAITING_RESULT: ["READY_FOR_REVIEW", "VOIDED", "MANUAL_REVIEW"],
   READY_FOR_REVIEW: ["SETTLED", "VOIDED"],
   SETTLED: ["SETTLEMENT_REVERSED", "REVERSAL_FAILED_MANUAL_REVIEW"],
   VOIDED: [],
   CANCELLED: [],
   SETTLEMENT_REVERSED: ["READY_FOR_REVIEW"],
   REVERSAL_FAILED_MANUAL_REVIEW: ["SETTLEMENT_REVERSED", "SETTLED"],
+  // The only resolution path built in Stage 1: an admin cancels outright
+  // (cancelPoolAction -> confirm_pool_refund, which clears review_reason).
+  MANUAL_REVIEW: ["CANCELLED"],
 };
 
 /** Spec §11.5: "arbitrary status updates are rejected." */

@@ -1,7 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createRefundNotifications } from "@/lib/notifications/create";
-import { getTemplate } from "./registry";
+import { getTemplate, getTemplateConfigSchema } from "./registry";
 import { parseEvents } from "./event-helpers";
 import type { TemplateFixtureScore } from "./types";
 
@@ -9,6 +9,9 @@ export interface TemplateGradedPool {
   id: string;
   template_id: string | null;
   template_config: Record<string, unknown> | null;
+  // Null/absent for any pool created before template versioning shipped —
+  // resolved as version 1 (the only version that existed at the time).
+  template_version?: number | null;
 }
 
 export interface TemplateFixtureRow {
@@ -40,7 +43,31 @@ function toTemplateFixtureScore(row: TemplateFixtureRow): TemplateFixtureScore {
   };
 }
 
-export type GradeTemplatePoolOutcome = "pending" | "voided" | "readyForReview" | "failed" | "skipped";
+export type GradeTemplatePoolOutcome =
+  | "pending"
+  | "voided"
+  | "readyForReview"
+  | "failed"
+  | "skipped"
+  | "manualReview";
+
+// Routes a pool to MANUAL_REVIEW instead of a hard failure — funds stay
+// exactly where they are (no refund, no payout), the pool stops appearing
+// in any automatic settlement pass (both callers only ever select
+// AWAITING_RESULT pools), and an admin sees the stored reason on the pool
+// detail page. The `.eq("status", "AWAITING_RESULT")` guard makes a repeat
+// call a no-op once this has already fired once.
+async function routeToManualReview(
+  poolId: string,
+  reason: "TEMPLATE_VERSION_UNRESOLVABLE" | "TEMPLATE_CONFIG_INVALID" | "BINARY_OPTIONS_UNRESOLVABLE",
+): Promise<void> {
+  const admin = createAdminClient();
+  await admin
+    .from("pools")
+    .update({ status: "MANUAL_REVIEW", review_reason: reason })
+    .eq("id", poolId)
+    .eq("status", "AWAITING_RESULT");
+}
 
 /**
  * The one place fixture status is checked before any template's gradingRule
@@ -66,9 +93,31 @@ export async function gradeTemplatePool(
     return "pending";
   }
 
-  const template = pool.template_id ? getTemplate(pool.template_id) : null;
+  // Exact-version resolution — never falls forward to a newer version, so a
+  // template's later replacement never changes how an already-created pool
+  // grades. A pool created before versioning shipped has no stored
+  // template_version; version 1 is the only version that existed then.
+  const resolvedVersion = pool.template_version ?? 1;
+  const template = pool.template_id ? getTemplate(pool.template_id, resolvedVersion) : null;
   if (!template) {
-    return "failed";
+    await routeToManualReview(pool.id, "TEMPLATE_VERSION_UNRESOLVABLE");
+    return "manualReview";
+  }
+
+  // Defensive re-validation against the resolved version's own schema —
+  // should never fail for a config that was valid at creation time (an
+  // existing version's schema never changes retroactively), but guards
+  // against a corrupted or manually-edited stored config routing to review
+  // instead of grading against unvalidated data.
+  const configSchema = getTemplateConfigSchema(template.id, template.version);
+  if (!configSchema) {
+    await routeToManualReview(pool.id, "TEMPLATE_CONFIG_INVALID");
+    return "manualReview";
+  }
+  const configParsed = configSchema.safeParse(pool.template_config ?? {});
+  if (!configParsed.success) {
+    await routeToManualReview(pool.id, "TEMPLATE_CONFIG_INVALID");
+    return "manualReview";
   }
 
   // Missing data must never be treated as zero (spec) — if this template
@@ -85,7 +134,7 @@ export async function gradeTemplatePool(
   const events = template.requiredDataSources.includes("FIXTURE_EVENTS")
     ? parseEvents(fixtureRow.provider_events_payload)
     : undefined;
-  const grading = template.gradingRule({ fixture, events }, pool.template_config ?? {});
+  const grading = template.gradingRule({ fixture, events }, configParsed.data as Record<string, unknown>);
 
   if (grading.result === "PENDING") {
     return "pending";
@@ -115,15 +164,20 @@ export async function gradeTemplatePool(
     return "voided";
   }
 
-  // grading.result is "YES" or "NO" from here.
+  // grading.result is "YES" or "NO" from here. binary_outcome is the
+  // primary lookup now; label matching is kept only as a fallback for rows
+  // that predate the binary_outcome backfill (see its migration's
+  // structurally-conservative scoping — a pool with any option shape
+  // besides exactly {one 'Yes', one 'No'} is never backfilled).
   const { data: options } = await admin
     .from("pool_options")
-    .select("id, label")
+    .select("id, label, binary_outcome")
     .eq("pool_id", pool.id);
-  const yesOption = options?.find((o) => o.label === "Yes");
-  const noOption = options?.find((o) => o.label === "No");
-  if (!yesOption || !noOption) {
-    return "failed";
+  const yesOption = options?.find((o) => o.binary_outcome === "YES") ?? options?.find((o) => o.label === "Yes");
+  const noOption = options?.find((o) => o.binary_outcome === "NO") ?? options?.find((o) => o.label === "No");
+  if (!yesOption || !noOption || yesOption.id === noOption.id) {
+    await routeToManualReview(pool.id, "BINARY_OPTIONS_UNRESOLVABLE");
+    return "manualReview";
   }
   const winningOption = grading.result === "YES" ? yesOption : noOption;
 
@@ -164,6 +218,7 @@ export async function gradeTemplatePool(
     pool_id: pool.id,
     settlement_id: settlement.id,
     template_id: template.id,
+    template_version: template.version,
     result: grading.result,
     reason: grading.reason,
     evidence: grading.evidence,

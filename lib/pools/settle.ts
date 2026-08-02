@@ -20,6 +20,11 @@ export interface ProcessResultsResult {
    *  Manually. Counted separately so job-health reporting doesn't read a
    *  pool that can never resolve through this path as a failure. */
   skipped: number;
+  /** Routed to MANUAL_REVIEW — an integrity issue (unresolvable template
+   *  version/config/binary options), not a transient failure. Counted
+   *  separately so job-health reporting doesn't conflate "needs a human to
+   *  look at stored data" with "the grading attempt itself errored." */
+  manualReview: number;
 }
 
 function unwrapEmbed<T>(raw: unknown): T | null {
@@ -42,12 +47,13 @@ export async function processAwaitingResults(): Promise<ProcessResultsResult> {
     waiting: 0,
     failed: 0,
     skipped: 0,
+    manualReview: 0,
   };
 
   const { data: pools } = await admin
     .from("pools")
     .select(
-      "id, pool_type, template_id, template_config, fixtures(internal_status, scheduled_start_utc, venue_timezone, home_team_name, away_team_name, home_team_external_id, away_team_external_id, regulation_home_score, regulation_away_score, halftime_home_score, halftime_away_score, provider_events_payload)",
+      "id, pool_type, template_id, template_config, template_version, fixtures(internal_status, scheduled_start_utc, venue_timezone, home_team_name, away_team_name, home_team_external_id, away_team_external_id, regulation_home_score, regulation_away_score, halftime_home_score, halftime_away_score, provider_events_payload)",
     )
     .eq("status", "AWAITING_RESULT");
 
@@ -121,6 +127,8 @@ export async function processAwaitingResults(): Promise<ProcessResultsResult> {
           result.voided++;
         } else if (outcome === "pending") {
           result.waiting++;
+        } else if (outcome === "manualReview") {
+          result.manualReview++;
         } else {
           result.failed++;
         }
