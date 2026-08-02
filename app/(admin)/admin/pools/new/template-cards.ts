@@ -15,14 +15,22 @@ export interface FixtureOption {
   scheduledStartUtc: string;
 }
 
-// Cards from the registry (Phase 1's 11 fixture-score templates) plus the 3
-// legacy pool_types, unified into one tabbed picker. Legacy cards keep their
-// exact existing creation behavior (server derives question, hardcoded
-// eligibility check) — they're catalog metadata only here, not registry
-// entries, since their grading lives in SQL, not a gradingRule. Shared by
-// both the single-fixture wizard (pool-template-builder.tsx) and the
-// multi-fixture mode (multi-fixture-builder.tsx) so the two pickers stay in
-// sync automatically as templates are added.
+// Cards from the registry (17 TEMPLATE_GRADED templates) plus the 3 legacy
+// pool_types, unified into one tabbed picker. Legacy cards keep their exact
+// existing creation behavior (server derives question, hardcoded eligibility
+// check) — they're catalog metadata only here, not registry entries, since
+// their grading lives in SQL, not a gradingRule. Shared by both the
+// single-fixture wizard (pool-template-builder.tsx) and the multi-fixture
+// mode (multi-fixture-builder.tsx) so the two pickers stay in sync
+// automatically as templates are added.
+//
+// Stage 4: TEMPLATE_GRADED is now the suggested/default path — registry
+// cards are concatenated before legacy cards (see ALL_CARDS below), so
+// within the shared MATCH_RESULT tab the 4 registry match-result templates
+// sort ahead of WHO_WILL_ADVANCE/REGULATION_RESULT (both still AUTO-ranked,
+// and Array.prototype.sort is stable, so concatenation order is what
+// decides ties). Legacy types remain fully present and selectable — this
+// only changes which options an admin sees first, never what's available.
 export type CardCategory = "MATCH_RESULT" | "GOALS" | "DISCIPLINE" | "PLAYER_PROPS" | "COMBO";
 export const CATEGORY_LABELS: Record<CardCategory, string> = {
   MATCH_RESULT: "Match result",
@@ -112,7 +120,7 @@ const REGISTRY_CARDS: TemplateCard[] = [
   dataSource: DATA_SOURCE_LABELS[t.requiredDataSources[0]] ?? "Fixture score",
 }));
 
-export const ALL_CARDS = [...LEGACY_CARDS, ...REGISTRY_CARDS].sort(
+export const ALL_CARDS = [...REGISTRY_CARDS, ...LEGACY_CARDS].sort(
   (a, b) => GRADING_RANK[a.gradingReliability] - GRADING_RANK[b.gradingReliability],
 );
 
