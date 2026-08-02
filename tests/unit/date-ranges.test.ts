@@ -73,6 +73,21 @@ describe("resolveDateRange", () => {
 });
 
 describe("previousPeriod", () => {
+  // Only the last test below (THIS_MONTH's previous-period boundary) calls
+  // resolveDateRange with an implicit "now" — every other test here builds
+  // its range from literal dates, so it doesn't need the clock frozen. But
+  // that one test silently depended on the real wall clock still being in
+  // the same month FIXED_NOW is in, which broke the moment real time moved
+  // past July 2026 — freezing it here, matching the sibling describe
+  // block's pattern, makes every test in this file time-independent.
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("shifts 7D/30D/90D back by the exact duration with no overlap", () => {
     const range = { from: new Date("2026-07-01T00:00:00.000Z"), to: new Date("2026-07-08T00:00:00.000Z") };
     const prev = previousPeriod(range, "7D", "UTC");
