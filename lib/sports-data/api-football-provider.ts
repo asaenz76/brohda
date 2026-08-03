@@ -5,6 +5,7 @@ import { normalizeEventDetail, normalizeEventType } from "./events";
 import { resolveVenueTimezone } from "./timezone";
 import type {
   FixtureSearchParams,
+  LeagueSeasonCoverage,
   MatchWinnerLine,
   NormalizedFixture,
   NormalizedFixtureEvent,
@@ -55,12 +56,19 @@ interface ApiFootballFixtureResponse {
 
 interface ApiFootballListResponse {
   response: ApiFootballFixtureResponse[];
+  paging?: { current: number; total: number };
 }
 
 interface ApiFootballLeagueResponse {
   league: { id: number; name: string; type: string | null; logo: string | null };
   country: { name: string | null; code: string | null; flag: string | null };
-  seasons: Array<{ year: number; start: string; end: string; current?: boolean }>;
+  seasons: Array<{
+    year: number;
+    start: string;
+    end: string;
+    current?: boolean;
+    coverage?: LeagueSeasonCoverage;
+  }>;
 }
 
 interface ApiFootballLeagueListResponse {
@@ -235,6 +243,57 @@ async function callFixturesEndpoint(
   return (body.response ?? []).map(mapFixture);
 }
 
+// Defensive cap against a runaway/bugged provider response (e.g. a
+// malformed season param matching far more than one season's worth of
+// fixtures) — a realistic domestic season tops out in the 300s-400s
+// (confirmed live: league=39 season=2025 returned exactly 380, one page).
+// Aborting outright is safer than silently importing a wildly oversized
+// response.
+const MAX_SEASON_FIXTURES_RESPONSE = 2000;
+
+// Backs getSeasonFixtures — deliberately separate from callFixturesEndpoint
+// (used by searchFixtures/getFixtureById, neither of which has ever needed
+// pagination): `/fixtures?league=X&season=Y` with NO date/from/to returns
+// the complete season, past and future, in one call (confirmed live) —
+// unlike searchFixtures' league+season branch, which deliberately narrows
+// to upcoming-only via an injected from/to range for the existing by-league
+// browse-and-import UI. Paginated defensively even though a real season
+// fetch was confirmed to return everything in a single page.
+async function callSeasonFixturesEndpoint(externalLeagueId: string, season: string): Promise<NormalizedFixture[]> {
+  const results: NormalizedFixture[] = [];
+  let page = 1;
+  let totalPages = 1;
+
+  do {
+    const url = new URL(`${baseUrl()}/fixtures`);
+    url.searchParams.set("league", externalLeagueId);
+    url.searchParams.set("season", season);
+    if (page > 1) url.searchParams.set("page", String(page));
+
+    const response = await fetchWithRetry(
+      url.toString(),
+      { headers: authHeaders() },
+      {
+        provider: PROVIDER_NAME,
+        requestType: "get_season_fixtures",
+        requestParams: { league: externalLeagueId, season, page: String(page) },
+      },
+    );
+    const body = (await response.json()) as ApiFootballListResponse;
+    results.push(...(body.response ?? []).map(mapFixture));
+    totalPages = body.paging?.total ?? 1;
+    page += 1;
+
+    if (results.length > MAX_SEASON_FIXTURES_RESPONSE) {
+      throw new Error(
+        `Season fixture fetch for league ${externalLeagueId} season ${season} exceeded the defensive cap of ${MAX_SEASON_FIXTURES_RESPONSE} fixtures — aborting rather than importing a possibly-corrupt or oversized response.`,
+      );
+    }
+  } while (page <= totalPages);
+
+  return results;
+}
+
 function mapLeague(raw: ApiFootballLeagueResponse): NormalizedLeague {
   return {
     provider: PROVIDER_NAME,
@@ -248,6 +307,7 @@ function mapLeague(raw: ApiFootballLeagueResponse): NormalizedLeague {
       startDate: s.start,
       endDate: s.end,
       current: s.current ?? false,
+      coverage: s.coverage ?? null,
     })),
   };
 }
@@ -592,6 +652,18 @@ export class ApiFootballProvider implements SportsDataProvider {
     return callFixturesEndpoint(query, "search");
   }
 
+  // Backs the competition-import-manager: the complete season, past and
+  // future, in one request (no date restriction) — used by the initial
+  // competition import, the discovery-sync cron, and the recommendation-
+  // availability cache refresh, so none of them need a different request
+  // shape from each other. Deliberately distinct from searchFixtures'
+  // league+season branch above, which intentionally narrows to
+  // upcoming-only for the existing by-league manual browse/import flow.
+  async getSeasonFixtures(externalLeagueId: string, season: string): Promise<NormalizedFixture[]> {
+    if (!this.isEnabled()) return [];
+    return callSeasonFixturesEndpoint(externalLeagueId, season);
+  }
+
   async getFixtureById(externalFixtureId: string): Promise<NormalizedFixture | null> {
     if (!this.isEnabled()) return null;
 
@@ -627,6 +699,17 @@ export class ApiFootballProvider implements SportsDataProvider {
 
     const leagues = await callLeaguesEndpoint({ id: externalLeagueId }, "get_league_type");
     return leagues[0]?.type ?? null;
+  }
+
+  // Backs the competition-import-manager: the full NormalizedLeague (name,
+  // country, type, and — importantly — the seasons[] array with each
+  // season's start/end dates, current flag, and coverage snapshot), unlike
+  // getLeagueType above which only ever plucks the bare type string.
+  async getLeagueById(externalLeagueId: string): Promise<NormalizedLeague | null> {
+    if (!this.isEnabled()) return null;
+
+    const leagues = await callLeaguesEndpoint({ id: externalLeagueId }, "get_league_by_id");
+    return leagues[0] ?? null;
   }
 
   // Phase 2 of the pool-template registry — only ever meaningful once a

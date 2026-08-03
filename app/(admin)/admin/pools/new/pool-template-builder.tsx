@@ -26,6 +26,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { PlayerPicker } from "./player-picker";
 import { MultiFixtureBuilder } from "./multi-fixture-builder";
+import { ImportedCompetitionFilter } from "./imported-competition-filter";
 import {
   ALL_CARDS,
   CATEGORY_LABELS,
@@ -34,6 +35,7 @@ import {
   TABS,
   isLegacyId,
   type CardCategory,
+  type CompetitionOption,
   type FixtureOption,
   type TemplateCard,
 } from "./template-cards";
@@ -99,6 +101,7 @@ function formatOddsAge(providerUpdatedAtIso: string): string {
 
 export function PoolTemplateBuilder({
   fixtures,
+  competitions = [],
   defaultEntryFee = "5.00",
   defaultHouseFeePercent = "5",
   defaultVisibility = "VISIBLE_TO_ALL_MEMBERS",
@@ -106,6 +109,7 @@ export function PoolTemplateBuilder({
   duplicateTemplate = null,
 }: {
   fixtures: FixtureOption[];
+  competitions?: CompetitionOption[];
   defaultEntryFee?: string;
   defaultHouseFeePercent?: string;
   defaultVisibility?: string;
@@ -117,6 +121,7 @@ export function PoolTemplateBuilder({
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [search, setSearch] = useState("");
+  const [competitionKey, setCompetitionKey] = useState("");
   const [fixtureId, setFixtureId] = useState("");
   const [activeTab, setActiveTab] = useState<CardCategory>(TABS[0]);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
@@ -229,10 +234,11 @@ export function PoolTemplateBuilder({
     : null;
 
   const filteredFixtures = useMemo(() => {
-    if (!search.trim()) return fixtures;
+    const byCompetition = competitionKey ? fixtures.filter((f) => f.competitionKey === competitionKey) : fixtures;
+    if (!search.trim()) return byCompetition;
     const q = search.trim().toLowerCase();
-    return fixtures.filter((f) => f.label.toLowerCase().includes(q));
-  }, [fixtures, search]);
+    return byCompetition.filter((f) => f.label.toLowerCase().includes(q));
+  }, [fixtures, competitionKey, search]);
 
   function selectFixture(fixture: FixtureOption) {
     setFixtureId(fixture.id);
@@ -506,6 +512,7 @@ export function PoolTemplateBuilder({
         {mode === "multi" ? (
           <MultiFixtureBuilder
             fixtures={fixtures}
+            competitions={competitions}
             defaultEntryFee={defaultEntryFee}
             defaultHouseFeePercent={defaultHouseFeePercent}
           />
@@ -541,6 +548,11 @@ export function PoolTemplateBuilder({
         <form action={formAction} className="space-y-5">
           {/* Step 1 — Select Fixture */}
           <div className={cn("space-y-3", step !== 1 && "hidden")}>
+            <ImportedCompetitionFilter
+              competitions={competitions}
+              value={competitionKey}
+              onChange={setCompetitionKey}
+            />
             <div className="space-y-1.5">
               <Label htmlFor="fixtureSearch">Search fixtures</Label>
               <Input

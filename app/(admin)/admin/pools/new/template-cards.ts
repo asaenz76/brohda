@@ -1,5 +1,6 @@
 import { listByCategory } from "@/lib/pools/templates/registry";
 import { getQuestionFamily, type QuestionFamily } from "@/lib/pools/templates/families";
+import { getPriorityLeagueMap, type LeagueTier } from "@/lib/sports-data/priority-leagues";
 
 export interface FixtureOption {
   id: string;
@@ -14,6 +15,48 @@ export interface FixtureOption {
   league: string | null;
   label: string;
   scheduledStartUtc: string;
+  // Groups this fixture under one entry in the imported-competition filter
+  // (`${provider}:${competitionExternalId}:${season}`) — null only for a
+  // fixture missing competition linkage, which then can't be filtered by
+  // competition (still shows up under "All competitions").
+  competitionKey: string | null;
+}
+
+// One row in the pool-creation "Imported competition" filter — built
+// directly from the already-gated fixtures list (fixtures_available_for_pool_creation
+// already excludes anything not IMPORTED/archived/pool_creation_enabled=false,
+// see the migration for that view), so a competition only ever appears here
+// once it truly has at least one fixture eligible for pool creation right
+// now. Deliberately not a second query against league_season_imports — that
+// would risk drifting from what's actually in the fixtures list below it.
+export interface CompetitionOption {
+  key: string;
+  label: string;
+  tier: LeagueTier | null;
+  fixtureCount: number;
+}
+
+export function buildCompetitionOptions(fixtures: FixtureOption[]): CompetitionOption[] {
+  const priorityMap = getPriorityLeagueMap();
+  const byKey = new Map<string, CompetitionOption>();
+  for (const f of fixtures) {
+    if (!f.competitionKey) continue;
+    const existing = byKey.get(f.competitionKey);
+    if (existing) {
+      existing.fixtureCount += 1;
+      continue;
+    }
+    // externalLeagueId is the middle segment of competitionKey
+    // (`${provider}:${externalLeagueId}:${season}`).
+    const externalLeagueId = f.competitionKey.split(":")[1] ?? "";
+    byKey.set(f.competitionKey, {
+      key: f.competitionKey,
+      label: f.league ?? "Unknown competition",
+      tier: priorityMap.get(externalLeagueId)?.tier ?? null,
+      fixtureCount: 1,
+    });
+  }
+  return [...byKey.values()].sort((a, b) => a.label.localeCompare(b.label));
 }
 
 // Cards from the registry (17 TEMPLATE_GRADED templates) plus the 3 legacy

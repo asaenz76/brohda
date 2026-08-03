@@ -4,6 +4,7 @@ import { getPoolFeeDefaults } from "@/lib/settings/pool-defaults";
 import { formatBps } from "@/lib/utils/money";
 import { getLatestTemplate } from "@/lib/pools/templates/registry";
 import { PoolTemplateBuilder, type DuplicateTemplate } from "./pool-template-builder";
+import { buildCompetitionOptions } from "./template-cards";
 
 // Converts a TEMPLATE_GRADED pool's typed template_config JSON back into
 // the wizard's Record<string,string> shape (every config input is a plain
@@ -99,7 +100,7 @@ export default async function NewPoolPage({
   const { data: fixtures } = await supabase
     .from("fixtures_available_for_pool_creation")
     .select(
-      "id, external_fixture_id, home_team_external_id, home_team_name, home_team_logo_url, away_team_external_id, away_team_name, away_team_logo_url, competition_name, competition_country, competition_type, scheduled_start_utc",
+      "id, external_fixture_id, home_team_external_id, home_team_name, home_team_logo_url, away_team_external_id, away_team_name, away_team_logo_url, competition_name, competition_country, competition_type, provider, competition_external_id, season, scheduled_start_utc",
     )
     .order("scheduled_start_utc", { ascending: true });
 
@@ -124,14 +125,18 @@ export default async function NewPoolPage({
         f.scheduled_start_utc,
       ).toLocaleString()}`,
       scheduledStartUtc: f.scheduled_start_utc,
+      competitionKey:
+        f.competition_external_id && f.season ? `${f.provider}:${f.competition_external_id}:${f.season}` : null,
     };
   });
+  const competitionOptions = buildCompetitionOptions(fixtureOptions);
 
   return (
     <div className="space-y-4">
       <h1 className="text-lg font-semibold text-text-primary">Create a pool</h1>
       <PoolTemplateBuilder
         fixtures={fixtureOptions}
+        competitions={competitionOptions}
         defaultEntryFee={duplicateEntryFee ?? (poolFeeDefaults.entryFeeCents / 100).toFixed(2)}
         defaultHouseFeePercent={
           duplicateHouseFeePercent ?? formatBps(poolFeeDefaults.houseFeeBps).replace("%", "")

@@ -92,6 +92,34 @@ export interface NormalizedTeam {
 // kept instead of just the year: it's what lets the fixture-import date
 // picker figure out the right `season` param for a given date without
 // guessing at a universal convention (see fixture-search.tsx).
+// API-Football's per-season coverage flags — confirmed live against a real
+// /leagues response before this was added. All booleans; `fixtures` nests
+// four sub-flags rather than being a single flag itself. Stored verbatim
+// into league_season_imports.coverage_snapshot (jsonb) — informational for
+// now (surfaced in the Competition Workspace's Templates tab), not yet
+// used to gate which pool templates are offered.
+export interface LeagueSeasonCoverage {
+  fixtures: {
+    events: boolean;
+    lineups: boolean;
+    statistics_fixtures: boolean;
+    statistics_players: boolean;
+  };
+  standings: boolean;
+  players: boolean;
+  top_scorers: boolean;
+  top_assists: boolean;
+  top_cards: boolean;
+  injuries: boolean;
+  predictions: boolean;
+  odds: boolean;
+}
+
+// A league's own season calendar — start/end vary per league (most run
+// Aug-May, some run calendar-year) which is exactly why these dates are
+// kept instead of just the year: it's what lets the fixture-import date
+// picker figure out the right `season` param for a given date without
+// guessing at a universal convention (see fixture-search.tsx).
 export interface LeagueSeason {
   year: string;
   startDate: string; // ISO YYYY-MM-DD
@@ -99,8 +127,12 @@ export interface LeagueSeason {
   // API-Football's own "is this the season currently being played" flag —
   // the real signal for the fixture-import league picker's "In season now"
   // group (lib/sports-data/league-picker.ts), instead of a hand-guessed
-  // calendar approximation.
+  // calendar approximation. Confirmed live: this can already be true for a
+  // season whose first fixture is still weeks away (flips at the season
+  // boundary, not at kickoff) — never treat this alone as "operationally
+  // active," see ACTIVATION_WINDOW_DAYS in the competition-import design.
   current: boolean;
+  coverage: LeagueSeasonCoverage | null;
 }
 
 export interface NormalizedLeague {
@@ -265,10 +297,17 @@ export interface SportsDataProvider {
   searchFixtures(params: FixtureSearchParams): Promise<NormalizedFixture[]>;
   getFixtureById(externalFixtureId: string): Promise<NormalizedFixture | null>;
   searchLeagues(query: string): Promise<NormalizedLeague[]>;
+  getLeagueById(externalLeagueId: string): Promise<NormalizedLeague | null>;
   searchTeams(query: string): Promise<NormalizedTeam[]>;
   getLeagueType(externalLeagueId: string): Promise<string | null>;
   getFixtureEvents(externalFixtureId: string): Promise<NormalizedFixtureEvent[]>;
   getTeamSquad(externalTeamId: string): Promise<NormalizedPlayer[]>;
   getFixtureOdds(externalFixtureId: string): Promise<NormalizedFixtureOdds | null>;
   getFixtureMarkets(externalFixtureId: string): Promise<NormalizedFixtureMarkets | null>;
+  // The complete season, past and future, in one call (no date
+  // restriction) — backs the competition-import-manager's import,
+  // discovery-sync, and recommendation-availability-cache paths. Distinct
+  // from searchFixtures' league+season branch, which deliberately narrows
+  // to upcoming-only for the existing by-league manual browse/import flow.
+  getSeasonFixtures(externalLeagueId: string, season: string): Promise<NormalizedFixture[]>;
 }

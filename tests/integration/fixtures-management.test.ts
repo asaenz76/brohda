@@ -7,7 +7,7 @@
  * deleteFixtureAction (a fixture with any pool attached can't be deleted).
  * Run with: pnpm test:integration (requires `pnpm supabase:start`).
  */
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 
@@ -17,6 +17,16 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 const admin = createSupabaseClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
+
+// fixtures_available_for_pool_creation now also requires a matching
+// league_season_imports row (IMPORTED, not archived, pool_creation_enabled)
+// — see 20260101000095_gate_pool_creation_view_by_import.sql. Every test
+// fixture below is stamped with this competition/season so it satisfies
+// that gate; the tests are otherwise about hidden_from_pool_creation/pool
+// status/terminal-status, not about the import gate itself.
+const TEST_EXTERNAL_LEAGUE_ID = `fixtures-mgmt-league-${randomUUID()}`;
+const TEST_SEASON = "2026";
+let testLeagueId: string;
 
 async function getAdminId(): Promise<string> {
   const { data } = await admin
@@ -36,6 +46,8 @@ async function createTestFixture(internalStatus = "NOT_STARTED"): Promise<string
       external_fixture_id: `fixtures-mgmt-test-${randomUUID()}`,
       home_team_name: "Home Test FC",
       away_team_name: "Away Test FC",
+      competition_external_id: TEST_EXTERNAL_LEAGUE_ID,
+      season: TEST_SEASON,
       scheduled_start_utc: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       internal_status: internalStatus,
     })
@@ -80,6 +92,26 @@ async function isAvailableForPoolCreation(fixtureId: string): Promise<boolean> {
 }
 
 describe.skipIf(!SERVICE_ROLE_KEY)("fixture management", () => {
+  beforeAll(async () => {
+    const { data: league, error: leagueError } = await admin
+      .from("leagues")
+      .insert({ provider: "api_football", external_id: TEST_EXTERNAL_LEAGUE_ID, name: "Fixtures Mgmt Test League" })
+      .select("id")
+      .single();
+    if (leagueError || !league) throw leagueError ?? new Error("failed to create test league");
+    testLeagueId = league.id as string;
+
+    const { error: importError } = await admin.from("league_season_imports").insert({
+      provider: "api_football",
+      external_league_id: TEST_EXTERNAL_LEAGUE_ID,
+      season: TEST_SEASON,
+      league_id: testLeagueId,
+      import_status: "IMPORTED",
+      pool_creation_enabled: true,
+    });
+    if (importError) throw importError;
+  });
+
   afterAll(async () => {
     if (createdPoolIds.length > 0) {
       const { error } = await admin.from("pools").delete().in("id", createdPoolIds);
@@ -89,6 +121,8 @@ describe.skipIf(!SERVICE_ROLE_KEY)("fixture management", () => {
       const { error } = await admin.from("fixtures").delete().in("id", createdFixtureIds);
       if (error) throw error;
     }
+    await admin.from("league_season_imports").delete().eq("external_league_id", TEST_EXTERNAL_LEAGUE_ID);
+    if (testLeagueId) await admin.from("leagues").delete().eq("id", testLeagueId);
   });
 
   it("fixtures_available_for_pool_creation includes a fixture with no pools", async () => {

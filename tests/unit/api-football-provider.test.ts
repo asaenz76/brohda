@@ -220,6 +220,69 @@ describe("ApiFootballProvider", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("getLeagueById returns the full NormalizedLeague, seasons and coverage included", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          response: [
+            {
+              league: { id: 39, name: "Premier League", type: "League", logo: null },
+              country: { name: "England", code: "GB", flag: null },
+              seasons: [
+                {
+                  year: 2025,
+                  start: "2025-08-15",
+                  end: "2026-05-24",
+                  current: true,
+                  coverage: {
+                    fixtures: { events: true, lineups: true, statistics_fixtures: true, statistics_players: true },
+                    standings: true,
+                    players: true,
+                    top_scorers: true,
+                    top_assists: true,
+                    top_cards: true,
+                    injuries: true,
+                    predictions: true,
+                    odds: false,
+                  },
+                },
+              ],
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new ApiFootballProvider();
+    const league = await provider.getLeagueById("39");
+
+    expect(new URL(fetchMock.mock.calls[0][0] as string).searchParams.get("id")).toBe("39");
+    expect(league?.externalLeagueId).toBe("39");
+    expect(league?.seasons[0].current).toBe(true);
+    expect(league?.seasons[0].coverage?.odds).toBe(false);
+    expect(league?.seasons[0].coverage?.fixtures.events).toBe(true);
+  });
+
+  it("getLeagueById returns null when nothing is found", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ response: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new ApiFootballProvider();
+    expect(await provider.getLeagueById("999999")).toBeNull();
+  });
+
+  it("getLeagueById returns null without calling fetch when disabled", async () => {
+    process.env.API_FOOTBALL_ENABLED = "false";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new ApiFootballProvider();
+    expect(await provider.getLeagueById("39")).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("searches leagues and carries each season's real current flag through", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
@@ -249,8 +312,8 @@ describe("ApiFootballProvider", () => {
       type: "Cup",
     });
     expect(league.seasons).toEqual([
-      { year: "2024", startDate: "2024-06-01", endDate: "2024-08-01", current: false },
-      { year: "2026", startDate: "2026-06-01", endDate: "2026-08-01", current: true },
+      { year: "2024", startDate: "2024-06-01", endDate: "2024-08-01", current: false, coverage: null },
+      { year: "2026", startDate: "2026-06-01", endDate: "2026-08-01", current: true, coverage: null },
     ]);
     const requestedUrl = new URL(fetchMock.mock.calls[0][0] as string);
     expect(requestedUrl.pathname).toContain("/leagues");
@@ -349,5 +412,76 @@ describe("ApiFootballProvider", () => {
     expect(requestedUrl.searchParams.get("season")).toBe("2024");
     expect(requestedUrl.searchParams.get("date")).toBe("2024-05-01");
     expect(requestedUrl.searchParams.has("next")).toBe(false);
+  });
+
+  describe("getSeasonFixtures", () => {
+    it("requests league+season with no date/from/to restriction", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ ...SAMPLE_RESPONSE, paging: { current: 1, total: 1 } }), { status: 200 }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const provider = new ApiFootballProvider();
+      const results = await provider.getSeasonFixtures("39", "2025");
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const requestedUrl = new URL(fetchMock.mock.calls[0][0] as string);
+      expect(requestedUrl.searchParams.get("league")).toBe("39");
+      expect(requestedUrl.searchParams.get("season")).toBe("2025");
+      expect(requestedUrl.searchParams.has("date")).toBe(false);
+      expect(requestedUrl.searchParams.has("from")).toBe(false);
+      expect(requestedUrl.searchParams.has("to")).toBe(false);
+      expect(results).toHaveLength(1);
+    });
+
+    it("loops through every page and concatenates results", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ ...SAMPLE_RESPONSE, paging: { current: 1, total: 3 } }), { status: 200 }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ ...SAMPLE_RESPONSE, paging: { current: 2, total: 3 } }), { status: 200 }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ ...SAMPLE_RESPONSE, paging: { current: 3, total: 3 } }), { status: 200 }),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const provider = new ApiFootballProvider();
+      const results = await provider.getSeasonFixtures("39", "2025");
+
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(new URL(fetchMock.mock.calls[1][0] as string).searchParams.get("page")).toBe("2");
+      expect(new URL(fetchMock.mock.calls[2][0] as string).searchParams.get("page")).toBe("3");
+      expect(results).toHaveLength(3); // one SAMPLE_RESPONSE fixture per page
+    });
+
+    it("aborts once results exceed the defensive max-response-size cap", async () => {
+      // 1 fixture per page — with the real cap this would take thousands of
+      // pages, so this only proves the guard fires, not the exact count. A
+      // fresh Response per call, since a Response body can only be read once.
+      const fetchMock = vi
+        .fn()
+        .mockImplementation(
+          () => new Response(JSON.stringify({ ...SAMPLE_RESPONSE, paging: { current: 1, total: 5000 } }), { status: 200 }),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const provider = new ApiFootballProvider();
+      await expect(provider.getSeasonFixtures("39", "2025")).rejects.toThrow(/exceeded the defensive cap/);
+    });
+
+    it("returns an empty result without calling fetch when disabled", async () => {
+      process.env.API_FOOTBALL_ENABLED = "false";
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      const provider = new ApiFootballProvider();
+      const results = await provider.getSeasonFixtures("39", "2025");
+
+      expect(results).toEqual([]);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
   });
 });

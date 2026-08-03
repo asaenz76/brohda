@@ -16,7 +16,7 @@ function league(overrides: Partial<NormalizedLeague> = {}): NormalizedLeague {
 }
 
 function season(current: boolean) {
-  return { year: "2026", startDate: "2026-01-01", endDate: "2026-12-31", current };
+  return { year: "2026", startDate: "2026-01-01", endDate: "2026-12-31", current, coverage: null };
 }
 
 describe("categorizeLeaguesForPicker", () => {

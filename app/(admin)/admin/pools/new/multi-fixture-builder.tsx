@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
+import { ImportedCompetitionFilter } from "./imported-competition-filter";
 import {
   ALL_CARDS,
   CATEGORY_LABELS,
@@ -22,6 +23,7 @@ import {
   TABS,
   isLegacyId,
   type CardCategory,
+  type CompetitionOption,
   type FixtureOption,
 } from "./template-cards";
 import { cn } from "@/lib/utils";
@@ -55,15 +57,18 @@ const PLACEHOLDER_SCORE = {
 
 export function MultiFixtureBuilder({
   fixtures,
+  competitions = [],
   defaultEntryFee = "5.00",
   defaultHouseFeePercent = "5",
 }: {
   fixtures: FixtureOption[];
+  competitions?: CompetitionOption[];
   defaultEntryFee?: string;
   defaultHouseFeePercent?: string;
 }) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [search, setSearch] = useState("");
+  const [competitionKey, setCompetitionKey] = useState("");
   const [selectedFixtureIds, setSelectedFixtureIds] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState<CardCategory>(MULTI_TABS[0]);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
@@ -79,10 +84,11 @@ export function MultiFixtureBuilder({
   const [isPending, startTransition] = useTransition();
 
   const filteredFixtures = useMemo(() => {
-    if (!search.trim()) return fixtures;
+    const byCompetition = competitionKey ? fixtures.filter((f) => f.competitionKey === competitionKey) : fixtures;
+    if (!search.trim()) return byCompetition;
     const q = search.trim().toLowerCase();
-    return fixtures.filter((f) => f.label.toLowerCase().includes(q));
-  }, [fixtures, search]);
+    return byCompetition.filter((f) => f.label.toLowerCase().includes(q));
+  }, [fixtures, competitionKey, search]);
 
   const selectedFixtures = useMemo(
     () => fixtures.filter((f) => selectedFixtureIds.has(f.id)),
@@ -364,6 +370,7 @@ export function MultiFixtureBuilder({
 
       {/* Step 1 — Select fixtures */}
       <div className={cn("space-y-3", step !== 1 && "hidden")}>
+        <ImportedCompetitionFilter competitions={competitions} value={competitionKey} onChange={setCompetitionKey} />
         <div className="space-y-1.5">
           <Label htmlFor="multiFixtureSearch">Search fixtures</Label>
           <Input
