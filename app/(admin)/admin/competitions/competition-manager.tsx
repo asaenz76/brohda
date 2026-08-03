@@ -2,15 +2,19 @@
 
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
+import { X } from "lucide-react";
 import {
   startCompetitionImportAction,
   retryCompetitionImportAction,
+  refreshRecommendationsNowAction,
   type CompetitionManagerData,
   type RecommendedCompetition,
 } from "@/lib/actions/competitions";
 import type { CompetitionRow } from "@/lib/competitions/manager-data";
 import { NEEDS_ATTENTION_LABEL, OPERATIONAL_STATUS_LABEL } from "@/lib/competitions/status";
 import { IMPORT_STATUS_BADGE_CLASS, OPERATIONAL_STATUS_BADGE_CLASS } from "@/lib/competitions/badge-classes";
+import { RECOMMENDATION_WINDOW_DAYS } from "@/lib/competitions/constants";
+import { AllCompetitionsTab } from "./all-competitions-tab";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -94,6 +98,13 @@ export function CompetitionManager({ initialData }: { initialData: CompetitionMa
   // across re-renders with the same inputs).
   const [nowMs] = useState(() => Date.now());
 
+  // Whether any filter has been touched away from its tab default — drives
+  // which of the 4 distinct empty-state messages the Recommended tab shows
+  // (an active filter narrowing zero results reads very differently from
+  // there genuinely being nothing to recommend).
+  const recommendedFiltersActive =
+    filters.search !== "" || filters.tiers.size !== 2 || filters.country !== "" || filters.type !== "" || !filters.hasUpcoming;
+
   const filteredRecommended = useMemo(() => {
     return data.recommended.filter((r) => {
       if (filters.search && !r.name.toLowerCase().includes(filters.search.toLowerCase())) return false;
@@ -102,11 +113,26 @@ export function CompetitionManager({ initialData }: { initialData: CompetitionMa
       if (filters.type && r.type !== filters.type) return false;
       if (filters.hasUpcoming && r.nextFixtureAt) {
         const days = (new Date(r.nextFixtureAt).getTime() - nowMs) / 86_400_000;
-        if (days > 14) return false;
+        if (days > RECOMMENDATION_WINDOW_DAYS) return false;
       }
       return true;
     });
   }, [data.recommended, filters, nowMs]);
+
+  const [refreshing, setRefreshing] = useState(false);
+  function refreshRecommendationsNow() {
+    setRefreshing(true);
+    startTransition(async () => {
+      const result = await refreshRecommendationsNowAction();
+      setMessage(
+        result.success
+          ? `Checked ${result.checked} priority competition(s), refreshed ${result.refreshed}${result.errors > 0 ? `, ${result.errors} failed` : ""}.`
+          : result.error,
+      );
+      setRefreshing(false);
+      refresh();
+    });
+  }
 
   const filteredImported = useMemo(() => filterCompetitionRows(data.imported, filters), [data.imported, filters]);
   const filteredNeedsAttention = useMemo(
@@ -176,12 +202,24 @@ export function CompetitionManager({ initialData }: { initialData: CompetitionMa
 
       {tab !== "All competitions" && (
         <div className="flex flex-wrap items-center gap-2">
-          <Input
-            placeholder="Search…"
-            value={filters.search}
-            onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
-            className="h-8 w-48"
-          />
+          <div className="relative">
+            <Input
+              placeholder={tab === "Recommended" ? "Search recommended competitions…" : "Search…"}
+              value={filters.search}
+              onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+              className="h-8 w-56 pr-7"
+            />
+            {filters.search && (
+              <button
+                type="button"
+                aria-label="Clear search"
+                onClick={() => setFilters((f) => ({ ...f, search: "" }))}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary"
+              >
+                <X className="size-3.5" aria-hidden="true" />
+              </button>
+            )}
+          </div>
           <div className="flex gap-1">
             {["A", "B", "C"].map((t) => (
               <button
@@ -215,15 +253,34 @@ export function CompetitionManager({ initialData }: { initialData: CompetitionMa
               checked={filters.hasUpcoming}
               onChange={(e) => setFilters((f) => ({ ...f, hasUpcoming: e.target.checked }))}
             />
-            {tab === "Recommended" ? "Fixture within 14 days" : "Active only"}
+            {tab === "Recommended" ? `Fixture within ${RECOMMENDATION_WINDOW_DAYS} days` : "Active only"}
           </label>
         </div>
       )}
 
       {tab === "Recommended" && (
         <div className="space-y-2">
+          {data.recommendedCacheStatus !== "FRESH" && (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-warning-muted/40 bg-warning-muted/10 px-3 py-2">
+              <p className="text-xs text-text-secondary">
+                {data.recommendedCacheStatus === "NOT_CHECKED"
+                  ? "Recommendations have not been checked yet."
+                  : "Recommendation data is stale."}
+              </p>
+              <Button size="sm" variant="outline" disabled={pending || refreshing} onClick={refreshRecommendationsNow}>
+                {refreshing ? "Refreshing…" : "Refresh recommendations"}
+              </Button>
+            </div>
+          )}
           <div className="flex items-center justify-between">
-            <p className="text-xs text-text-muted">{filteredRecommended.length} recommended competition(s)</p>
+            <div className="flex items-center gap-2">
+              <p className="text-xs text-text-muted">{filteredRecommended.length} recommended competition(s)</p>
+              {data.recommendedCacheStatus === "FRESH" && (
+                <Button size="sm" variant="ghost" disabled={pending || refreshing} onClick={refreshRecommendationsNow} className="h-6 px-1.5 text-xs">
+                  {refreshing ? "Refreshing…" : "Refresh"}
+                </Button>
+              )}
+            </div>
             <div className="flex gap-2">
               {selected.size > 0 && (
                 <Button size="sm" disabled={pending} onClick={runImportSelected}>
@@ -268,7 +325,15 @@ export function CompetitionManager({ initialData }: { initialData: CompetitionMa
               />
             ))}
             {filteredRecommended.length === 0 && (
-              <p className="p-4 text-sm text-text-muted">No recommended competitions match these filters.</p>
+              <p className="p-4 text-sm text-text-muted">
+                {data.recommendedCacheStatus === "NOT_CHECKED"
+                  ? "Recommendations have not been refreshed yet."
+                  : recommendedFiltersActive
+                    ? "No recommended competitions match these filters."
+                    : data.priorityLeaguesEligible > 0 && data.priorityLeaguesAlreadyImported === data.priorityLeaguesEligible
+                      ? "All currently recommended competitions have already been imported."
+                      : "No priority competitions are currently ready to import."}
+              </p>
             )}
           </div>
         </div>
@@ -277,41 +342,7 @@ export function CompetitionManager({ initialData }: { initialData: CompetitionMa
       {tab === "Imported" && <CompetitionRowsList rows={filteredImported} onRetry={runRetry} pending={pending} />}
       {tab === "Needs attention" && <CompetitionRowsList rows={filteredNeedsAttention} onRetry={runRetry} pending={pending} showReasons />}
 
-      {tab === "All competitions" && (
-        <div className="space-y-1">
-          {data.allByCountry.map(([country, leagues]) => (
-            <details key={country} className="rounded-lg border border-border-subtle">
-              <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-text-primary">
-                {country} <span className="text-xs font-normal text-text-muted">({leagues.length})</span>
-              </summary>
-              <div className="divide-y divide-border-subtle border-t border-border-subtle">
-                {leagues.map((l) => {
-                  const imported = data.importedExternalLeagueIds.has(l.externalLeagueId);
-                  const currentSeason = l.seasons.find((s) => s.current);
-                  return (
-                    <div key={l.externalLeagueId} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
-                      <span className="text-text-primary">
-                        {l.name} {l.type ? <span className="text-xs text-text-muted">({l.type})</span> : null}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <Badge
-                          label={imported ? "Imported" : "Not imported"}
-                          className={imported ? IMPORT_STATUS_BADGE_CLASS.IMPORTED : IMPORT_STATUS_BADGE_CLASS.NOT_IMPORTED}
-                        />
-                        {!imported && currentSeason && (
-                          <Button size="sm" variant="outline" disabled={pending} onClick={() => runImport(l.externalLeagueId, currentSeason.year)}>
-                            Import
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </details>
-          ))}
-        </div>
-      )}
+      {tab === "All competitions" && <AllCompetitionsTab data={data} importPending={pending} onImport={runImport} />}
     </div>
   );
 }

@@ -12,11 +12,20 @@ import { IMPORT_JOB_MAX_ATTEMPTS } from "@/lib/competitions/constants";
 import { PRIORITY_LEAGUES, getPriorityLeagueMap, type LeagueTier } from "@/lib/sports-data/priority-leagues";
 import { TERMINAL_STATUSES } from "@/lib/sports-data/status-map";
 import {
-  aggregateFixturesByCompetition,
+  ACTIVATION_WINDOW_DAYS,
+  AVAILABILITY_CACHE_TTL_NO_FIXTURES_HOURS,
+  AVAILABILITY_CACHE_TTL_WITH_FIXTURES_HOURS,
+  RECOMMENDATION_WINDOW_DAYS,
+} from "@/lib/competitions/constants";
+import { refreshRecommendationAvailabilityCache } from "@/lib/competitions/availability-cache";
+import {
   buildImportedCompetitionRows,
+  buildRecommendedCompetitions,
+  fixtureAggregatesFromRpcRows,
   type CompetitionRow,
   type LatestJobInfo,
   type LeagueSeasonImportRow,
+  type RecommendedCompetition,
 } from "@/lib/competitions/manager-data";
 import type { NormalizedLeague } from "@/lib/sports-data/types";
 
@@ -200,6 +209,10 @@ export async function startCompetitionImportAction(
 
   if (finalJob?.status === "SUCCEEDED") {
     const upcoming = fixturesToImport.filter((f) => new Date(f.scheduledStartUtc).getTime() > now).length;
+    const latestProviderFixtureAt = allFixtures.reduce<string | null>(
+      (latest, f) => (!latest || f.scheduledStartUtc > latest ? f.scheduledStartUtc : latest),
+      null,
+    );
     await adminClient
       .from("league_season_imports")
       .update({
@@ -209,6 +222,7 @@ export async function startCompetitionImportAction(
         upcoming_fixture_count: upcoming,
         completed_fixture_count: fixturesToImport.length - upcoming,
         provider_fixture_count: allFixtures.length,
+        latest_provider_fixture_at: latestProviderFixtureAt,
         last_synced_at: new Date().toISOString(),
         last_fixture_discovery_at: new Date().toISOString(),
         sync_status: "IDLE",
@@ -302,20 +316,22 @@ export async function retryCompetitionImportAction(jobId: string): Promise<Retry
   return { success: true, error: null };
 }
 
-export interface RecommendedCompetition {
-  externalLeagueId: string;
-  season: string;
-  name: string;
-  countryName: string | null;
-  type: string | null;
-  tier: LeagueTier;
-  logoUrl: string | null;
-  upcomingFixtureCount: number;
-  nextFixtureAt: string | null;
-}
+export type { RecommendedCompetition } from "@/lib/competitions/manager-data";
+
+// Distinguishes "the cache genuinely has no recommendations right now"
+// from "we don't actually know yet" — see the Recommended tab's empty
+// states, which must never silently render the two the same way.
+export type RecommendationCacheStatus = "NOT_CHECKED" | "STALE" | "FRESH";
 
 export interface CompetitionManagerData {
   recommended: RecommendedCompetition[];
+  recommendedCacheStatus: RecommendationCacheStatus;
+  recommendedCacheCheckedAt: string | null; // oldest checked_at among priority leagues, for "last checked" display
+  // How many PRIORITY_LEAGUES entries resolve to a real current season at
+  // all (excludes ones the provider catalog doesn't return or that have no
+  // current season) — the denominator for "all already imported."
+  priorityLeaguesEligible: number;
+  priorityLeaguesAlreadyImported: number;
   imported: CompetitionRow[];
   needsAttention: CompetitionRow[];
   allByCountry: Array<[string, NormalizedLeague[]]>;
@@ -337,7 +353,9 @@ export async function getCompetitionManagerDataAction(): Promise<CompetitionMana
   const [{ data: lsiRows }, catalog, { data: cacheRows }] = await Promise.all([
     adminClient.from("league_season_imports").select("*"),
     apiFootballProvider.isEnabled() ? apiFootballProvider.searchLeagues("") : Promise.resolve([]),
-    adminClient.from("competition_availability_cache").select("external_league_id, season, upcoming_fixture_count, next_fixture_at"),
+    adminClient
+      .from("competition_availability_cache")
+      .select("external_league_id, season, upcoming_fixture_count, next_fixture_at, checked_at"),
   ]);
 
   const catalogByExternalId = new Map(catalog.map((l) => [l.externalLeagueId, l]));
@@ -348,15 +366,24 @@ export async function getCompetitionManagerDataAction(): Promise<CompetitionMana
   const leagueIds = [...new Set(rows.map((r) => r.league_id))];
   const externalLeagueIds = [...new Set(rows.map((r) => r.external_league_id))];
 
-  const [{ data: leagueRows }, { data: fixtureRows }, { data: jobRows }] = await Promise.all([
+  const [{ data: leagueRows }, { data: fixtureAggregateRows }, { data: jobRows }] = await Promise.all([
     leagueIds.length > 0
       ? adminClient.from("leagues").select("id, name, logo_url").in("id", leagueIds)
       : Promise.resolve({ data: [] }),
+    // Aggregated server-side, not fetched as raw rows — see
+    // get_competition_fixture_aggregates's own comment: an unordered
+    // `.in()` select over every fixture across every imported competition
+    // silently truncates past PostgREST's default 1000-row cap once the
+    // total crosses that (a real production incident, not hypothetical),
+    // making an arbitrary competition's future fixtures vanish from the
+    // aggregate while its past ones remain.
     externalLeagueIds.length > 0
-      ? adminClient
-          .from("fixtures")
-          .select("competition_external_id, season, scheduled_start_utc, internal_status")
-          .in("competition_external_id", externalLeagueIds)
+      ? adminClient.rpc("get_competition_fixture_aggregates", {
+          p_external_league_ids: externalLeagueIds,
+          p_terminal_statuses: [...TERMINAL_STATUSES],
+          p_activation_window_days: ACTIVATION_WINDOW_DAYS,
+          p_recommendation_window_days: RECOMMENDATION_WINDOW_DAYS,
+        })
       : Promise.resolve({ data: [] }),
     rows.length > 0
       ? adminClient
@@ -375,15 +402,7 @@ export async function getCompetitionManagerDataAction(): Promise<CompetitionMana
   const countryByExternalId = new Map(externalLeagueIds.map((id) => [id, catalogByExternalId.get(id)?.countryName ?? null]));
   const typeByExternalId = new Map(externalLeagueIds.map((id) => [id, catalogByExternalId.get(id)?.type ?? null]));
 
-  const fixtureAggregates = aggregateFixturesByCompetition(
-    (fixtureRows ?? []).map((f) => ({
-      competitionExternalId: f.competition_external_id ?? "",
-      season: f.season ?? "",
-      scheduledStartUtc: f.scheduled_start_utc,
-      internalStatus: f.internal_status,
-    })),
-    TERMINAL_STATUSES,
-  );
+  const fixtureAggregates = fixtureAggregatesFromRpcRows(fixtureAggregateRows ?? []);
 
   const latestJobs = new Map<string, LatestJobInfo>();
   for (const job of jobRows ?? []) {
@@ -410,29 +429,40 @@ export async function getCompetitionManagerDataAction(): Promise<CompetitionMana
   const importedKeys = new Set(rows.map((r) => `${r.external_league_id}:${r.season}`));
   const importedExternalLeagueIds = new Set(rows.map((r) => r.external_league_id));
 
-  const recommended: RecommendedCompetition[] = [];
-  for (const priority of PRIORITY_LEAGUES) {
-    const league = catalogByExternalId.get(priority.externalLeagueId);
-    const currentSeason = league?.seasons.find((s) => s.current);
-    if (!league || !currentSeason) continue;
-    if (importedKeys.has(`${priority.externalLeagueId}:${currentSeason.year}`)) continue;
+  const catalogRefByExternalId = new Map(
+    [...catalogByExternalId.entries()].map(([id, league]) => [
+      id,
+      {
+        name: league.name,
+        countryName: league.countryName,
+        type: league.type,
+        logoUrl: league.logoUrl,
+        currentSeasonYear: league.seasons.find((s) => s.current)?.year ?? null,
+      },
+    ]),
+  );
+  const availabilityCacheRows = (cacheRows ?? []).map((r) => ({
+    externalLeagueId: r.external_league_id,
+    season: r.season,
+    upcomingFixtureCount: r.upcoming_fixture_count,
+    nextFixtureAt: r.next_fixture_at,
+    checkedAt: r.checked_at,
+  }));
 
-    const cached = cacheRows?.find((r) => r.external_league_id === priority.externalLeagueId && r.season === currentSeason.year);
-    if (!cached || cached.upcoming_fixture_count <= 0) continue; // not yet checked, or nothing in the recommendation window
+  const { recommended, priorityLeaguesEligible, priorityLeaguesAlreadyImported, oldestCheckedAt } = buildRecommendedCompetitions(
+    PRIORITY_LEAGUES,
+    catalogRefByExternalId,
+    importedKeys,
+    availabilityCacheRows,
+  );
 
-    recommended.push({
-      externalLeagueId: priority.externalLeagueId,
-      season: currentSeason.year,
-      name: league.name,
-      countryName: league.countryName,
-      type: league.type,
-      tier: priority.tier,
-      logoUrl: league.logoUrl,
-      upcomingFixtureCount: cached.upcoming_fixture_count,
-      nextFixtureAt: cached.next_fixture_at,
-    });
-  }
-  recommended.sort((a, b) => a.tier.localeCompare(b.tier) || a.name.localeCompare(b.name));
+  const notYetImportedEligible = priorityLeaguesEligible - priorityLeaguesAlreadyImported;
+  const recommendedCacheStatus: RecommendationCacheStatus =
+    notYetImportedEligible > 0 && oldestCheckedAt == null
+      ? "NOT_CHECKED"
+      : oldestCheckedAt && Date.now() - new Date(oldestCheckedAt).getTime() > AVAILABILITY_CACHE_TTL_NO_FIXTURES_HOURS * 3600_000
+        ? "STALE"
+        : "FRESH";
 
   const byCountry = new Map<string, NormalizedLeague[]>();
   for (const league of catalog) {
@@ -446,11 +476,125 @@ export async function getCompetitionManagerDataAction(): Promise<CompetitionMana
 
   return {
     recommended,
+    recommendedCacheStatus,
+    recommendedCacheCheckedAt: oldestCheckedAt,
+    priorityLeaguesEligible,
+    priorityLeaguesAlreadyImported,
     imported: importedRows,
-    needsAttention: importedRows.filter((r) => r.needsAttentionReasons.length > 0),
+    // Kept in lockstep with the badge itself (operationalStatus), not a
+    // separate reasons-based check — otherwise a normal Completed or
+    // No-upcoming-fixtures competition (which still carries an advisory
+    // reason, e.g. "consider archiving") would flood this tab despite its
+    // badge saying something else entirely.
+    needsAttention: importedRows.filter((r) => r.operationalStatus === "NEEDS_ATTENTION"),
     allByCountry,
     importedExternalLeagueIds,
   };
+}
+
+export interface RefreshRecommendationsResult {
+  success: boolean;
+  error: string | null;
+  checked: number;
+  refreshed: number;
+  errors: number;
+}
+
+/** Manual "Refresh recommendations" — the Recommended tab's only way to
+ * populate/update the availability cache today, since no scheduler is
+ * currently configured to call the refresh-recommendation-cache cron on
+ * its own (confirmed: no crons are registered anywhere in this project).
+ * Forces a real check of every priority league regardless of its own
+ * per-row TTL, since an admin clicking this explicitly wants fresh data
+ * now, not whatever happens to already be due. */
+export async function refreshRecommendationsNowAction(): Promise<RefreshRecommendationsResult> {
+  await requireAdminOrAbove();
+
+  if (!apiFootballProvider.isEnabled()) {
+    return { success: false, error: "The sports data provider is not enabled.", checked: 0, refreshed: 0, errors: 0 };
+  }
+
+  const result = await refreshRecommendationAvailabilityCache({ force: true });
+  revalidatePath("/admin/competitions");
+  return { success: true, error: null, ...result };
+}
+
+export interface CatalogAvailability {
+  upcomingFixtureCount: number; // within RECOMMENDATION_WINDOW_DAYS
+  nextFixtureAt: string | null;
+}
+
+/** On-demand availability for the "All competitions" catalog — called
+ * when a country accordion is expanded, never on initial page load (the
+ * catalog can hold hundreds of competitions; fetching live fixture data
+ * for all of them up front would be exactly the fan-out this feature's
+ * design has always avoided). Reuses competition_availability_cache
+ * itself — generalized here to any competition/season, not just
+ * PRIORITY_LEAGUES — so re-expanding the same country later reads from
+ * cache instead of hitting the provider again. */
+export async function getCatalogAvailabilityAction(
+  items: Array<{ externalLeagueId: string; season: string }>,
+): Promise<Record<string, CatalogAvailability>> {
+  await requireAdminOrAbove();
+  const adminClient = createAdminClient();
+  const result: Record<string, CatalogAvailability> = {};
+  if (!apiFootballProvider.isEnabled() || items.length === 0) return result;
+
+  const { data: cachedRows } = await adminClient
+    .from("competition_availability_cache")
+    .select("external_league_id, season, upcoming_fixture_count, next_fixture_at, checked_at")
+    .in(
+      "external_league_id",
+      items.map((i) => i.externalLeagueId),
+    );
+  const cacheByKey = new Map((cachedRows ?? []).map((r) => [`${r.external_league_id}:${r.season}`, r]));
+
+  const now = Date.now();
+  for (const item of items) {
+    const key = `${item.externalLeagueId}:${item.season}`;
+    const cached = cacheByKey.get(key);
+    if (cached) {
+      const ttlHours =
+        cached.upcoming_fixture_count > 0 ? AVAILABILITY_CACHE_TTL_WITH_FIXTURES_HOURS : AVAILABILITY_CACHE_TTL_NO_FIXTURES_HOURS;
+      const age = now - new Date(cached.checked_at).getTime();
+      if (age < ttlHours * 3600_000) {
+        result[key] = { upcomingFixtureCount: cached.upcoming_fixture_count, nextFixtureAt: cached.next_fixture_at };
+        continue;
+      }
+    }
+
+    try {
+      const fixtures = await apiFootballProvider.getSeasonFixtures(item.externalLeagueId, item.season);
+      const windowEnd = now + RECOMMENDATION_WINDOW_DAYS * 86_400_000;
+      const withinWindow = fixtures.filter((f) => {
+        const t = new Date(f.scheduledStartUtc).getTime();
+        return t > now && t <= windowEnd;
+      });
+      const nextFixtureAt = withinWindow.reduce<string | null>(
+        (earliest, f) => (!earliest || f.scheduledStartUtc < earliest ? f.scheduledStartUtc : earliest),
+        null,
+      );
+      await adminClient.from("competition_availability_cache").upsert(
+        {
+          provider: "api_football",
+          external_league_id: item.externalLeagueId,
+          season: item.season,
+          upcoming_fixture_count: withinWindow.length,
+          next_fixture_at: nextFixtureAt,
+          window_days: RECOMMENDATION_WINDOW_DAYS,
+          checked_at: new Date().toISOString(),
+          check_error: null,
+        },
+        { onConflict: "provider,external_league_id,season" },
+      );
+      result[key] = { upcomingFixtureCount: withinWindow.length, nextFixtureAt };
+    } catch {
+      result[key] = cached
+        ? { upcomingFixtureCount: cached.upcoming_fixture_count, nextFixtureAt: cached.next_fixture_at }
+        : { upcomingFixtureCount: 0, nextFixtureAt: null };
+    }
+  }
+  return result;
 }
 
 export interface WorkspaceActionResult {

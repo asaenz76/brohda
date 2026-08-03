@@ -72,11 +72,28 @@ export async function runCompetitionImportProcessing(): Promise<ProcessImportsRe
 
     if (recalculated.status === "SUCCEEDED") {
       result.jobsFinalized += 1;
+      const externalLeagueId = await getExternalLeagueId(adminClient, job.league_season_import_id);
       const { count: upcomingCount } = await adminClient
         .from("fixtures")
         .select("id", { count: "exact", head: true })
-        .eq("competition_external_id", (await getExternalLeagueId(adminClient, job.league_season_import_id)) ?? "")
+        .eq("competition_external_id", externalLeagueId ?? "")
         .gt("scheduled_start_utc", new Date().toISOString());
+      // The synchronous single-chunk path (startCompetitionImportAction)
+      // computes this straight from its in-memory provider fetch; a
+      // multi-chunk import finishes here instead, across separate cron
+      // ticks with nothing held in memory, so it's derived the same way
+      // discovery-sync does — the max scheduled date actually persisted —
+      // rather than left null. Left null, isCompleted() could never
+      // confirm a real completion for any multi-chunk import until its
+      // first discovery sync, which is safe (never a false positive) but
+      // needlessly conservative.
+      const { data: latestFixtureRow } = await adminClient
+        .from("fixtures")
+        .select("scheduled_start_utc")
+        .eq("competition_external_id", externalLeagueId ?? "")
+        .order("scheduled_start_utc", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
       await adminClient
         .from("league_season_imports")
@@ -86,6 +103,8 @@ export async function runCompetitionImportProcessing(): Promise<ProcessImportsRe
           fixture_count_imported: recalculated.processed_fixtures,
           upcoming_fixture_count: upcomingCount ?? 0,
           completed_fixture_count: Math.max(0, recalculated.processed_fixtures - (upcomingCount ?? 0)),
+          provider_fixture_count: recalculated.processed_fixtures,
+          latest_provider_fixture_at: latestFixtureRow?.scheduled_start_utc ?? null,
           last_synced_at: new Date().toISOString(),
           last_fixture_discovery_at: new Date().toISOString(),
           sync_status: "IDLE",

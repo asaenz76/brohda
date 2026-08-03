@@ -23,7 +23,9 @@ export interface AvailabilityCacheRefreshResult {
  * since that's the more time-sensitive case); everything else is skipped
  * this tick.
  */
-export async function refreshRecommendationAvailabilityCache(): Promise<AvailabilityCacheRefreshResult> {
+export async function refreshRecommendationAvailabilityCache(
+  options: { force?: boolean } = {},
+): Promise<AvailabilityCacheRefreshResult> {
   const adminClient = createAdminClient();
   const result: AvailabilityCacheRefreshResult = { checked: 0, refreshed: 0, errors: 0 };
 
@@ -40,7 +42,7 @@ export async function refreshRecommendationAvailabilityCache(): Promise<Availabi
   for (const priority of PRIORITY_LEAGUES) {
     result.checked += 1;
     const cached = cacheByLeague.get(priority.externalLeagueId);
-    if (cached) {
+    if (cached && !options.force) {
       const ttlHours = cached.upcoming_fixture_count > 0
         ? AVAILABILITY_CACHE_TTL_WITH_FIXTURES_HOURS
         : AVAILABILITY_CACHE_TTL_NO_FIXTURES_HOURS;

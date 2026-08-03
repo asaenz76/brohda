@@ -6,9 +6,11 @@ import { TERMINAL_STATUSES } from "@/lib/sports-data/status-map";
 import { getPriorityLeagueMap, type LeagueTier } from "@/lib/sports-data/priority-leagues";
 import {
   computeOperationalStatus,
+  getNeedsAttentionDetails,
   getNeedsAttentionReasons,
   importStatusBadge,
   type ImportStatusBadge,
+  type NeedsAttentionDetail,
   type NeedsAttentionReason,
   type OperationalStatus,
 } from "./status";
@@ -43,6 +45,7 @@ export interface CompetitionWorkspaceData {
   importStatus: ImportStatusBadge;
   operationalStatus: OperationalStatus | null;
   needsAttentionReasons: NeedsAttentionReason[];
+  needsAttentionDetails: NeedsAttentionDetail[];
   seasonStartDate: string | null;
   seasonEndDate: string | null;
   providerCurrent: boolean;
@@ -149,6 +152,8 @@ export const getCompetitionWorkspaceData = cache(async (id: string): Promise<Com
     lastFixtureDiscoveryAt: lsi.last_fixture_discovery_at,
     upcomingFixtureCount: lsi.upcoming_fixture_count,
     fixtureCountImported: lsi.fixture_count_imported,
+    providerFixtureCount: lsi.provider_fixture_count,
+    latestProviderFixtureAt: lsi.latest_provider_fixture_at,
     isLatestKnownSeason,
     discoverySyncIntervalHours: DISCOVERY_SYNC_INTERVAL_HOURS,
     hasFixtureWithinActivationWindow: fixtureAggregate?.hasFixtureWithinActivationWindow ?? false,
@@ -168,6 +173,7 @@ export const getCompetitionWorkspaceData = cache(async (id: string): Promise<Com
     importStatus: importStatusBadge({ importStatus: lsi.import_status }),
     operationalStatus: computeOperationalStatus(statusInput),
     needsAttentionReasons: getNeedsAttentionReasons(statusInput),
+    needsAttentionDetails: getNeedsAttentionDetails(statusInput),
     seasonStartDate: lsi.season_start_date,
     seasonEndDate: lsi.season_end_date,
     providerCurrent: lsi.provider_current,
