@@ -85,6 +85,18 @@ function toDatetimeLocalValue(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+// "Updated N minutes ago" for a recommendation card's market-estimate line
+// — always the provider's own odds timestamp (see NormalizedFixtureMarkets.
+// providerUpdatedAt), never our own fetch/cache time.
+function formatOddsAge(providerUpdatedAtIso: string): string {
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(providerUpdatedAtIso).getTime()) / 60_000));
+  if (minutes < 1) return "just now";
+  if (minutes === 1) return "1 minute ago";
+  if (minutes < 60) return `${minutes} minutes ago`;
+  const hours = Math.round(minutes / 60);
+  return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
+}
+
 export function PoolTemplateBuilder({
   fixtures,
   defaultEntryFee = "5.00",
@@ -237,7 +249,7 @@ export function PoolTemplateBuilder({
     setShowOtherQuestions(false);
     setOverridePublishWarnings(false);
     setQuestionContext(null);
-    getFixtureQuestionContextAction(fixture.id).then(setQuestionContext);
+    getFixtureQuestionContextAction(fixture.id, fixture.externalFixtureId).then(setQuestionContext);
 
     if (duplicateTemplate && !duplicateAppliedRef.current) {
       duplicateAppliedRef.current = true;
@@ -334,13 +346,30 @@ export function PoolTemplateBuilder({
     }
   }
 
-  // Selecting a recommended question reuses selectCard's own default-config
-  // seeding exactly — the recommendation's own config (scored against a
-  // fixture-independent default) only exists to compute the score/warning
-  // preview, not to be carried into the form directly.
+  // Applies the recommendation's own config — not selectCard's generic
+  // field.min/HOME defaults — so whatever the recommendation actually
+  // chose survives into the submitted pool: a real odds-derived threshold
+  // (e.g. minimumGoals picked from the closest-to-50% market line), or the
+  // better-balanced AWAY side of a team-scoped template. Recommendations
+  // never include COMBO or legacy (WHO_WILL_ADVANCE/REGULATION_RESULT)
+  // ids, so there's no need for selectCard's special-casing of those here.
   function selectRecommendation(recommendation: SerializableRecommendation) {
     const card = ALL_CARDS.find((c) => c.id === recommendation.templateId);
-    if (card) selectCard(card);
+    if (!card || !selectedFixture) return;
+
+    setSelectedCardId(card.id);
+    setActiveTab(card.category);
+    setOverridePublishWarnings(false);
+
+    const template = getLatestTemplate(card.id);
+    const nextConfigValues: Record<string, string> = {};
+    if (template) {
+      for (const field of template.requiredConfigFields) {
+        const raw = recommendation.config[field.key];
+        if (raw !== undefined) nextConfigValues[field.key] = String(raw);
+      }
+    }
+    setConfigValues(nextConfigValues);
   }
 
   function updateLeg(index: number, value: string) {
@@ -613,6 +642,16 @@ export function PoolTemplateBuilder({
                         <span className="mt-1 block text-xs text-text-muted">
                           Estimated {Math.round(rec.yesProbability * 100)}% YES
                         </span>
+                        {rec.probabilitySource !== "STATIC_PRIOR" && (
+                          <span className="mt-1 block text-xs text-text-muted">
+                            Market estimate — Source:{" "}
+                            {rec.probabilitySource === "MARKET_CONSENSUS"
+                              ? `Bookmaker consensus (${rec.bookmakerCount} books)`
+                              : "Single bookmaker"}
+                            {rec.oddsLine != null && ` · Line used: Over ${rec.oddsLine}`}
+                            {rec.oddsUpdatedAt && ` · Updated ${formatOddsAge(rec.oddsUpdatedAt)}`}
+                          </span>
+                        )}
                         {rec.warnings.length > 0 ? (
                           <span className="mt-1 block text-xs text-warning-muted">{rec.warnings[0].message}</span>
                         ) : (

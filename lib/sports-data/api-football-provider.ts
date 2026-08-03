@@ -5,14 +5,20 @@ import { normalizeEventDetail, normalizeEventType } from "./events";
 import { resolveVenueTimezone } from "./timezone";
 import type {
   FixtureSearchParams,
+  MatchWinnerLine,
   NormalizedFixture,
   NormalizedFixtureEvent,
+  NormalizedFixtureMarkets,
   NormalizedFixtureOdds,
   NormalizedLeague,
   NormalizedPlayer,
   NormalizedTeam,
   OddsExactGoalsBucket,
   OddsGoalsLine,
+  OddsMarket,
+  OddsMarketKey,
+  OddsMarketLine,
+  OddsProposition,
   SportsDataProvider,
 } from "./types";
 
@@ -116,11 +122,14 @@ interface ApiFootballOddsBet {
 }
 
 interface ApiFootballOddsBookmaker {
+  id: number;
+  name: string;
   bets: ApiFootballOddsBet[];
 }
 
 interface ApiFootballOddsResponseItem {
   bookmakers: ApiFootballOddsBookmaker[];
+  update?: string; // e.g. "2026-08-03T00:15:08+00:00" — the provider's own freshness timestamp
 }
 
 interface ApiFootballOddsListResponse {
@@ -136,6 +145,22 @@ const MATCH_TOTAL_GOALS_BET_ID = 5;
 const FIRST_HALF_TOTAL_GOALS_BET_ID = 6;
 const HOME_TEAM_EXACT_GOALS_BET_ID = 40;
 const AWAY_TEAM_EXACT_GOALS_BET_ID = 41;
+
+// Bet ids backing the normalized market layer (lib/pools/templates/
+// odds-mapping.ts) — confirmed live against /odds/bets and a real /odds
+// response before this was built. "Total - Home"/"Total - Away" (16/17)
+// are genuine full-match single-team Over/Under line markets — the
+// comment above (kept for the older exact-goals-distribution path) turned
+// out not to apply here.
+const MATCH_WINNER_BET_ID = 1;
+const BOTH_TEAMS_SCORE_BET_ID = 8;
+const TEAM_TOTAL_HOME_BET_ID = 16;
+const TEAM_TOTAL_AWAY_BET_ID = 17;
+const CLEAN_SHEET_HOME_BET_ID = 27;
+const CLEAN_SHEET_AWAY_BET_ID = 28;
+const WIN_TO_NIL_HOME_BET_ID = 29;
+const WIN_TO_NIL_AWAY_BET_ID = 30;
+const OWN_GOAL_BET_ID = 59;
 
 const OVER_UNDER_VALUE_PATTERN = /^(Over|Under) (\d+(?:\.\d+)?)$/;
 const MORE_THAN_VALUE_PATTERN = /^more (\d+)$/i;
@@ -381,6 +406,126 @@ function parseExactGoalsDistributions(bookmakers: ApiFootballOddsBookmaker[], be
   return distributions;
 }
 
+// ---------------------------------------------------------------------
+// Normalized market layer (lib/pools/templates/odds-mapping.ts and up
+// consume only this shape — never the raw ApiFootball* types above).
+// ---------------------------------------------------------------------
+
+function normalizeMatchWinner(bookmakers: ApiFootballOddsBookmaker[]): MatchWinnerLine[] {
+  const lines: MatchWinnerLine[] = [];
+  for (const bookmaker of bookmakers) {
+    const bet = bookmaker.bets.find((b) => b.id === MATCH_WINNER_BET_ID);
+    if (!bet) continue;
+
+    const home = bet.values.find((v) => v.value === "Home");
+    const draw = bet.values.find((v) => v.value === "Draw");
+    const away = bet.values.find((v) => v.value === "Away");
+    if (!home || !draw || !away) continue;
+
+    lines.push({
+      bookmakerId: bookmaker.id,
+      bookmakerName: bookmaker.name,
+      homeOdd: Number(home.odd),
+      drawOdd: Number(draw.odd),
+      awayOdd: Number(away.odd),
+    });
+  }
+  return lines;
+}
+
+// Backs every non-threshold, single-proposition market (Both Teams Score,
+// Clean Sheet, Win to Nil, Own Goal) — each is a plain Yes/No bet with no
+// line to choose, so it always normalizes to exactly one OddsMarketLine
+// with point 0.
+function normalizeSingleProposition(bookmakers: ApiFootballOddsBookmaker[], betId: number): OddsMarketLine[] {
+  const propositions: OddsProposition[] = [];
+  for (const bookmaker of bookmakers) {
+    const bet = bookmaker.bets.find((b) => b.id === betId);
+    if (!bet) continue;
+
+    const yes = bet.values.find((v) => v.value === "Yes");
+    const no = bet.values.find((v) => v.value === "No");
+    if (!yes || !no) continue;
+
+    propositions.push({
+      bookmakerId: bookmaker.id,
+      bookmakerName: bookmaker.name,
+      yesOdd: Number(yes.odd),
+      noOdd: Number(no.odd),
+    });
+  }
+  return propositions.length > 0 ? [{ point: 0, propositions }] : [];
+}
+
+// Backs every Over/Under threshold market (match/first-half/team totals) —
+// unlike parseGoalsLines above, this keeps bookmaker identity per line (the
+// consensus builder needs to know which bookmaker each price came from) and
+// doesn't merge across bookmakers. Same half-line-only filter as
+// parseGoalsLines: a whole or quarter line can push, which this market
+// shape has no room to represent, so it's dropped rather than mismapped.
+function normalizeOverUnderLines(bookmakers: ApiFootballOddsBookmaker[], betId: number): OddsMarketLine[] {
+  const byPoint = new Map<number, OddsProposition[]>();
+  for (const bookmaker of bookmakers) {
+    const bet = bookmaker.bets.find((b) => b.id === betId);
+    if (!bet) continue;
+
+    const byPointForBookmaker = new Map<number, { overOdd?: number; underOdd?: number }>();
+    for (const raw of bet.values) {
+      const match = OVER_UNDER_VALUE_PATTERN.exec(String(raw.value));
+      if (!match) continue;
+      const point = Number(match[2]);
+      if (Math.abs((point % 1) - 0.5) > 1e-9) continue; // whole/quarter lines excluded
+
+      const entry = byPointForBookmaker.get(point) ?? {};
+      if (match[1] === "Over") entry.overOdd = Number(raw.odd);
+      else entry.underOdd = Number(raw.odd);
+      byPointForBookmaker.set(point, entry);
+    }
+
+    for (const [point, { overOdd, underOdd }] of byPointForBookmaker) {
+      if (overOdd == null || underOdd == null) continue;
+      const list = byPoint.get(point) ?? [];
+      list.push({ bookmakerId: bookmaker.id, bookmakerName: bookmaker.name, yesOdd: overOdd, noOdd: underOdd });
+      byPoint.set(point, list);
+    }
+  }
+
+  return [...byPoint.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([point, propositions]) => ({ point, propositions }));
+}
+
+function buildOddsMarket(key: OddsMarketKey, lines: OddsMarketLine[]): OddsMarket | null {
+  return lines.length > 0 ? { key, lines } : null;
+}
+
+function normalizeFixtureMarkets(externalFixtureId: string, item: ApiFootballOddsResponseItem): NormalizedFixtureMarkets {
+  const { bookmakers } = item;
+  const markets: OddsMarket[] = [];
+  const add = (key: OddsMarketKey, lines: OddsMarketLine[]) => {
+    const market = buildOddsMarket(key, lines);
+    if (market) markets.push(market);
+  };
+
+  add("BOTH_TEAMS_SCORE", normalizeSingleProposition(bookmakers, BOTH_TEAMS_SCORE_BET_ID));
+  add("CLEAN_SHEET_HOME", normalizeSingleProposition(bookmakers, CLEAN_SHEET_HOME_BET_ID));
+  add("CLEAN_SHEET_AWAY", normalizeSingleProposition(bookmakers, CLEAN_SHEET_AWAY_BET_ID));
+  add("WIN_TO_NIL_HOME", normalizeSingleProposition(bookmakers, WIN_TO_NIL_HOME_BET_ID));
+  add("WIN_TO_NIL_AWAY", normalizeSingleProposition(bookmakers, WIN_TO_NIL_AWAY_BET_ID));
+  add("OWN_GOAL", normalizeSingleProposition(bookmakers, OWN_GOAL_BET_ID));
+  add("MATCH_TOTAL_GOALS", normalizeOverUnderLines(bookmakers, MATCH_TOTAL_GOALS_BET_ID));
+  add("FIRST_HALF_TOTAL_GOALS", normalizeOverUnderLines(bookmakers, FIRST_HALF_TOTAL_GOALS_BET_ID));
+  add("TEAM_TOTAL_GOALS_HOME", normalizeOverUnderLines(bookmakers, TEAM_TOTAL_HOME_BET_ID));
+  add("TEAM_TOTAL_GOALS_AWAY", normalizeOverUnderLines(bookmakers, TEAM_TOTAL_AWAY_BET_ID));
+
+  return {
+    externalFixtureId,
+    providerUpdatedAt: item.update ?? null,
+    matchWinner: normalizeMatchWinner(bookmakers),
+    markets,
+  };
+}
+
 async function callOddsEndpoint(externalFixtureId: string): Promise<ApiFootballOddsResponseItem | null> {
   const url = new URL(`${baseUrl()}/odds`);
   url.searchParams.set("fixture", externalFixtureId);
@@ -516,6 +661,20 @@ export class ApiFootballProvider implements SportsDataProvider {
       homeTeamGoalsDistributions: parseExactGoalsDistributions(item.bookmakers, HOME_TEAM_EXACT_GOALS_BET_ID),
       awayTeamGoalsDistributions: parseExactGoalsDistributions(item.bookmakers, AWAY_TEAM_EXACT_GOALS_BET_ID),
     };
+  }
+
+  // Backs the odds-driven recommendation engine (lib/pools/templates/
+  // odds-mapping.ts and up) — a separate call from getFixtureOdds above
+  // (accepted duplicate-fetch tradeoff: unifying the two would mean
+  // refactoring the older, already-shipped goals-line prefill, which isn't
+  // worth the regression risk given how much API quota headroom exists).
+  // Callers are expected to go through lib/actions/odds.ts's cache, not
+  // call this directly on every wizard render.
+  async getFixtureMarkets(externalFixtureId: string): Promise<NormalizedFixtureMarkets | null> {
+    if (!this.isEnabled()) return null;
+    const item = await callOddsEndpoint(externalFixtureId);
+    if (!item) return null;
+    return normalizeFixtureMarkets(externalFixtureId, item);
   }
 }
 

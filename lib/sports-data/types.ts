@@ -178,6 +178,87 @@ export interface NormalizedFixtureOdds {
   awayTeamGoalsDistributions: OddsExactGoalsBucket[][]; // bet id 41, one array per bookmaker
 }
 
+// ---------------------------------------------------------------------
+// Normalized market layer — backs the odds-driven recommendation engine
+// (lib/pools/templates/odds-mapping.ts, odds-consensus.ts, odds-devig.ts).
+// Deliberately separate from NormalizedFixtureOdds above (which only ever
+// feeds the older, unrelated goals-line prefill in lib/pools/templates/
+// goals-odds.ts) — this shape keeps per-bookmaker identity, which that
+// older shape discards, since consensus-building needs to know which
+// bookmaker each price came from. A future non-soccer provider only needs
+// to produce this same shape for the recommendation engine to work
+// unchanged; nothing above this layer (odds-mapping.ts and up) ever reads
+// provider-specific bet ids or response shapes.
+// ---------------------------------------------------------------------
+
+/** One bookmaker's two-way price for a single proposition (a specific
+ * line, or the only line for a non-threshold market like "Both teams to
+ * score"). Raw, pre-devig — every consumer removes the vig itself. */
+export interface OddsProposition {
+  bookmakerId: number;
+  bookmakerName: string;
+  yesOdd: number;
+  noOdd: number;
+}
+
+/** One threshold ("line") of a market, e.g. "Over/Under 2.5 goals" — every
+ * bookmaker offering exactly this point, so a consensus can be built per
+ * line before picking which line to use (see odds-mapping.ts). Non-
+ * threshold markets (BOTH_TEAMS_SCORE, CLEAN_SHEET_*, ...) always have
+ * exactly one line, with `point` fixed at 0. */
+export interface OddsMarketLine {
+  point: number;
+  propositions: OddsProposition[];
+}
+
+// Every market family the recommendation engine's allowlist can consume —
+// see odds-mapping.ts for which PollPools templates map to which key.
+// Deliberately does NOT include a general Asian Handicap / winning-margin
+// market: API-Football's value-pairing convention for that bet type
+// couldn't be confirmed with confidence from the live samples audited
+// before this was built (see the WINNING_MARGIN note in odds-mapping.ts),
+// so it was left out rather than risk a silently wrong consensus label on
+// an admin-facing "market estimate."
+export type OddsMarketKey =
+  | "BOTH_TEAMS_SCORE"
+  | "CLEAN_SHEET_HOME"
+  | "CLEAN_SHEET_AWAY"
+  | "WIN_TO_NIL_HOME"
+  | "WIN_TO_NIL_AWAY"
+  | "OWN_GOAL"
+  | "MATCH_TOTAL_GOALS"
+  | "FIRST_HALF_TOTAL_GOALS"
+  | "TEAM_TOTAL_GOALS_HOME"
+  | "TEAM_TOTAL_GOALS_AWAY";
+
+export interface OddsMarket {
+  key: OddsMarketKey;
+  lines: OddsMarketLine[];
+}
+
+/** One bookmaker's full 3-way match-winner price — kept as its own shape
+ * (not squeezed into OddsProposition's 2-way form) since HOME_TEAM_TO_WIN/
+ * AWAY_TEAM_TO_WIN/EITHER_TEAM_TO_WIN/TEAM_TO_AVOID_DEFEAT are all derived
+ * from the same 3-way de-vig (see odds-consensus.ts's
+ * buildMatchWinnerConsensus). */
+export interface MatchWinnerLine {
+  bookmakerId: number;
+  bookmakerName: string;
+  homeOdd: number;
+  drawOdd: number;
+  awayOdd: number;
+}
+
+export interface NormalizedFixtureMarkets {
+  externalFixtureId: string;
+  // The provider's own "last updated" timestamp for this odds snapshot —
+  // never our own fetch time, so the UI's "Updated N minutes ago" reflects
+  // when the market actually moved, not when we last polled it.
+  providerUpdatedAt: string | null;
+  matchWinner: MatchWinnerLine[];
+  markets: OddsMarket[];
+}
+
 export interface SportsDataProvider {
   readonly name: string;
   isEnabled(): boolean;
@@ -189,4 +270,5 @@ export interface SportsDataProvider {
   getFixtureEvents(externalFixtureId: string): Promise<NormalizedFixtureEvent[]>;
   getTeamSquad(externalTeamId: string): Promise<NormalizedPlayer[]>;
   getFixtureOdds(externalFixtureId: string): Promise<NormalizedFixtureOdds | null>;
+  getFixtureMarkets(externalFixtureId: string): Promise<NormalizedFixtureMarkets | null>;
 }

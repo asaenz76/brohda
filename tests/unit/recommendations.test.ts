@@ -4,11 +4,13 @@ import {
   defaultConfigFor,
   detectConflicts,
   estimateYesProbability,
+  estimateYesProbabilityWithSource,
   rankRecommendations,
   relationshipToActivePools,
   scoreTemplate,
   type ActivePoolSummary,
 } from "@/lib/pools/templates/recommendations";
+import type { NormalizedFixtureMarkets } from "@/lib/sports-data/types";
 
 describe("estimateYesProbability", () => {
   it("stays within [0.02, 0.98] for every registry template's default config", () => {
@@ -163,6 +165,114 @@ describe("rankRecommendations", () => {
     const { recommended } = rankRecommendations([]);
     for (let i = 1; i < recommended.length; i++) {
       expect(recommended[i - 1].stars).toBeGreaterThanOrEqual(recommended[i].stars);
+    }
+  });
+});
+
+describe("estimateYesProbabilityWithSource", () => {
+  it("falls back to STATIC_PRIOR when markets is null", () => {
+    const estimate = estimateYesProbabilityWithSource("BOTH_TEAMS_TO_SCORE", {}, null);
+    expect(estimate.source).toBe("STATIC_PRIOR");
+    expect(estimate.probability).toBe(estimateYesProbability("BOTH_TEAMS_TO_SCORE", {}));
+    expect(estimate.bookmakerCount).toBe(0);
+    expect(estimate.resolvedConfig).toBeNull();
+  });
+
+  it("falls back to STATIC_PRIOR for a non-allowlisted template even with markets present", () => {
+    const markets: NormalizedFixtureMarkets = {
+      externalFixtureId: "f1",
+      providerUpdatedAt: "2026-08-03T00:15:08Z",
+      matchWinner: [],
+      markets: [],
+    };
+    const estimate = estimateYesProbabilityWithSource("RED_CARD", { includeSecondYellowDismissal: false }, markets);
+    expect(estimate.source).toBe("STATIC_PRIOR");
+  });
+
+  it("uses real market consensus for an allowlisted template when markets clear the bar", () => {
+    const markets: NormalizedFixtureMarkets = {
+      externalFixtureId: "f1",
+      providerUpdatedAt: "2026-08-03T00:15:08Z",
+      matchWinner: [],
+      markets: [
+        {
+          key: "BOTH_TEAMS_SCORE",
+          lines: [
+            {
+              point: 0,
+              propositions: [
+                { bookmakerId: 1, bookmakerName: "10Bet", yesOdd: 2.1, noOdd: 1.65 },
+                { bookmakerId: 4, bookmakerName: "Pinnacle", yesOdd: 2.05, noOdd: 1.7 },
+                { bookmakerId: 8, bookmakerName: "Bet365", yesOdd: 2.15, noOdd: 1.6 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const estimate = estimateYesProbabilityWithSource("BOTH_TEAMS_TO_SCORE", {}, markets);
+    expect(estimate.source).toBe("MARKET_CONSENSUS");
+    expect(estimate.bookmakerCount).toBe(3);
+    expect(estimate.probability).not.toBe(estimateYesProbability("BOTH_TEAMS_TO_SCORE", {}));
+  });
+});
+
+describe("rankRecommendations — HOME/AWAY unbiased generation", () => {
+  it("picks the better-balanced side of a team-scoped template instead of always defaulting to HOME", () => {
+    // Real odds: home clean sheet is very unlikely (~15%), away clean sheet
+    // is close to a coin flip (~50%) — the away side should win.
+    const markets: NormalizedFixtureMarkets = {
+      externalFixtureId: "f1",
+      providerUpdatedAt: "2026-08-03T00:15:08Z",
+      matchWinner: [],
+      markets: [
+        {
+          key: "CLEAN_SHEET_HOME",
+          lines: [
+            {
+              point: 0,
+              propositions: [
+                { bookmakerId: 1, bookmakerName: "10Bet", yesOdd: 6.5, noOdd: 1.12 },
+                { bookmakerId: 4, bookmakerName: "Pinnacle", yesOdd: 6.6, noOdd: 1.11 },
+                { bookmakerId: 8, bookmakerName: "Bet365", yesOdd: 6.4, noOdd: 1.13 },
+              ],
+            },
+          ],
+        },
+        {
+          key: "CLEAN_SHEET_AWAY",
+          lines: [
+            {
+              point: 0,
+              propositions: [
+                { bookmakerId: 1, bookmakerName: "10Bet", yesOdd: 2.0, noOdd: 1.9 },
+                { bookmakerId: 4, bookmakerName: "Pinnacle", yesOdd: 1.95, noOdd: 1.95 },
+                { bookmakerId: 8, bookmakerName: "Bet365", yesOdd: 2.05, noOdd: 1.85 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const { recommended, other } = rankRecommendations([], markets);
+    const cleanSheetRec = [...recommended, ...other].find((r) => r.template.id === "CLEAN_SHEET")!;
+    expect(cleanSheetRec.config.team).toBe("AWAY");
+    expect(Math.abs(cleanSheetRec.yesProbability - 0.5)).toBeLessThan(0.1);
+  });
+
+  it("still returns exactly one entry per template id (never both home and away)", () => {
+    const { recommended, other } = rankRecommendations([], null);
+    const ids = [...recommended, ...other].map((r) => r.template.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("with markets=null, behaves identically to the pre-odds version for every candidate", () => {
+    const { recommended, other } = rankRecommendations([]);
+    for (const rec of [...recommended, ...other]) {
+      expect(rec.probabilitySource).toBe("STATIC_PRIOR");
+      expect(rec.bookmakerCount).toBe(0);
+      expect(rec.oddsLine).toBeNull();
     }
   });
 });

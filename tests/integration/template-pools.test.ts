@@ -115,6 +115,7 @@ async function createTemplatePool(
   templateId: string,
   templateConfig: Record<string, unknown>,
   status: string = "AWAITING_RESULT",
+  recommendationEvidence: Record<string, unknown> | null = null,
 ) {
   const { data: pool, error } = await admin
     .from("pools")
@@ -135,6 +136,7 @@ async function createTemplatePool(
       // the real lock cron.
       locks_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
       status,
+      recommendation_evidence: recommendationEvidence,
     })
     .select("id")
     .single();
@@ -459,5 +461,79 @@ describe.skipIf(!SERVICE_ROLE_KEY)("TEMPLATE_GRADED pools — gradeTemplatePool"
     const { data: pool } = await admin.from("pools").select("status, review_reason").eq("id", poolId).single();
     expect(pool?.status).toBe("MANUAL_REVIEW");
     expect(pool?.review_reason).toBe("BINARY_OPTIONS_UNRESOLVABLE");
+  });
+});
+
+describe.skipIf(!SERVICE_ROLE_KEY)("recommendation_evidence — informational, frozen after first entry", () => {
+  let adminId: string;
+
+  beforeAll(async () => {
+    adminId = await getAdminId();
+  });
+
+  afterAll(async () => {
+    if (createdPoolIds.length > 0) {
+      await admin.from("entries").delete().in("pool_id", createdPoolIds);
+      await admin.from("pool_options").delete().in("pool_id", createdPoolIds);
+      await admin.from("pools").delete().in("id", createdPoolIds);
+    }
+    if (createdFixtureIds.length > 0) {
+      await admin.from("fixtures").delete().in("id", createdFixtureIds);
+    }
+  });
+
+  it("persists the snapshot stamped at creation and reads it back verbatim", async () => {
+    const fixture = await createTestFixture();
+    createdFixtureIds.push(fixture.id);
+    const evidence = {
+      source: "MARKET_CONSENSUS",
+      probability: 0.52,
+      bookmakerCount: 4,
+      bookmakerIds: [1, 4, 8, 16],
+      marketKey: "MATCH_TOTAL_GOALS",
+      oddsLine: 2.5,
+      oddsUpdatedAt: new Date().toISOString(),
+    };
+    const { poolId } = await createTemplatePool(adminId, fixture.id, "MATCH_TOTAL_GOALS", { minimumGoals: 3 }, "OPEN", evidence);
+
+    const { data: pool } = await admin.from("pools").select("recommendation_evidence").eq("id", poolId).single();
+    expect(pool?.recommendation_evidence).toEqual(evidence);
+  });
+
+  it("is never touched by settlement — pool_grading_evidence stays independent", async () => {
+    const fixture = await createTestFixture();
+    createdFixtureIds.push(fixture.id);
+    const evidence = { source: "STATIC_PRIOR", probability: 0.5, bookmakerCount: 0, bookmakerIds: [], marketKey: null, oddsLine: null, oddsUpdatedAt: null };
+    const { poolId } = await createTemplatePool(adminId, fixture.id, "BOTH_TEAMS_TO_SCORE", {}, "AWAITING_RESULT", evidence);
+
+    await gradeTemplatePool({ id: poolId, template_id: "BOTH_TEAMS_TO_SCORE", template_config: {}, template_version: 1 }, fixture);
+
+    const { data: pool } = await admin.from("pools").select("recommendation_evidence").eq("id", poolId).single();
+    expect(pool?.recommendation_evidence).toEqual(evidence); // untouched by grading
+  });
+
+  it("rejects an update to recommendation_evidence once the pool has an entry", async () => {
+    const player = await createTestPlayer(`rec-evidence-freeze-${Date.now()}@example.com`, 5000);
+    const fixture = await createTestFixture();
+    createdFixtureIds.push(fixture.id);
+    const { poolId, yesOptionId } = await createTemplatePool(
+      adminId,
+      fixture.id,
+      "BOTH_TEAMS_TO_SCORE",
+      {},
+      "OPEN",
+      { source: "STATIC_PRIOR", probability: 0.5, bookmakerCount: 0, bookmakerIds: [], marketKey: null, oddsLine: null, oddsUpdatedAt: null },
+    );
+
+    await enter(poolId, player.userId, yesOptionId);
+
+    const { error } = await admin
+      .from("pools")
+      .update({ recommendation_evidence: { source: "MARKET_CONSENSUS", probability: 0.9 } })
+      .eq("id", poolId);
+    expect(error).not.toBeNull();
+    expect(error?.message).toContain("frozen after the first entry");
+
+    await deactivate(player.userId);
   });
 });

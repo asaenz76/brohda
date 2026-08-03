@@ -11,11 +11,12 @@ import { resolvePoolAnalyticsCategory } from "@/lib/pools/templates/category-lab
 import { getActivePoolSummariesForFixture } from "@/lib/pools/templates/active-pools";
 import {
   detectConflicts,
-  estimateYesProbability,
+  estimateYesProbabilityWithSource,
   rankRecommendations,
   toSerializableRecommendation,
   type PublishWarning,
 } from "@/lib/pools/templates/recommendations";
+import { getFixtureMarketsAction } from "@/lib/actions/odds";
 import { getPoolLiveStats, type PoolLiveStats } from "@/lib/pools/fetch";
 import { notifyFollowedPoolPublished } from "@/lib/email/notify-followed-pool-published";
 import { getPoolPublishFollowRecipients } from "@/lib/pools/follow-recipients";
@@ -80,11 +81,18 @@ async function notifyFollowersOfPublish(pool: { id: string; question: string; fi
  * live-preview publish warnings as an admin picks/configures a template —
  * called once a fixture is selected. Read-only; never touches pools.
  */
-export async function getFixtureQuestionContextAction(fixtureId: string) {
+export async function getFixtureQuestionContextAction(fixtureId: string, externalFixtureId: string | null = null) {
   await requireAdminOrAbove();
   const adminClient = createAdminClient();
-  const activePools = await getActivePoolSummariesForFixture(adminClient, fixtureId);
-  const recommendations = rankRecommendations(activePools);
+  const [activePools, markets] = await Promise.all([
+    getActivePoolSummariesForFixture(adminClient, fixtureId),
+    // Real odds are optional, best-effort — a fixture with the provider
+    // disabled, no odds posted yet, or a fetch failure still gets a full
+    // recommendation list, just on the static prior (rankRecommendations
+    // treats null exactly like "no markets fetched").
+    externalFixtureId ? getFixtureMarketsAction(externalFixtureId) : Promise.resolve(null),
+  ]);
+  const recommendations = rankRecommendations(activePools, markets);
   return {
     activePools,
     recommendations: {
@@ -97,10 +105,11 @@ export async function getFixtureQuestionContextAction(fixtureId: string) {
 export type CreatePoolFromTemplateState = { error: string | null; warnings?: PublishWarning[] };
 
 const FIXTURE_SELECT_FOR_POOL_CREATION =
-  "id, home_team_external_id, home_team_name, home_team_logo_url, away_team_external_id, away_team_name, away_team_logo_url, competition_type, scheduled_start_utc";
+  "id, external_fixture_id, home_team_external_id, home_team_name, home_team_logo_url, away_team_external_id, away_team_name, away_team_logo_url, competition_type, scheduled_start_utc";
 
 type PoolFixtureRow = {
   id: string;
+  external_fixture_id: string | null;
   home_team_external_id: string | null;
   home_team_name: string;
   home_team_logo_url: string | null;
@@ -221,6 +230,17 @@ async function createPoolForFixture(
     }
   }
 
+  // Real fixture odds, fetched once (through the 5-minute cache — see
+  // lib/actions/odds.ts) and reused for both the publishing-guidance
+  // probability below and the recommendation_evidence snapshot stamped on
+  // the pool at insert time, so the two always agree with each other.
+  // Never fetched for non-TEMPLATE_GRADED pools (WHO_WILL_ADVANCE/
+  // REGULATION_RESULT/COMBO have no single well-defined YES probability).
+  const markets =
+    input.poolType === "TEMPLATE_GRADED" && fixture.external_fixture_id
+      ? await getFixtureMarketsAction(fixture.external_fixture_id)
+      : null;
+
   // Publishing guidance (Question Family/mirror/duplicate detection) — never
   // a hard block. COMBO is exempt: its identity is its legs (pool_combo_legs),
   // not template_id/template_config, so comparing empty configs between two
@@ -228,12 +248,16 @@ async function createPoolForFixture(
   // (including legacy WHO_WILL_ADVANCE/REGULATION_RESULT) is checked, since
   // catching exactly that overlap against registry TEMPLATE_GRADED questions
   // is the whole point of this feature.
+  let probabilityEstimate: ReturnType<typeof estimateYesProbabilityWithSource> | null = null;
   if (input.poolType !== "COMBO") {
     const candidateId = input.poolType === "TEMPLATE_GRADED" ? input.templateId : input.poolType;
     const candidateConfig = input.poolType === "TEMPLATE_GRADED" ? input.templateConfig : {};
     const activePools = await getActivePoolSummariesForFixture(adminClient, fixture.id);
-    const yesProbability =
-      input.poolType === "TEMPLATE_GRADED" ? estimateYesProbability(candidateId, candidateConfig) : 0.5;
+    probabilityEstimate =
+      input.poolType === "TEMPLATE_GRADED"
+        ? estimateYesProbabilityWithSource(candidateId, candidateConfig, markets)
+        : null;
+    const yesProbability = probabilityEstimate?.probability ?? 0.5;
     const warnings = detectConflicts({ templateId: candidateId, config: candidateConfig }, activePools, yesProbability);
 
     if (warnings.length > 0 && !input.overridePublishWarnings) {
@@ -310,6 +334,24 @@ async function createPoolForFixture(
       // advance_or_cancel_locked_pool). Only ever stamped for newly-created
       // TEMPLATE_GRADED pools — COMBO keeps its current (legacy) behavior.
       participation_rule_version: input.poolType === "TEMPLATE_GRADED" ? 2 : null,
+      // Informational snapshot of whatever produced this pool's estimated
+      // probability at creation time (real bookmaker consensus, a single
+      // book, or the static prior) — frozen from this point on by the
+      // enforce_pool_fee_immutability trigger. Explicitly NOT settlement
+      // evidence (see pool_grading_evidence for that): grading never reads
+      // this column. Recommendations may change freely before this insert
+      // runs; nothing about this snapshot ever changes after.
+      recommendation_evidence: probabilityEstimate
+        ? {
+            source: probabilityEstimate.source,
+            probability: probabilityEstimate.probability,
+            bookmakerCount: probabilityEstimate.bookmakerCount,
+            bookmakerIds: probabilityEstimate.bookmakerIds,
+            marketKey: probabilityEstimate.marketKey,
+            oddsLine: probabilityEstimate.oddsLine,
+            oddsUpdatedAt: probabilityEstimate.source === "STATIC_PRIOR" ? null : (markets?.providerUpdatedAt ?? null),
+          }
+        : null,
       analytics_category: resolvePoolAnalyticsCategory(
         input.poolType,
         input.poolType === "TEMPLATE_GRADED" ? input.templateId : null,

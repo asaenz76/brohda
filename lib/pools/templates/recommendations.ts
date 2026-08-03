@@ -1,6 +1,11 @@
 import { TEMPLATE_REGISTRY, getLatestTemplate } from "./registry";
-import { areMirrors, getQuestionFamily, isExactDuplicate, type QuestionCandidate } from "./families";
+import { areMirrors, getQuestionFamily, isExactDuplicate, TEAM_SCOPED_TEMPLATE_IDS, type QuestionCandidate } from "./families";
 import type { PoolTemplate } from "./types";
+import type { NormalizedFixtureMarkets } from "@/lib/sports-data/types";
+import { estimateFromMarkets, ODDS_ALLOWLIST_TEMPLATE_IDS } from "./odds-mapping";
+import type { ProbabilityEstimateSource } from "./odds-consensus";
+
+export type { ProbabilityEstimateSource };
 
 /**
  * Publishing guidance only — never settlement logic. Nothing here decides
@@ -93,6 +98,59 @@ export function estimateYesProbability(templateId: string, config: Record<string
     default:
       return 0.5;
   }
+}
+
+export interface ProbabilityEstimate {
+  probability: number;
+  source: ProbabilityEstimateSource;
+  bookmakerCount: number;
+  bookmakerIds: number[];
+  oddsLine: number | null;
+  // Null for STATIC_PRIOR; otherwise the odds-mapping.ts market key this
+  // estimate came from (e.g. "MATCH_TOTAL_GOALS", "MATCH_WINNER_3WAY").
+  marketKey: string | null;
+  // Config overrides a real-odds estimate implies (e.g. a market-chosen
+  // minimumGoals) — merged into the candidate's config by scoreTemplate.
+  // Always null when source is STATIC_PRIOR.
+  resolvedConfig: Record<string, unknown> | null;
+}
+
+/**
+ * Prefers a real bookmaker-consensus estimate (see odds-mapping.ts) for
+ * allowlisted templates when live market data is available and clears the
+ * consensus bar; falls back to the static prior above otherwise — never a
+ * guess in between. `markets` is null whenever odds weren't fetched (no
+ * fixture picked yet, provider disabled, fetch failed), in which case this
+ * is exactly equivalent to the old static-only estimateYesProbability.
+ */
+export function estimateYesProbabilityWithSource(
+  templateId: string,
+  config: Record<string, unknown>,
+  markets: NormalizedFixtureMarkets | null,
+): ProbabilityEstimate {
+  if (markets && ODDS_ALLOWLIST_TEMPLATE_IDS.has(templateId)) {
+    const estimate = estimateFromMarkets(templateId, config, markets);
+    if (estimate) {
+      return {
+        probability: estimate.probability,
+        source: estimate.source,
+        bookmakerCount: estimate.bookmakerCount,
+        bookmakerIds: estimate.bookmakerIds,
+        oddsLine: estimate.line,
+        marketKey: estimate.marketKey,
+        resolvedConfig: estimate.resolvedConfig,
+      };
+    }
+  }
+  return {
+    probability: estimateYesProbability(templateId, config),
+    source: "STATIC_PRIOR",
+    bookmakerCount: 0,
+    bookmakerIds: [],
+    oddsLine: null,
+    marketKey: null,
+    resolvedConfig: null,
+  };
 }
 
 // ---------------------------------------------------------------------
@@ -215,6 +273,15 @@ export interface TemplateRecommendation {
   gradingReliability: GradingReliability;
   warnings: PublishWarning[];
   reasons: string[];
+  // Where yesProbability came from — surfaced in the admin UI as "Market
+  // estimate" vs. a plain heuristic. bookmakerCount/oddsLine/marketKey/
+  // oddsUpdatedAt are only ever non-null (or non-zero) when
+  // probabilitySource isn't STATIC_PRIOR.
+  probabilitySource: ProbabilityEstimateSource;
+  bookmakerCount: number;
+  oddsLine: number | null;
+  marketKey: string | null;
+  oddsUpdatedAt: string | null;
 }
 
 function starsFromScore(score: number): 1 | 2 | 3 | 4 | 5 {
@@ -254,32 +321,47 @@ export function defaultConfigFor(template: PoolTemplate<Record<string, unknown>>
 }
 
 /** Scores one template (with the given config, or its own default config
- * if omitted) against a fixture's currently active pools. */
+ * if omitted) against a fixture's currently active pools. When `markets`
+ * carries real fixture odds and the template is odds-allowlisted, the
+ * question's threshold (for line-based templates) and yesProbability come
+ * from bookmaker consensus instead of the static prior — see
+ * estimateYesProbabilityWithSource. */
 export function scoreTemplate(
   template: PoolTemplate<Record<string, unknown>>,
   activePools: ActivePoolSummary[],
   config: Record<string, unknown> = defaultConfigFor(template),
+  markets: NormalizedFixtureMarkets | null = null,
 ): TemplateRecommendation {
-  const yesProbability = estimateYesProbability(template.id, config);
+  const estimate = estimateYesProbabilityWithSource(template.id, config, markets);
+  const yesProbability = estimate.probability;
+  // The market's own chosen threshold (e.g. minimumGoals) overrides the
+  // field-default config so the generated question reflects real odds,
+  // not an arbitrary starting value.
+  const resolvedConfig = estimate.resolvedConfig ? { ...config, ...estimate.resolvedConfig } : config;
   const gradingReliability = gradingReliabilityOf(template);
-  const warnings = detectConflicts({ templateId: template.id, config }, activePools, yesProbability);
+  const warnings = detectConflicts({ templateId: template.id, config: resolvedConfig }, activePools, yesProbability);
 
   const baseScore =
     balanceScore(yesProbability) * 0.5 +
     simplicityScore(template.requiredConfigFields.length) * 0.2 +
     SETTLEMENT_CONFIDENCE_SCORE[gradingReliability] * 0.3;
 
-  const relationship = relationshipToActivePools({ templateId: template.id, config }, activePools);
+  const relationship = relationshipToActivePools({ templateId: template.id, config: resolvedConfig }, activePools);
   const finalScore = Math.max(0, baseScore - RELATIONSHIP_PENALTY[relationship]);
 
   return {
     template,
-    config,
+    config: resolvedConfig,
     yesProbability,
     stars: starsFromScore(finalScore),
     gradingReliability,
     warnings,
     reasons: buildReasons(yesProbability, gradingReliability, template.requiredConfigFields.length),
+    probabilitySource: estimate.source,
+    bookmakerCount: estimate.bookmakerCount,
+    oddsLine: estimate.oddsLine,
+    marketKey: estimate.marketKey,
+    oddsUpdatedAt: estimate.source === "STATIC_PRIOR" ? null : (markets?.providerUpdatedAt ?? null),
   };
 }
 
@@ -315,18 +397,54 @@ export function toSerializableRecommendation(rec: TemplateRecommendation): Seria
 const RECOMMENDABLE_CATEGORIES = new Set(["MATCH_RESULT", "GOALS", "DISCIPLINE"]);
 const RECOMMENDED_LIMIT = 5;
 
+/** Whichever of two scored candidates for the same template is closer to a
+ * 50/50 split — used to pick between a TEAM_SCOPED template's HOME and AWAY
+ * variants without ever structurally preferring one side. */
+function betterBalanced(a: TemplateRecommendation, b: TemplateRecommendation): TemplateRecommendation {
+  return Math.abs(a.yesProbability - 0.5) <= Math.abs(b.yesProbability - 0.5) ? a : b;
+}
+
+/** Scores one template for a fixture. TEAM_SCOPED templates (Clean Sheet,
+ * Team total goals, ...) score both the HOME and AWAY variant and keep
+ * only whichever is better balanced — the previous version of this
+ * function always defaulted to HOME, which meant the away side was never
+ * even considered as a candidate. */
+function scoreCandidate(
+  template: PoolTemplate<Record<string, unknown>>,
+  activePools: ActivePoolSummary[],
+  markets: NormalizedFixtureMarkets | null,
+): TemplateRecommendation {
+  if (!TEAM_SCOPED_TEMPLATE_IDS.has(template.id)) {
+    return scoreTemplate(template, activePools, defaultConfigFor(template), markets);
+  }
+  const homeConfig = { ...defaultConfigFor(template), team: "HOME" };
+  const awayConfig = { ...defaultConfigFor(template), team: "AWAY" };
+  const homeRec = scoreTemplate(template, activePools, homeConfig, markets);
+  const awayRec = scoreTemplate(template, activePools, awayConfig, markets);
+  return betterBalanced(homeRec, awayRec);
+}
+
 /** Ranks every eligible registry template for a fixture, split into a
  * short "Recommended" list (highest-scoring, no blocking relationship to
  * an existing pool) and everything else. Legacy pool_types (WHO_WILL_
  * ADVANCE/REGULATION_RESULT) and COMBO never appear here — neither has a
  * single well-defined YES probability, and per the product decision to
  * treat them as traditional markets, they're never part of the
- * recommendation ranking, only ever manually browsable. */
-export function rankRecommendations(activePools: ActivePoolSummary[]): RankedRecommendations {
+ * recommendation ranking, only ever manually browsable.
+ *
+ * `markets` — real fixture odds, normalized (lib/sports-data/types.ts) and
+ * already fetched by the caller (never fetched here; this function stays
+ * pure/synchronous). Null when odds aren't available, in which case every
+ * candidate falls back to its static prior, identical to this function's
+ * behavior before real odds existed. */
+export function rankRecommendations(
+  activePools: ActivePoolSummary[],
+  markets: NormalizedFixtureMarkets | null = null,
+): RankedRecommendations {
   const scored = TEMPLATE_REGISTRY.filter((t) => RECOMMENDABLE_CATEGORIES.has(t.category))
     .map((t) => getLatestTemplate(t.id))
     .filter((t): t is PoolTemplate<Record<string, unknown>> => t !== null)
-    .map((t) => scoreTemplate(t, activePools));
+    .map((t) => scoreCandidate(t, activePools, markets));
 
   scored.sort((a, b) => b.stars - a.stars || b.yesProbability - a.yesProbability);
 

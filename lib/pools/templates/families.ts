@@ -96,7 +96,7 @@ const EXPLICIT_MIRROR_PAIRS: ReadonlyArray<readonly [string, string]> = [["HOME_
 // scores 2+", "Home clean sheet" ↔ "Away clean sheet"). Listed explicitly
 // rather than inferred from requiredConfigFields at runtime so this stays a
 // simple, auditable set.
-const TEAM_SCOPED_TEMPLATE_IDS = new Set([
+export const TEAM_SCOPED_TEMPLATE_IDS = new Set([
   "TEAM_TO_AVOID_DEFEAT",
   "TEAM_TOTAL_GOALS",
   "WINNING_MARGIN",
