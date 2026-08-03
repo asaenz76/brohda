@@ -1,12 +1,24 @@
 "use client";
 
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
-import { X } from "lucide-react";
-import { createPoolFromTemplate, type CreatePoolFromTemplateState } from "@/lib/actions/pools";
+import { Star, X } from "lucide-react";
+import {
+  createPoolFromTemplate,
+  getFixtureQuestionContextAction,
+  type CreatePoolFromTemplateState,
+} from "@/lib/actions/pools";
 import { getFixtureGoalsLinesAction } from "@/lib/actions/odds";
 import { MINIMUM_POOL_ENTRIES, MINIMUM_LOCK_LEAD_MINUTES } from "@/lib/validations/pools";
 import { generatePoolTemplate, getRuleLabel, getTemplateEligibility } from "@/lib/pools/templates";
 import { getLatestTemplate } from "@/lib/pools/templates/registry";
+import {
+  detectConflicts,
+  estimateYesProbability,
+  type ActivePoolSummary,
+  type PublishWarning,
+  type RankedRecommendationsSerializable,
+  type SerializableRecommendation,
+} from "@/lib/pools/templates/recommendations";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -51,6 +63,22 @@ const GOALS_LINE_TEMPLATE_IDS = new Set(["MATCH_TOTAL_GOALS", "FIRST_HALF_TOTAL_
 const initialState: CreatePoolFromTemplateState = { error: null };
 const MAX_COMBO_LEGS = 10;
 const STEP_LABELS = ["Fixture", "Template", "Financials & review"];
+
+// Shared by the registry question preview and the "Recommended Questions"
+// list — every registry questionBuilder only ever reads these 8 fields, all
+// null/unset here since a not-yet-started fixture has no score.
+function templateFixtureScoreFor(fixture: FixtureOption) {
+  return {
+    homeTeamName: fixture.homeTeamName,
+    awayTeamName: fixture.awayTeamName,
+    homeTeamExternalId: fixture.homeTeamExternalId,
+    awayTeamExternalId: fixture.awayTeamExternalId,
+    regulationHomeScore: null,
+    regulationAwayScore: null,
+    halftimeHomeScore: null,
+    halftimeAwayScore: null,
+  };
+}
 
 function toDatetimeLocalValue(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -104,6 +132,19 @@ export function PoolTemplateBuilder({
   // has, rather than re-applying (and re-fighting any manual edits/
   // eligibility mismatches) on every subsequent change.
   const duplicateAppliedRef = useRef(false);
+
+  // Fixture-Level Question Selection: fetched once per fixture pick,
+  // covering every pool already active on it — powers both the ranked
+  // "Recommended Questions" list and the live duplicate/mirror warning
+  // shown once a card is selected. Null while loading or before a fixture
+  // is picked; treated as "no active pools yet" in that window rather than
+  // blocking the UI on it.
+  const [questionContext, setQuestionContext] = useState<{
+    activePools: ActivePoolSummary[];
+    recommendations: RankedRecommendationsSerializable;
+  } | null>(null);
+  const [showOtherQuestions, setShowOtherQuestions] = useState(false);
+  const [overridePublishWarnings, setOverridePublishWarnings] = useState(false);
 
   const locksAtIso = locksAtLocal ? new Date(locksAtLocal).toISOString() : "";
   const selectedFixture = fixtures.find((f) => f.id === fixtureId) ?? null;
@@ -193,6 +234,10 @@ export function PoolTemplateBuilder({
     setTitle("");
     setQuestion("");
     setConfigValues({});
+    setShowOtherQuestions(false);
+    setOverridePublishWarnings(false);
+    setQuestionContext(null);
+    getFixtureQuestionContextAction(fixture.id).then(setQuestionContext);
 
     if (duplicateTemplate && !duplicateAppliedRef.current) {
       duplicateAppliedRef.current = true;
@@ -252,6 +297,7 @@ export function PoolTemplateBuilder({
 
     setSelectedCardId(card.id);
     setConfigValues({});
+    setOverridePublishWarnings(false);
     if (!selectedFixture) return;
 
     if (card.id === "COMBO") {
@@ -286,6 +332,15 @@ export function PoolTemplateBuilder({
       }
       setConfigValues(defaults);
     }
+  }
+
+  // Selecting a recommended question reuses selectCard's own default-config
+  // seeding exactly — the recommendation's own config (scored against a
+  // fixture-independent default) only exists to compute the score/warning
+  // preview, not to be carried into the form directly.
+  function selectRecommendation(recommendation: SerializableRecommendation) {
+    const card = ALL_CARDS.find((c) => c.id === recommendation.templateId);
+    if (card) selectCard(card);
   }
 
   function updateLeg(index: number, value: string) {
@@ -325,19 +380,7 @@ export function PoolTemplateBuilder({
 
   const registryQuestion =
     registryTemplate && selectedFixture
-      ? registryTemplate.questionBuilder(
-          {
-            homeTeamName: selectedFixture.homeTeamName,
-            awayTeamName: selectedFixture.awayTeamName,
-            homeTeamExternalId: selectedFixture.homeTeamExternalId,
-            awayTeamExternalId: selectedFixture.awayTeamExternalId,
-            regulationHomeScore: null,
-            regulationAwayScore: null,
-            halftimeHomeScore: null,
-            halftimeAwayScore: null,
-          },
-          typedTemplateConfig,
-        )
+      ? registryTemplate.questionBuilder(templateFixtureScoreFor(selectedFixture), typedTemplateConfig)
       : "";
 
   const previewOptions: string[] =
@@ -360,14 +403,41 @@ export function PoolTemplateBuilder({
       })
     : true;
 
+  // Live publishing-guidance preview (lib/pools/templates/recommendations.ts)
+  // — mirrors exactly what the server independently re-checks on submit
+  // (createPoolForFixture), just computed client-side against the pools
+  // already fetched for this fixture so the admin sees it before
+  // submitting, not after. COMBO is exempt here too, matching the server.
+  const currentCandidateConfig = registryTemplate ? typedTemplateConfig : {};
+  const currentYesProbability =
+    selectedCardId && registryTemplate ? estimateYesProbability(selectedCardId, currentCandidateConfig) : 0.5;
+  const currentWarnings: PublishWarning[] =
+    questionContext && selectedCardId && !isCombo
+      ? detectConflicts(
+          { templateId: selectedCardId, config: currentCandidateConfig },
+          questionContext.activePools,
+          currentYesProbability,
+        )
+      : [];
+  // Stays open once manually toggled, and auto-opens if the current
+  // selection (e.g. from "Duplicate this pool") isn't one of the
+  // recommended cards, so it's never hidden out of view.
+  const otherQuestionsOpen =
+    showOtherQuestions ||
+    (questionContext !== null &&
+      selectedCardId !== null &&
+      !questionContext.recommendations.recommended.some((r) => r.templateId === selectedCardId));
+
   const step1Valid = Boolean(fixtureId);
-  const step2Valid = isCombo
-    ? title.trim().length > 0 &&
-      question.trim().length > 0 &&
-      legs.filter((l) => l.trim().length > 0).length >= 2
-    : registryTemplate
-      ? registryConfigValid
-      : selectedCardId != null && question.trim().length > 0;
+  const step2Valid =
+    (isCombo
+      ? title.trim().length > 0 &&
+        question.trim().length > 0 &&
+        legs.filter((l) => l.trim().length > 0).length >= 2
+      : registryTemplate
+        ? registryConfigValid
+        : selectedCardId != null && question.trim().length > 0) &&
+    (currentWarnings.length === 0 || overridePublishWarnings);
   const step3Valid =
     entryFee.trim().length > 0 &&
     houseFeePercent.trim().length > 0 &&
@@ -482,81 +552,183 @@ export function PoolTemplateBuilder({
             </Button>
           </div>
 
-          {/* Step 2 — Select Template */}
+          {/* Step 2 — Recommended Questions / Other Available Questions */}
           <div className={cn("space-y-4", step !== 2 && "hidden")}>
             {selectedFixtureSummary && (
               <p className="text-sm text-text-secondary">{selectedFixtureSummary}</p>
             )}
 
-            <div className="flex gap-1 border-b border-border-subtle">
-              {TABS.map((tab) => (
-                <button
-                  key={tab}
-                  type="button"
-                  onClick={() => setActiveTab(tab)}
-                  className={cn(
-                    "rounded-t-lg px-3 py-1.5 text-sm font-medium",
-                    activeTab === tab
-                      ? "border-b-2 border-accent-primary text-text-primary"
-                      : "text-text-muted hover:text-text-secondary",
-                  )}
-                >
-                  {CATEGORY_LABELS[tab]}
-                </button>
-              ))}
-            </div>
+            {selectedFixture && !questionContext && (
+              <p className="text-xs text-text-muted">Checking existing pools on this fixture…</p>
+            )}
 
-            <div className="grid gap-2 sm:grid-cols-2">
-              {ALL_CARDS.filter((c) => c.category === activeTab).map((card) => {
-                const disabled =
-                  (card.id === "WHO_WILL_ADVANCE" && !eligibility.whoWillAdvanceEnabled) ||
-                  (card.id === "REGULATION_RESULT" && !eligibility.regulationResultEnabled);
-
-                return (
-                  <button
-                    key={card.id}
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => selectCard(card)}
-                    className={cn(
-                      "rounded-xl border p-3 text-left text-sm transition-colors",
-                      disabled
-                        ? "cursor-not-allowed border-border-subtle opacity-50"
-                        : selectedCardId === card.id
-                          ? "border-accent-primary bg-accent-primary/10"
-                          : "border-border-subtle hover:bg-surface-secondary",
-                    )}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-semibold text-text-primary">{card.name}</span>
-                      <span
+            {questionContext && questionContext.recommendations.recommended.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  Recommended questions
+                </p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {questionContext.recommendations.recommended.map((rec) => {
+                    const template = getLatestTemplate(rec.templateId);
+                    if (!template) return null;
+                    return (
+                      <button
+                        key={rec.templateId}
+                        type="button"
+                        onClick={() => selectRecommendation(rec)}
                         className={cn(
-                          "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-                          GRADING_BADGE[card.gradingReliability].className,
+                          "rounded-xl border p-3 text-left text-sm transition-colors",
+                          selectedCardId === rec.templateId
+                            ? "border-accent-primary bg-accent-primary/10"
+                            : "border-border-subtle hover:bg-surface-secondary",
                         )}
                       >
-                        {GRADING_BADGE[card.gradingReliability].label}
-                      </span>
-                    </div>
-                    <span className="mt-1 block text-xs text-text-muted">{card.description}</span>
-                    <span className="mt-1 block text-xs text-text-muted">Data: {card.dataSource}</span>
-                    {card.gradingReliability === "NEEDS_LIVE_DATA" && (
-                      <span className="mt-1 block text-xs text-text-muted">
-                        Grades automatically once match events are being tracked — use Grade Manually
-                        if the feed doesn&rsquo;t report it for this match.
-                      </span>
-                    )}
-                    {disabled && (
-                      <span className="mt-1 block text-xs text-danger">
-                        {card.id === "WHO_WILL_ADVANCE"
-                          ? "Not available — this fixture isn't a knockout match."
-                          : "Not available — this fixture is a knockout match, so a draw isn't a possible final outcome."}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="flex" aria-label={`${rec.stars} out of 5 stars`}>
+                            {Array.from({ length: 5 }).map((_, i) => (
+                              <Star
+                                key={i}
+                                aria-hidden="true"
+                                className={cn(
+                                  "size-3.5",
+                                  i < rec.stars ? "fill-warning-muted text-warning-muted" : "text-border-subtle",
+                                )}
+                              />
+                            ))}
+                          </span>
+                          <span
+                            className={cn(
+                              "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                              GRADING_BADGE[rec.gradingReliability].className,
+                            )}
+                          >
+                            {GRADING_BADGE[rec.gradingReliability].label}
+                          </span>
+                        </div>
+                        <span className="mt-1 block font-semibold text-text-primary">
+                          {selectedFixture
+                            ? template.questionBuilder(templateFixtureScoreFor(selectedFixture), rec.config)
+                            : template.name}
+                        </span>
+                        <span className="mt-1 block text-xs text-text-muted">
+                          Estimated {Math.round(rec.yesProbability * 100)}% YES
+                        </span>
+                        {rec.warnings.length > 0 ? (
+                          <span className="mt-1 block text-xs text-warning-muted">{rec.warnings[0].message}</span>
+                        ) : (
+                          rec.reasons.length > 0 && (
+                            <span className="mt-1 block text-xs text-credit">{rec.reasons[0]}</span>
+                          )
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setShowOtherQuestions((v) => !v)}
+              className="text-xs font-medium text-accent-primary hover:underline"
+            >
+              {otherQuestionsOpen ? "Hide other available questions" : "Browse other available questions"}
+            </button>
+
+            {otherQuestionsOpen && (
+              <>
+                <div className="flex gap-1 border-b border-border-subtle">
+                  {TABS.map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => setActiveTab(tab)}
+                      className={cn(
+                        "rounded-t-lg px-3 py-1.5 text-sm font-medium",
+                        activeTab === tab
+                          ? "border-b-2 border-accent-primary text-text-primary"
+                          : "text-text-muted hover:text-text-secondary",
+                      )}
+                    >
+                      {CATEGORY_LABELS[tab]}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {ALL_CARDS.filter((c) => c.category === activeTab).map((card) => {
+                    const disabled =
+                      (card.id === "WHO_WILL_ADVANCE" && !eligibility.whoWillAdvanceEnabled) ||
+                      (card.id === "REGULATION_RESULT" && !eligibility.regulationResultEnabled);
+
+                    return (
+                      <button
+                        key={card.id}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => selectCard(card)}
+                        className={cn(
+                          "rounded-xl border p-3 text-left text-sm transition-colors",
+                          disabled
+                            ? "cursor-not-allowed border-border-subtle opacity-50"
+                            : selectedCardId === card.id
+                              ? "border-accent-primary bg-accent-primary/10"
+                              : "border-border-subtle hover:bg-surface-secondary",
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-text-primary">{card.name}</span>
+                          <span
+                            className={cn(
+                              "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                              GRADING_BADGE[card.gradingReliability].className,
+                            )}
+                          >
+                            {GRADING_BADGE[card.gradingReliability].label}
+                          </span>
+                        </div>
+                        <span className="mt-1 block text-xs text-text-muted">{card.description}</span>
+                        <span className="mt-1 block text-xs text-text-muted">Data: {card.dataSource}</span>
+                        {card.gradingReliability === "NEEDS_LIVE_DATA" && (
+                          <span className="mt-1 block text-xs text-text-muted">
+                            Grades automatically once match events are being tracked — use Grade Manually
+                            if the feed doesn&rsquo;t report it for this match.
+                          </span>
+                        )}
+                        {disabled && (
+                          <span className="mt-1 block text-xs text-danger">
+                            {card.id === "WHO_WILL_ADVANCE"
+                              ? "Not available — this fixture isn't a knockout match."
+                              : "Not available — this fixture is a knockout match, so a draw isn't a possible final outcome."}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            {currentWarnings.length > 0 && (
+              <div className="space-y-2 rounded-xl border border-warning-muted/40 bg-warning-muted/10 p-3">
+                <p className="text-sm font-semibold text-text-primary">Before you publish this question</p>
+                <ul className="space-y-1">
+                  {currentWarnings.map((w) => (
+                    <li key={w.code} className="text-xs text-text-secondary">
+                      {w.message}
+                    </li>
+                  ))}
+                </ul>
+                <label className="flex items-center gap-2 text-xs font-medium text-text-secondary">
+                  <input
+                    type="checkbox"
+                    checked={overridePublishWarnings}
+                    onChange={(e) => setOverridePublishWarnings(e.target.checked)}
+                  />
+                  Publish anyway
+                </label>
+              </div>
+            )}
 
             {isLegacy && !isCombo && (
               <div className="space-y-1.5">
@@ -864,6 +1036,32 @@ export function PoolTemplateBuilder({
               </p>
             )}
 
+            {/* The server independently re-checks for conflicts on submit
+                (createPoolForFixture) — this only ever fires if that check
+                found something the client-side preview in Step 2 missed,
+                e.g. another admin published a competing pool in the
+                meantime. Same override affordance either way. */}
+            {state.warnings && state.warnings.length > 0 && (
+              <div className="space-y-2 rounded-xl border border-warning-muted/40 bg-warning-muted/10 p-3">
+                <p className="text-sm font-semibold text-text-primary">Before you publish this question</p>
+                <ul className="space-y-1">
+                  {state.warnings.map((w) => (
+                    <li key={w.code} className="text-xs text-text-secondary">
+                      {w.message}
+                    </li>
+                  ))}
+                </ul>
+                <label className="flex items-center gap-2 text-xs font-medium text-text-secondary">
+                  <input
+                    type="checkbox"
+                    checked={overridePublishWarnings}
+                    onChange={(e) => setOverridePublishWarnings(e.target.checked)}
+                  />
+                  Publish anyway
+                </label>
+              </div>
+            )}
+
             <div className="flex gap-2">
               <Button type="button" variant="outline" onClick={() => goToStep(2)}>
                 Back
@@ -886,6 +1084,7 @@ export function PoolTemplateBuilder({
               before this rewrite. */}
           <input type="hidden" name="poolType" value={submittedPoolType} />
           <input type="hidden" name="fixtureId" value={fixtureId} />
+          <input type="hidden" name="overridePublishWarnings" value={overridePublishWarnings ? "on" : ""} />
           {registryTemplate && (
             <>
               <input type="hidden" name="templateId" value={registryTemplate.id} />

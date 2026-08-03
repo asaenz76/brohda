@@ -1,4 +1,5 @@
 import { listByCategory } from "@/lib/pools/templates/registry";
+import { getQuestionFamily, type QuestionFamily } from "@/lib/pools/templates/families";
 
 export interface FixtureOption {
   id: string;
@@ -25,18 +26,22 @@ export interface FixtureOption {
 // automatically as templates are added.
 //
 // Stage 4: TEMPLATE_GRADED is now the suggested/default path — registry
-// cards are concatenated before legacy cards (see ALL_CARDS below), so
-// within the shared MATCH_RESULT tab the 4 registry match-result templates
-// sort ahead of WHO_WILL_ADVANCE/REGULATION_RESULT (both still AUTO-ranked,
-// and Array.prototype.sort is stable, so concatenation order is what
-// decides ties). Legacy types remain fully present and selectable — this
-// only changes which options an admin sees first, never what's available.
-export type CardCategory = "MATCH_RESULT" | "GOALS" | "DISCIPLINE" | "PLAYER_PROPS" | "COMBO";
+// cards are concatenated before legacy cards (see ALL_CARDS below).
+//
+// Question Family evolution: WHO_WILL_ADVANCE/REGULATION_RESULT no longer
+// share the MATCH_RESULT category with the 4 registry match-result
+// templates — they're genuinely traditional 1X2/knockout markets, not
+// binary prediction questions, and both still stamp Question Family
+// MATCH_RESULT (lib/pools/templates/families.ts) so duplicate/mirror
+// detection still catches the overlap between "Who will advance?" and
+// "Will Team X win?" even though they now live in separate tabs.
+export type CardCategory = "MATCH_RESULT" | "GOALS" | "DISCIPLINE" | "PLAYER_PROPS" | "TRADITIONAL" | "COMBO";
 export const CATEGORY_LABELS: Record<CardCategory, string> = {
-  MATCH_RESULT: "Match result",
+  MATCH_RESULT: "Prediction questions",
   GOALS: "Goals",
   DISCIPLINE: "Cards",
   PLAYER_PROPS: "Players",
+  TRADITIONAL: "Traditional markets",
   COMBO: "Combos",
 };
 
@@ -74,24 +79,27 @@ export interface TemplateCard {
   description: string;
   gradingReliability: GradingReliability;
   dataSource: string;
+  family: QuestionFamily | null;
 }
 
 const LEGACY_CARDS: TemplateCard[] = [
   {
     id: "WHO_WILL_ADVANCE",
-    category: "MATCH_RESULT",
+    category: "TRADITIONAL",
     name: "Who will advance?",
     description: "Knockout matches only — winner counts extra time and penalties.",
     gradingReliability: "AUTO",
     dataSource: "Fixture score",
+    family: getQuestionFamily("WHO_WILL_ADVANCE"),
   },
   {
     id: "REGULATION_RESULT",
-    category: "MATCH_RESULT",
+    category: "TRADITIONAL",
     name: "Result after regulation",
     description: "1X2 — home win, draw, or away win. 90 minutes + injury time only.",
     gradingReliability: "AUTO",
     dataSource: "Fixture score",
+    family: getQuestionFamily("REGULATION_RESULT"),
   },
   {
     id: "COMBO",
@@ -100,6 +108,7 @@ const LEGACY_CARDS: TemplateCard[] = [
     description: "Yes/No prop tied to this match. “Yes” wins only if every condition is met.",
     gradingReliability: "MANUAL",
     dataSource: "Manual grading",
+    family: getQuestionFamily("COMBO"),
   },
 ];
 
@@ -118,6 +127,7 @@ const REGISTRY_CARDS: TemplateCard[] = [
     ? "NEEDS_LIVE_DATA"
     : "AUTO") as GradingReliability,
   dataSource: DATA_SOURCE_LABELS[t.requiredDataSources[0]] ?? "Fixture score",
+  family: getQuestionFamily(t.id),
 }));
 
 export const ALL_CARDS = [...REGISTRY_CARDS, ...LEGACY_CARDS].sort(
@@ -125,7 +135,7 @@ export const ALL_CARDS = [...REGISTRY_CARDS, ...LEGACY_CARDS].sort(
 );
 
 export const TABS = (
-  ["MATCH_RESULT", "GOALS", "DISCIPLINE", "PLAYER_PROPS", "COMBO"] as CardCategory[]
+  ["MATCH_RESULT", "GOALS", "DISCIPLINE", "PLAYER_PROPS", "TRADITIONAL", "COMBO"] as CardCategory[]
 ).filter((cat) => ALL_CARDS.some((c) => c.category === cat));
 
 export function isLegacyId(id: string): id is "WHO_WILL_ADVANCE" | "REGULATION_RESULT" | "COMBO" {

@@ -8,6 +8,14 @@ import { writeAuditLog } from "@/lib/audit/log";
 import { generatePoolTemplate, getTemplateEligibility, type PoolType } from "@/lib/pools/templates";
 import { getLatestTemplate, getTemplateConfigSchema } from "@/lib/pools/templates/registry";
 import { resolvePoolAnalyticsCategory } from "@/lib/pools/templates/category-labels";
+import { getActivePoolSummariesForFixture } from "@/lib/pools/templates/active-pools";
+import {
+  detectConflicts,
+  estimateYesProbability,
+  rankRecommendations,
+  toSerializableRecommendation,
+  type PublishWarning,
+} from "@/lib/pools/templates/recommendations";
 import { getPoolLiveStats, type PoolLiveStats } from "@/lib/pools/fetch";
 import { notifyFollowedPoolPublished } from "@/lib/email/notify-followed-pool-published";
 import { getPoolPublishFollowRecipients } from "@/lib/pools/follow-recipients";
@@ -32,6 +40,7 @@ function readPoolConfigFromForm(formData: FormData) {
       formData.get("participationVisibility") ?? "SHOW_BEFORE_ENTRY",
     ),
     locksAt: String(formData.get("locksAt") ?? ""),
+    overridePublishWarnings: formData.get("overridePublishWarnings") === "on",
   };
 }
 
@@ -66,7 +75,26 @@ async function notifyFollowersOfPublish(pool: { id: string; question: string; fi
   await notifyFollowedPoolPublished({ pool: { id: pool.id, question: pool.question }, emailUserIds });
 }
 
-export type CreatePoolFromTemplateState = { error: string | null };
+/**
+ * Everything the wizard needs to render "Recommended Questions" and to
+ * live-preview publish warnings as an admin picks/configures a template —
+ * called once a fixture is selected. Read-only; never touches pools.
+ */
+export async function getFixtureQuestionContextAction(fixtureId: string) {
+  await requireAdminOrAbove();
+  const adminClient = createAdminClient();
+  const activePools = await getActivePoolSummariesForFixture(adminClient, fixtureId);
+  const recommendations = rankRecommendations(activePools);
+  return {
+    activePools,
+    recommendations: {
+      recommended: recommendations.recommended.map(toSerializableRecommendation),
+      other: recommendations.other.map(toSerializableRecommendation),
+    },
+  };
+}
+
+export type CreatePoolFromTemplateState = { error: string | null; warnings?: PublishWarning[] };
 
 const FIXTURE_SELECT_FOR_POOL_CREATION =
   "id, home_team_external_id, home_team_name, home_team_logo_url, away_team_external_id, away_team_name, away_team_logo_url, competition_type, scheduled_start_utc";
@@ -94,6 +122,7 @@ type PoolCreationInput =
       houseFeeBps: number;
       visibility: string;
       participationVisibility: string;
+      overridePublishWarnings?: boolean;
     }
   | {
       poolType: "COMBO";
@@ -104,6 +133,7 @@ type PoolCreationInput =
       houseFeeBps: number;
       visibility: string;
       participationVisibility: string;
+      overridePublishWarnings?: boolean;
     }
   | {
       poolType: "TEMPLATE_GRADED";
@@ -113,6 +143,7 @@ type PoolCreationInput =
       houseFeeBps: number;
       visibility: string;
       participationVisibility: string;
+      overridePublishWarnings?: boolean;
     };
 
 type CreatedPool = { id: string; question: string; fixtureId: string; visibility: string };
@@ -135,7 +166,7 @@ async function createPoolForFixture(
   fixture: PoolFixtureRow,
   locksAt: string,
   publishImmediately: boolean,
-): Promise<{ pool: CreatedPool } | { error: string }> {
+): Promise<{ pool: CreatedPool } | { error: string } | { warnings: PublishWarning[] }> {
   if (isLockTooCloseToKickoff(locksAt, fixture.scheduled_start_utc)) {
     return {
       error: `Lock time must be at least ${MINIMUM_LOCK_LEAD_MINUTES} minutes before kickoff.`,
@@ -187,6 +218,26 @@ async function createPoolForFixture(
     });
     if (!availability.available) {
       return { error: availability.reason };
+    }
+  }
+
+  // Publishing guidance (Question Family/mirror/duplicate detection) — never
+  // a hard block. COMBO is exempt: its identity is its legs (pool_combo_legs),
+  // not template_id/template_config, so comparing empty configs between two
+  // combos would misfire as an always-exact-duplicate. Every other pool type
+  // (including legacy WHO_WILL_ADVANCE/REGULATION_RESULT) is checked, since
+  // catching exactly that overlap against registry TEMPLATE_GRADED questions
+  // is the whole point of this feature.
+  if (input.poolType !== "COMBO") {
+    const candidateId = input.poolType === "TEMPLATE_GRADED" ? input.templateId : input.poolType;
+    const candidateConfig = input.poolType === "TEMPLATE_GRADED" ? input.templateConfig : {};
+    const activePools = await getActivePoolSummariesForFixture(adminClient, fixture.id);
+    const yesProbability =
+      input.poolType === "TEMPLATE_GRADED" ? estimateYesProbability(candidateId, candidateConfig) : 0.5;
+    const warnings = detectConflicts({ templateId: candidateId, config: candidateConfig }, activePools, yesProbability);
+
+    if (warnings.length > 0 && !input.overridePublishWarnings) {
+      return { warnings };
     }
   }
 
@@ -418,6 +469,9 @@ export async function createPoolFromTemplate(
     publishImmediately,
   );
 
+  if ("warnings" in outcome) {
+    return { error: null, warnings: outcome.warnings };
+  }
   if ("error" in outcome) {
     return { error: outcome.error };
   }
@@ -430,7 +484,12 @@ export async function createPoolFromTemplate(
   redirect(`/admin/pools/${outcome.pool.id}`);
 }
 
-export type CreatePoolsForFixturesResult = { fixtureId: string; poolId: string | null; error: string | null };
+export type CreatePoolsForFixturesResult = {
+  fixtureId: string;
+  poolId: string | null;
+  error: string | null;
+  warnings?: PublishWarning[];
+};
 
 export type CreatePoolsForFixturesActionInput = {
   poolType: "WHO_WILL_ADVANCE" | "REGULATION_RESULT" | "TEMPLATE_GRADED";
@@ -443,6 +502,9 @@ export type CreatePoolsForFixturesActionInput = {
   templateId?: string;
   templateConfig?: Record<string, unknown>;
   publishImmediately: boolean;
+  /** Fixtures already flagged with warnings on a first pass, re-submitted
+   * with the admin's explicit go-ahead — see checkFixtureConflictsAction. */
+  overridePublishWarnings?: boolean;
 };
 
 /**
@@ -478,6 +540,7 @@ export async function createPoolsForFixturesAction(
           houseFeeBps,
           visibility: input.visibility,
           participationVisibility: input.participationVisibility,
+          overridePublishWarnings: input.overridePublishWarnings ?? false,
         }
       : {
           poolType: input.poolType,
@@ -487,6 +550,7 @@ export async function createPoolsForFixturesAction(
           houseFeeBps,
           visibility: input.visibility,
           participationVisibility: input.participationVisibility,
+          overridePublishWarnings: input.overridePublishWarnings ?? false,
         },
   );
 
@@ -551,6 +615,10 @@ export async function createPoolsForFixturesAction(
       input.publishImmediately,
     );
 
+    if ("warnings" in outcome) {
+      results.push({ fixtureId, poolId: null, error: null, warnings: outcome.warnings });
+      continue;
+    }
     if ("error" in outcome) {
       results.push({ fixtureId, poolId: null, error: outcome.error });
       continue;

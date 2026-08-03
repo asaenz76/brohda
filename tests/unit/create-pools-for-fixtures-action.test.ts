@@ -26,6 +26,12 @@ vi.mock("@/lib/supabase/admin", () => ({
       }
       if (table === "pools") {
         return {
+          // getActivePoolSummariesForFixture's conflict-check query — no
+          // active pools in any of these tests, so every candidate is
+          // conflict-free and the new publishing-warnings gate never fires.
+          select: () => ({
+            eq: () => ({ in: async () => ({ data: [], error: null }) }),
+          }),
           insert: (payload: Record<string, unknown>) => {
             poolInserts.push(payload);
             const id = `pool-${++poolIdCounter}`;

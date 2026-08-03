@@ -222,25 +222,62 @@ export function MultiFixtureBuilder({
     });
   }
 
+  // Re-submits only the fixtures a first pass flagged with publishing
+  // warnings (Question Family/mirror/duplicate — never a hard block), with
+  // the admin's explicit go-ahead. Successes/failures from the first pass
+  // stay in the results list untouched; only the warned rows get replaced.
+  function retryWarnedFixtures(warnedFixtureIds: string[]) {
+    if (!selectedCardId || !results) return;
+    const poolType = registryTemplate ? "TEMPLATE_GRADED" : (selectedCardId as "WHO_WILL_ADVANCE" | "REGULATION_RESULT");
+    startTransition(async () => {
+      const response = await createPoolsForFixturesAction({
+        poolType,
+        fixtureIds: warnedFixtureIds,
+        entryFee,
+        houseFeePercent,
+        visibility,
+        participationVisibility,
+        lockMinutesBeforeKickoff: lockMinutesNum,
+        templateId: registryTemplate?.id,
+        templateConfig: registryTemplate ? typedTemplateConfig : undefined,
+        publishImmediately,
+        overridePublishWarnings: true,
+      });
+      if (response.error) {
+        setSubmitError(response.error);
+        return;
+      }
+      const retried = new Map(response.results.map((r) => [r.fixtureId, r]));
+      setResults((prev) => (prev ?? []).map((r) => retried.get(r.fixtureId) ?? r));
+    });
+  }
+
   if (results) {
     const succeeded = results.filter((r) => r.poolId);
-    const failed = results.filter((r) => !r.poolId);
+    const warned = results.filter((r) => !r.poolId && !r.error && r.warnings && r.warnings.length > 0);
+    const failed = results.filter((r) => !r.poolId && (r.error || !r.warnings?.length));
     return (
       <div className="space-y-3">
         <p className="text-sm font-medium text-text-primary">
           {succeeded.length} of {results.length} pool{results.length === 1 ? "" : "s"} created
+          {warned.length > 0 ? `, ${warned.length} need review` : ""}
           {failed.length > 0 ? `, ${failed.length} failed` : ""}.
         </p>
         <ul className="space-y-1.5">
           {results.map((result) => {
             const fixture = fixtures.find((f) => f.id === result.fixtureId);
             const label = fixture ? `${fixture.homeTeamName} vs ${fixture.awayTeamName}` : result.fixtureId;
+            const hasWarnings = !result.poolId && !result.error && (result.warnings?.length ?? 0) > 0;
             return (
               <li
                 key={result.fixtureId}
                 className={cn(
                   "rounded-lg border px-3 py-2 text-sm",
-                  result.poolId ? "border-border-subtle" : "border-danger/40 bg-danger/5",
+                  result.poolId
+                    ? "border-border-subtle"
+                    : hasWarnings
+                      ? "border-warning-muted/40 bg-warning-muted/10"
+                      : "border-danger/40 bg-danger/5",
                 )}
               >
                 {result.poolId ? (
@@ -249,6 +286,15 @@ export function MultiFixtureBuilder({
                     <Link href={`/admin/pools/${result.poolId}`} className="text-accent-primary underline underline-offset-4">
                       Created
                     </Link>
+                  </>
+                ) : hasWarnings ? (
+                  <>
+                    <span className="text-text-primary">{label}</span>
+                    <ul className="mt-1 list-inside list-disc text-xs text-text-secondary">
+                      {result.warnings!.map((w) => (
+                        <li key={w.code}>{w.message}</li>
+                      ))}
+                    </ul>
                   </>
                 ) : (
                   <>
@@ -260,6 +306,16 @@ export function MultiFixtureBuilder({
             );
           })}
         </ul>
+        {warned.length > 0 && (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={isPending}
+            onClick={() => retryWarnedFixtures(warned.map((r) => r.fixtureId))}
+          >
+            {isPending ? "Creating…" : `Publish anyway — create ${warned.length} more pool${warned.length === 1 ? "" : "s"}`}
+          </Button>
+        )}
         <Button
           type="button"
           variant="outline"

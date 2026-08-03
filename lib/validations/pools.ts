@@ -35,6 +35,12 @@ const sharedPoolFinancialFields = {
   houseFeeBps: z.number().int().min(0).max(10000),
   visibility: visibilityEnum,
   participationVisibility: participationVisibilityEnum,
+  // Publishing-guidance override (Question Family/mirror/duplicate
+  // warnings, lib/pools/templates/recommendations.ts) — never a hard
+  // block, so this is how an admin explicitly proceeds despite one.
+  // Defaults to false: silence means "no override requested," not "skip
+  // the check."
+  overridePublishWarnings: z.boolean().optional().default(false),
 };
 
 const sharedPoolFields = {
