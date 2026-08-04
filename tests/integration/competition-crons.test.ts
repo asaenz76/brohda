@@ -226,6 +226,58 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition background jobs", () => {
       await admin.from("fixtures").delete().in("external_fixture_id", ["9201", "9202"]);
     });
 
+    it("never collapses fixture_count_imported to the provider's row count when it's less than what's already stored (regression: two production competitions had 98 and 56 real imported fixtures silently zeroed out this way)", async () => {
+      const { data: league } = await admin.from("leagues").insert({ provider: "api_football", external_id: "555002", name: "Cron Test" }).select("id").single();
+      const upcoming1 = new Date(Date.now() + 3 * 86400_000).toISOString();
+      const upcoming2 = new Date(Date.now() + 5 * 86400_000).toISOString();
+      const past = new Date(Date.now() - 3 * 86400_000).toISOString();
+      await admin.from("fixtures").insert([
+        { provider: "api_football", external_fixture_id: "9210", competition_external_id: "555002", season: "2026", home_team_name: "A", away_team_name: "B", scheduled_start_utc: upcoming1, internal_status: "NOT_STARTED" },
+        { provider: "api_football", external_fixture_id: "9211", competition_external_id: "555002", season: "2026", home_team_name: "C", away_team_name: "D", scheduled_start_utc: upcoming2, internal_status: "NOT_STARTED" },
+        { provider: "api_football", external_fixture_id: "9212", competition_external_id: "555002", season: "2026", home_team_name: "E", away_team_name: "F", scheduled_start_utc: past, internal_status: "COMPLETED" },
+      ]);
+      const { data: lsi } = await admin
+        .from("league_season_imports")
+        .insert({
+          provider: "api_football",
+          external_league_id: "555002",
+          season: "2026",
+          league_id: league!.id,
+          import_status: "IMPORTED",
+          is_active: true,
+          fixture_count_imported: 3,
+          upcoming_fixture_count: 2,
+          last_fixture_discovery_at: null,
+        })
+        .select("id")
+        .single();
+
+      // Simulates the real incident: the provider call succeeds but
+      // returns fewer rows than what's already correctly imported (a
+      // partial response, or — before the soft-error fix elsewhere in
+      // this codebase — a quota/rate-limit error that used to slip
+      // through as an empty array).
+      mockSeasonFixturesByKey["555002:2026"] = [fixture("9210", upcoming1)];
+
+      await runCompetitionDiscoverySync();
+
+      const { data: finalLsi } = await admin
+        .from("league_season_imports")
+        .select("fixture_count_imported, upcoming_fixture_count, provider_fixture_count")
+        .eq("id", lsi!.id)
+        .single();
+      // The real, already-imported fixtures are untouched — counts must
+      // reflect that, not the provider's smaller row count.
+      expect(finalLsi?.fixture_count_imported).toBe(3);
+      expect(finalLsi?.upcoming_fixture_count).toBe(2);
+      // provider_fixture_count still reflects the provider's own
+      // (smaller) count — otherwise the mismatch check it exists for
+      // would be permanently tautological.
+      expect(finalLsi?.provider_fixture_count).toBe(1);
+
+      await admin.from("fixtures").delete().in("external_fixture_id", ["9210", "9211", "9212"]);
+    });
+
     it("skips a competition whose discovery isn't due yet", async () => {
       const { data: league } = await admin.from("leagues").insert({ provider: "api_football", external_id: "555002", name: "Cron Test" }).select("id").single();
       await admin

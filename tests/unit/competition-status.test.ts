@@ -79,6 +79,13 @@ describe("computeOperationalStatus", () => {
     expect(getNeedsAttentionReasons(baseInput({ providerFixtureCount: 20 }))).toContain("FIXTURE_COUNT_MISMATCH");
   });
 
+  it("FIXTURE_COUNT_MISMATCH states the real provider and imported counts, not a generic sentence", () => {
+    const details = getNeedsAttentionDetails(baseInput({ providerFixtureCount: 40, fixtureCountImported: 32 }));
+    expect(details.find((d) => d.code === "FIXTURE_COUNT_MISMATCH")?.message).toBe(
+      "API-Football reports 40 fixtures, but 32 are imported.",
+    );
+  });
+
   it("Active outranks Completed — a real eligible fixture always wins over an inferred season-over signal", () => {
     // Even if seasonEndDate + a stale-looking latestProviderFixtureAt would
     // otherwise satisfy isCompleted, a genuine upcoming eligible fixture
@@ -161,6 +168,25 @@ describe("computeOperationalStatus", () => {
     expect(details.map((d) => d.code)).toContain("SEASON_METADATA_CONFLICT");
     expect(details.map((d) => d.code)).not.toContain("NO_UPCOMING_FIXTURES");
     expect(details.find((d) => d.code === "SEASON_METADATA_CONFLICT")?.message).toMatch(/Provider season ends on/);
+  });
+
+  it("flags UPCOMING_FIXTURES_NOT_IMPORTED (not SEASON_METADATA_CONFLICT) when nothing has been imported at all yet — a real production incident where two competitions with 0 imported fixtures showed a misleading metadata-conflict message", () => {
+    const details = getNeedsAttentionDetails(
+      baseInput({ upcomingFixtureCount: 0, fixtureCountImported: 0, providerFixtureCount: 0, seasonEndDate: "2027-05-01" }),
+    );
+    expect(details.map((d) => d.code)).toContain("UPCOMING_FIXTURES_NOT_IMPORTED");
+    expect(details.map((d) => d.code)).not.toContain("SEASON_METADATA_CONFLICT");
+    const detail = details.find((d) => d.code === "UPCOMING_FIXTURES_NOT_IMPORTED");
+    expect(detail?.message).toMatch(/No fixtures have been imported/);
+    expect(detail?.action).toBe("RUN_DISCOVERY");
+  });
+
+  it("still flags the real SEASON_METADATA_CONFLICT when fixtures ARE imported but none are upcoming despite the season not having ended", () => {
+    const details = getNeedsAttentionDetails(
+      baseInput({ upcomingFixtureCount: 0, fixtureCountImported: 12, providerFixtureCount: 12, seasonEndDate: "2027-05-01" }),
+    );
+    expect(details.map((d) => d.code)).toContain("SEASON_METADATA_CONFLICT");
+    expect(details.map((d) => d.code)).not.toContain("UPCOMING_FIXTURES_NOT_IMPORTED");
   });
 });
 

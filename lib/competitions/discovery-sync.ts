@@ -73,18 +73,43 @@ export async function syncOneCompetition(
     }
 
     const now = new Date();
-    const upcoming = providerFixtures.filter((f) => new Date(f.scheduledStartUtc).getTime() > now.getTime());
     const latestProviderFixtureAt = providerFixtures.reduce<string | null>(
       (latest, f) => (!latest || f.scheduledStartUtc > latest ? f.scheduledStartUtc : latest),
       null,
     );
 
+    // fixture_count_imported/upcoming_fixture_count/completed_fixture_count
+    // must reflect what's actually stored in `fixtures`, never
+    // providerFixtures.length directly — a real production incident:
+    // two fully-imported competitions (98 and 56 real fixture rows) had
+    // these counts silently overwritten to 0 by a sync run whose provider
+    // call returned fewer rows than what was already stored, which then
+    // read everywhere else as "nothing imported" even though the fixture
+    // rows themselves were untouched and correct. provider_fixture_count
+    // deliberately stays providerFixtures.length — it exists specifically
+    // to be compared against the true imported count for the
+    // FIXTURE_COUNT_MISMATCH check, so it must reflect the provider's own
+    // number, not the DB's.
+    const { count: fixtureCountImported } = await adminClient
+      .from("fixtures")
+      .select("*", { count: "exact", head: true })
+      .eq("provider", "api_football")
+      .eq("competition_external_id", competition.external_league_id)
+      .eq("season", competition.season);
+    const { count: upcomingFixtureCount } = await adminClient
+      .from("fixtures")
+      .select("*", { count: "exact", head: true })
+      .eq("provider", "api_football")
+      .eq("competition_external_id", competition.external_league_id)
+      .eq("season", competition.season)
+      .gt("scheduled_start_utc", now.toISOString());
+
     await adminClient
       .from("league_season_imports")
       .update({
-        fixture_count_imported: providerFixtures.length,
-        upcoming_fixture_count: upcoming.length,
-        completed_fixture_count: providerFixtures.length - upcoming.length,
+        fixture_count_imported: fixtureCountImported ?? 0,
+        upcoming_fixture_count: upcomingFixtureCount ?? 0,
+        completed_fixture_count: (fixtureCountImported ?? 0) - (upcomingFixtureCount ?? 0),
         provider_fixture_count: providerFixtures.length,
         latest_provider_fixture_at: latestProviderFixtureAt,
         last_fixture_discovery_at: now.toISOString(),

@@ -19,6 +19,7 @@ export type NeedsAttentionReason =
   | "SYNC_FAILED"
   | "NEWER_SEASON_AVAILABLE"
   | "FIXTURE_COUNT_MISMATCH"
+  | "UPCOMING_FIXTURES_NOT_IMPORTED"
   | "SEASON_METADATA_CONFLICT"
   | "NO_UPCOMING_FIXTURES"
   | "SEASON_ENDED_NOT_ARCHIVED";
@@ -33,6 +34,7 @@ export const NEEDS_ATTENTION_LABEL: Record<NeedsAttentionReason, string> = {
   SYNC_FAILED: "Last sync failed",
   NEWER_SEASON_AVAILABLE: "A newer season is now available",
   FIXTURE_COUNT_MISMATCH: "Imported fixture count differs from provider",
+  UPCOMING_FIXTURES_NOT_IMPORTED: "No fixtures imported yet",
   SEASON_METADATA_CONFLICT: "Season metadata conflicts with fixture data",
   NO_UPCOMING_FIXTURES: "No upcoming fixtures",
   SEASON_ENDED_NOT_ARCHIVED: "Season has ended — consider archiving",
@@ -176,7 +178,7 @@ export function getNeedsAttentionDetails(input: CompetitionStatusInput): NeedsAt
   if (input.providerFixtureCount != null && input.providerFixtureCount !== input.fixtureCountImported) {
     details.push({
       code: "FIXTURE_COUNT_MISMATCH",
-      message: "Imported fixture count differs from provider count.",
+      message: `API-Football reports ${input.providerFixtureCount} fixture${input.providerFixtureCount === 1 ? "" : "s"}, but ${input.fixtureCountImported} ${input.fixtureCountImported === 1 ? "is" : "are"} imported.`,
       action: "REVIEW_FIXTURES",
     });
   }
@@ -193,6 +195,17 @@ export function getNeedsAttentionDetails(input: CompetitionStatusInput): NeedsAt
         ? `This competition's season ended on ${formatDate(input.seasonEndDate)}. Consider archiving it.`
         : "This competition's season has ended. Consider archiving it.",
       action: "ARCHIVE",
+    });
+  } else if (!completed && seasonEndInFuture && input.upcomingFixtureCount === 0 && input.fixtureCountImported === 0) {
+    // Nothing has been imported for this competition at all yet — not a
+    // metadata disagreement, just an import that hasn't happened (or
+    // hasn't successfully happened) yet. Distinct from the branch below,
+    // which requires fixtures to already be imported before it's a real
+    // conflict.
+    details.push({
+      code: "UPCOMING_FIXTURES_NOT_IMPORTED",
+      message: `No fixtures have been imported for this competition yet, and its provider season runs through ${formatDate(input.seasonEndDate!)}. Run Sync to check the provider and import any that are scheduled.`,
+      action: "RUN_DISCOVERY",
     });
   } else if (!completed && seasonEndInFuture && input.upcomingFixtureCount === 0) {
     details.push({

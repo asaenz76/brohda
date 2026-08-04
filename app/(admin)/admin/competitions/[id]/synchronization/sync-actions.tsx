@@ -15,12 +15,13 @@ export function SyncActions({ leagueSeasonImportId, failedJobId }: { leagueSeaso
         disabled={pending}
         onClick={() =>
           startTransition(async () => {
+            setMessage("Syncing…");
             const result = await syncCompetitionNowAction(leagueSeasonImportId);
-            setMessage(result.success ? "Sync completed." : result.error);
+            setMessage(result.success ? "Sync completed." : `Sync failed: ${result.error}`);
           })
         }
       >
-        Sync now
+        {pending ? "Syncing…" : "Sync now"}
       </Button>
       {failedJobId && (
         <Button
