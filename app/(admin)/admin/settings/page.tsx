@@ -2,18 +2,22 @@ import { requireSuperAdmin } from "@/lib/auth/session";
 import { getRegistrationEnabled } from "@/lib/settings/registration";
 import { getPoolFeeDefaults } from "@/lib/settings/pool-defaults";
 import { getPaymentMethods } from "@/lib/payment-methods/fetch";
+import { apiFootballProvider } from "@/lib/sports-data/api-football-provider";
+import { getProviderStatus } from "@/lib/sports-data/provider-gateway";
 import { formatBps } from "@/lib/utils/money";
 import { Card, CardContent } from "@/components/ui/card";
 import { RegistrationToggle } from "./registration-toggle";
 import { PaymentMethodsSettings } from "./payment-methods-settings";
 import { PoolFeeDefaultsForm } from "./pool-fee-defaults-form";
+import { ProviderStatusPanel } from "./provider-status-panel";
 
 export default async function AdminSettingsPage() {
   await requireSuperAdmin();
-  const [registrationEnabled, poolFeeDefaults, paymentMethods] = await Promise.all([
+  const [registrationEnabled, poolFeeDefaults, paymentMethods, providerStatus] = await Promise.all([
     getRegistrationEnabled(),
     getPoolFeeDefaults(),
     getPaymentMethods(),
+    getProviderStatus(apiFootballProvider.isEnabled()),
   ]);
 
   return (
@@ -37,6 +41,7 @@ export default async function AdminSettingsPage() {
           <PaymentMethodsSettings methods={paymentMethods} />
         </CardContent>
       </Card>
+      <ProviderStatusPanel status={providerStatus} />
     </div>
   );
 }

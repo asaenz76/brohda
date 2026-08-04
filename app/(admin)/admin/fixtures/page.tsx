@@ -26,7 +26,6 @@ export default async function AdminFixturesPage({
   const mode = normalizeMode(params.mode);
 
   const providerEnabled = apiFootballProvider.isEnabled();
-  const leagues = providerEnabled && mode === "competition" ? await apiFootballProvider.searchLeagues("").catch(() => []) : [];
 
   const [{ data: fixtures }, { data: pools }, { data: workspaceRows }] = await Promise.all([
     supabase
@@ -91,7 +90,7 @@ export default async function AdminFixturesPage({
           initialCompetitionExternalId={initialCompetitionExternalId}
         />
       )}
-      {mode === "competition" && <CompetitionMode leagues={leagues} workspaces={workspaces} providerDisabled={!providerEnabled} />}
+      {mode === "competition" && <CompetitionMode workspaces={workspaces} providerDisabled={!providerEnabled} />}
       {mode === "fixture-id" && <FixtureIdMode providerDisabled={!providerEnabled} />}
 
       <ImportedFixturesList fixtures={importedFixtures} isSuperAdmin={isSuperAdmin} />

@@ -75,13 +75,13 @@ describe("buildCompetitionOptions", () => {
     expect(options).toHaveLength(0);
   });
 
-  it("assigns tier from the priority league map, null when unknown", () => {
+  it("assigns group from the supported competitions config, null when unknown", () => {
     const options = buildCompetitionOptions([
-      fixture({ competitionKey: "api_football:39:2026" }), // Premier League, Tier A
+      fixture({ competitionKey: "api_football:39:2026" }), // Premier League, Global
       fixture({ id: "f2", competitionKey: "api_football:999999:2026", league: "Unranked League" }),
     ]);
-    expect(options.find((o) => o.key === "api_football:39:2026")?.tier).toBe("A");
-    expect(options.find((o) => o.key === "api_football:999999:2026")?.tier).toBeNull();
+    expect(options.find((o) => o.key === "api_football:39:2026")?.group).toBe("GLOBAL");
+    expect(options.find((o) => o.key === "api_football:999999:2026")?.group).toBeNull();
   });
 
   it("sorts options alphabetically by label", () => {

@@ -74,7 +74,6 @@ describe("buildImportedCompetitionRows", () => {
       },
     ];
     const leaguesById = new Map([["league-1", { id: "league-1", name: "Premier League", logo_url: "logo.png" }]]);
-    const tierByExternalId = new Map([["39", "A" as const]]);
     const countryByExternalId = new Map([["39", "England"]]);
     const typeByExternalId = new Map([["39", "League"]]);
     const fixtureAggregates = aggregateFixturesByCompetition(
@@ -87,7 +86,6 @@ describe("buildImportedCompetitionRows", () => {
     const rows = buildImportedCompetitionRows(
       lsiRows,
       leaguesById,
-      tierByExternalId,
       countryByExternalId,
       typeByExternalId,
       fixtureAggregates,
@@ -99,11 +97,49 @@ describe("buildImportedCompetitionRows", () => {
     expect(rows[0]).toMatchObject({
       name: "Premier League",
       countryName: "England",
-      tier: "A",
+      group: "GLOBAL", // external id 39 (Premier League) is a real SUPPORTED_COMPETITIONS entry
+      isSupported: true,
       importStatus: "IMPORTED",
       operationalStatus: "ACTIVE",
       latestJobId: "job-1",
     });
+  });
+
+  it("flags UNSUPPORTED for an imported competition no longer in SUPPORTED_COMPETITIONS, without touching its fixture data", () => {
+    const lsiRows = [
+      {
+        id: "lsi-2",
+        external_league_id: "239", // Colombia Primera A — removed from the supported list
+        season: "2026",
+        league_id: "league-2",
+        import_status: "IMPORTED" as const,
+        sync_status: "IDLE" as const,
+        season_end_date: "2027-05-01",
+        last_fixture_discovery_at: new Date().toISOString(),
+        last_synced_at: new Date().toISOString(),
+        fixture_count_imported: 40,
+        upcoming_fixture_count: 12,
+        provider_fixture_count: 0, // stale — never re-synced since it fell out of scope, and that's fine
+        latest_provider_fixture_at: null,
+        pool_creation_enabled: true,
+        is_active: true,
+      },
+    ];
+    const rows = buildImportedCompetitionRows(
+      lsiRows,
+      new Map([["league-2", { id: "league-2", name: "Colombia Primera A", logo_url: null }]]),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+    );
+    expect(rows[0].isSupported).toBe(false);
+    expect(rows[0].group).toBeNull();
+    expect(rows[0].operationalStatus).toBe("UNSUPPORTED");
+    expect(rows[0].needsAttentionReasons).toEqual([]);
+    // The row's own fixture counts are untouched — "data must remain intact".
+    expect(rows[0].fixtureCountImported).toBe(40);
   });
 
   it("flags NEWER_SEASON_AVAILABLE when the availability cache reports a season we haven't imported", () => {
@@ -129,7 +165,6 @@ describe("buildImportedCompetitionRows", () => {
     const rows = buildImportedCompetitionRows(
       lsiRows,
       new Map([["league-1", { id: "league-1", name: "Premier League", logo_url: null }]]),
-      new Map(),
       new Map(),
       new Map(),
       new Map(),

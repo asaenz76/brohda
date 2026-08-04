@@ -46,7 +46,7 @@ const { resolveFixtureDateWindow, isDateWindowError } = await import("@/lib/fixt
 const { importFixturesAction } = await import("@/lib/actions/fixtures");
 
 const TEST_COMPETITION_ID = "555777"; // unused by any real league — safe to seed/sweep
-const PRIORITY_TIER_A_COMPETITION_ID = "39"; // Premier League — real PRIORITY_LEAGUES entry
+const SUPPORTED_GLOBAL_COMPETITION_ID = "39"; // Premier League — real SUPPORTED_COMPETITIONS entry
 
 function normalizedFixture(overrides: Partial<NormalizedFixture> = {}): NormalizedFixture {
   return {
@@ -196,18 +196,18 @@ describe.skipIf(!SERVICE_ROLE_KEY)("date-first fixture discovery — enrichFixtu
     expect(enriched.hasOdds).toBeNull();
   });
 
-  it("assigns tier/isPriority from the real PRIORITY_LEAGUES registry, and null/false for an unlisted competition", async () => {
-    const [priority, nonPriority] = await enrichFixtures(
+  it("assigns group/isSupported from the real SUPPORTED_COMPETITIONS config, and null/false for an unlisted competition", async () => {
+    const [supported, unsupported] = await enrichFixtures(
       [
-        normalizedFixture({ externalFixtureId: "700006", competitionExternalId: PRIORITY_TIER_A_COMPETITION_ID }),
+        normalizedFixture({ externalFixtureId: "700006", competitionExternalId: SUPPORTED_GLOBAL_COMPETITION_ID }),
         normalizedFixture({ externalFixtureId: "700007", competitionExternalId: TEST_COMPETITION_ID }),
       ],
       "America/Costa_Rica",
     );
-    expect(priority.isPriority).toBe(true);
-    expect(priority.tier).toBe("A");
-    expect(nonPriority.isPriority).toBe(false);
-    expect(nonPriority.tier).toBeNull();
+    expect(supported.isSupported).toBe(true);
+    expect(supported.group).toBe("GLOBAL");
+    expect(unsupported.isSupported).toBe(false);
+    expect(unsupported.group).toBeNull();
   });
 
   it("derives localDateKey using the given timezone, not UTC", async () => {

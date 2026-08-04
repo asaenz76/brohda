@@ -49,7 +49,7 @@ function fixture(externalFixtureId: string, scheduledStartUtc: string): Normaliz
     provider: "api_football",
     externalFixtureId,
     sport: "football",
-    competitionExternalId: "555001",
+    competitionExternalId: "78",
     competitionName: "Test Competition",
     competitionCountry: "Testland",
     competitionLogoUrl: null,
@@ -87,7 +87,7 @@ function fixture(externalFixtureId: string, scheduledStartUtc: string): Normaliz
 function testLeague(): NormalizedLeague {
   return {
     provider: "api_football",
-    externalLeagueId: "555001",
+    externalLeagueId: "78",
     name: "Test Competition",
     type: "League",
     countryName: "Testland",
@@ -114,12 +114,16 @@ function testLeague(): NormalizedLeague {
   };
 }
 
+// "78" (Bundesliga) is a real id from SUPPORTED_COMPETITIONS —
+// startCompetitionImportAction now rejects any id outside that list (see
+// lib/actions/competitions.ts), so these orchestration tests need a real
+// supported id rather than an arbitrary synthetic one.
 const createdLsiIds: string[] = [];
 
 // Sweeps by external_league_id rather than a JS-tracked id list — robust
 // even if a test fails an assertion before it can record what it created.
 async function cleanupAllTestData() {
-  const { data: lsis } = await admin.from("league_season_imports").select("id").eq("external_league_id", "555001");
+  const { data: lsis } = await admin.from("league_season_imports").select("id").eq("external_league_id", "78");
   for (const lsi of lsis ?? []) {
     const { data: jobs } = await admin.from("competition_import_jobs").select("id").eq("league_season_import_id", lsi.id);
     for (const job of jobs ?? []) {
@@ -127,9 +131,9 @@ async function cleanupAllTestData() {
     }
     await admin.from("competition_import_jobs").delete().eq("league_season_import_id", lsi.id);
   }
-  await admin.from("league_season_imports").delete().eq("external_league_id", "555001");
-  await admin.from("leagues").delete().eq("provider", "api_football").eq("external_id", "555001");
-  await admin.from("fixtures").delete().eq("competition_external_id", "555001");
+  await admin.from("league_season_imports").delete().eq("external_league_id", "78");
+  await admin.from("leagues").delete().eq("provider", "api_football").eq("external_id", "78");
+  await admin.from("fixtures").delete().eq("competition_external_id", "78");
 }
 
 describe.skipIf(!SERVICE_ROLE_KEY)("competition import orchestration", () => {
@@ -156,7 +160,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition import orchestration", () => {
     const past = new Date(Date.now() - 5 * 86400_000).toISOString();
     mockSeasonFixtures = [fixture("9001", future), fixture("9002", past)];
 
-    const result = await startCompetitionImportAction("555001", "2026");
+    const result = await startCompetitionImportAction("78", "2026");
     expect(result.success).toBe(true);
     createdLsiIds.push(result.leagueSeasonImportId!);
 
@@ -188,7 +192,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition import orchestration", () => {
     const past = new Date(Date.now() - 5 * 86400_000).toISOString();
     mockSeasonFixtures = [fixture("9003", future), fixture("9004", past)];
 
-    const result = await startCompetitionImportAction("555001", "2026", { includeHistorical: true });
+    const result = await startCompetitionImportAction("78", "2026", { includeHistorical: true });
     expect(result.success).toBe(true);
     createdLsiIds.push(result.leagueSeasonImportId!);
 
@@ -203,11 +207,11 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition import orchestration", () => {
     mockLeague = testLeague();
     mockSeasonFixtures = [fixture("9005", new Date(Date.now() + 86400_000).toISOString())];
 
-    const first = await startCompetitionImportAction("555001", "2026");
+    const first = await startCompetitionImportAction("78", "2026");
     expect(first.success).toBe(true);
     createdLsiIds.push(first.leagueSeasonImportId!);
 
-    const second = await startCompetitionImportAction("555001", "2026");
+    const second = await startCompetitionImportAction("78", "2026");
     expect(second.success).toBe(false);
     expect(second.error).toMatch(/already been imported|currently importing/);
 
@@ -218,7 +222,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition import orchestration", () => {
     mockLeague = testLeague();
     mockSeasonFixtures = [fixture("9006", new Date(Date.now() + 86400_000).toISOString())];
 
-    const result = await startCompetitionImportAction("555001", "2026");
+    const result = await startCompetitionImportAction("78", "2026");
     expect(result.success).toBe(true);
     createdLsiIds.push(result.leagueSeasonImportId!);
 
@@ -252,7 +256,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition import orchestration", () => {
 
   it("reports a clear error when the provider is disabled", async () => {
     mockIsEnabled = false;
-    const result = await startCompetitionImportAction("555001", "2026");
+    const result = await startCompetitionImportAction("78", "2026");
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/not enabled/);
   });

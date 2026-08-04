@@ -1,7 +1,8 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { apiFootballProvider } from "@/lib/sports-data/api-football-provider";
-import { PRIORITY_LEAGUES } from "@/lib/sports-data/priority-leagues";
+import { SUPPORTED_COMPETITIONS } from "@/lib/sports-data/supported-competitions";
+import { getProviderStatus, isQuotaExhaustedError } from "@/lib/sports-data/provider-gateway";
 import {
   AVAILABILITY_CACHE_TTL_NO_FIXTURES_HOURS,
   AVAILABILITY_CACHE_TTL_WITH_FIXTURES_HOURS,
@@ -17,7 +18,7 @@ export interface AvailabilityCacheRefreshResult {
 /**
  * Keeps the Recommended tab's provider-availability data warm on a
  * schedule so opening the page reads from the database, never fanning out
- * live across every PRIORITY_LEAGUES entry — see the "Recommended
+ * live across every SUPPORTED_COMPETITIONS entry — see the "Recommended
  * availability cache" design. A row is only re-checked once its own TTL
  * has elapsed (shorter for a league that had upcoming fixtures last time,
  * since that's the more time-sensitive case); everything else is skipped
@@ -31,6 +32,12 @@ export async function refreshRecommendationAvailabilityCache(
 
   if (!apiFootballProvider.isEnabled()) return result;
 
+  // Checked before spending any requests — if the breaker is already open
+  // from a recent quota error, every call this tick would fail
+  // identically; skip it entirely and keep serving the existing cache.
+  const status = await getProviderStatus(true);
+  if (status.circuitBreakerOpen) return result;
+
   const { data: cachedRows } = await adminClient
     .from("competition_availability_cache")
     .select("external_league_id, season, upcoming_fixture_count, checked_at")
@@ -38,10 +45,12 @@ export async function refreshRecommendationAvailabilityCache(
   const cacheByLeague = new Map((cachedRows ?? []).map((row) => [row.external_league_id, row]));
 
   const now = Date.now();
+  const competitions = SUPPORTED_COMPETITIONS.filter((c) => c.enabled && c.externalLeagueId != null);
 
-  for (const priority of PRIORITY_LEAGUES) {
+  for (const competition of competitions) {
+    const externalLeagueId = competition.externalLeagueId!;
     result.checked += 1;
-    const cached = cacheByLeague.get(priority.externalLeagueId);
+    const cached = cacheByLeague.get(externalLeagueId);
     if (cached && !options.force) {
       const ttlHours = cached.upcoming_fixture_count > 0
         ? AVAILABILITY_CACHE_TTL_WITH_FIXTURES_HOURS
@@ -51,15 +60,15 @@ export async function refreshRecommendationAvailabilityCache(
     }
 
     try {
-      const league = await apiFootballProvider.getLeagueById(priority.externalLeagueId);
+      const league = await apiFootballProvider.getLeagueById(externalLeagueId);
       const currentSeason = league?.seasons.find((s) => s.current);
       if (!currentSeason) {
-        await upsertCacheRow(adminClient, priority.externalLeagueId, cached?.season ?? "", 0, null, null);
+        await upsertCacheRow(adminClient, externalLeagueId, cached?.season ?? "", 0, null, null);
         result.refreshed += 1;
         continue;
       }
 
-      const fixtures = await apiFootballProvider.getSeasonFixtures(priority.externalLeagueId, currentSeason.year);
+      const fixtures = await apiFootballProvider.getSeasonFixtures(externalLeagueId, currentSeason.year);
       const windowEnd = now + RECOMMENDATION_WINDOW_DAYS * 86_400_000;
       const withinWindow = fixtures.filter((f) => {
         const t = new Date(f.scheduledStartUtc).getTime();
@@ -70,18 +79,28 @@ export async function refreshRecommendationAvailabilityCache(
         null,
       );
 
-      await upsertCacheRow(adminClient, priority.externalLeagueId, currentSeason.year, withinWindow.length, nextFixtureAt, null);
+      await upsertCacheRow(adminClient, externalLeagueId, currentSeason.year, withinWindow.length, nextFixtureAt, null);
       result.refreshed += 1;
     } catch (err) {
       result.errors += 1;
+      // Existing cache is deliberately kept (never overwritten with a
+      // zero/error result) — see upsertCacheRow's call below, which
+      // preserves cached?.upcoming_fixture_count rather than zeroing it.
       await upsertCacheRow(
         adminClient,
-        priority.externalLeagueId,
+        externalLeagueId,
         cached?.season ?? "",
         cached?.upcoming_fixture_count ?? 0,
         null,
         err instanceof Error ? err.message : "Availability check failed",
       );
+
+      // Once the provider reports quota exhaustion, every remaining
+      // competition in this loop would fail identically — stop spending
+      // requests on guaranteed failures rather than retrying through the
+      // whole list (spec: "Do not retry. ... Serve cached or persisted
+      // data instead.").
+      if (isQuotaExhaustedError(err)) break;
     }
   }
 

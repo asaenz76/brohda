@@ -1,4 +1,11 @@
-import type { LeagueTier } from "@/lib/sports-data/priority-leagues";
+import {
+  getSupportedCompetitionGroup,
+  isSupportedCompetition,
+  compareCompetitionGroup,
+  type CompetitionGroup,
+  type CompetitionType,
+  type SupportedCompetition,
+} from "@/lib/sports-data/supported-competitions";
 import {
   computeOperationalStatus,
   getNeedsAttentionDetails,
@@ -17,7 +24,8 @@ export interface CompetitionRow {
   name: string;
   countryName: string | null;
   type: string | null;
-  tier: LeagueTier | null;
+  group: CompetitionGroup | null; // null only if isSupported is false
+  isSupported: boolean;
   logoUrl: string | null;
   leagueSeasonImportId: string | null;
   importStatus: ImportStatusBadge;
@@ -167,7 +175,6 @@ export function fixtureAggregatesFromRpcRows(
 export function buildImportedCompetitionRows(
   lsiRows: LeagueSeasonImportRow[],
   leaguesById: Map<string, LeagueRow>,
-  tierByExternalId: Map<string, LeagueTier>,
   countryByExternalId: Map<string, string | null>,
   typeByExternalId: Map<string, string | null>,
   fixtureAggregates: Map<string, FixtureAggregate>,
@@ -179,8 +186,10 @@ export function buildImportedCompetitionRows(
     const aggregate = fixtureAggregates.get(`${lsi.external_league_id}:${lsi.season}`);
     const latestJob = latestJobs.get(lsi.id);
     const latestKnownSeason = latestSeasonByExternalId.get(lsi.external_league_id);
+    const isSupported = isSupportedCompetition(lsi.external_league_id);
 
     const statusInput = {
+      isSupported,
       importStatus: lsi.import_status,
       syncStatus: lsi.sync_status,
       isActive: lsi.is_active,
@@ -203,7 +212,8 @@ export function buildImportedCompetitionRows(
       name: league?.name ?? "Unknown competition",
       countryName: countryByExternalId.get(lsi.external_league_id) ?? null,
       type: typeByExternalId.get(lsi.external_league_id) ?? null,
-      tier: tierByExternalId.get(lsi.external_league_id) ?? null,
+      group: getSupportedCompetitionGroup(lsi.external_league_id),
+      isSupported,
       logoUrl: league?.logo_url ?? null,
       leagueSeasonImportId: lsi.id,
       importStatus: importStatusBadge({ importStatus: lsi.import_status }),
@@ -228,25 +238,11 @@ export interface RecommendedCompetition {
   externalLeagueId: string;
   season: string;
   name: string;
-  countryName: string | null;
-  type: string | null;
-  tier: LeagueTier;
-  logoUrl: string | null;
+  countryName: string;
+  type: CompetitionType;
+  group: CompetitionGroup;
   upcomingFixtureCount: number;
   nextFixtureAt: string | null;
-}
-
-export interface PriorityLeagueRef {
-  externalLeagueId: string;
-  tier: LeagueTier;
-}
-
-export interface CatalogLeagueRef {
-  name: string;
-  countryName: string | null;
-  type: string | null;
-  logoUrl: string | null;
-  currentSeasonYear: string | null; // the provider's own current:true season, if any
 }
 
 export interface AvailabilityCacheRow {
@@ -259,61 +255,70 @@ export interface AvailabilityCacheRow {
 
 export interface RecommendedBuildResult {
   recommended: RecommendedCompetition[];
-  priorityLeaguesEligible: number;
-  priorityLeaguesAlreadyImported: number;
+  supportedCompetitionsEligible: number;
+  supportedCompetitionsAlreadyImported: number;
   oldestCheckedAt: string | null;
 }
 
 /**
- * The Recommended tab's core eligibility logic — a priority league
- * appears only once it (a) resolves to a real current season in the
- * provider catalog, (b) isn't already imported for that season, and (c)
- * has a fresh-enough availability-cache row reporting at least one
- * fixture inside the recommendation window. Pure so the "does the cache
- * actually drive Recommended correctly" question is testable without a
- * database or a live provider call — see the diagnostic regression test
- * for the real production bug (the cache was simply never populated).
+ * The Recommended tab's core eligibility logic — a supported competition
+ * appears only once it (a) has a cache row at all (meaning
+ * refreshRecommendationAvailabilityCache has resolved its current season
+ * at least once — see that function's own comment for why this never
+ * calls the provider directly), (b) isn't already imported for that
+ * season, and (c) that cache row reports at least one fixture inside the
+ * recommendation window. Pure so the "does the cache actually drive
+ * Recommended correctly" question is testable without a database or a
+ * live provider call — see the diagnostic regression test for the real
+ * production bug (the cache was simply never populated) this originally
+ * guarded against.
+ *
+ * Deliberately reads name/country/type/group straight from
+ * SUPPORTED_COMPETITIONS (static config) rather than a live provider
+ * catalog fetch — this is the entire point of the cache-first
+ * architecture: a not-yet-imported competition's card can render with
+ * zero network calls. The one piece a config entry can't supply — the
+ * provider's actual current season — comes from the availability
+ * cache's own `season` column, itself populated by an explicit,
+ * quota-bounded refresh, never by this function.
  */
 export function buildRecommendedCompetitions(
-  priorityLeagues: PriorityLeagueRef[],
-  catalogByExternalId: Map<string, CatalogLeagueRef>,
+  supportedCompetitions: SupportedCompetition[],
   importedKeys: Set<string>,
   cacheRows: AvailabilityCacheRow[],
 ): RecommendedBuildResult {
   const recommended: RecommendedCompetition[] = [];
-  let priorityLeaguesEligible = 0;
-  let priorityLeaguesAlreadyImported = 0;
+  let supportedCompetitionsEligible = 0;
+  let supportedCompetitionsAlreadyImported = 0;
   let oldestCheckedAt: string | null = null;
 
-  for (const priority of priorityLeagues) {
-    const league = catalogByExternalId.get(priority.externalLeagueId);
-    if (!league || !league.currentSeasonYear) continue;
-    priorityLeaguesEligible += 1;
+  for (const competition of supportedCompetitions) {
+    if (!competition.enabled || !competition.externalLeagueId) continue; // e.g. Costa Rica Cup/Super Cup, unresolved
 
-    if (importedKeys.has(`${priority.externalLeagueId}:${league.currentSeasonYear}`)) {
-      priorityLeaguesAlreadyImported += 1;
+    const cached = cacheRows.find((r) => r.externalLeagueId === competition.externalLeagueId);
+    if (!cached) continue; // never checked yet — not eligible until the cache resolves its season
+    supportedCompetitionsEligible += 1;
+
+    if (importedKeys.has(`${competition.externalLeagueId}:${cached.season}`)) {
+      supportedCompetitionsAlreadyImported += 1;
       continue;
     }
 
-    const cached = cacheRows.find(
-      (r) => r.externalLeagueId === priority.externalLeagueId && r.season === league.currentSeasonYear,
-    );
-    if (cached && (!oldestCheckedAt || cached.checkedAt < oldestCheckedAt)) oldestCheckedAt = cached.checkedAt;
-    if (!cached || cached.upcomingFixtureCount <= 0) continue; // not yet checked, or nothing in the recommendation window
+    if (!oldestCheckedAt || cached.checkedAt < oldestCheckedAt) oldestCheckedAt = cached.checkedAt;
+    if (cached.upcomingFixtureCount <= 0) continue; // checked, but nothing in the recommendation window
 
     recommended.push({
-      externalLeagueId: priority.externalLeagueId,
-      season: league.currentSeasonYear,
-      name: league.name,
-      countryName: league.countryName,
-      type: league.type,
-      tier: priority.tier,
-      logoUrl: league.logoUrl,
+      externalLeagueId: competition.externalLeagueId,
+      season: cached.season,
+      name: competition.name,
+      countryName: competition.country,
+      type: competition.type,
+      group: competition.group,
       upcomingFixtureCount: cached.upcomingFixtureCount,
       nextFixtureAt: cached.nextFixtureAt,
     });
   }
-  recommended.sort((a, b) => a.tier.localeCompare(b.tier) || a.name.localeCompare(b.name));
+  recommended.sort((a, b) => compareCompetitionGroup(a.group, b.group) || a.name.localeCompare(b.name));
 
-  return { recommended, priorityLeaguesEligible, priorityLeaguesAlreadyImported, oldestCheckedAt };
+  return { recommended, supportedCompetitionsEligible, supportedCompetitionsAlreadyImported, oldestCheckedAt };
 }

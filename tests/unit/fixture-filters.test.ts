@@ -7,6 +7,7 @@ import {
   pruneSelectionToResultSet,
 } from "@/lib/fixtures/filters";
 import type { EnrichedFixture } from "@/lib/fixtures/discovery";
+import type { CompetitionGroup } from "@/lib/sports-data/supported-competitions";
 
 function fixture(overrides: Partial<EnrichedFixture>): EnrichedFixture {
   return {
@@ -26,8 +27,8 @@ function fixture(overrides: Partial<EnrichedFixture>): EnrichedFixture {
     venueName: null,
     isImported: false,
     importedFixtureId: null,
-    isPriority: true,
-    tier: "A",
+    isSupported: true,
+    group: "GLOBAL",
     hasWorkspace: false,
     hasOdds: null,
     classification: { isFriendly: false, isYouth: false, isReserve: false },
@@ -56,7 +57,7 @@ describe("default filters", () => {
     const friendly = fixture({ classification: { isFriendly: true, isYouth: false, isReserve: false } });
     const youth = fixture({ externalFixtureId: "2", classification: { isFriendly: false, isYouth: true, isReserve: false } });
     const reserve = fixture({ externalFixtureId: "3", classification: { isFriendly: false, isYouth: false, isReserve: true } });
-    const cleared = { ...defaultFixtureFilters(), tiers: new Set<string>(), excludeFriendlies: false, excludeYouth: false, excludeReserve: false };
+    const cleared = { ...defaultFixtureFilters(), groups: new Set<CompetitionGroup>(), excludeFriendlies: false, excludeYouth: false, excludeReserve: false };
     expect(filterFixtures([friendly, youth, reserve], cleared)).toHaveLength(3);
   });
 
@@ -65,38 +66,47 @@ describe("default filters", () => {
     expect(filterFixtures([imported], defaultFixtureFilters())).toHaveLength(0);
   });
 
-  it("defaults to Tier A + Tier B only", () => {
-    const tierC = fixture({ tier: "C" });
-    const untiered = fixture({ externalFixtureId: "2", tier: null, isPriority: false });
-    expect(filterFixtures([tierC, untiered], defaultFixtureFilters())).toHaveLength(0);
+  it("excludes unsupported competitions by default", () => {
+    const unsupported = fixture({ isSupported: false, group: null });
+    expect(filterFixtures([unsupported], defaultFixtureFilters())).toHaveLength(0);
+  });
+
+  it("including unsupported reveals it, but only once the group filter is also cleared (an unsupported fixture has no group to match)", () => {
+    const unsupported = fixture({ isSupported: false, group: null });
+    const withIncludeOnly = { ...defaultFixtureFilters(), includeUnsupported: true };
+    expect(filterFixtures([unsupported], withIncludeOnly)).toHaveLength(0); // still excluded by the group filter
+
+    const withBothCleared = { ...defaultFixtureFilters(), includeUnsupported: true, groups: new Set<CompetitionGroup>() };
+    expect(filterFixtures([unsupported], withBothCleared)).toHaveLength(1);
   });
 
   it("isDefaultFixtureFilters correctly identifies the default set and detects any change", () => {
     expect(isDefaultFixtureFilters(defaultFixtureFilters())).toBe(true);
     expect(isDefaultFixtureFilters({ ...defaultFixtureFilters(), search: "arsenal" })).toBe(false);
     expect(isDefaultFixtureFilters({ ...defaultFixtureFilters(), excludeFriendlies: false })).toBe(false);
+    expect(isDefaultFixtureFilters({ ...defaultFixtureFilters(), includeUnsupported: true })).toBe(false);
   });
 });
 
 describe("filterFixtures — individual filter dimensions", () => {
-  it("filters by tier as an inclusion set — clearing all tiers removes the filter entirely", () => {
-    const tierA = fixture({ tier: "A" });
-    const tierC = fixture({ externalFixtureId: "2", tier: "C" });
-    const noTierFilter = { ...defaultFixtureFilters(), tiers: new Set<string>() };
-    expect(filterFixtures([tierA, tierC], noTierFilter)).toHaveLength(2);
+  it("filters by group as an inclusion set — clearing both groups removes the filter entirely", () => {
+    const global = fixture({ group: "GLOBAL" });
+    const costaRica = fixture({ externalFixtureId: "2", group: "COSTA_RICA" });
+    const noGroupFilter = { ...defaultFixtureFilters(), groups: new Set<CompetitionGroup>() };
+    expect(filterFixtures([global, costaRica], noGroupFilter)).toHaveLength(2);
   });
 
   it("filters by country", () => {
     const england = fixture({ competitionCountry: "England" });
     const spain = fixture({ externalFixtureId: "2", competitionCountry: "Spain" });
-    const filters = { ...defaultFixtureFilters(), tiers: new Set<string>(), country: "Spain" };
+    const filters = { ...defaultFixtureFilters(), country: "Spain" };
     expect(filterFixtures([england, spain], filters)).toEqual([spain]);
   });
 
   it("filters by search text across team and competition names", () => {
     const arsenal = fixture({ homeTeamName: "Arsenal", awayTeamName: "Chelsea" });
     const other = fixture({ externalFixtureId: "2", homeTeamName: "Flamengo", awayTeamName: "Palmeiras" });
-    const filters = { ...defaultFixtureFilters(), tiers: new Set<string>(), search: "arsenal" };
+    const filters = { ...defaultFixtureFilters(), search: "arsenal" };
     expect(filterFixtures([arsenal, other], filters)).toEqual([arsenal]);
   });
 
@@ -104,7 +114,7 @@ describe("filterFixtures — individual filter dimensions", () => {
     const withOdds = fixture({ hasOdds: true });
     const withoutOdds = fixture({ externalFixtureId: "2", hasOdds: false });
     const unknown = fixture({ externalFixtureId: "3", hasOdds: null });
-    const filters = { ...defaultFixtureFilters(), tiers: new Set<string>(), hasOddsOnly: true };
+    const filters = { ...defaultFixtureFilters(), hasOddsOnly: true };
     expect(filterFixtures([withOdds, withoutOdds, unknown], filters)).toEqual([withOdds]);
   });
 });

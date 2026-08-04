@@ -3,6 +3,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { apiFootballProvider } from "@/lib/sports-data/api-football-provider";
 import { toFixtureRow, toTeamRows } from "@/lib/sports-data/persist";
 import type { NormalizedFixture } from "@/lib/sports-data/types";
+import { getSupportedCompetitionMap } from "@/lib/sports-data/supported-competitions";
+import { getProviderStatus, isQuotaExhaustedError } from "@/lib/sports-data/provider-gateway";
 import { DISCOVERY_COMPETITIONS_PER_CRON_TICK, DISCOVERY_SYNC_INTERVAL_HOURS } from "./constants";
 
 export interface DiscoverySyncResult {
@@ -141,12 +143,28 @@ export async function runCompetitionDiscoverySync(): Promise<DiscoverySyncResult
 
   if (!apiFootballProvider.isEnabled()) return result;
 
+  // Checked before spending any requests — if the breaker is already open
+  // from a recent quota error, every call in this run would fail
+  // identically, so skip the tick entirely rather than burning the
+  // remaining request budget on guaranteed failures.
+  const status = await getProviderStatus(true);
+  if (status.circuitBreakerOpen) return result;
+
+  // Discovery only ever operates on supported competitions — an
+  // imported-but-now-unsupported competition (e.g. one dropped from the
+  // curated list) must never be picked up here, even though its
+  // league_season_imports row stays IMPORTED/active so its data remains
+  // intact (see lib/competitions/status.ts's UNSUPPORTED status).
+  const supportedIds = [...getSupportedCompetitionMap().keys()];
+  if (supportedIds.length === 0) return result;
+
   const staleBefore = new Date(Date.now() - DISCOVERY_SYNC_INTERVAL_HOURS * 3600_000).toISOString();
   const { data: due } = await adminClient
     .from("league_season_imports")
     .select("id, external_league_id, season")
     .eq("import_status", "IMPORTED")
     .eq("is_active", true)
+    .in("external_league_id", supportedIds)
     .or(`last_fixture_discovery_at.is.null,last_fixture_discovery_at.lt.${staleBefore}`)
     .limit(DISCOVERY_COMPETITIONS_PER_CRON_TICK);
 
@@ -158,6 +176,11 @@ export async function runCompetitionDiscoverySync(): Promise<DiscoverySyncResult
       result.fixturesUpdated += outcome.fixturesUpdated;
     } else {
       result.errors += 1;
+      // Once the provider reports quota exhaustion, every remaining
+      // competition in this tick would fail identically — stop instead of
+      // retrying through the rest of the batch (spec: never retry a quota
+      // failure).
+      if (isQuotaExhaustedError(new Error(outcome.error ?? ""))) break;
     }
   }
 

@@ -2,9 +2,10 @@ import { ACTIVATION_WINDOW_DAYS } from "./constants";
 
 export type ImportStatusBadge = "NOT_IMPORTED" | "IMPORTING" | "IMPORTED" | "IMPORT_FAILED";
 
-export type OperationalStatus = "ARCHIVED" | "NEEDS_ATTENTION" | "COMPLETED" | "ACTIVE" | "PREPARED" | "NO_UPCOMING_FIXTURES";
+export type OperationalStatus = "UNSUPPORTED" | "ARCHIVED" | "NEEDS_ATTENTION" | "COMPLETED" | "ACTIVE" | "PREPARED" | "NO_UPCOMING_FIXTURES";
 
 export const OPERATIONAL_STATUS_LABEL: Record<OperationalStatus, string> = {
+  UNSUPPORTED: "Unsupported",
   ARCHIVED: "Archived",
   NEEDS_ATTENTION: "Needs attention",
   COMPLETED: "Completed",
@@ -74,6 +75,14 @@ function formatDate(iso: string): string {
 }
 
 export interface CompetitionStatusInput {
+  // Whether this (league, season)'s external_league_id is currently in
+  // SUPPORTED_COMPETITIONS — checked first, ahead of every other status:
+  // an unsupported competition is never synchronized, so none of its
+  // sync/metadata staleness would mean anything even if computed. Its
+  // fixtures and any historical pools remain in the database untouched —
+  // this only affects the status badge and needs-attention flagging, not
+  // the underlying data.
+  isSupported: boolean;
   importStatus: "IMPORTING" | "IMPORTED" | "IMPORT_FAILED" | null; // null = no row = not imported
   syncStatus: "IDLE" | "SYNCING" | "STALE" | "FAILED" | null;
   isActive: boolean;
@@ -146,6 +155,11 @@ function isCompleted(input: CompetitionStatusInput): boolean {
  * of "any issues at all" to trigger NEEDS_ATTENTION.
  */
 export function getNeedsAttentionDetails(input: CompetitionStatusInput): NeedsAttentionDetail[] {
+  // An unsupported competition is deliberately never synchronized — none
+  // of the staleness/mismatch checks below mean anything for it, and
+  // flagging them would just be noise pointing at an action (Sync, Run
+  // discovery) that must never run for it.
+  if (!input.isSupported) return [];
   if (input.importStatus !== "IMPORTED") {
     return input.importStatus === "IMPORT_FAILED"
       ? [{ code: "IMPORT_FAILED", message: "The last import attempt failed.", action: "RETRY_IMPORT" }]
@@ -260,6 +274,10 @@ function hasSevereNeedsAttentionIssue(input: CompetitionStatusInput): boolean {
 export function computeOperationalStatus(input: CompetitionStatusInput): OperationalStatus | null {
   if (input.importStatus !== "IMPORTED") return null; // no operational status before a successful import
 
+  // Checked ahead of Archived — an admin may have imported this before it
+  // fell out of the supported list; whether they'd also archived it is
+  // irrelevant now, since it isn't synchronized either way.
+  if (!input.isSupported) return "UNSUPPORTED";
   if (!input.isActive) return "ARCHIVED";
   if (hasSevereNeedsAttentionIssue(input)) return "NEEDS_ATTENTION";
   // Active/Prepared are checked before Completed, not after — a real

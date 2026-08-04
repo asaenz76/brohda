@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Label } from "@/components/ui/label";
 import { SELECT_CLASS, type CompetitionOption } from "./template-cards";
+import { COMPETITION_GROUP_LABEL } from "@/lib/sports-data/supported-competitions";
 
 // Narrows the fixture list in Step 1 of both the single- and multi-fixture
 // wizards down to one already-imported competition. Deliberately sourced
@@ -35,7 +36,7 @@ export function ImportedCompetitionFilter({
         {competitions.map((c) => (
           <option key={c.key} value={c.key}>
             {c.label}
-            {c.tier ? ` · Tier ${c.tier}` : ""} ({c.fixtureCount})
+            {c.group ? ` · ${COMPETITION_GROUP_LABEL[c.group]}` : ""} ({c.fixtureCount})
           </option>
         ))}
       </select>

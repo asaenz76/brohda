@@ -9,12 +9,11 @@ import { buildImportChunks, chunkPayloadBytes } from "@/lib/competitions/import-
 import { processImportChunk } from "@/lib/competitions/process-chunk";
 import { syncOneCompetition } from "@/lib/competitions/discovery-sync";
 import { IMPORT_JOB_MAX_ATTEMPTS } from "@/lib/competitions/constants";
-import { PRIORITY_LEAGUES, getPriorityLeagueMap, type LeagueTier } from "@/lib/sports-data/priority-leagues";
+import { SUPPORTED_COMPETITIONS, isSupportedCompetition, type SupportedCompetition } from "@/lib/sports-data/supported-competitions";
 import { TERMINAL_STATUSES } from "@/lib/sports-data/status-map";
 import {
   ACTIVATION_WINDOW_DAYS,
   AVAILABILITY_CACHE_TTL_NO_FIXTURES_HOURS,
-  AVAILABILITY_CACHE_TTL_WITH_FIXTURES_HOURS,
   RECOMMENDATION_WINDOW_DAYS,
 } from "@/lib/competitions/constants";
 import { refreshRecommendationAvailabilityCache } from "@/lib/competitions/availability-cache";
@@ -27,7 +26,6 @@ import {
   type LeagueSeasonImportRow,
   type RecommendedCompetition,
 } from "@/lib/competitions/manager-data";
-import type { NormalizedLeague } from "@/lib/sports-data/types";
 
 export interface StartCompetitionImportResult {
   success: boolean;
@@ -65,6 +63,14 @@ export async function startCompetitionImportAction(
   }
   if (!externalLeagueId.trim() || !season.trim()) {
     return fail("A league and season are required.");
+  }
+  // PollPools is a curated platform, not a generic browser over every
+  // competition API-Football knows about — importing (and therefore
+  // synchronizing, recommending, tracking) a competition outside
+  // SUPPORTED_COMPETITIONS would silently reopen exactly the unbounded
+  // provider-quota surface this boundary exists to close.
+  if (!isSupportedCompetition(externalLeagueId)) {
+    return fail("This competition isn't in PollPools' supported list.");
   }
 
   const { data: existing } = await adminClient
@@ -323,61 +329,57 @@ export type { RecommendedCompetition } from "@/lib/competitions/manager-data";
 // states, which must never silently render the two the same way.
 export type RecommendationCacheStatus = "NOT_CHECKED" | "STALE" | "FRESH";
 
+export interface AllCompetitionsRow {
+  competition: SupportedCompetition & { externalLeagueId: string }; // only resolved+enabled entries ever appear here
+  importedRow: CompetitionRow | null;
+}
+
 export interface CompetitionManagerData {
   recommended: RecommendedCompetition[];
   recommendedCacheStatus: RecommendationCacheStatus;
-  recommendedCacheCheckedAt: string | null; // oldest checked_at among priority leagues, for "last checked" display
-  // How many PRIORITY_LEAGUES entries resolve to a real current season at
-  // all (excludes ones the provider catalog doesn't return or that have no
-  // current season) — the denominator for "all already imported."
-  priorityLeaguesEligible: number;
-  priorityLeaguesAlreadyImported: number;
+  recommendedCacheCheckedAt: string | null; // oldest checked_at among supported competitions, for "last checked" display
+  // How many SUPPORTED_COMPETITIONS entries have a resolved current
+  // season on record at all (via the availability cache) — the
+  // denominator for "all already imported."
+  supportedCompetitionsEligible: number;
+  supportedCompetitionsAlreadyImported: number;
+  // Every imported (league, season) row, supported or not — an
+  // already-imported competition that later fell out of the supported
+  // list keeps its data and stays visible here (tagged Unsupported), per
+  // the "data must remain intact" requirement; it's just excluded from
+  // Needs attention and Recommended, and never synchronized again.
   imported: CompetitionRow[];
   needsAttention: CompetitionRow[];
-  allByCountry: Array<[string, NormalizedLeague[]]>;
-  importedExternalLeagueIds: Set<string>; // for badging "All competitions" rows
-  // Set when the live provider catalog fetch failed (e.g. a quota/rate
-  // limit error) — distinct from a catalog that's just genuinely empty.
-  // allByCountry/recommended are still returned (empty/degraded) so the
-  // rest of the page (imported competitions, needs-attention) keeps
-  // working; only the parts that depend on the live catalog degrade.
-  catalogError: string | null;
+  // The full supported catalog (enabled, resolved entries only) joined
+  // against import state — this is what "All competitions" now shows,
+  // never a live provider catalog. A not-yet-imported entry has no
+  // season/coverage/logo data here (that would need a live call) — only
+  // what SUPPORTED_COMPETITIONS itself carries; clicking Import resolves
+  // the rest live, as an explicit action.
+  allSupported: AllCompetitionsRow[];
 }
 
 /**
  * Assembles everything the /admin/competitions list needs, across its 4
- * tabs. One live provider catalog fetch (searchLeagues("")), reused for
- * every tab's country/type/season enrichment — the same pattern the
- * existing /admin/fixtures page already uses — plus whatever's already in
- * our own tables (league_season_imports, leagues, fixtures, the
- * availability cache, and the latest import job per competition).
+ * tabs — entirely from the database and the static SUPPORTED_COMPETITIONS
+ * config, zero provider calls. This used to fetch the full live provider
+ * catalog (searchLeagues("")) on every page load; that call is exactly
+ * what took the whole page down during a quota-exhaustion incident (see
+ * git history) and, more fundamentally, fetched hundreds of leagues
+ * PollPools will never support just to enrich country/type metadata this
+ * config now supplies directly.
  */
 export async function getCompetitionManagerDataAction(): Promise<CompetitionManagerData> {
   await requireAdminOrAbove();
   const adminClient = createAdminClient();
 
-  let catalogError: string | null = null;
-  const [{ data: lsiRows }, catalog, { data: cacheRows }] = await Promise.all([
+  const [{ data: lsiRows }, { data: cacheRows }] = await Promise.all([
     adminClient.from("league_season_imports").select("*"),
-    // A page-load-time provider call — must never throw uncaught here, or
-    // the entire Competitions page (imported competitions, needs
-    // attention, everything) goes down with it. A real production
-    // incident: this exact call, unguarded, took down /admin/competitions
-    // with an unhandled ProviderApiError the moment quota exhaustion
-    // started throwing instead of silently returning empty.
-    apiFootballProvider.isEnabled()
-      ? apiFootballProvider.searchLeagues("").catch((err) => {
-          catalogError = err instanceof Error ? err.message : "The provider catalog could not be loaded.";
-          return [] as NormalizedLeague[];
-        })
-      : Promise.resolve([]),
     adminClient
       .from("competition_availability_cache")
       .select("external_league_id, season, upcoming_fixture_count, next_fixture_at, checked_at"),
   ]);
 
-  const catalogByExternalId = new Map(catalog.map((l) => [l.externalLeagueId, l]));
-  const priorityMap = getPriorityLeagueMap();
   const latestSeasonByExternalId = new Map((cacheRows ?? []).map((r) => [r.external_league_id, r.season]));
 
   const rows = (lsiRows ?? []) as LeagueSeasonImportRow[];
@@ -416,9 +418,14 @@ export async function getCompetitionManagerDataAction(): Promise<CompetitionMana
   ]);
 
   const leaguesById = new Map((leagueRows ?? []).map((l) => [l.id, l]));
-  const tierByExternalId = new Map(externalLeagueIds.map((id) => [id, priorityMap.get(id)?.tier]).filter((e): e is [string, LeagueTier] => e[1] != null));
-  const countryByExternalId = new Map(externalLeagueIds.map((id) => [id, catalogByExternalId.get(id)?.countryName ?? null]));
-  const typeByExternalId = new Map(externalLeagueIds.map((id) => [id, catalogByExternalId.get(id)?.type ?? null]));
+  // countryName/type now come from SUPPORTED_COMPETITIONS via
+  // buildImportedCompetitionRows itself for supported rows; an
+  // already-imported-but-now-unsupported row has no config entry to read
+  // from, so it falls back to whatever it was last known as — there's no
+  // live source to re-resolve it from anymore, and none should be spent
+  // on a competition PollPools deliberately stopped tracking.
+  const countryByExternalId = new Map<string, string | null>();
+  const typeByExternalId = new Map<string, string | null>();
 
   const fixtureAggregates = fixtureAggregatesFromRpcRows(fixtureAggregateRows ?? []);
 
@@ -436,7 +443,6 @@ export async function getCompetitionManagerDataAction(): Promise<CompetitionMana
   const importedRows = buildImportedCompetitionRows(
     rows,
     leaguesById,
-    tierByExternalId,
     countryByExternalId,
     typeByExternalId,
     fixtureAggregates,
@@ -445,20 +451,8 @@ export async function getCompetitionManagerDataAction(): Promise<CompetitionMana
   );
 
   const importedKeys = new Set(rows.map((r) => `${r.external_league_id}:${r.season}`));
-  const importedExternalLeagueIds = new Set(rows.map((r) => r.external_league_id));
+  const importedByExternalLeagueId = new Map(importedRows.map((r) => [r.externalLeagueId, r]));
 
-  const catalogRefByExternalId = new Map(
-    [...catalogByExternalId.entries()].map(([id, league]) => [
-      id,
-      {
-        name: league.name,
-        countryName: league.countryName,
-        type: league.type,
-        logoUrl: league.logoUrl,
-        currentSeasonYear: league.seasons.find((s) => s.current)?.year ?? null,
-      },
-    ]),
-  );
   const availabilityCacheRows = (cacheRows ?? []).map((r) => ({
     externalLeagueId: r.external_league_id,
     season: r.season,
@@ -467,14 +461,13 @@ export async function getCompetitionManagerDataAction(): Promise<CompetitionMana
     checkedAt: r.checked_at,
   }));
 
-  const { recommended, priorityLeaguesEligible, priorityLeaguesAlreadyImported, oldestCheckedAt } = buildRecommendedCompetitions(
-    PRIORITY_LEAGUES,
-    catalogRefByExternalId,
+  const { recommended, supportedCompetitionsEligible, supportedCompetitionsAlreadyImported, oldestCheckedAt } = buildRecommendedCompetitions(
+    SUPPORTED_COMPETITIONS,
     importedKeys,
     availabilityCacheRows,
   );
 
-  const notYetImportedEligible = priorityLeaguesEligible - priorityLeaguesAlreadyImported;
+  const notYetImportedEligible = supportedCompetitionsEligible - supportedCompetitionsAlreadyImported;
   const recommendedCacheStatus: RecommendationCacheStatus =
     notYetImportedEligible > 0 && oldestCheckedAt == null
       ? "NOT_CHECKED"
@@ -482,33 +475,59 @@ export async function getCompetitionManagerDataAction(): Promise<CompetitionMana
         ? "STALE"
         : "FRESH";
 
-  const byCountry = new Map<string, NormalizedLeague[]>();
-  for (const league of catalog) {
-    const key = league.countryName ?? "Other";
-    if (!byCountry.has(key)) byCountry.set(key, []);
-    byCountry.get(key)!.push(league);
-  }
-  const allByCountry: Array<[string, NormalizedLeague[]]> = [...byCountry.entries()]
-    .map(([country, list]): [string, NormalizedLeague[]] => [country, [...list].sort((a, b) => a.name.localeCompare(b.name))])
-    .sort(([a], [b]) => a.localeCompare(b));
+  const allSupported: AllCompetitionsRow[] = SUPPORTED_COMPETITIONS.filter(
+    (c): c is SupportedCompetition & { externalLeagueId: string } => c.enabled && c.externalLeagueId != null,
+  ).map((competition) => ({
+    competition,
+    importedRow: importedByExternalLeagueId.get(competition.externalLeagueId) ?? null,
+  }));
 
   return {
     recommended,
     recommendedCacheStatus,
     recommendedCacheCheckedAt: oldestCheckedAt,
-    priorityLeaguesEligible,
-    priorityLeaguesAlreadyImported,
+    supportedCompetitionsEligible,
+    supportedCompetitionsAlreadyImported,
     imported: importedRows,
     // Kept in lockstep with the badge itself (operationalStatus), not a
     // separate reasons-based check — otherwise a normal Completed or
     // No-upcoming-fixtures competition (which still carries an advisory
     // reason, e.g. "consider archiving") would flood this tab despite its
-    // badge saying something else entirely.
+    // badge saying something else entirely. UNSUPPORTED rows never carry
+    // any needs-attention reason (see status.ts), so they're naturally
+    // excluded here too.
     needsAttention: importedRows.filter((r) => r.operationalStatus === "NEEDS_ATTENTION"),
-    allByCountry,
-    importedExternalLeagueIds,
-    catalogError,
+    allSupported,
   };
+}
+
+/**
+ * "All competitions" tab's Import action — resolves the competition's
+ * current season live (a real, but explicit and admin-initiated, provider
+ * call) and hands off to startCompetitionImportAction. Kept separate from
+ * that function because every other caller already knows the season
+ * (picked from a live-fetched league in by-competition search, or read
+ * back from an existing tracking row) — this is the only path that needs
+ * to resolve "current season" itself first.
+ */
+export async function importSupportedCompetitionAction(externalLeagueId: string): Promise<StartCompetitionImportResult> {
+  await requireAdminOrAbove();
+  const fail = (error: string): StartCompetitionImportResult => ({ success: false, error, leagueSeasonImportId: null, jobId: null });
+
+  if (!isSupportedCompetition(externalLeagueId)) {
+    return fail("This competition isn't in PollPools' supported list.");
+  }
+  if (!apiFootballProvider.isEnabled()) {
+    return fail("The sports data provider is not enabled.");
+  }
+
+  const league = await apiFootballProvider.getLeagueById(externalLeagueId);
+  const currentSeason = league?.seasons.find((s) => s.current);
+  if (!currentSeason) {
+    return fail("The provider has no current season for this competition right now.");
+  }
+
+  return startCompetitionImportAction(externalLeagueId, currentSeason.year);
 }
 
 export interface RefreshRecommendationsResult {
@@ -538,83 +557,6 @@ export async function refreshRecommendationsNowAction(): Promise<RefreshRecommen
   return { success: true, error: null, ...result };
 }
 
-export interface CatalogAvailability {
-  upcomingFixtureCount: number; // within RECOMMENDATION_WINDOW_DAYS
-  nextFixtureAt: string | null;
-}
-
-/** On-demand availability for the "All competitions" catalog — called
- * when a country accordion is expanded, never on initial page load (the
- * catalog can hold hundreds of competitions; fetching live fixture data
- * for all of them up front would be exactly the fan-out this feature's
- * design has always avoided). Reuses competition_availability_cache
- * itself — generalized here to any competition/season, not just
- * PRIORITY_LEAGUES — so re-expanding the same country later reads from
- * cache instead of hitting the provider again. */
-export async function getCatalogAvailabilityAction(
-  items: Array<{ externalLeagueId: string; season: string }>,
-): Promise<Record<string, CatalogAvailability>> {
-  await requireAdminOrAbove();
-  const adminClient = createAdminClient();
-  const result: Record<string, CatalogAvailability> = {};
-  if (!apiFootballProvider.isEnabled() || items.length === 0) return result;
-
-  const { data: cachedRows } = await adminClient
-    .from("competition_availability_cache")
-    .select("external_league_id, season, upcoming_fixture_count, next_fixture_at, checked_at")
-    .in(
-      "external_league_id",
-      items.map((i) => i.externalLeagueId),
-    );
-  const cacheByKey = new Map((cachedRows ?? []).map((r) => [`${r.external_league_id}:${r.season}`, r]));
-
-  const now = Date.now();
-  for (const item of items) {
-    const key = `${item.externalLeagueId}:${item.season}`;
-    const cached = cacheByKey.get(key);
-    if (cached) {
-      const ttlHours =
-        cached.upcoming_fixture_count > 0 ? AVAILABILITY_CACHE_TTL_WITH_FIXTURES_HOURS : AVAILABILITY_CACHE_TTL_NO_FIXTURES_HOURS;
-      const age = now - new Date(cached.checked_at).getTime();
-      if (age < ttlHours * 3600_000) {
-        result[key] = { upcomingFixtureCount: cached.upcoming_fixture_count, nextFixtureAt: cached.next_fixture_at };
-        continue;
-      }
-    }
-
-    try {
-      const fixtures = await apiFootballProvider.getSeasonFixtures(item.externalLeagueId, item.season);
-      const windowEnd = now + RECOMMENDATION_WINDOW_DAYS * 86_400_000;
-      const withinWindow = fixtures.filter((f) => {
-        const t = new Date(f.scheduledStartUtc).getTime();
-        return t > now && t <= windowEnd;
-      });
-      const nextFixtureAt = withinWindow.reduce<string | null>(
-        (earliest, f) => (!earliest || f.scheduledStartUtc < earliest ? f.scheduledStartUtc : earliest),
-        null,
-      );
-      await adminClient.from("competition_availability_cache").upsert(
-        {
-          provider: "api_football",
-          external_league_id: item.externalLeagueId,
-          season: item.season,
-          upcoming_fixture_count: withinWindow.length,
-          next_fixture_at: nextFixtureAt,
-          window_days: RECOMMENDATION_WINDOW_DAYS,
-          checked_at: new Date().toISOString(),
-          check_error: null,
-        },
-        { onConflict: "provider,external_league_id,season" },
-      );
-      result[key] = { upcomingFixtureCount: withinWindow.length, nextFixtureAt };
-    } catch {
-      result[key] = cached
-        ? { upcomingFixtureCount: cached.upcoming_fixture_count, nextFixtureAt: cached.next_fixture_at }
-        : { upcomingFixtureCount: 0, nextFixtureAt: null };
-    }
-  }
-  return result;
-}
 
 export interface WorkspaceActionResult {
   success: boolean;

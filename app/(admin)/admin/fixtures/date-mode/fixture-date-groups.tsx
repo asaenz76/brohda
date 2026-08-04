@@ -1,6 +1,7 @@
 "use client";
 
 import type { DateGroup } from "@/lib/fixtures/grouping";
+import { COMPETITION_GROUP_LABEL } from "@/lib/sports-data/supported-competitions";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -64,7 +65,10 @@ export function FixtureDateGroups({
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium text-text-primary">
                           {group.competitionName ?? "Unknown competition"}
-                          {group.tier && <span className="ml-1.5 text-xs font-normal text-text-muted">Tier {group.tier}</span>}
+                          {group.group && (
+                            <span className="ml-1.5 text-xs font-normal text-text-muted">{COMPETITION_GROUP_LABEL[group.group]}</span>
+                          )}
+                          {!group.isSupported && <span className="ml-1.5 text-xs font-normal text-warning-muted">Unsupported</span>}
                         </p>
                         <p className="truncate text-xs text-text-muted">
                           {group.competitionCountry ?? "—"}

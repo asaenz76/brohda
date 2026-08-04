@@ -75,7 +75,7 @@ function fixture(externalFixtureId: string, scheduledStartUtc: string, overrides
 }
 
 async function cleanupTestData() {
-  const { data: lsis } = await admin.from("league_season_imports").select("id").in("external_league_id", ["555002", "39"]);
+  const { data: lsis } = await admin.from("league_season_imports").select("id").in("external_league_id", ["555002", "39", "140"]);
   for (const lsi of lsis ?? []) {
     const { data: jobs } = await admin.from("competition_import_jobs").select("id").eq("league_season_import_id", lsi.id);
     for (const job of jobs ?? []) {
@@ -83,10 +83,11 @@ async function cleanupTestData() {
     }
     await admin.from("competition_import_jobs").delete().eq("league_season_import_id", lsi.id);
   }
-  await admin.from("league_season_imports").delete().in("external_league_id", ["555002", "39"]);
-  await admin.from("leagues").delete().in("external_id", ["555002"]);
-  await admin.from("fixtures").delete().eq("competition_external_id", "555002");
+  await admin.from("league_season_imports").delete().in("external_league_id", ["555002", "39", "140"]);
+  await admin.from("leagues").delete().in("external_id", ["555002", "140"]);
+  await admin.from("fixtures").delete().in("competition_external_id", ["555002", "140"]);
   await admin.from("competition_availability_cache").delete().eq("provider", "api_football");
+  await admin.from("provider_request_log").delete().eq("request_type", "test-quota-breaker");
 }
 
 describe.skipIf(!SERVICE_ROLE_KEY)("competition background jobs", () => {
@@ -174,13 +175,18 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition background jobs", () => {
   });
 
   describe("runCompetitionDiscoverySync", () => {
+    // Discovery only ever operates on SUPPORTED_COMPETITIONS (see
+    // lib/sports-data/supported-competitions.ts) — "140" is LaLiga, a real
+    // supported id distinct from "39" (already used by the availability-
+    // cache describe block below) so the two suites' mocked provider data
+    // don't collide.
     it("adds a newly scheduled fixture and updates a rescheduled one, on a due (never-discovered) competition", async () => {
-      const { data: league } = await admin.from("leagues").insert({ provider: "api_football", external_id: "555002", name: "Cron Test" }).select("id").single();
+      const { data: league } = await admin.from("leagues").insert({ provider: "api_football", external_id: "140", name: "LaLiga" }).select("id").single();
       const originalStart = new Date(Date.now() + 5 * 86400_000).toISOString();
       await admin.from("fixtures").insert({
         provider: "api_football",
         external_fixture_id: "9201",
-        competition_external_id: "555002",
+        competition_external_id: "140",
         season: "2026",
         home_team_name: "Cron Home FC",
         away_team_name: "Cron Away FC",
@@ -191,7 +197,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition background jobs", () => {
         .from("league_season_imports")
         .insert({
           provider: "api_football",
-          external_league_id: "555002",
+          external_league_id: "140",
           season: "2026",
           league_id: league!.id,
           import_status: "IMPORTED",
@@ -203,9 +209,9 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition background jobs", () => {
 
       const rescheduledStart = new Date(Date.now() + 8 * 86400_000).toISOString(); // postponed
       const newFixtureStart = new Date(Date.now() + 10 * 86400_000).toISOString();
-      mockSeasonFixturesByKey["555002:2026"] = [
-        fixture("9201", rescheduledStart), // postponed relative to what's stored
-        fixture("9202", newFixtureStart), // brand new
+      mockSeasonFixturesByKey["140:2026"] = [
+        fixture("9201", rescheduledStart, { competitionExternalId: "140" }), // postponed relative to what's stored
+        fixture("9202", newFixtureStart, { competitionExternalId: "140" }), // brand new
       ];
 
       const result = await runCompetitionDiscoverySync();
@@ -227,20 +233,20 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition background jobs", () => {
     });
 
     it("never collapses fixture_count_imported to the provider's row count when it's less than what's already stored (regression: two production competitions had 98 and 56 real imported fixtures silently zeroed out this way)", async () => {
-      const { data: league } = await admin.from("leagues").insert({ provider: "api_football", external_id: "555002", name: "Cron Test" }).select("id").single();
+      const { data: league } = await admin.from("leagues").insert({ provider: "api_football", external_id: "140", name: "LaLiga" }).select("id").single();
       const upcoming1 = new Date(Date.now() + 3 * 86400_000).toISOString();
       const upcoming2 = new Date(Date.now() + 5 * 86400_000).toISOString();
       const past = new Date(Date.now() - 3 * 86400_000).toISOString();
       await admin.from("fixtures").insert([
-        { provider: "api_football", external_fixture_id: "9210", competition_external_id: "555002", season: "2026", home_team_name: "A", away_team_name: "B", scheduled_start_utc: upcoming1, internal_status: "NOT_STARTED" },
-        { provider: "api_football", external_fixture_id: "9211", competition_external_id: "555002", season: "2026", home_team_name: "C", away_team_name: "D", scheduled_start_utc: upcoming2, internal_status: "NOT_STARTED" },
-        { provider: "api_football", external_fixture_id: "9212", competition_external_id: "555002", season: "2026", home_team_name: "E", away_team_name: "F", scheduled_start_utc: past, internal_status: "COMPLETED" },
+        { provider: "api_football", external_fixture_id: "9210", competition_external_id: "140", season: "2026", home_team_name: "A", away_team_name: "B", scheduled_start_utc: upcoming1, internal_status: "NOT_STARTED" },
+        { provider: "api_football", external_fixture_id: "9211", competition_external_id: "140", season: "2026", home_team_name: "C", away_team_name: "D", scheduled_start_utc: upcoming2, internal_status: "NOT_STARTED" },
+        { provider: "api_football", external_fixture_id: "9212", competition_external_id: "140", season: "2026", home_team_name: "E", away_team_name: "F", scheduled_start_utc: past, internal_status: "COMPLETED" },
       ]);
       const { data: lsi } = await admin
         .from("league_season_imports")
         .insert({
           provider: "api_football",
-          external_league_id: "555002",
+          external_league_id: "140",
           season: "2026",
           league_id: league!.id,
           import_status: "IMPORTED",
@@ -257,7 +263,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition background jobs", () => {
       // partial response, or — before the soft-error fix elsewhere in
       // this codebase — a quota/rate-limit error that used to slip
       // through as an empty array).
-      mockSeasonFixturesByKey["555002:2026"] = [fixture("9210", upcoming1)];
+      mockSeasonFixturesByKey["140:2026"] = [fixture("9210", upcoming1, { competitionExternalId: "140" })];
 
       await runCompetitionDiscoverySync();
 
@@ -279,12 +285,12 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition background jobs", () => {
     });
 
     it("skips a competition whose discovery isn't due yet", async () => {
-      const { data: league } = await admin.from("leagues").insert({ provider: "api_football", external_id: "555002", name: "Cron Test" }).select("id").single();
+      const { data: league } = await admin.from("leagues").insert({ provider: "api_football", external_id: "140", name: "LaLiga" }).select("id").single();
       await admin
         .from("league_season_imports")
         .insert({
           provider: "api_football",
-          external_league_id: "555002",
+          external_league_id: "140",
           season: "2026",
           league_id: league!.id,
           import_status: "IMPORTED",
@@ -292,12 +298,60 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition background jobs", () => {
           last_fixture_discovery_at: new Date().toISOString(), // just discovered — not stale
         });
 
-      mockSeasonFixturesByKey["555002:2026"] = [fixture("9203", new Date(Date.now() + 86400_000).toISOString())];
+      mockSeasonFixturesByKey["140:2026"] = [fixture("9203", new Date(Date.now() + 86400_000).toISOString(), { competitionExternalId: "140" })];
       const result = await runCompetitionDiscoverySync();
       expect(result.competitionsChecked).toBe(0);
 
       const { data: notAdded } = await admin.from("fixtures").select("id").eq("external_fixture_id", "9203").maybeSingle();
       expect(notAdded).toBeNull();
+    });
+
+    it("skips an imported-but-now-unsupported competition entirely (e.g. dropped from the curated list), without touching its data", async () => {
+      const { data: league } = await admin.from("leagues").insert({ provider: "api_football", external_id: "555002", name: "Unsupported Test League" }).select("id").single();
+      await admin.from("league_season_imports").insert({
+        provider: "api_football",
+        external_league_id: "555002", // not in SUPPORTED_COMPETITIONS
+        season: "2026",
+        league_id: league!.id,
+        import_status: "IMPORTED",
+        is_active: true,
+        last_fixture_discovery_at: null,
+      });
+
+      mockSeasonFixturesByKey["555002:2026"] = [fixture("9204", new Date(Date.now() + 86400_000).toISOString())];
+      const result = await runCompetitionDiscoverySync();
+      expect(result.competitionsChecked).toBe(0);
+
+      const { data: notAdded } = await admin.from("fixtures").select("id").eq("external_fixture_id", "9204").maybeSingle();
+      expect(notAdded).toBeNull();
+    });
+
+    it("skips the entire tick when the circuit breaker is open from a recent quota error, spending zero requests", async () => {
+      const { data: league } = await admin.from("leagues").insert({ provider: "api_football", external_id: "140", name: "LaLiga" }).select("id").single();
+      await admin.from("league_season_imports").insert({
+        provider: "api_football",
+        external_league_id: "140",
+        season: "2026",
+        league_id: league!.id,
+        import_status: "IMPORTED",
+        is_active: true,
+        last_fixture_discovery_at: null,
+      });
+      await admin.from("provider_request_log").insert({
+        provider: "api_football",
+        request_type: "test-quota-breaker",
+        error: "You have reached the request limit for the day",
+        created_at: new Date().toISOString(),
+      });
+
+      mockSeasonFixturesByKey["140:2026"] = [fixture("9205", new Date(Date.now() + 86400_000).toISOString(), { competitionExternalId: "140" })];
+      const result = await runCompetitionDiscoverySync();
+      expect(result.competitionsChecked).toBe(0);
+
+      const { data: notAdded } = await admin.from("fixtures").select("id").eq("external_fixture_id", "9205").maybeSingle();
+      expect(notAdded).toBeNull();
+
+      await admin.from("provider_request_log").delete().eq("request_type", "test-quota-breaker");
     });
   });
 

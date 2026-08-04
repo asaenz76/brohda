@@ -42,7 +42,7 @@ export default async function CompetitionWorkspaceLayout({
           )}
         </div>
         <p className="text-xs text-text-muted">
-          {data.tier ? `Tier ${data.tier} · ` : ""}Season {data.season} · League ID {data.externalLeagueId}
+          {data.group ? `${data.group === "GLOBAL" ? "Global" : "Costa Rica"} · ` : ""}Season {data.season} · League ID {data.externalLeagueId}
         </p>
       </div>
       <WorkspaceNav id={id} />

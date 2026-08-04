@@ -3,13 +3,13 @@
 import { useActionState, useState } from "react";
 import Link from "next/link";
 import { searchFixturesAction, type FixtureSearchState } from "@/lib/actions/fixtures";
-import type { NormalizedLeague, NormalizedTeam } from "@/lib/sports-data/types";
+import type { NormalizedTeam } from "@/lib/sports-data/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { FixtureResultsList } from "./fixture-results-list";
-import { LeagueSelect } from "./league-select";
+import { LeagueSelect, type SelectableCompetition } from "./league-select";
 import { TeamSearch } from "./team-search";
 
 const initialSearchState: FixtureSearchState = { error: null, providerDisabled: false, results: [] };
@@ -30,32 +30,18 @@ export interface WorkspaceRef {
  * to that surface rather than reimplementing any of it here.
  */
 export function CompetitionMode({
-  leagues,
   workspaces,
   providerDisabled,
 }: {
-  leagues: NormalizedLeague[];
   workspaces: WorkspaceRef[];
   providerDisabled: boolean;
 }) {
   const [searchBy, setSearchBy] = useState<"competition" | "team">("competition");
-  const [selectedLeague, setSelectedLeague] = useState<NormalizedLeague | null>(null);
+  const [selectedLeague, setSelectedLeague] = useState<SelectableCompetition | null>(null);
   const [selectedTeam, setSelectedTeam] = useState<NormalizedTeam | null>(null);
   const [season, setSeason] = useState("");
   const [date, setDate] = useState("");
   const [state, formAction, pending] = useActionState(searchFixturesAction, initialSearchState);
-
-  // The API requires a season alongside a league on every search — picking
-  // a date without knowing that produced a confusing "enter a league and
-  // season" error even though a date was given. Auto-fill season from the
-  // league's own season calendar (start/end vary per league) — only while
-  // the admin hasn't typed a season themselves.
-  function handleDateChange(value: string) {
-    setDate(value);
-    if (season || !selectedLeague || !value) return;
-    const matchingSeason = selectedLeague.seasons.find((s) => value >= s.startDate && value <= s.endDate);
-    if (matchingSeason) setSeason(matchingSeason.year);
-  }
 
   const matchingWorkspace = selectedLeague && season ? workspaces.find((w) => w.externalLeagueId === selectedLeague.externalLeagueId && w.season === season) : null;
 
@@ -79,7 +65,7 @@ export function CompetitionMode({
         </Button>
       </div>
 
-      {searchBy === "competition" && !selectedLeague && <LeagueSelect leagues={leagues} onSelect={setSelectedLeague} />}
+      {searchBy === "competition" && !selectedLeague && <LeagueSelect onSelect={setSelectedLeague} />}
       {searchBy === "team" && !selectedTeam && <TeamSearch onSelect={setSelectedTeam} />}
 
       {selectedLeague && (
@@ -110,7 +96,7 @@ export function CompetitionMode({
                     <Label>League</Label>
                     <p className="flex items-center gap-2 text-sm">
                       <span className="font-medium text-text-primary">{selectedLeague.name}</span>
-                      <span className="text-text-secondary">{selectedLeague.countryName ? `(${selectedLeague.countryName})` : ""}</span>
+                      <span className="text-text-secondary">{selectedLeague.country ? `(${selectedLeague.country})` : ""}</span>
                       <button type="button" onClick={() => setSelectedLeague(null)} className="text-xs text-accent-primary underline underline-offset-4">
                         Change
                       </button>
@@ -122,7 +108,7 @@ export function CompetitionMode({
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="date">Date (optional)</Label>
-                    <Input id="date" name="date" type="date" className="w-40" value={date} onChange={(e) => handleDateChange(e.target.value)} />
+                    <Input id="date" name="date" type="date" className="w-40" value={date} onChange={(e) => setDate(e.target.value)} />
                   </div>
                 </>
               )

@@ -1,0 +1,11 @@
+-- provider_request_log (20260101000008_fixtures.sql) was created with only
+-- an admin-read RLS policy for `authenticated` — no explicit table grant
+-- was ever given to `service_role`. Supabase's default privileges cover
+-- select/insert/truncate/references/trigger/maintain, but NOT update or
+-- delete, so any server-side code using the admin client to update or
+-- delete a row here (e.g. a future retention job, or a test cleaning up
+-- synthetic data) fails with "permission denied for table
+-- provider_request_log" — silently, since supabase-js doesn't throw on a
+-- returned `.error`. Discovered while adding a circuit-breaker test that
+-- tried to delete a synthetic row it had inserted.
+grant select, insert, update, delete on public.provider_request_log to service_role;

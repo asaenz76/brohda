@@ -18,9 +18,12 @@ import {
 } from "@/lib/fixtures/filters";
 import { DateToolbar, RefreshButton } from "./date-toolbar";
 import { FixtureDateGroups } from "./fixture-date-groups";
+import { COMPETITION_GROUP_LABEL, type CompetitionGroup } from "@/lib/sports-data/supported-competitions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+
+const ALL_GROUPS: CompetitionGroup[] = ["GLOBAL", "COSTA_RICA"];
 
 type Filters = FixtureFilters;
 const defaultFilters = defaultFixtureFilters;
@@ -143,7 +146,7 @@ export function DateMode({
   );
 
   const totalFound = data?.fixtures.length ?? 0;
-  const priorityCount = data?.fixtures.filter((f) => f.isPriority).length ?? 0;
+  const supportedCount = data?.fixtures.filter((f) => f.isSupported).length ?? 0;
   const importedCount = data?.fixtures.filter((f) => f.isImported).length ?? 0;
   const competitionCount = data ? new Set(data.fixtures.map((f) => f.competitionExternalId)).size : 0;
   const visibleCount = visibleFixtureIds.length;
@@ -240,7 +243,7 @@ export function DateMode({
             <>
               <div className="rounded-lg border border-border-subtle p-3 text-xs text-text-secondary">
                 <p>
-                  {totalFound} fixture{totalFound === 1 ? "" : "s"} found · {priorityCount} priority fixture{priorityCount === 1 ? "" : "s"} ·{" "}
+                  {totalFound} fixture{totalFound === 1 ? "" : "s"} found · {supportedCount} supported fixture{supportedCount === 1 ? "" : "s"} ·{" "}
                   {importedCount} already imported · {competitionCount} competition{competitionCount === 1 ? "" : "s"}
                 </p>
                 <p className="mt-0.5 text-text-muted">After filters: {visibleCount} visible fixture{visibleCount === 1 ? "" : "s"}</p>
@@ -256,24 +259,24 @@ export function DateMode({
                   )}
                 </div>
                 <div className="flex gap-1">
-                  {["A", "B", "C"].map((t) => (
+                  {ALL_GROUPS.map((g) => (
                     <button
-                      key={t}
+                      key={g}
                       type="button"
                       onClick={() =>
                         setFilters((f) => {
-                          const next = new Set(f.tiers);
-                          if (next.has(t)) next.delete(t);
-                          else next.add(t);
-                          return { ...f, tiers: next };
+                          const next = new Set(f.groups);
+                          if (next.has(g)) next.delete(g);
+                          else next.add(g);
+                          return { ...f, groups: next };
                         })
                       }
                       className={cn(
                         "rounded-md border px-2 py-1 text-xs font-medium",
-                        filters.tiers.has(t) ? "border-accent-primary bg-accent-primary/10 text-text-primary" : "border-border-subtle text-text-muted",
+                        filters.groups.has(g) ? "border-accent-primary bg-accent-primary/10 text-text-primary" : "border-border-subtle text-text-muted",
                       )}
                     >
-                      Tier {t}
+                      {COMPETITION_GROUP_LABEL[g]}
                     </button>
                   ))}
                 </div>
@@ -299,8 +302,8 @@ export function DateMode({
                   <option value="all">All</option>
                 </select>
                 <label className="flex items-center gap-1.5 text-xs text-text-secondary">
-                  <input type="checkbox" checked={filters.priorityOnly} onChange={(e) => setFilters((f) => ({ ...f, priorityOnly: e.target.checked }))} />
-                  Priority only
+                  <input type="checkbox" checked={filters.includeUnsupported} onChange={(e) => setFilters((f) => ({ ...f, includeUnsupported: e.target.checked }))} />
+                  Include unsupported competitions
                 </label>
                 <label className="flex items-center gap-1.5 text-xs text-text-secondary">
                   <input type="checkbox" checked={filters.hasOddsOnly} onChange={(e) => setFilters((f) => ({ ...f, hasOddsOnly: e.target.checked }))} />

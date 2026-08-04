@@ -15,4 +15,5 @@ export const OPERATIONAL_STATUS_BADGE_CLASS: Record<string, string> = {
   COMPLETED: "bg-surface-secondary text-text-muted",
   ARCHIVED: "bg-surface-secondary text-text-muted",
   NEEDS_ATTENTION: "bg-warning-muted/20 text-warning-muted",
+  UNSUPPORTED: "bg-surface-secondary text-text-muted",
 };

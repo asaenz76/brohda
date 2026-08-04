@@ -20,8 +20,8 @@ function fixture(overrides: Partial<EnrichedFixture>): EnrichedFixture {
     venueName: null,
     isImported: false,
     importedFixtureId: null,
-    isPriority: true,
-    tier: "A",
+    isSupported: true,
+    group: "GLOBAL",
     hasWorkspace: false,
     hasOdds: null,
     classification: { isFriendly: false, isYouth: false, isReserve: false },
@@ -58,46 +58,45 @@ describe("groupAndSortFixtures", () => {
     expect(groups[0].competitions[0].fixtures.map((f) => f.externalFixtureId)).toEqual(["2", "1"]);
   });
 
-  it("orders competition groups by tier: A before B before C before untiered", () => {
+  it("orders competition groups by group: Global before Costa Rica before unsupported", () => {
     const groups = groupAndSortFixtures([
-      fixture({ externalFixtureId: "1", competitionExternalId: "1", competitionName: "Untiered", tier: null, isPriority: false }),
-      fixture({ externalFixtureId: "2", competitionExternalId: "2", competitionName: "TierC", tier: "C" }),
-      fixture({ externalFixtureId: "3", competitionExternalId: "3", competitionName: "TierB", tier: "B" }),
-      fixture({ externalFixtureId: "4", competitionExternalId: "4", competitionName: "TierA", tier: "A" }),
+      fixture({ externalFixtureId: "1", competitionExternalId: "1", competitionName: "Unsupported", group: null, isSupported: false }),
+      fixture({ externalFixtureId: "2", competitionExternalId: "2", competitionName: "CostaRica", group: "COSTA_RICA" }),
+      fixture({ externalFixtureId: "3", competitionExternalId: "3", competitionName: "Global", group: "GLOBAL" }),
     ]);
-    expect(groups[0].competitions.map((c) => c.competitionName)).toEqual(["TierA", "TierB", "TierC", "Untiered"]);
+    expect(groups[0].competitions.map((c) => c.competitionName)).toEqual(["Global", "CostaRica", "Unsupported"]);
   });
 
-  it("within the same tier, an imported Workspace competition sorts before one without", () => {
+  it("within the same group, an imported Workspace competition sorts before one without", () => {
     const groups = groupAndSortFixtures([
-      fixture({ externalFixtureId: "1", competitionExternalId: "1", competitionName: "NoWorkspace", tier: "A", hasWorkspace: false }),
-      fixture({ externalFixtureId: "2", competitionExternalId: "2", competitionName: "HasWorkspace", tier: "A", hasWorkspace: true }),
+      fixture({ externalFixtureId: "1", competitionExternalId: "1", competitionName: "NoWorkspace", group: "GLOBAL", hasWorkspace: false }),
+      fixture({ externalFixtureId: "2", competitionExternalId: "2", competitionName: "HasWorkspace", group: "GLOBAL", hasWorkspace: true }),
     ]);
     expect(groups[0].competitions.map((c) => c.competitionName)).toEqual(["HasWorkspace", "NoWorkspace"]);
   });
 
-  it("within the same tier and workspace status, odds-available sorts before odds-unavailable/unknown", () => {
+  it("within the same group and workspace status, odds-available sorts before odds-unavailable/unknown", () => {
     const groups = groupAndSortFixtures([
-      fixture({ externalFixtureId: "1", competitionExternalId: "1", competitionName: "NoOdds", tier: "A", hasWorkspace: false, hasOdds: null }),
-      fixture({ externalFixtureId: "2", competitionExternalId: "2", competitionName: "HasOdds", tier: "A", hasWorkspace: false, hasOdds: true }),
+      fixture({ externalFixtureId: "1", competitionExternalId: "1", competitionName: "NoOdds", group: "GLOBAL", hasWorkspace: false, hasOdds: null }),
+      fixture({ externalFixtureId: "2", competitionExternalId: "2", competitionName: "HasOdds", group: "GLOBAL", hasWorkspace: false, hasOdds: true }),
     ]);
     expect(groups[0].competitions.map((c) => c.competitionName)).toEqual(["HasOdds", "NoOdds"]);
   });
 
-  it("falls back to alphabetical competition name within the same tier/workspace/odds standing", () => {
+  it("falls back to alphabetical competition name within the same group/workspace/odds standing", () => {
     const groups = groupAndSortFixtures([
-      fixture({ externalFixtureId: "1", competitionExternalId: "1", competitionName: "Zeta League", tier: "A" }),
-      fixture({ externalFixtureId: "2", competitionExternalId: "2", competitionName: "Alpha League", tier: "A" }),
+      fixture({ externalFixtureId: "1", competitionExternalId: "1", competitionName: "Zeta League", group: "GLOBAL" }),
+      fixture({ externalFixtureId: "2", competitionExternalId: "2", competitionName: "Alpha League", group: "GLOBAL" }),
     ]);
     expect(groups[0].competitions.map((c) => c.competitionName)).toEqual(["Alpha League", "Zeta League"]);
   });
 
   it("never leaves the result in raw input order when it doesn't already match the sort", () => {
     const groups = groupAndSortFixtures([
-      fixture({ externalFixtureId: "3", competitionExternalId: "3", competitionName: "TierC", tier: "C", localDateKey: "2026-08-04" }),
-      fixture({ externalFixtureId: "1", competitionExternalId: "1", competitionName: "TierA", tier: "A", localDateKey: "2026-08-04" }),
-      fixture({ externalFixtureId: "2", competitionExternalId: "2", competitionName: "TierB", tier: "B", localDateKey: "2026-08-04" }),
+      fixture({ externalFixtureId: "3", competitionExternalId: "3", competitionName: "Unsupported", group: null, isSupported: false, localDateKey: "2026-08-04" }),
+      fixture({ externalFixtureId: "1", competitionExternalId: "1", competitionName: "Global", group: "GLOBAL", localDateKey: "2026-08-04" }),
+      fixture({ externalFixtureId: "2", competitionExternalId: "2", competitionName: "CostaRica", group: "COSTA_RICA", localDateKey: "2026-08-04" }),
     ]);
-    expect(groups[0].competitions.map((c) => c.competitionName)).toEqual(["TierA", "TierB", "TierC"]);
+    expect(groups[0].competitions.map((c) => c.competitionName)).toEqual(["Global", "CostaRica", "Unsupported"]);
   });
 });

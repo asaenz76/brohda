@@ -1,6 +1,6 @@
 import { listByCategory } from "@/lib/pools/templates/registry";
 import { getQuestionFamily, type QuestionFamily } from "@/lib/pools/templates/families";
-import { getPriorityLeagueMap, type LeagueTier } from "@/lib/sports-data/priority-leagues";
+import { getSupportedCompetitionGroup, type CompetitionGroup } from "@/lib/sports-data/supported-competitions";
 
 export interface FixtureOption {
   id: string;
@@ -32,12 +32,11 @@ export interface FixtureOption {
 export interface CompetitionOption {
   key: string;
   label: string;
-  tier: LeagueTier | null;
+  group: CompetitionGroup | null;
   fixtureCount: number;
 }
 
 export function buildCompetitionOptions(fixtures: FixtureOption[]): CompetitionOption[] {
-  const priorityMap = getPriorityLeagueMap();
   const byKey = new Map<string, CompetitionOption>();
   for (const f of fixtures) {
     if (!f.competitionKey) continue;
@@ -52,7 +51,7 @@ export function buildCompetitionOptions(fixtures: FixtureOption[]): CompetitionO
     byKey.set(f.competitionKey, {
       key: f.competitionKey,
       label: f.league ?? "Unknown competition",
-      tier: priorityMap.get(externalLeagueId)?.tier ?? null,
+      group: getSupportedCompetitionGroup(externalLeagueId),
       fixtureCount: 1,
     });
   }

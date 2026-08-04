@@ -9,6 +9,7 @@ import {
 
 function baseInput(overrides: Partial<CompetitionStatusInput> = {}): CompetitionStatusInput {
   return {
+    isSupported: true,
     importStatus: "IMPORTED",
     syncStatus: "IDLE",
     isActive: true,
@@ -35,6 +36,23 @@ describe("importStatusBadge", () => {
     expect(importStatusBadge({ importStatus: "IMPORTING" })).toBe("IMPORTING");
     expect(importStatusBadge({ importStatus: "IMPORTED" })).toBe("IMPORTED");
     expect(importStatusBadge({ importStatus: "IMPORT_FAILED" })).toBe("IMPORT_FAILED");
+  });
+});
+
+describe("computeOperationalStatus — UNSUPPORTED", () => {
+  it("returns UNSUPPORTED for an imported competition no longer in SUPPORTED_COMPETITIONS", () => {
+    expect(computeOperationalStatus(baseInput({ isSupported: false }))).toBe("UNSUPPORTED");
+  });
+
+  it("UNSUPPORTED takes precedence even over Archived — data stays intact but its state is unambiguous either way", () => {
+    expect(computeOperationalStatus(baseInput({ isSupported: false, isActive: false }))).toBe("UNSUPPORTED");
+  });
+
+  it("never flags any needs-attention reason for an unsupported competition, regardless of stale sync/mismatch data", () => {
+    const details = getNeedsAttentionDetails(
+      baseInput({ isSupported: false, syncStatus: "FAILED", providerFixtureCount: 999, fixtureCountImported: 0 }),
+    );
+    expect(details).toEqual([]);
   });
 });
 

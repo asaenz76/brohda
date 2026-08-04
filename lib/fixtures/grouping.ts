@@ -1,16 +1,21 @@
 // Pure grouping/sorting for the date-first fixture discovery results —
 // no DB/network here, so the exact ordering rules are unit-testable
 // against a plain array of already-enriched fixtures.
-import type { LeagueTier } from "@/lib/sports-data/priority-leagues";
+import { compareCompetitionGroup, type CompetitionGroup } from "@/lib/sports-data/supported-competitions";
 import type { EnrichedFixture } from "./discovery";
 
-export interface CompetitionGroup {
+// Named distinctly from the imported CompetitionGroup (Global/Costa Rica
+// classification) — this is a display grouping bucket (one competition's
+// fixtures on one date), a different concept that happens to share a
+// generic name.
+export interface FixtureCompetitionGroup {
   key: string;
   competitionExternalId: string | null;
   competitionName: string | null;
   competitionCountry: string | null;
   season: string | null;
-  tier: LeagueTier | null;
+  group: CompetitionGroup | null;
+  isSupported: boolean;
   hasWorkspace: boolean;
   hasOdds: boolean | null;
   fixtures: EnrichedFixture[];
@@ -18,23 +23,23 @@ export interface CompetitionGroup {
 
 export interface DateGroup {
   localDateKey: string; // YYYY-MM-DD
-  competitions: CompetitionGroup[];
+  competitions: FixtureCompetitionGroup[];
 }
 
-const TIER_RANK: Record<LeagueTier, number> = { A: 0, B: 1, C: 2 };
-const UNTIERED_RANK = 3;
+const UNSUPPORTED_RANK = 2; // after both real groups (GLOBAL=0, COSTA_RICA=1 via compareCompetitionGroup)
 
-function tierRank(tier: LeagueTier | null): number {
-  return tier ? TIER_RANK[tier] : UNTIERED_RANK;
+function groupRank(group: CompetitionGroup | null): number {
+  if (!group) return UNSUPPORTED_RANK;
+  return group === "GLOBAL" ? 0 : 1;
 }
 
-function compareCompetitionGroups(a: CompetitionGroup, b: CompetitionGroup): number {
-  const tierDiff = tierRank(a.tier) - tierRank(b.tier);
-  if (tierDiff !== 0) return tierDiff;
+function compareFixtureCompetitionGroups(a: FixtureCompetitionGroup, b: FixtureCompetitionGroup): number {
+  const groupDiff = a.group && b.group ? compareCompetitionGroup(a.group, b.group) : groupRank(a.group) - groupRank(b.group);
+  if (groupDiff !== 0) return groupDiff;
 
-  // Within the same tier: an already-managed Competition Workspace first,
-  // then confirmed odds availability, then alphabetical — matches the
-  // spec's explicit within-tier ordering exactly.
+  // Within the same group: an already-managed Competition Workspace
+  // first, then confirmed odds availability, then alphabetical — matches
+  // the spec's explicit within-group ordering exactly.
   const workspaceDiff = Number(b.hasWorkspace) - Number(a.hasWorkspace);
   if (workspaceDiff !== 0) return workspaceDiff;
 
@@ -46,10 +51,11 @@ function compareCompetitionGroups(a: CompetitionGroup, b: CompetitionGroup): num
 
 /**
  * Groups by local event date (ascending, YYYY-MM-DD sorts correctly as a
- * plain string), then by competition within each date per the tier/
- * workspace/odds/alphabetical order above, then by kickoff time ascending
- * within each competition. Never leaves the result in raw provider-
- * response order.
+ * plain string), then by competition within each date per the group/
+ * workspace/odds/alphabetical order above (Global, then Costa Rica, then
+ * any unsupported competitions visible via the "Include unsupported"
+ * toggle, last), then by kickoff time ascending within each competition.
+ * Never leaves the result in raw provider-response order.
  */
 export function groupAndSortFixtures(fixtures: EnrichedFixture[]): DateGroup[] {
   const byDate = new Map<string, EnrichedFixture[]>();
@@ -69,7 +75,7 @@ export function groupAndSortFixtures(fixtures: EnrichedFixture[]): DateGroup[] {
       byCompetition.set(key, list);
     }
 
-    const competitions: CompetitionGroup[] = [...byCompetition.entries()]
+    const competitions: FixtureCompetitionGroup[] = [...byCompetition.entries()]
       .map(([key, groupFixtures]) => {
         const first = groupFixtures[0];
         return {
@@ -78,13 +84,14 @@ export function groupAndSortFixtures(fixtures: EnrichedFixture[]): DateGroup[] {
           competitionName: first.competitionName,
           competitionCountry: first.competitionCountry,
           season: first.season,
-          tier: first.tier,
+          group: first.group,
+          isSupported: first.isSupported,
           hasWorkspace: first.hasWorkspace,
           hasOdds: first.hasOdds,
           fixtures: [...groupFixtures].sort((a, b) => a.scheduledStartUtc.localeCompare(b.scheduledStartUtc)),
         };
       })
-      .sort(compareCompetitionGroups);
+      .sort(compareFixtureCompetitionGroups);
 
     return { localDateKey, competitions };
   });

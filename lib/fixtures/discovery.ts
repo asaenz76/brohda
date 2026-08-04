@@ -1,7 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { SportsDataProvider, NormalizedFixture } from "@/lib/sports-data/types";
-import { getPriorityLeagueMap, type LeagueTier } from "@/lib/sports-data/priority-leagues";
+import { getSupportedCompetitionMap, type CompetitionGroup } from "@/lib/sports-data/supported-competitions";
 import { classifyCompetition, type CompetitionClassification } from "./competition-classification";
 import { getCachedFixtureSearch, setCachedFixtureSearch } from "./cache";
 import { isWithinDateWindow, localDateKeyFor, type FixtureDateWindow } from "./date-window";
@@ -31,8 +31,8 @@ export interface EnrichedFixture {
   venueName: string | null;
   isImported: boolean;
   importedFixtureId: string | null;
-  isPriority: boolean;
-  tier: LeagueTier | null;
+  isSupported: boolean;
+  group: CompetitionGroup | null;
   hasWorkspace: boolean;
   // null = unknown (not determinable without a per-fixture/per-competition
   // provider fan-out this workflow deliberately avoids) — only ever a real
@@ -50,7 +50,7 @@ export interface EnrichedFixture {
  * required. */
 export async function enrichFixtures(fixtures: NormalizedFixture[], timeZone: string): Promise<EnrichedFixture[]> {
   const adminClient = createAdminClient();
-  const priorityMap = getPriorityLeagueMap();
+  const supportedMap = getSupportedCompetitionMap();
 
   const externalFixtureIds = [...new Set(fixtures.map((f) => f.externalFixtureId))];
   const importedByExternalId = new Map<string, string>(); // externalFixtureId -> our fixtures.id
@@ -76,7 +76,7 @@ export async function enrichFixtures(fixtures: NormalizedFixture[], timeZone: st
   }
 
   return fixtures.map((f): EnrichedFixture => {
-    const priority = f.competitionExternalId ? priorityMap.get(f.competitionExternalId) : undefined;
+    const supported = f.competitionExternalId ? supportedMap.get(f.competitionExternalId) : undefined;
     const workspaces = f.competitionExternalId ? (workspaceByCompetition.get(f.competitionExternalId) ?? []) : [];
     const matchingWorkspace = workspaces.find((w) => w.season === f.season);
     const importedFixtureId = importedByExternalId.get(f.externalFixtureId) ?? null;
@@ -102,8 +102,8 @@ export async function enrichFixtures(fixtures: NormalizedFixture[], timeZone: st
       venueName: f.venueName,
       isImported: importedFixtureId != null,
       importedFixtureId,
-      isPriority: priority != null,
-      tier: priority?.tier ?? null,
+      isSupported: supported != null,
+      group: supported?.group ?? null,
       hasWorkspace: matchingWorkspace != null,
       hasOdds,
       classification: classifyCompetition(f.competitionName, [f.homeTeamName, f.awayTeamName]),
@@ -127,6 +127,23 @@ export interface FixtureDiscoveryResult {
  * an empty `fixtures` array with no explanation — callers (the UI) must
  * render those two outcomes differently (see the distinct empty states
  * in the Fixtures page).
+ *
+ * Deliberately still one `date=X` request per UTC calendar date across
+ * every league that day, not one `league=X&date=Y` request per supported
+ * competition per day. Verified against API-Football v3's documented
+ * `/fixtures` parameters before this architecture pass: `league` accepts
+ * a single integer ID — there is no multi-league / league-list filter on
+ * this endpoint. Querying per supported competition would mean (~16
+ * competitions × up to 31 days =) up to ~500 calls for a month-long
+ * range; the current per-day strategy is already the cheaper one (≤32
+ * calls for the same range, regardless of how many competitions exist)
+ * — switching to per-league queries would make quota usage *worse*, not
+ * better. What this pass changes instead: enrichFixtures now stamps
+ * isSupported/group from SUPPORTED_COMPETITIONS, and the caller (see
+ * lib/fixtures/filters.ts) filters unsupported results out by default —
+ * "immediately filter provider results against SUPPORTED_COMPETITIONS"
+ * happens after the minimum-necessary fetch, not via a differently
+ * shaped (and more expensive) request.
  */
 export async function searchFixturesForDateWindow(
   provider: SportsDataProvider,

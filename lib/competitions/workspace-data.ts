@@ -1,9 +1,8 @@
 import "server-only";
 import { cache } from "react";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { apiFootballProvider } from "@/lib/sports-data/api-football-provider";
 import { TERMINAL_STATUSES } from "@/lib/sports-data/status-map";
-import { getPriorityLeagueMap, type LeagueTier } from "@/lib/sports-data/priority-leagues";
+import { getSupportedCompetitionGroup, isSupportedCompetition, type CompetitionGroup } from "@/lib/sports-data/supported-competitions";
 import {
   computeOperationalStatus,
   getNeedsAttentionDetails,
@@ -41,7 +40,8 @@ export interface CompetitionWorkspaceData {
   logoUrl: string | null;
   countryName: string | null;
   type: string | null;
-  tier: LeagueTier | null;
+  group: CompetitionGroup | null;
+  isSupported: boolean;
   importStatus: ImportStatusBadge;
   operationalStatus: OperationalStatus | null;
   needsAttentionReasons: NeedsAttentionReason[];
@@ -79,7 +79,7 @@ export const getCompetitionWorkspaceData = cache(async (id: string): Promise<Com
 
   const { data: league } = await adminClient.from("leagues").select("name, logo_url").eq("id", lsi.league_id).maybeSingle();
 
-  const [{ data: fixtureRows }, { data: jobRows }] = await Promise.all([
+  const [{ data: fixtureRows }, { data: jobRows }, { data: availabilityCacheRow }] = await Promise.all([
     adminClient
       .from("fixtures")
       .select("scheduled_start_utc, internal_status")
@@ -91,6 +91,12 @@ export const getCompetitionWorkspaceData = cache(async (id: string): Promise<Com
       .select("*")
       .eq("league_season_import_id", id)
       .order("created_at", { ascending: false }),
+    // Read-only: whether this is still the provider's current season
+    // comes from the availability cache (populated by an explicit
+    // refresh/sync, never here) rather than a live getLeagueById call on
+    // every Workspace page view — this page render must never itself
+    // spend provider quota.
+    adminClient.from("competition_availability_cache").select("season").eq("external_league_id", lsi.external_league_id).maybeSingle(),
   ]);
 
   const jobIds = (jobRows ?? []).map((j) => j.id);
@@ -133,17 +139,14 @@ export const getCompetitionWorkspaceData = cache(async (id: string): Promise<Com
     TERMINAL_STATUSES,
   ).get(`${lsi.external_league_id}:${lsi.season}`);
 
-  let isLatestKnownSeason = true;
-  if (apiFootballProvider.isEnabled()) {
-    const liveLeague = await apiFootballProvider.getLeagueById(lsi.external_league_id).catch(() => null);
-    const currentSeason = liveLeague?.seasons.find((s) => s.current);
-    if (currentSeason) isLatestKnownSeason = currentSeason.year === lsi.season;
-  }
-
-  const priorityMap = getPriorityLeagueMap();
-  const tier = priorityMap.get(lsi.external_league_id)?.tier ?? null;
+  // No cache row yet means "never checked" — treated as latest-known
+  // rather than flagging NEWER_SEASON_AVAILABLE on a competition that's
+  // simply never been through a recommendation-cache refresh.
+  const isLatestKnownSeason = !availabilityCacheRow || availabilityCacheRow.season === lsi.season;
+  const isSupported = isSupportedCompetition(lsi.external_league_id);
 
   const statusInput = {
+    isSupported,
     importStatus: lsi.import_status,
     syncStatus: lsi.sync_status,
     isActive: lsi.is_active,
@@ -169,7 +172,8 @@ export const getCompetitionWorkspaceData = cache(async (id: string): Promise<Com
     logoUrl: league?.logo_url ?? null,
     countryName: null,
     type: null,
-    tier,
+    group: getSupportedCompetitionGroup(lsi.external_league_id),
+    isSupported,
     importStatus: importStatusBadge({ importStatus: lsi.import_status }),
     operationalStatus: computeOperationalStatus(statusInput),
     needsAttentionReasons: getNeedsAttentionReasons(statusInput),

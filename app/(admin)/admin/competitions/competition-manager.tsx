@@ -14,6 +14,7 @@ import type { CompetitionRow } from "@/lib/competitions/manager-data";
 import { NEEDS_ATTENTION_LABEL, OPERATIONAL_STATUS_LABEL } from "@/lib/competitions/status";
 import { IMPORT_STATUS_BADGE_CLASS, OPERATIONAL_STATUS_BADGE_CLASS } from "@/lib/competitions/badge-classes";
 import { RECOMMENDATION_WINDOW_DAYS } from "@/lib/competitions/constants";
+import { COMPETITION_GROUP_LABEL, type CompetitionGroup } from "@/lib/sports-data/supported-competitions";
 import { AllCompetitionsTab } from "./all-competitions-tab";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +22,8 @@ import { cn } from "@/lib/utils";
 
 const TABS = ["Recommended", "Imported", "Needs attention", "All competitions"] as const;
 type Tab = (typeof TABS)[number];
+
+const ALL_GROUPS: CompetitionGroup[] = ["GLOBAL", "COSTA_RICA"];
 
 function Badge({ label, className }: { label: string; className?: string }) {
   return <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium", className)}>{label}</span>;
@@ -37,25 +40,21 @@ function formatRelative(iso: string | null): string {
 
 interface Filters {
   search: string;
-  tiers: Set<string>;
-  country: string;
-  type: string;
+  groups: Set<CompetitionGroup>;
   hasUpcoming: boolean;
 }
 
 function defaultFilters(tab: Tab): Filters {
   if (tab === "Recommended") {
-    return { search: "", tiers: new Set(["A", "B"]), country: "", type: "", hasUpcoming: true };
+    return { search: "", groups: new Set(ALL_GROUPS), hasUpcoming: true };
   }
-  return { search: "", tiers: new Set(), country: "", type: "", hasUpcoming: false };
+  return { search: "", groups: new Set(), hasUpcoming: false };
 }
 
 function filterCompetitionRows(rows: CompetitionRow[], filters: Filters): CompetitionRow[] {
   return rows.filter((r) => {
     if (filters.search && !r.name.toLowerCase().includes(filters.search.toLowerCase())) return false;
-    if (filters.tiers.size > 0 && (!r.tier || !filters.tiers.has(r.tier))) return false;
-    if (filters.country && r.countryName !== filters.country) return false;
-    if (filters.type && r.type !== filters.type) return false;
+    if (filters.groups.size > 0 && (!r.group || !filters.groups.has(r.group))) return false;
     if (filters.hasUpcoming && r.operationalStatus !== "ACTIVE") return false;
     return true;
   });
@@ -82,12 +81,12 @@ export function CompetitionManager({ initialData }: { initialData: CompetitionMa
     });
   }
 
-  function toggleTier(t: string) {
+  function toggleGroup(g: CompetitionGroup) {
     setFilters((f) => {
-      const next = new Set(f.tiers);
-      if (next.has(t)) next.delete(t);
-      else next.add(t);
-      return { ...f, tiers: next };
+      const next = new Set(f.groups);
+      if (next.has(g)) next.delete(g);
+      else next.add(g);
+      return { ...f, groups: next };
     });
   }
 
@@ -99,18 +98,15 @@ export function CompetitionManager({ initialData }: { initialData: CompetitionMa
   const [nowMs] = useState(() => Date.now());
 
   // Whether any filter has been touched away from its tab default — drives
-  // which of the 4 distinct empty-state messages the Recommended tab shows
+  // which of the distinct empty-state messages the Recommended tab shows
   // (an active filter narrowing zero results reads very differently from
   // there genuinely being nothing to recommend).
-  const recommendedFiltersActive =
-    filters.search !== "" || filters.tiers.size !== 2 || filters.country !== "" || filters.type !== "" || !filters.hasUpcoming;
+  const recommendedFiltersActive = filters.search !== "" || filters.groups.size !== ALL_GROUPS.length || !filters.hasUpcoming;
 
   const filteredRecommended = useMemo(() => {
     return data.recommended.filter((r) => {
       if (filters.search && !r.name.toLowerCase().includes(filters.search.toLowerCase())) return false;
-      if (filters.tiers.size > 0 && !filters.tiers.has(r.tier)) return false;
-      if (filters.country && r.countryName !== filters.country) return false;
-      if (filters.type && r.type !== filters.type) return false;
+      if (filters.groups.size > 0 && !filters.groups.has(r.group)) return false;
       if (filters.hasUpcoming && r.nextFixtureAt) {
         const days = (new Date(r.nextFixtureAt).getTime() - nowMs) / 86_400_000;
         if (days > RECOMMENDATION_WINDOW_DAYS) return false;
@@ -126,7 +122,7 @@ export function CompetitionManager({ initialData }: { initialData: CompetitionMa
       const result = await refreshRecommendationsNowAction();
       setMessage(
         result.success
-          ? `Checked ${result.checked} priority competition(s), refreshed ${result.refreshed}${result.errors > 0 ? `, ${result.errors} failed` : ""}.`
+          ? `Checked ${result.checked} supported competition(s), refreshed ${result.refreshed}${result.errors > 0 ? `, ${result.errors} failed` : ""}.`
           : result.error,
       );
       setRefreshing(false);
@@ -168,13 +164,6 @@ export function CompetitionManager({ initialData }: { initialData: CompetitionMa
     });
   }
 
-  const countries = useMemo(() => {
-    const set = new Set<string>();
-    for (const r of data.recommended) if (r.countryName) set.add(r.countryName);
-    for (const r of data.imported) if (r.countryName) set.add(r.countryName);
-    return [...set].sort();
-  }, [data]);
-
   return (
     <div className="space-y-4">
       <div className="flex gap-1 border-b border-border-subtle">
@@ -200,19 +189,6 @@ export function CompetitionManager({ initialData }: { initialData: CompetitionMa
 
       {message && <p className="text-xs text-text-secondary">{message}</p>}
 
-      {data.catalogError && (
-        <div className="rounded-lg border border-danger/40 bg-danger/5 p-3 text-sm">
-          <p className="font-medium text-danger">The competition catalog could not be loaded.</p>
-          <p className="mt-0.5 text-xs text-text-muted">{data.catalogError}</p>
-          <p className="mt-1 text-xs text-text-muted">
-            Already-imported competitions and Needs attention are unaffected — only browsing new competitions to import is degraded.
-          </p>
-          <Button type="button" size="sm" variant="outline" className="mt-2" disabled={pending} onClick={refresh}>
-            {pending ? "Retrying…" : "Retry"}
-          </Button>
-        </div>
-      )}
-
       {tab !== "All competitions" && (
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative">
@@ -234,32 +210,20 @@ export function CompetitionManager({ initialData }: { initialData: CompetitionMa
             )}
           </div>
           <div className="flex gap-1">
-            {["A", "B", "C"].map((t) => (
+            {ALL_GROUPS.map((g) => (
               <button
-                key={t}
+                key={g}
                 type="button"
-                onClick={() => toggleTier(t)}
+                onClick={() => toggleGroup(g)}
                 className={cn(
                   "rounded-md border px-2 py-1 text-xs font-medium",
-                  filters.tiers.has(t) ? "border-accent-primary bg-accent-primary/10 text-text-primary" : "border-border-subtle text-text-muted",
+                  filters.groups.has(g) ? "border-accent-primary bg-accent-primary/10 text-text-primary" : "border-border-subtle text-text-muted",
                 )}
               >
-                Tier {t}
+                {COMPETITION_GROUP_LABEL[g]}
               </button>
             ))}
           </div>
-          <select
-            value={filters.country}
-            onChange={(e) => setFilters((f) => ({ ...f, country: e.target.value }))}
-            className="h-8 rounded-md border border-border-subtle bg-transparent px-2 text-xs"
-          >
-            <option value="">All countries</option>
-            {countries.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
           <label className="flex items-center gap-1.5 text-xs text-text-secondary">
             <input
               type="checkbox"
@@ -343,9 +307,9 @@ export function CompetitionManager({ initialData }: { initialData: CompetitionMa
                   ? "Recommendations have not been refreshed yet."
                   : recommendedFiltersActive
                     ? "No recommended competitions match these filters."
-                    : data.priorityLeaguesEligible > 0 && data.priorityLeaguesAlreadyImported === data.priorityLeaguesEligible
+                    : data.supportedCompetitionsEligible > 0 && data.supportedCompetitionsAlreadyImported === data.supportedCompetitionsEligible
                       ? "All currently recommended competitions have already been imported."
-                      : "No priority competitions are currently ready to import."}
+                      : "No supported competitions are currently ready to import."}
               </p>
             )}
           </div>
@@ -355,7 +319,7 @@ export function CompetitionManager({ initialData }: { initialData: CompetitionMa
       {tab === "Imported" && <CompetitionRowsList rows={filteredImported} onRetry={runRetry} pending={pending} />}
       {tab === "Needs attention" && <CompetitionRowsList rows={filteredNeedsAttention} onRetry={runRetry} pending={pending} showReasons />}
 
-      {tab === "All competitions" && <AllCompetitionsTab data={data} importPending={pending} onImport={runImport} />}
+      {tab === "All competitions" && <AllCompetitionsTab data={data} importPending={pending} onImport={refresh} setMessage={setMessage} />}
     </div>
   );
 }
@@ -381,7 +345,7 @@ function RecommendedRow({
           <p className="text-sm font-medium text-text-primary">
             {competition.name}{" "}
             <span className="text-xs font-normal text-text-muted">
-              {competition.countryName ? `— ${competition.countryName}` : ""} · Tier {competition.tier}
+              — {competition.countryName} · {COMPETITION_GROUP_LABEL[competition.group]}
             </span>
           </p>
           <p className="text-xs text-text-muted">
@@ -420,13 +384,16 @@ function CompetitionRowsList({
               {row.name}
             </Link>{" "}
             <span className="text-xs text-text-muted">
-              {row.countryName ? `— ${row.countryName}` : ""} {row.tier ? `· Tier ${row.tier}` : ""} · Season {row.season} · League ID{" "}
-              {row.externalLeagueId}
+              {row.countryName ? `— ${row.countryName}` : ""} {row.group ? `· ${COMPETITION_GROUP_LABEL[row.group]}` : ""} · Season {row.season} ·
+              League ID {row.externalLeagueId}
             </span>
             <p className="text-xs text-text-muted">
               {row.fixtureCountImported} fixture(s) imported · Next {formatRelative(row.nextFixtureAt)} · Last synced{" "}
               {formatRelative(row.lastSyncedAt)}
             </p>
+            {!row.isSupported && (
+              <p className="text-xs text-text-muted">This competition is no longer supported — its data is kept, but it&apos;s never synchronized.</p>
+            )}
             {showReasons && row.needsAttentionReasons.length > 0 && (
               <p className="text-xs text-warning-muted">{row.needsAttentionReasons.map((r) => NEEDS_ATTENTION_LABEL[r]).join(" · ")}</p>
             )}
