@@ -310,4 +310,24 @@ export interface SportsDataProvider {
   // from searchFixtures' league+season branch, which deliberately narrows
   // to upcoming-only for the existing by-league manual browse/import flow.
   getSeasonFixtures(externalLeagueId: string, season: string): Promise<NormalizedFixture[]>;
+  // Every fixture across every competition on the given UTC calendar
+  // dates — backs the date-first fixture discovery workflow
+  // (app/(admin)/admin/fixtures, mode=date). fromDate/toDate are plain
+  // UTC calendar dates (YYYY-MM-DD), inclusive — this method is
+  // deliberately timezone-agnostic; converting an admin's local date
+  // range (e.g. "Today" in America/Costa_Rica) into the UTC calendar
+  // dates that need querying is the caller's job (see
+  // lib/fixtures/date-window.ts's resolveFixtureDateWindow), not this
+  // layer's. One provider request per calendar date (API-Football's
+  // `date` filter has no native range form), merged and de-duplicated by
+  // externalFixtureId before returning. An optional competitionExternalId
+  // narrows the request itself (adds `league=X` to every per-date call)
+  // rather than over-fetching every competition and filtering
+  // client-side — this is what makes it a genuinely provider-backed
+  // filter, not a local one, and why it belongs in the search's cache key.
+  searchFixturesByDateRange(params: {
+    fromDate: string;
+    toDate: string;
+    competitionExternalId?: string;
+  }): Promise<NormalizedFixture[]>;
 }

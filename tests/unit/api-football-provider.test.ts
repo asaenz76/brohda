@@ -484,4 +484,97 @@ describe("ApiFootballProvider", () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
   });
+
+  describe("searchFixturesByDateRange", () => {
+    it("requests one bare `date=` call per UTC calendar date in the range, no league/season/from/to", async () => {
+      // A fresh Response per call — a Response body can only be read once,
+      // and this test drives 3 real fetch calls (mockResolvedValue would
+      // reuse one already-consumed Response instance across all of them).
+      const fetchMock = vi.fn().mockImplementation(() => new Response(JSON.stringify(SAMPLE_RESPONSE), { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const provider = new ApiFootballProvider();
+      await provider.searchFixturesByDateRange({ fromDate: "2026-08-04", toDate: "2026-08-06" });
+
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      const dates = fetchMock.mock.calls.map((call) => new URL(call[0] as string).searchParams.get("date"));
+      expect(dates).toEqual(["2026-08-04", "2026-08-05", "2026-08-06"]);
+      for (const call of fetchMock.mock.calls) {
+        const url = new URL(call[0] as string);
+        expect(url.searchParams.has("league")).toBe(false);
+        expect(url.searchParams.has("season")).toBe(false);
+        expect(url.searchParams.has("from")).toBe(false);
+        expect(url.searchParams.has("to")).toBe(false);
+      }
+    });
+
+    it("makes exactly one call for a single-day range", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(SAMPLE_RESPONSE), { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const provider = new ApiFootballProvider();
+      await provider.searchFixturesByDateRange({ fromDate: "2026-08-04", toDate: "2026-08-04" });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("merges and de-duplicates fixtures appearing in more than one day's response by externalFixtureId", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify(SAMPLE_RESPONSE), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify(SAMPLE_RESPONSE), { status: 200 })); // same fixture id 215662 again
+      vi.stubGlobal("fetch", fetchMock);
+
+      const provider = new ApiFootballProvider();
+      const results = await provider.searchFixturesByDateRange({ fromDate: "2026-08-04", toDate: "2026-08-05" });
+
+      expect(results).toHaveLength(1);
+      expect(results[0].externalFixtureId).toBe("215662");
+    });
+
+    it("adds league=X to every per-date call when a competition filter is given", async () => {
+      const fetchMock = vi.fn().mockImplementation(() => new Response(JSON.stringify(SAMPLE_RESPONSE), { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const provider = new ApiFootballProvider();
+      await provider.searchFixturesByDateRange({ fromDate: "2026-08-04", toDate: "2026-08-05", competitionExternalId: "262" });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      for (const call of fetchMock.mock.calls) {
+        expect(new URL(call[0] as string).searchParams.get("league")).toBe("262");
+      }
+    });
+
+    it("omits league entirely when no competition filter is given", async () => {
+      const fetchMock = vi.fn().mockImplementation(() => new Response(JSON.stringify(SAMPLE_RESPONSE), { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const provider = new ApiFootballProvider();
+      await provider.searchFixturesByDateRange({ fromDate: "2026-08-04", toDate: "2026-08-04" });
+
+      expect(new URL(fetchMock.mock.calls[0][0] as string).searchParams.has("league")).toBe(false);
+    });
+
+    it("propagates a provider failure rather than returning an empty result", async () => {
+      // 400 is a permanent (non-retried) error in fetchWithRetry, so this
+      // fails fast instead of exercising the real exponential-backoff delay.
+      const fetchMock = vi.fn().mockResolvedValue(new Response("bad request", { status: 400 }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const provider = new ApiFootballProvider();
+      await expect(provider.searchFixturesByDateRange({ fromDate: "2026-08-04", toDate: "2026-08-04" })).rejects.toThrow();
+    });
+
+    it("returns an empty result without calling fetch when disabled", async () => {
+      process.env.API_FOOTBALL_ENABLED = "false";
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      const provider = new ApiFootballProvider();
+      const results = await provider.searchFixturesByDateRange({ fromDate: "2026-08-04", toDate: "2026-08-05" });
+
+      expect(results).toEqual([]);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
 });

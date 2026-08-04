@@ -294,6 +294,72 @@ async function callSeasonFixturesEndpoint(externalLeagueId: string, season: stri
   return results;
 }
 
+// A realistic single-day cross-league response is in the hundreds
+// (confirmed by the same "domestic season tops out in the 300s-400s"
+// order of magnitude noted for MAX_SEASON_FIXTURES_RESPONSE) — capping
+// per-day here guards the same "malformed/oversized response" risk
+// without being anywhere close to a real busy football day's true count.
+const MAX_FIXTURES_PER_DATE = 2000;
+
+// Backs searchFixturesByDateRange. One `/fixtures?date=X` request per UTC
+// calendar date in [fromDate, toDate] — sequential, not parallel: a
+// 31-day custom range can mean up to ~32 requests, and API-Football's
+// lower-tier plans rate-limit aggressively (confirmed this session: the
+// free-tier key used for live verification exhausted its *daily* quota
+// well before finishing this feature's testing) — firing them
+// concurrently would only make that worse. `date` (bare, no league) is
+// the documented, long-established way to fetch every fixture across
+// every competition on one day; unlike `from`/`to`, which this provider
+// has only ever used already scoped to a specific league+season (see
+// callSeasonFixturesEndpoint's own comment) and which API-Football's own
+// docs describe as intended for that pairing, not a bare cross-league
+// range — so date-per-day, not from/to, is the query this method builds.
+async function callFixturesByDateRangeEndpoint(
+  fromDate: string,
+  toDate: string,
+  competitionExternalId?: string,
+): Promise<NormalizedFixture[]> {
+  const dates = enumerateUtcCalendarDates(fromDate, toDate);
+  const byExternalId = new Map<string, NormalizedFixture>();
+
+  for (const date of dates) {
+    const url = new URL(`${baseUrl()}/fixtures`);
+    url.searchParams.set("date", date);
+    if (competitionExternalId) url.searchParams.set("league", competitionExternalId);
+
+    const response = await fetchWithRetry(
+      url.toString(),
+      { headers: authHeaders() },
+      {
+        provider: PROVIDER_NAME,
+        requestType: "search_by_date",
+        requestParams: competitionExternalId ? { date, league: competitionExternalId } : { date },
+      },
+    );
+    const body = (await response.json()) as ApiFootballListResponse;
+    const fixtures = (body.response ?? []).map(mapFixture);
+    if (fixtures.length > MAX_FIXTURES_PER_DATE) {
+      throw new Error(
+        `Fixture search for date ${date} exceeded the defensive cap of ${MAX_FIXTURES_PER_DATE} fixtures — aborting rather than importing a possibly-corrupt or oversized response.`,
+      );
+    }
+    for (const fixture of fixtures) byExternalId.set(fixture.externalFixtureId, fixture);
+  }
+
+  return [...byExternalId.values()];
+}
+
+function enumerateUtcCalendarDates(fromDate: string, toDate: string): string[] {
+  const dates: string[] = [];
+  let cursor = Date.parse(`${fromDate}T00:00:00.000Z`);
+  const end = Date.parse(`${toDate}T00:00:00.000Z`);
+  while (cursor <= end) {
+    dates.push(new Date(cursor).toISOString().slice(0, 10));
+    cursor += 86_400_000;
+  }
+  return dates;
+}
+
 function mapLeague(raw: ApiFootballLeagueResponse): NormalizedLeague {
   return {
     provider: PROVIDER_NAME,
@@ -662,6 +728,15 @@ export class ApiFootballProvider implements SportsDataProvider {
   async getSeasonFixtures(externalLeagueId: string, season: string): Promise<NormalizedFixture[]> {
     if (!this.isEnabled()) return [];
     return callSeasonFixturesEndpoint(externalLeagueId, season);
+  }
+
+  async searchFixturesByDateRange(params: {
+    fromDate: string;
+    toDate: string;
+    competitionExternalId?: string;
+  }): Promise<NormalizedFixture[]> {
+    if (!this.isEnabled()) return [];
+    return callFixturesByDateRangeEndpoint(params.fromDate, params.toDate, params.competitionExternalId);
   }
 
   async getFixtureById(externalFixtureId: string): Promise<NormalizedFixture | null> {

@@ -57,9 +57,9 @@ export default async function CompetitionDashboardPage({ params }: { params: Pro
         <p>Pool creation enabled: {data.poolCreationEnabled ? "Yes" : "No"}</p>
       </div>
 
-      <Link href="/admin/fixtures">
+      <Link href={`/admin/fixtures?mode=date&competition=${data.externalLeagueId}&range=7d`}>
         <Button size="sm" variant="outline">
-          View fixtures
+          Browse upcoming fixtures
         </Button>
       </Link>
     </div>
