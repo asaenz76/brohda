@@ -200,6 +200,19 @@ export function CompetitionManager({ initialData }: { initialData: CompetitionMa
 
       {message && <p className="text-xs text-text-secondary">{message}</p>}
 
+      {data.catalogError && (
+        <div className="rounded-lg border border-danger/40 bg-danger/5 p-3 text-sm">
+          <p className="font-medium text-danger">The competition catalog could not be loaded.</p>
+          <p className="mt-0.5 text-xs text-text-muted">{data.catalogError}</p>
+          <p className="mt-1 text-xs text-text-muted">
+            Already-imported competitions and Needs attention are unaffected — only browsing new competitions to import is degraded.
+          </p>
+          <Button type="button" size="sm" variant="outline" className="mt-2" disabled={pending} onClick={refresh}>
+            {pending ? "Retrying…" : "Retry"}
+          </Button>
+        </div>
+      )}
+
       {tab !== "All competitions" && (
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative">

@@ -336,6 +336,12 @@ export interface CompetitionManagerData {
   needsAttention: CompetitionRow[];
   allByCountry: Array<[string, NormalizedLeague[]]>;
   importedExternalLeagueIds: Set<string>; // for badging "All competitions" rows
+  // Set when the live provider catalog fetch failed (e.g. a quota/rate
+  // limit error) — distinct from a catalog that's just genuinely empty.
+  // allByCountry/recommended are still returned (empty/degraded) so the
+  // rest of the page (imported competitions, needs-attention) keeps
+  // working; only the parts that depend on the live catalog degrade.
+  catalogError: string | null;
 }
 
 /**
@@ -350,9 +356,21 @@ export async function getCompetitionManagerDataAction(): Promise<CompetitionMana
   await requireAdminOrAbove();
   const adminClient = createAdminClient();
 
+  let catalogError: string | null = null;
   const [{ data: lsiRows }, catalog, { data: cacheRows }] = await Promise.all([
     adminClient.from("league_season_imports").select("*"),
-    apiFootballProvider.isEnabled() ? apiFootballProvider.searchLeagues("") : Promise.resolve([]),
+    // A page-load-time provider call — must never throw uncaught here, or
+    // the entire Competitions page (imported competitions, needs
+    // attention, everything) goes down with it. A real production
+    // incident: this exact call, unguarded, took down /admin/competitions
+    // with an unhandled ProviderApiError the moment quota exhaustion
+    // started throwing instead of silently returning empty.
+    apiFootballProvider.isEnabled()
+      ? apiFootballProvider.searchLeagues("").catch((err) => {
+          catalogError = err instanceof Error ? err.message : "The provider catalog could not be loaded.";
+          return [] as NormalizedLeague[];
+        })
+      : Promise.resolve([]),
     adminClient
       .from("competition_availability_cache")
       .select("external_league_id, season, upcoming_fixture_count, next_fixture_at, checked_at"),
@@ -489,6 +507,7 @@ export async function getCompetitionManagerDataAction(): Promise<CompetitionMana
     needsAttention: importedRows.filter((r) => r.operationalStatus === "NEEDS_ATTENTION"),
     allByCountry,
     importedExternalLeagueIds,
+    catalogError,
   };
 }
 
