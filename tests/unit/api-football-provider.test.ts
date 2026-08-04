@@ -123,6 +123,20 @@ describe("ApiFootballProvider", () => {
     expect(requestedUrl.searchParams.get("date")).toBe("2021-04-25");
   });
 
+  it("throws on a soft provider error (200 status, populated `errors`) shared across every endpoint, not just date-range search", async () => {
+    // Proves the fix lives in the shared parseApiFootballBody choke
+    // point, not duplicated (or missed) per call site — searchFixtures
+    // goes through callFixturesEndpoint, a different function from
+    // searchFixturesByDateRange's callFixturesByDateRangeEndpoint.
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ errors: { plan: "This endpoint is not available for this subscription." }, response: [] }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new ApiFootballProvider();
+    await expect(provider.searchFixtures({ competitionExternalId: "39", season: "2020", date: "2021-04-25" })).rejects.toThrow(/subscription/);
+  });
+
   it("searches a league+season with no date using a from/to range starting today, not just season", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-01T12:00:00.000Z"));
@@ -563,6 +577,36 @@ describe("ApiFootballProvider", () => {
 
       const provider = new ApiFootballProvider();
       await expect(provider.searchFixturesByDateRange({ fromDate: "2026-08-04", toDate: "2026-08-04" })).rejects.toThrow();
+    });
+
+    it("throws on a 200 response carrying a populated `errors` object (e.g. daily quota exhausted) instead of treating it as zero fixtures", async () => {
+      // API-Football's real quota-exhaustion shape, confirmed live: HTTP
+      // 200, `errors.requests` populated, `response: []`. Before the fix
+      // this was indistinguishable from a genuine empty day.
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            errors: { requests: "You have reached the request limit for the day, Go to https://dashboard.api-football.com to upgrade your plan." },
+            results: 0,
+            paging: { current: 1, total: 1 },
+            response: [],
+          }),
+          { status: 200 },
+        ),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const provider = new ApiFootballProvider();
+      await expect(provider.searchFixturesByDateRange({ fromDate: "2026-08-04", toDate: "2026-08-04" })).rejects.toThrow(/request limit/);
+    });
+
+    it("treats a 200 response with an empty `errors` object as a genuine success, not a failure", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ errors: {}, results: 0, response: [] }), { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const provider = new ApiFootballProvider();
+      const results = await provider.searchFixturesByDateRange({ fromDate: "2026-08-04", toDate: "2026-08-04" });
+      expect(results).toEqual([]);
     });
 
     it("returns an empty result without calling fetch when disabled", async () => {

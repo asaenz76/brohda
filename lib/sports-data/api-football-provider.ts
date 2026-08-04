@@ -185,6 +185,50 @@ function authHeaders(): HeadersInit {
   return { "x-apisports-key": process.env.API_FOOTBALL_KEY ?? "" };
 }
 
+/**
+ * API-Football signals request-level failures — daily quota exhausted,
+ * a plan-restricted endpoint/parameter combination, an invalid parameter
+ * — via HTTP 200 with a non-empty `errors` object and an empty
+ * `response` array. `fetchWithRetry` only inspects HTTP status (as it
+ * should — that's a generic HTTP-transport concern), so without this
+ * check a quota-exhausted day is silently indistinguishable from a
+ * genuine zero-fixture day everywhere below. Confirmed live: a real
+ * request during quota exhaustion returns exactly
+ * `{"errors":{"requests":"You have reached the request limit for the
+ * day..."},"results":0,"response":[]}` with a 200 status.
+ */
+export class ProviderApiError extends Error {
+  constructor(
+    message: string,
+    public readonly providerErrors: unknown,
+  ) {
+    super(message);
+    this.name = "ProviderApiError";
+  }
+}
+
+function summarizeApiFootballErrors(errors: unknown): string {
+  if (Array.isArray(errors)) return errors.map(String).join("; ");
+  if (errors && typeof errors === "object") return Object.values(errors as Record<string, unknown>).map(String).join("; ");
+  return String(errors);
+}
+
+// Every raw API-Football body must pass through here before its
+// `.response` is read — the single choke point for the soft-error check
+// above, shared by every endpoint this provider calls (fixtures,
+// leagues, teams, events, squads, odds) rather than duplicated per call
+// site. `errors` is always present in a real response, normally as an
+// empty object/array on success — only a *populated* one is a failure.
+async function parseApiFootballBody<T>(response: Response): Promise<T> {
+  const body = (await response.json()) as T & { errors?: unknown };
+  const errors = body.errors;
+  const hasErrors = errors != null && (Array.isArray(errors) ? errors.length > 0 : Object.keys(errors as object).length > 0);
+  if (hasErrors) {
+    throw new ProviderApiError(`API-Football request failed: ${summarizeApiFootballErrors(errors)}`, errors);
+  }
+  return body;
+}
+
 function mapFixture(raw: ApiFootballFixtureResponse): NormalizedFixture {
   return {
     provider: PROVIDER_NAME,
@@ -239,7 +283,7 @@ async function callFixturesEndpoint(
     { provider: PROVIDER_NAME, requestType, requestParams: params },
   );
 
-  const body = (await response.json()) as ApiFootballListResponse;
+  const body = await parseApiFootballBody<ApiFootballListResponse>(response);
   return (body.response ?? []).map(mapFixture);
 }
 
@@ -279,7 +323,7 @@ async function callSeasonFixturesEndpoint(externalLeagueId: string, season: stri
         requestParams: { league: externalLeagueId, season, page: String(page) },
       },
     );
-    const body = (await response.json()) as ApiFootballListResponse;
+    const body = await parseApiFootballBody<ApiFootballListResponse>(response);
     results.push(...(body.response ?? []).map(mapFixture));
     totalPages = body.paging?.total ?? 1;
     page += 1;
@@ -336,7 +380,7 @@ async function callFixturesByDateRangeEndpoint(
         requestParams: competitionExternalId ? { date, league: competitionExternalId } : { date },
       },
     );
-    const body = (await response.json()) as ApiFootballListResponse;
+    const body = await parseApiFootballBody<ApiFootballListResponse>(response);
     const fixtures = (body.response ?? []).map(mapFixture);
     if (fixtures.length > MAX_FIXTURES_PER_DATE) {
       throw new Error(
@@ -391,7 +435,7 @@ async function callLeaguesEndpoint(
     { provider: PROVIDER_NAME, requestType, requestParams: params },
   );
 
-  const body = (await response.json()) as ApiFootballLeagueListResponse;
+  const body = await parseApiFootballBody<ApiFootballLeagueListResponse>(response);
   return (body.response ?? []).map(mapLeague);
 }
 
@@ -418,7 +462,7 @@ async function callTeamsEndpoint(
     { provider: PROVIDER_NAME, requestType, requestParams: params },
   );
 
-  const body = (await response.json()) as ApiFootballTeamListResponse;
+  const body = await parseApiFootballBody<ApiFootballTeamListResponse>(response);
   return (body.response ?? []).map(mapTeam);
 }
 
@@ -445,7 +489,7 @@ async function callEventsEndpoint(externalFixtureId: string): Promise<Normalized
     { provider: PROVIDER_NAME, requestType: "get_events", requestParams: { fixture: externalFixtureId } },
   );
 
-  const body = (await response.json()) as ApiFootballEventListResponse;
+  const body = await parseApiFootballBody<ApiFootballEventListResponse>(response);
   return (body.response ?? []).map(mapEvent);
 }
 
@@ -468,7 +512,7 @@ async function callSquadEndpoint(externalTeamId: string): Promise<NormalizedPlay
     { provider: PROVIDER_NAME, requestType: "get_squad", requestParams: { team: externalTeamId } },
   );
 
-  const body = (await response.json()) as ApiFootballSquadListResponse;
+  const body = await parseApiFootballBody<ApiFootballSquadListResponse>(response);
   return (body.response?.[0]?.players ?? []).map(mapPlayer);
 }
 
@@ -662,7 +706,7 @@ async function callOddsEndpoint(externalFixtureId: string): Promise<ApiFootballO
     { provider: PROVIDER_NAME, requestType: "get_odds", requestParams: { fixture: externalFixtureId } },
   );
 
-  const body = (await response.json()) as ApiFootballOddsListResponse;
+  const body = await parseApiFootballBody<ApiFootballOddsListResponse>(response);
   return body.response?.[0] ?? null;
 }
 

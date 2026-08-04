@@ -128,9 +128,48 @@ describe("resolveFixtureDateWindow — custom range validation", () => {
     expect(isDateWindowError(tooLongResult)).toBe(true);
   });
 
+  it("August 1 through August 31 inclusive is exactly 31 calendar days and is accepted, never silently rejected", () => {
+    const result = assertWindow(
+      resolveFixtureDateWindow("custom", { timeZone: TZ, customFromDate: "2026-08-01", customToDate: "2026-08-31" }),
+    );
+    expect(result.localFromDate).toBe("2026-08-01");
+    expect(result.localToDate).toBe("2026-08-31");
+    expect(result.utcQueryDates.length).toBeGreaterThanOrEqual(31); // may include a UTC buffer day past the local range
+  });
+
+  it("August 1 through September 1 inclusive is 32 calendar days and is rejected", () => {
+    const result = resolveFixtureDateWindow("custom", { timeZone: TZ, customFromDate: "2026-08-01", customToDate: "2026-09-01" });
+    expect(isDateWindowError(result)).toBe(true);
+  });
+
+  it("a same-day range is exactly 1 calendar day and is accepted", () => {
+    const result = assertWindow(
+      resolveFixtureDateWindow("custom", { timeZone: TZ, customFromDate: "2026-08-04", customToDate: "2026-08-04" }),
+    );
+    expect(result.localFromDate).toBe("2026-08-04");
+    expect(result.localToDate).toBe("2026-08-04");
+  });
+
   it("rejects an unrecognized timezone rather than silently falling back", () => {
     const result = resolveFixtureDateWindow("today", { timeZone: "Not/AZone" });
     expect(isDateWindowError(result)).toBe(true);
+  });
+});
+
+describe("UTC buffer date is queried and correctly trimmed by local post-filtering", () => {
+  it("a Costa Rica Aug 1-31 range queries the UTC Sep 1 buffer date, but a fixture actually on Sep 1 local is excluded after trimming", () => {
+    const window = assertWindow(
+      resolveFixtureDateWindow("custom", { timeZone: TZ, customFromDate: "2026-08-01", customToDate: "2026-08-31" }),
+    );
+    // Costa Rica is UTC-6 with no DST: local Aug 31 23:00 is Sep 1 05:00
+    // UTC — the provider must be asked about UTC Sep 1 to avoid missing
+    // that late-night fixture, even though Sep 1 isn't in the local range.
+    expect(window.utcQueryDates).toContain("2026-09-01");
+
+    // A fixture still within Aug 31 local time (23:00 CR = Sep 1 05:00 UTC) survives the trim.
+    expect(isWithinDateWindow("2026-09-01T05:00:00.000Z", window)).toBe(true);
+    // A fixture actually on Sep 1 local time (01:00 CR = Sep 1 07:00 UTC) is correctly excluded.
+    expect(isWithinDateWindow("2026-09-01T07:00:00.000Z", window)).toBe(false);
   });
 });
 
