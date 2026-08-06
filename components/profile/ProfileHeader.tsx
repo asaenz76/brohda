@@ -54,13 +54,13 @@ export function ProfileHeader({
         {action}
       </div>
       {bio && <p className="text-sm text-text-primary">{bio}</p>}
+      <ProfileStatBadges correctCount={correctCount} totalCount={totalCount} currentStreak={currentStreak} />
       <ProfileStatsRow
         picksCount={picksCount}
         followerCount={followerCount}
         followingCount={followingCount}
         profileHref={profileHref}
       />
-      <ProfileStatBadges correctCount={correctCount} totalCount={totalCount} currentStreak={currentStreak} />
     </div>
   );
 }

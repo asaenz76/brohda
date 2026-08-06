@@ -9,9 +9,14 @@ interface AvatarStackProps {
 // numeric stat ("126 predicted") matching the mockup's engagement-row
 // convention, replacing the earlier prose-sentence rendering so the whole
 // app uses one visual language for this stat rather than two.
+//
+// Promoted a notch from its original text-xs (Phase 2 hierarchy pass) but
+// deliberately kept below the weight of the question/option-button text —
+// this is social context around the pick, not the pick itself, so
+// font-medium/text-secondary here, not font-semibold/text-primary.
 export function AvatarStack({ participants, totalCount }: AvatarStackProps) {
   if (totalCount === 0) {
-    return <p className="text-xs text-text-secondary">Be the first friend to lock in.</p>;
+    return <p className="text-sm font-medium text-text-secondary">Be the first friend to lock in.</p>;
   }
 
   return (
@@ -27,7 +32,7 @@ export function AvatarStack({ participants, totalCount }: AvatarStackProps) {
           />
         ))}
       </div>
-      <p className="text-xs font-medium text-text-secondary">
+      <p className="text-sm font-medium text-text-secondary">
         {totalCount} predicted
       </p>
     </div>

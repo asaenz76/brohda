@@ -181,6 +181,46 @@ export function SocialPoolCard({
             />
           )}
 
+          {/* Community sentiment leads — the aggregate social signal, ahead
+              of who specifically is in the pool and ahead of the pick
+              itself. */}
+          {showDistribution && <PoolDistributionBar options={mergedOptions} />}
+
+          {/* Social proof-of-life next — "who else is in this" — but kept
+              modest (not the same visual weight as the question/options
+              below it) since it's context, not the main content of the
+              card. */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-3">
+              <AvatarStack
+                participants={viewModel.socialProof.visibleParticipants}
+                totalCount={viewModel.socialProof.participantCount}
+              />
+              <span className="text-xs font-medium text-text-secondary">
+                {formatCents(mergedGrossPool)} volume
+              </span>
+            </div>
+            <div className="flex items-center gap-0.5 text-text-secondary">
+              <LikeButton
+                poolId={viewModel.poolId}
+                initiallyLiked={viewModel.isLikedByCurrentUser}
+                initialCount={viewModel.likeCount}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setCommentsOpen(true)}
+                aria-label="Comments"
+                className="px-1.5 text-text-muted"
+              >
+                <MessageCircle className="size-5" aria-hidden="true" />
+                {commentCount > 0 && <span className="text-xs font-medium">{commentCount}</span>}
+              </Button>
+              <SharePoolButton poolId={viewModel.poolId} question={viewModel.question} />
+            </div>
+          </div>
+
           <div>
             <h3 className="text-lg font-bold text-text-primary">{viewModel.question}</h3>
             <div className="mt-1.5">
@@ -220,40 +260,7 @@ export function SocialPoolCard({
             ))}
           </div>
 
-          {showDistribution && <PoolDistributionBar options={mergedOptions} />}
-
           <PoolStatusNotice notice={viewModel.notice} />
-
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-3">
-              <AvatarStack
-                participants={viewModel.socialProof.visibleParticipants}
-                totalCount={viewModel.socialProof.participantCount}
-              />
-              <span className="text-xs font-medium text-text-secondary">
-                {formatCents(mergedGrossPool)} volume
-              </span>
-            </div>
-            <div className="flex items-center gap-0.5 text-text-muted">
-              <LikeButton
-                poolId={viewModel.poolId}
-                initiallyLiked={viewModel.isLikedByCurrentUser}
-                initialCount={viewModel.likeCount}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setCommentsOpen(true)}
-                aria-label="Comments"
-                className="px-1.5 text-text-muted"
-              >
-                <MessageCircle className="size-5" aria-hidden="true" />
-                {commentCount > 0 && <span className="text-xs font-medium">{commentCount}</span>}
-              </Button>
-              <SharePoolButton poolId={viewModel.poolId} question={viewModel.question} />
-            </div>
-          </div>
 
           {showDistribution && <PotentialPayoutFooter />}
 

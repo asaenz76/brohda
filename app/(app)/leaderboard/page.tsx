@@ -56,11 +56,32 @@ export default async function LeaderboardPage({
   );
 
   const podium = leaderboard.slice(0, 3);
+  const ownEntry = leaderboard.find((entry) => entry.userId === user.id);
+  // Only worth a jump link once you're not already visible in the podium
+  // above — for the top 3, "where do I stand" is already answered at a
+  // glance.
+  const showJumpToRank = ownEntry != null && ownEntry.rank > 3;
 
   return (
     <div className="space-y-6">
       <h1 className="sr-only">Leaderboard</h1>
       <LeaderboardFilters />
+
+      {/* Personal, emotionally-resonant stat leads the page — kept
+          unconditional (not nested inside the empty-state branch below): a
+          real streak value is still meaningful even before any ranked
+          entries exist yet. */}
+      <div className="space-y-2">
+        <StreakWidget currentStreak={profile?.current_streak ?? 0} bestStreak={profile?.best_streak ?? 0} />
+        {showJumpToRank && (
+          <a
+            href={`#row-${user.id}`}
+            className="text-xs font-medium text-accent-primary hover:underline"
+          >
+            Jump to your rank (#{ownEntry.rank})
+          </a>
+        )}
+      </div>
 
       {leaderboard.length === 0 ? (
         <EmptyFeedState
@@ -83,8 +104,6 @@ export default async function LeaderboardPage({
           </div>
         </>
       )}
-
-      <StreakWidget currentStreak={profile?.current_streak ?? 0} bestStreak={profile?.best_streak ?? 0} />
     </div>
   );
 }

@@ -20,7 +20,7 @@ export function PoolDistributionBar({ options }: { options: DistributionOption[]
           />
         ))}
       </div>
-      <p className="text-xs text-text-secondary">
+      <p className="text-sm font-medium text-text-secondary">
         Community sentiment: {visible.map((o) => `${o.label} ${o.percentage}%`).join("  |  ")}
       </p>
     </div>

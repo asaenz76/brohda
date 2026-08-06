@@ -3,8 +3,10 @@ import { requireUser } from "@/lib/auth/session";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
 import { getNotifications } from "@/lib/notifications/fetch";
 import { attachNotificationHrefs } from "@/lib/notifications/links";
+import { getNotificationTier } from "@/lib/notifications/tiers";
 import { markNotificationsReadAction } from "@/lib/actions/notifications";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { getLedgerEntries } from "@/lib/wallet/ledger";
 import { TransactionList } from "@/components/activity/TransactionList";
 
@@ -47,17 +49,37 @@ export default async function ActivityPage() {
               </form>
             )}
           </div>
+          {/* Chronological order, unchanged — emphasis by tier (below) is
+              how emotionally significant events stand out, not by
+              reordering the timeline. */}
           <ul className="space-y-2">
             {notifications.map((n) => {
+              const tier = getNotificationTier(n.type);
+              const isWin = n.type === "SETTLED_WON";
+              const isLoss = n.type === "SETTLED_LOST";
+
               const content = (
                 <>
                   <div className="flex items-center gap-2">
                     {n.read_at == null && (
                       <span className="size-1.5 rounded-full bg-accent-primary" aria-hidden="true" />
                     )}
-                    <span className="text-sm font-medium text-text-primary">{n.title}</span>
+                    <span
+                      className={cn(
+                        tier === 1 && "text-base font-bold",
+                        tier === 1 && isWin && "text-pool-win",
+                        tier === 1 && isLoss && "text-pool-loss",
+                        tier === 2 && "text-sm font-medium text-text-primary",
+                        tier === 3 && "text-sm font-medium text-text-secondary",
+                        tier === 4 && "text-xs font-medium text-text-muted",
+                      )}
+                    >
+                      {n.title}
+                    </span>
                   </div>
-                  <p className="mt-0.5 text-sm text-text-secondary">{n.body}</p>
+                  <p className={cn("mt-0.5", tier === 4 ? "text-xs text-text-muted" : "text-sm text-text-secondary")}>
+                    {n.body}
+                  </p>
                   <div className="mt-1 text-xs text-text-muted">
                     {new Date(n.created_at).toLocaleString()}
                   </div>
@@ -67,7 +89,11 @@ export default async function ActivityPage() {
               return (
                 <li
                   key={n.id}
-                  className="rounded-xl border border-border-subtle bg-surface-primary"
+                  className={cn(
+                    "rounded-xl border border-border-subtle bg-surface-primary",
+                    tier === 1 && isWin && "bg-pool-win/10",
+                    tier === 1 && isLoss && "bg-pool-loss/10",
+                  )}
                 >
                   {n.href ? (
                     // Plain <a>, not next/link: a hash-only href to this

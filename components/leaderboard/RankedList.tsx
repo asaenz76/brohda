@@ -61,7 +61,9 @@ export function RankedList({
           // most seed/demo accounts here have no username set, so falling
           // back to userId is what actually makes this link work for them.
           return (
-            <li key={entry.userId}>
+            // id only on the viewer's own row — target for the leaderboard
+            // page's "Jump to your rank" in-page anchor link.
+            <li key={entry.userId} id={isYou ? `row-${entry.userId}` : undefined}>
               <Link href={`/profile/${entry.username ?? entry.userId}`} className={cn(rowClassName, "rounded-xl")}>
                 {content}
               </Link>
