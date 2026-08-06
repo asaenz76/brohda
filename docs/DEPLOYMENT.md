@@ -171,3 +171,55 @@ demo/test against — it is not idempotent and assumes a clean slate
 If you need a staging environment with realistic-looking data, provision a
 separate Supabase project for it and run `pnpm seed` there — never against
 the same project serving production traffic.
+
+### Deterministic grading-pipeline seed
+
+`pnpm seed:dev-grading` (`scripts/seed-dev-grading.ts`) is a separate,
+narrower seed for exercising the pool lifecycle and automatic-grading
+pipeline locally, without live API-Football imports. Unlike `pnpm seed`, it:
+
+- **refuses to run against anything but a local Supabase instance** (checks
+  `NEXT_PUBLIC_SUPABASE_URL` is `127.0.0.1`/`localhost` and exits otherwise)
+  — it is wired to `.env.development.local`, not `.env.local`
+- **is idempotent** — every entity is looked up before being created; rerun
+  it as many times as you like. If you've since graded/settled a seeded
+  pool by hand, rerunning does not reset it — it only fills in what's
+  missing
+- uses the fixed provider name `dev_seed` and fixed external IDs/UUIDs so
+  every entity is deterministic across runs
+
+It creates: a league + `league_season_imports` row (`IMPORTED`,
+`pool_creation_enabled`), 2 teams, 5 fixtures, and 4 `TEMPLATE_GRADED`
+(`HOME_TEAM_TO_WIN`) pools covering the full lifecycle:
+
+| Fixture | Status | Paired pool | Purpose |
+|---|---|---|---|
+| `dev-seed-fixture-open-eligible` | `NOT_STARTED`, no pool | — | Pool-creation wizard fixture search |
+| `dev-seed-fixture-will-lock` | `NOT_STARTED` | Pool 1 — `OPEN`, `locks_at` already past | Exercising the lock-pools cron |
+| `dev-seed-fixture-locked` | `LIVE` | Pool 2 — `LOCKED` | Inspecting a locked pool directly |
+| `dev-seed-fixture-completed` | `COMPLETED`, home 2–1 away | Pool 3 — `AWAITING_RESULT` | Exercising automatic grading + settlement (2 winners, 1 loser) |
+| `dev-seed-fixture-cancelled` | `CANCELLED` | Pool 4 — `AWAITING_RESULT` | Exercising the automatic anomaly-refund path |
+
+Three dev-only players (`dev-seed-alice/bob/carol@brohda.dev`, password
+`DevSeedGrading123!`) are funded with $50 each and entered across these
+pools on different outcomes.
+
+Run it with:
+
+```bash
+pnpm supabase:start
+pnpm create-super-admin --email you@example.com --password 'xxxx' --name "Admin"
+pnpm seed:dev-grading
+```
+
+Then exercise the real pipeline against the seeded data, e.g.:
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/lock-pools
+curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/process-results
+```
+
+Pool 3 should grade automatically and move to `READY_FOR_REVIEW` with Alice
+and Carol as winners; an admin confirm click (or `confirm_pool_settlement`)
+completes the payout. Pool 4 should refund both entries automatically, no
+admin action needed.

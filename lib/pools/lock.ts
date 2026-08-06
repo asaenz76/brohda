@@ -1,5 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createRefundNotifications } from "@/lib/notifications/create";
 
 export interface LockResult {
   checked: number;
@@ -96,8 +97,12 @@ export async function lockDuePools(): Promise<LockResult> {
       result.manualReview++;
     } else if (updatedPool.void_reason === "ONE_SIDED_POOL") {
       result.cancelledOneSided++;
+      // Unlike every other refund path in the codebase, this one only
+      // wrote an audit log — players refunded here never got notified.
+      await createRefundNotifications(pool.id, "CANCELLED", "ONE_SIDED_POOL");
     } else if (updatedPool.void_reason === "MINIMUM_ENTRIES_NOT_REACHED") {
       result.cancelledBelowMinimum++;
+      await createRefundNotifications(pool.id, "CANCELLED", "MINIMUM_ENTRIES_NOT_REACHED");
     }
   }
 

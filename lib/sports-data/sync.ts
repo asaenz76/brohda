@@ -5,6 +5,7 @@ import { toFixtureRow, toLeagueRow, toTeamRows } from "./persist";
 import { TERMINAL_STATUSES } from "./status-map";
 import type { FixtureInternalStatus } from "./types";
 import { EVENT_DEPENDENT_TEMPLATE_IDS } from "@/lib/pools/templates/registry";
+import { getProviderStatus, isQuotaExhaustedError } from "./provider-gateway";
 
 const MINUTE_MS = 60_000;
 
@@ -60,6 +61,15 @@ export async function runFixtureSync(): Promise<SyncResult> {
   const result: SyncResult = { checked: 0, refreshed: 0, skipped: 0, failed: 0 };
 
   if (!apiFootballProvider.isEnabled()) {
+    return result;
+  }
+
+  // Same guard as runCompetitionDiscoverySync — checked before spending any
+  // requests. Without it, a quota-exhaustion event left every due fixture
+  // to fail individually, one wasted (and logged) request each, for the
+  // entire cron run instead of skipping the tick.
+  const status = await getProviderStatus(true);
+  if (status.circuitBreakerOpen) {
     return result;
   }
 
@@ -134,6 +144,14 @@ export async function runFixtureSync(): Promise<SyncResult> {
         .from("fixtures")
         .update({ sync_error: error instanceof Error ? error.message : "unknown error" })
         .eq("id", fixture.id);
+
+      // Same reasoning as runCompetitionDiscoverySync: once the provider
+      // reports quota exhaustion, every remaining due fixture in this run
+      // would fail identically — stop instead of burning the rest of the
+      // batch on guaranteed failures.
+      if (isQuotaExhaustedError(error instanceof Error ? error : new Error(String(error)))) {
+        break;
+      }
     }
   }
 

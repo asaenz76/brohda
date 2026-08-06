@@ -12,6 +12,14 @@ import type { FixtureInternalStatus } from "@/lib/sports-data/types";
 
 export interface ProcessResultsResult {
   checked: number;
+  /** Fully automatic — winner determined and money already moved, no
+   *  admin step. The normal case for an unambiguous TEMPLATE_GRADED
+   *  outcome (Phase 1.5). */
+  settled: number;
+  /** Reached only when automatic settlement itself couldn't safely
+   *  proceed (see grade.ts) — an exceptional case now, not the normal
+   *  path, but still counted separately from `failed` since a human can
+   *  resolve it from exactly the state it's in. */
   preparedForReview: number;
   voided: number;
   waiting: number;
@@ -32,7 +40,10 @@ function unwrapEmbed<T>(raw: unknown): T | null {
 }
 
 /**
- * `process-results` cron body: AWAITING_RESULT -> READY_FOR_REVIEW | VOIDED.
+ * `process-results` cron body: AWAITING_RESULT -> SETTLED | VOIDED, with
+ * READY_FOR_REVIEW reached only for a TEMPLATE_GRADED pool whose automatic
+ * settlement itself couldn't safely complete (see grade.ts) — the normal,
+ * unambiguous case settles fully automatically now (Phase 1.5).
  * Separate from lib/pools/lock.ts's job because this step depends on
  * fixture-sync data catching up (Phase 3's sync job), not a clock. Anomaly
  * handling (X.7) and normal settlement prep (§16) share this one pass since
@@ -42,6 +53,7 @@ export async function processAwaitingResults(): Promise<ProcessResultsResult> {
   const admin = createAdminClient();
   const result: ProcessResultsResult = {
     checked: 0,
+    settled: 0,
     preparedForReview: 0,
     voided: 0,
     waiting: 0,
@@ -121,7 +133,9 @@ export async function processAwaitingResults(): Promise<ProcessResultsResult> {
     if (internalStatus === "COMPLETED") {
       if (pool.pool_type === "TEMPLATE_GRADED") {
         const outcome = await gradeTemplatePool(pool, fixture);
-        if (outcome === "readyForReview") {
+        if (outcome === "settled") {
+          result.settled++;
+        } else if (outcome === "readyForReview") {
           result.preparedForReview++;
         } else if (outcome === "voided") {
           result.voided++;

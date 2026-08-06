@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { gradeTemplatePool } from "@/lib/pools/templates/grade";
+import { processAwaitingResults } from "@/lib/pools/settle";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -302,7 +303,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("TEMPLATE_GRADED pools — gradeTemplatePool"
     expect(settlements).toHaveLength(0);
   });
 
-  it("full flow: grade then confirm_pool_settlement pays out correctly", async () => {
+  it("full flow: gradeTemplatePool settles automatically — no separate confirm step needed (Phase 1.5)", async () => {
     const p1 = await createTestPlayer(`template-payout-a-${Date.now()}@example.com`, 5000);
     const p2 = await createTestPlayer(`template-payout-b-${Date.now()}@example.com`, 5000);
 
@@ -328,32 +329,162 @@ describe.skipIf(!SERVICE_ROLE_KEY)("TEMPLATE_GRADED pools — gradeTemplatePool"
 
     await admin.from("pools").update({ status: "AWAITING_RESULT" }).eq("id", poolId);
 
-    await gradeTemplatePool({ id: poolId, template_id: "HOME_TEAM_TO_WIN", template_config: {} }, fixture);
+    // A single call — no separate confirm_pool_settlement call from the
+    // test, unlike before Phase 1.5. An unambiguous outcome with real
+    // entries on both sides settles fully automatically.
+    const outcome = await gradeTemplatePool(
+      { id: poolId, template_id: "HOME_TEAM_TO_WIN", template_config: {} },
+      fixture,
+    );
+    expect(outcome).toBe("settled");
 
-    const { data: pool } = await admin.from("pools").select("snapshot_version").eq("id", poolId).single();
+    const { data: pool } = await admin.from("pools").select("status, snapshot_version").eq("id", poolId).single();
+    expect(pool?.status).toBe("SETTLED");
+
     const { data: settlement } = await admin
       .from("settlements")
-      .select("id, grading_version, winning_option_id")
+      .select("id, winning_option_id, confirmed_at, confirmed_by_admin_id")
       .eq("pool_id", poolId)
       .eq("grading_version", pool!.snapshot_version)
       .single();
     expect(settlement?.winning_option_id).toBe(yesOptionId);
-
-    const { error: confirmError } = await admin.rpc("confirm_pool_settlement", {
-      p_pool_id: poolId,
-      p_admin_id: adminId,
-      p_grading_version: settlement!.grading_version,
-      p_idempotency_key: randomUUID(),
-      p_winning_option_id: yesOptionId,
-    });
-    expect(confirmError).toBeNull();
+    expect(settlement?.confirmed_at).not.toBeNull();
+    // null admin id is how a system-triggered confirm is distinguished
+    // from a human one in the audit trail (settlements.confirmed_by_admin_id).
+    expect(settlement?.confirmed_by_admin_id).toBeNull();
 
     // Pot: 2000 gross, 10% house fee -> 1800 net, 1 winner -> full 1800 payout.
     expect(await getBalance(p1.userId)).toBe(5000 - 1000 + 1800);
     expect(await getBalance(p2.userId)).toBe(5000 - 1000);
 
+    // A manual confirm attempted afterward (e.g. an admin double-clicking,
+    // or a stray call) must be a safe, idempotent no-op — not a double-pay.
+    const { error: repeatConfirmError } = await admin.rpc("confirm_pool_settlement", {
+      p_pool_id: poolId,
+      p_admin_id: adminId,
+      p_grading_version: pool!.snapshot_version,
+      p_idempotency_key: randomUUID(),
+      p_winning_option_id: yesOptionId,
+    });
+    expect(repeatConfirmError).toBeNull();
+    expect(await getBalance(p1.userId)).toBe(5000 - 1000 + 1800);
+    expect(await getBalance(p2.userId)).toBe(5000 - 1000);
+
     await deactivate(p1.userId);
     await deactivate(p2.userId);
+  });
+
+  it("processAwaitingResults settles a COMPLETED fixture's pool fully automatically — the real cron path, no admin step (Phase 1.5)", async () => {
+    const p1 = await createTestPlayer(`process-results-a-${Date.now()}@example.com`, 5000);
+    const p2 = await createTestPlayer(`process-results-b-${Date.now()}@example.com`, 5000);
+
+    const fixture = await createTestFixture({ regulationHomeScore: 3, regulationAwayScore: 0 });
+    createdFixtureIds.push(fixture.id);
+    const { poolId, yesOptionId, noOptionId } = await createTemplatePool(
+      adminId,
+      fixture.id,
+      "HOME_TEAM_TO_WIN",
+      {},
+      "OPEN",
+    );
+
+    await Promise.all([enter(poolId, p1.userId, yesOptionId), enter(poolId, p2.userId, noOptionId)]);
+    await admin.from("pools").update({ status: "AWAITING_RESULT" }).eq("id", poolId);
+
+    // The actual function app/api/cron/process-results/route.ts calls —
+    // proves grading AND settlement are reachable through the automatic
+    // orchestration path (finds every AWAITING_RESULT pool, reads its
+    // fixture, grades it, and now settles it), not just through
+    // gradeTemplatePool called directly with a hand-assembled pool/fixture
+    // pair as every other test in this file does. Asserted per-pool (not
+    // via the aggregate result counters) since other AWAITING_RESULT pools
+    // may legitimately exist concurrently in a shared local database.
+    const result = await processAwaitingResults();
+    expect(result.failed).toBe(0);
+
+    const { data: pool } = await admin.from("pools").select("status, snapshot_version").eq("id", poolId).single();
+    expect(pool?.status).toBe("SETTLED");
+
+    const { data: settlement } = await admin
+      .from("settlements")
+      .select("winning_option_id, confirmed_at, confirmed_by_admin_id")
+      .eq("pool_id", poolId)
+      .eq("grading_version", pool!.snapshot_version)
+      .single();
+    expect(settlement?.winning_option_id).toBe(yesOptionId);
+    expect(settlement?.confirmed_at).not.toBeNull();
+    expect(settlement?.confirmed_by_admin_id).toBeNull();
+
+    // Money actually moved — no admin ever clicked confirm.
+    // Pot: 2000 gross, 10% house fee -> 1800 net, 1 winner -> full payout.
+    expect(await getBalance(p1.userId)).toBe(5000 - 1000 + 1800);
+    expect(await getBalance(p2.userId)).toBe(5000 - 1000);
+
+    await deactivate(p1.userId);
+    await deactivate(p2.userId);
+  });
+
+  it("falls back to READY_FOR_REVIEW (not an error, not a crash) when automatic settlement itself can't safely complete", async () => {
+    // No entries on either side — automatic confirm_pool_settlement will
+    // hit its own no-or-all-winner guard (0 winning entries == 0 total
+    // entries) and raise, exactly the "settlement validation failure"
+    // exceptional case Phase 1.5 is required to preserve. This proves the
+    // fallback explicitly, rather than relying on it being incidental to
+    // every other zero-entry test in this file.
+    const fixture = await createTestFixture({ regulationHomeScore: 2, regulationAwayScore: 0 });
+    createdFixtureIds.push(fixture.id);
+    const { poolId } = await createTemplatePool(adminId, fixture.id, "HOME_TEAM_TO_WIN", {});
+
+    const outcome = await gradeTemplatePool(
+      { id: poolId, template_id: "HOME_TEAM_TO_WIN", template_config: {} },
+      fixture,
+    );
+    expect(outcome).toBe("readyForReview");
+
+    const { data: pool } = await admin.from("pools").select("status, snapshot_version").eq("id", poolId).single();
+    expect(pool?.status).toBe("READY_FOR_REVIEW");
+
+    // The settlement proposal is intact and waiting exactly as before
+    // Phase 1.5 — an admin can still pick it up and confirm manually.
+    const { data: settlement } = await admin
+      .from("settlements")
+      .select("winning_option_id, confirmed_at")
+      .eq("pool_id", poolId)
+      .eq("grading_version", pool!.snapshot_version)
+      .single();
+    expect(settlement?.winning_option_id).not.toBeNull();
+    expect(settlement?.confirmed_at).toBeNull();
+  });
+
+  it("a retired (activeForCreation: false) template still grades an existing historical pool via exact-version resolution", async () => {
+    // CLEAN_SHEET was retired from new-pool creation in the launch
+    // simplification (activeForCreation: false in
+    // lib/pools/templates/goals.ts) but remains fully gradeable for any
+    // pool created against it before the retirement — getTemplate(id,
+    // version) never filters on activeForCreation, only getLatestTemplate
+    // (creation-time only) does.
+    const fixture = await createTestFixture({ regulationHomeScore: 2, regulationAwayScore: 0 });
+    createdFixtureIds.push(fixture.id);
+    const { poolId, yesOptionId } = await createTemplatePool(adminId, fixture.id, "CLEAN_SHEET", { team: "HOME" });
+
+    const outcome = await gradeTemplatePool(
+      { id: poolId, template_id: "CLEAN_SHEET", template_config: { team: "HOME" } },
+      fixture,
+    );
+    expect(outcome).toBe("readyForReview");
+
+    const { data: pool } = await admin.from("pools").select("status, snapshot_version").eq("id", poolId).single();
+    expect(pool?.status).toBe("READY_FOR_REVIEW");
+
+    const { data: settlement } = await admin
+      .from("settlements")
+      .select("winning_option_id, winning_option_reason")
+      .eq("pool_id", poolId)
+      .eq("grading_version", pool!.snapshot_version)
+      .single();
+    // Away conceded 0 -> home kept a clean sheet -> YES.
+    expect(settlement?.winning_option_id).toBe(yesOptionId);
+    expect(settlement?.winning_option_reason).toBe("TEMPLATE_GRADED");
   });
 
   it("resolves the winner via binary_outcome even when labels are swapped from the usual Yes/No", async () => {

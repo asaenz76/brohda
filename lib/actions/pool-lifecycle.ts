@@ -94,6 +94,13 @@ export async function advanceLockedPoolAction(poolId: string) {
       before: { status: "LOCKED" },
       after: { status: "CANCELLED" },
     });
+    // Same refund path lockDuePools() takes automatically — players must
+    // hear about it the same way regardless of which trigger reached it.
+    await createRefundNotifications(
+      poolId,
+      "CANCELLED",
+      updatedPool.void_reason === "ONE_SIDED_POOL" ? "ONE_SIDED_POOL" : "MINIMUM_ENTRIES_NOT_REACHED",
+    );
   } else if (updatedPool.status === "MANUAL_REVIEW") {
     await writeAuditLog({
       actorId: admin.id,
@@ -260,6 +267,18 @@ export async function checkPoolResultNowAction(
     const outcome = await gradeTemplatePool(pool, fixture);
     if (outcome === "failed") {
       return { message: null, error: "Could not grade this pool from its template." };
+    }
+    if (outcome === "settled") {
+      await writeAuditLog({
+        actorId: admin.id,
+        action: "pool.force_settled",
+        entityType: "pool",
+        entityId: poolId,
+        before: { status: "AWAITING_RESULT" },
+        after: { status: "SETTLED" },
+      });
+      revalidatePoolPaths(poolId);
+      return { message: "Result found — pool settled automatically.", error: null };
     }
     if (outcome === "voided") {
       await writeAuditLog({

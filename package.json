@@ -17,6 +17,7 @@
     "supabase:reset": "supabase db reset",
     "create-super-admin": "dotenv -e .env.local -- tsx scripts/create-super-admin.ts",
     "seed": "dotenv -e .env.local -- tsx scripts/seed.ts",
+    "seed:dev-grading": "dotenv -e .env.development.local -- tsx scripts/seed-dev-grading.ts",
     "verify-custom-pool-cron": "NODE_OPTIONS=--conditions=react-server dotenv -e .env.local -- tsx scripts/verify-custom-pool-cron.ts"
   },
   "dependencies": {

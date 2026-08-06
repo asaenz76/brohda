@@ -1,6 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createRefundNotifications } from "@/lib/notifications/create";
+import { createRefundNotifications, createSettlementNotifications } from "@/lib/notifications/create";
 import { getTemplate, getTemplateConfigSchema } from "./registry";
 import { parseEvents } from "./event-helpers";
 import type { TemplateFixtureScore } from "./types";
@@ -46,6 +46,7 @@ function toTemplateFixtureScore(row: TemplateFixtureRow): TemplateFixtureScore {
 export type GradeTemplatePoolOutcome =
   | "pending"
   | "voided"
+  | "settled"
   | "readyForReview"
   | "failed"
   | "skipped"
@@ -82,8 +83,16 @@ async function routeToManualReview(
  * Reuses prepare_pool_settlement_manual (the same RPC CUSTOM/COMBO already
  * use) and mirrors gradeComboLegsAction's exact "pre-stamp the settlement
  * row" pattern (lib/actions/pool-combo.ts) rather than writing new
- * money-movement SQL — a human admin still confirms
- * (confirmTemplateSettlementAction) before any payout.
+ * money-movement SQL. Once a winning option is resolved, settlement
+ * completes automatically (confirm_pool_settlement, p_admin_id: null) —
+ * this is the whole point of the automatic grading pipeline: a normal,
+ * unambiguous outcome moves money with no human step. READY_FOR_REVIEW is
+ * now reached only when that automatic confirm itself can't safely
+ * proceed (a stale snapshot, a no-or-all-winner edge case on a pool
+ * created before the one-sided-pool lock-time guard existed, or any other
+ * settlement validation failure) — the settlement proposal is already
+ * saved either way, so a human can always pick up from exactly where
+ * automatic settlement left off via confirmTemplateSettlementAction.
  */
 export async function gradeTemplatePool(
   pool: TemplateGradedPool,
@@ -224,5 +233,31 @@ export async function gradeTemplatePool(
     evidence: grading.evidence,
   });
 
-  return "readyForReview";
+  // The point of the automatic grading pipeline: a normal, unambiguous
+  // outcome settles immediately, with no admin step. p_admin_id: null
+  // marks this as a system-triggered confirm — see confirm_pool_settlement's
+  // relaxed auth check (20260101000102) — using a deterministic
+  // idempotency key (not crypto.randomUUID() the way the admin-UI confirm
+  // button does) so a retried cron tick converges on the same wallet
+  // transactions instead of minting a fresh key every attempt.
+  const { error: confirmError } = await admin.rpc("confirm_pool_settlement", {
+    p_pool_id: pool.id,
+    p_admin_id: null,
+    p_grading_version: settlement.grading_version,
+    p_idempotency_key: `${pool.id}:auto_settle:${settlement.grading_version}`,
+    p_winning_option_id: winningOption.id,
+  });
+
+  if (confirmError) {
+    // Automatic settlement couldn't safely complete — a stale snapshot, a
+    // no-or-all-winner edge case on a pool created before the
+    // one-sided-pool lock-time guard existed, or any other validation
+    // failure inside the RPC. The settlement proposal above is already
+    // saved; fall back to the pre-existing manual-review flow rather than
+    // erroring out — READY_FOR_REVIEW exists for exactly this case now.
+    return "readyForReview";
+  }
+
+  await createSettlementNotifications(pool.id);
+  return "settled";
 }
