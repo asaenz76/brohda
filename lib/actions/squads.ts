@@ -3,6 +3,7 @@
 import { requireAdminOrAbove } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { apiFootballProvider } from "@/lib/sports-data/api-football-provider";
+import { isFresh } from "@/lib/utils/freshness";
 
 const SQUAD_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -28,8 +29,7 @@ export async function getTeamSquadAction(externalTeamId: string): Promise<SquadP
     .eq("team_external_id", externalTeamId)
     .order("name");
 
-  const freshEnough =
-    cached && cached.length > 0 && Date.now() - new Date(cached[0].synced_at).getTime() < SQUAD_CACHE_TTL_MS;
+  const freshEnough = cached && cached.length > 0 && isFresh(cached[0].synced_at, SQUAD_CACHE_TTL_MS);
 
   if (freshEnough) {
     return cached!.map((p) => ({ externalPlayerId: p.external_player_id, name: p.name, position: p.position }));

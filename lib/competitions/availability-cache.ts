@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { apiFootballProvider } from "@/lib/sports-data/api-football-provider";
 import { SUPPORTED_COMPETITIONS } from "@/lib/sports-data/supported-competitions";
 import { getProviderStatus, isQuotaExhaustedError } from "@/lib/sports-data/provider-gateway";
+import { isFresh } from "@/lib/utils/freshness";
 import {
   AVAILABILITY_CACHE_TTL_NO_FIXTURES_HOURS,
   AVAILABILITY_CACHE_TTL_WITH_FIXTURES_HOURS,
@@ -55,8 +56,7 @@ export async function refreshRecommendationAvailabilityCache(
       const ttlHours = cached.upcoming_fixture_count > 0
         ? AVAILABILITY_CACHE_TTL_WITH_FIXTURES_HOURS
         : AVAILABILITY_CACHE_TTL_NO_FIXTURES_HOURS;
-      const age = now - new Date(cached.checked_at).getTime();
-      if (age < ttlHours * 3600_000) continue; // not due yet
+      if (isFresh(cached.checked_at, ttlHours * 3600_000)) continue; // not due yet
     }
 
     try {

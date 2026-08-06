@@ -4,6 +4,7 @@ import { requireAdminOrAbove } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { apiFootballProvider } from "@/lib/sports-data/api-football-provider";
 import { suggestMinimumGoalsFromExactDistribution, suggestMinimumGoalsFromOdds } from "@/lib/pools/templates/goals-odds";
+import { isFresh } from "@/lib/utils/freshness";
 import type { NormalizedFixtureMarkets } from "@/lib/sports-data/types";
 
 export interface FixtureGoalsLines {
@@ -68,7 +69,7 @@ export async function getFixtureMarketsAction(externalFixtureId: string): Promis
     .eq("external_fixture_id", externalFixtureId)
     .maybeSingle<FixtureOddsCacheRow>();
 
-  if (cached && Date.now() - new Date(cached.fetched_at).getTime() < MARKET_CACHE_TTL_MS) {
+  if (cached && isFresh(cached.fetched_at, MARKET_CACHE_TTL_MS)) {
     return cached.normalized_markets;
   }
 
