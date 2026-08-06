@@ -129,7 +129,10 @@ export function WalletRequestForm({ paymentMethods }: { paymentMethods: PaymentM
           <Input id="request-note" name="note" placeholder="e.g. Venmo sent" className="w-full" />
         </div>
       )}
-      <div className="flex items-center gap-2">
+      {/* flex-wrap: at large accessibility text sizes "Submit request" +
+          "Cancel" no longer fit one row in the sheet's width — wrap instead
+          of overflowing (real failure caught testing at 200% text size). */}
+      <div className="flex flex-wrap items-center gap-2">
         <Button type="submit" disabled={pending}>
           {pending ? "Submitting…" : "Submit request"}
         </Button>

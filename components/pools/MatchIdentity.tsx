@@ -17,20 +17,29 @@ function TeamBadge({
   return (
     <div
       className={cn(
-        "flex flex-1 items-center gap-2",
+        "flex min-w-0 flex-1 items-center gap-2",
         align === "right" && "flex-row-reverse text-right",
       )}
     >
+      {/* Fixed px size, not the rem-based `size-7` utility — at large
+          accessibility text sizes a rem-based logo would double right
+          alongside the text, leaving almost no room for the name itself
+          in an already-tight card. Logos staying visually fixed while
+          text scales is the standard pattern for exactly this case. */}
       {logoUrl ? (
         // External provider logos (arbitrary CDN domains) — plain <img>
         // rather than next/image to avoid maintaining a remote-domain
         // whitelist for every possible sports-data provider.
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={logoUrl} alt="" className="size-7 rounded-full object-contain" />
+        <img src={logoUrl} alt="" className="size-[28px] shrink-0 rounded-full object-contain" />
       ) : (
-        <span className="size-7 rounded-full bg-surface-elevated" aria-hidden="true" />
+        <span className="size-[28px] shrink-0 rounded-full bg-surface-elevated" aria-hidden="true" />
       )}
-      <span className="text-sm font-semibold text-text-primary">{name}</span>
+      {/* min-w-0 above lets this shrink below its content's natural width —
+          flex items default to min-width:auto, so a long team name would
+          otherwise push the whole row wider instead of truncating (real
+          failure caught testing at 200% accessibility text size). */}
+      <span className="truncate text-sm font-semibold text-text-primary">{name}</span>
       {/* Null whenever there's no viewer to follow as (logged-out landing
           preview) or the team hasn't been backfilled into `teams` yet —
           the icon simply doesn't render rather than acting on a missing id. */}

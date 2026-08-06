@@ -55,7 +55,11 @@ export function DestinationHint({ method }: { method: PaymentMethodRow }) {
         <button
           type="button"
           onClick={handleCopy}
-          className="inline-flex items-center gap-1 font-semibold text-text-primary underline decoration-dotted underline-offset-2"
+          // break-all: a wallet address/handle is one long unbroken token
+          // with no natural wrap points — without it, this pushes the
+          // sheet wider instead of wrapping (real failure caught testing
+          // at 200% accessibility text size).
+          className="inline-flex items-center gap-1 break-all font-semibold text-text-primary underline decoration-dotted underline-offset-2"
         >
           {method.destination}
           {copied ? <Check className="size-3.5 text-credit" /> : <Copy className="size-3.5" />}

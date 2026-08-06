@@ -29,12 +29,12 @@ function NavLink({
       href={href}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex min-h-11 flex-col items-center justify-center gap-0.5 py-2 text-xs font-medium transition-colors",
+        "flex min-h-11 min-w-0 flex-col items-center justify-center gap-0.5 py-2 text-xs font-medium transition-colors",
         active ? "text-accent-primary" : "text-text-muted hover:text-text-secondary",
       )}
     >
       <Icon className="size-5" aria-hidden="true" />
-      <span>{label}</span>
+      <span className="max-w-full truncate">{label}</span>
     </Link>
   );
 }
@@ -59,9 +59,9 @@ export function MobileBottomNavigation({
       aria-label="Primary"
       className="fixed inset-x-0 bottom-0 z-40 border-t border-border-subtle bg-surface-primary pb-[env(safe-area-inset-bottom)]"
     >
-      <ul className={cn("mx-auto flex items-stretch justify-around", wide ? "max-w-[1200px]" : "max-w-[720px]")}>
+      <ul className={cn("mx-auto flex w-full items-stretch justify-around", wide ? "max-w-[1200px]" : "max-w-[720px]")}>
         {LEFT_TABS.map(({ href, label, icon: Icon }) => (
-          <li key={href} className="flex-1">
+          <li key={href} className="min-w-0 flex-1">
             <NavLink href={href} label={label} Icon={Icon} active={isActive(href)} />
           </li>
         ))}
@@ -79,17 +79,17 @@ export function MobileBottomNavigation({
         )}
 
         {RIGHT_TABS.map(({ href, label, icon: Icon }) => (
-          <li key={href} className="flex-1">
+          <li key={href} className="min-w-0 flex-1">
             <NavLink href={href} label={label} Icon={Icon} active={isActive(href)} />
           </li>
         ))}
 
-        <li className="flex-1">
+        <li className="min-w-0 flex-1">
           <Link
             href="/profile"
             aria-current={isActive("/profile") ? "page" : undefined}
             className={cn(
-              "flex min-h-11 flex-col items-center justify-center gap-0.5 py-2 text-xs font-medium transition-colors",
+              "flex min-h-11 min-w-0 flex-col items-center justify-center gap-0.5 py-2 text-xs font-medium transition-colors",
               isActive("/profile") ? "text-accent-primary" : "text-text-muted hover:text-text-secondary",
             )}
           >
@@ -99,7 +99,7 @@ export function MobileBottomNavigation({
               size="sm"
               className={cn("ring-2", isActive("/profile") ? "ring-accent-primary" : "ring-transparent")}
             />
-            <span>Profile</span>
+            <span className="max-w-full truncate">Profile</span>
           </Link>
         </li>
       </ul>

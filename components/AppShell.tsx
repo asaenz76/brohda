@@ -33,11 +33,20 @@ export function AppShell({
   return (
     <div className="flex min-h-full flex-col bg-background">
       <header className="sticky top-0 z-30 border-b border-border-subtle bg-background/95 backdrop-blur">
-        <div className={cn("mx-auto flex items-center justify-between px-4 py-3", maxWidth)}>
+        <div
+          className={cn(
+            // flex-wrap + gap-y: at large accessibility text sizes the
+            // wordmark + balance pill + icon row no longer fit one line at
+            // common mobile widths — wrap instead of overflowing the
+            // viewport (real failure caught testing at 200% text size).
+            "mx-auto flex flex-wrap items-center justify-between gap-y-2 px-4 py-3",
+            maxWidth,
+          )}
+        >
           <Link href="/feed" className="font-logo text-lg font-extrabold italic text-text-primary">
             brohda.
           </Link>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <BalancePill balanceCents={balanceCents} />
             {isAdminOrAbove(user) && (
               <Link
