@@ -43,9 +43,11 @@ test("invitation → registration → login", async ({ page }) => {
 
   await page.goto(`/invite/${invitation!.token}`);
   await page.getByLabel("Display name").fill("E2E Invitee");
-  await page.getByLabel("Password").fill("invitee-password-123");
+  // exact: true — the default substring match also catches the
+  // PasswordInput toggle button's aria-label="Show password".
+  await page.getByLabel("Password", { exact: true }).fill("invitee-password-123");
   await page.getByRole("checkbox", { name: /accept the community rules/i }).check();
-  await page.getByRole("button", { name: /join poll pools/i }).click();
+  await page.getByRole("button", { name: /join brohda/i }).click();
 
   await expect(page).toHaveURL(/\/feed$/);
 
@@ -54,7 +56,7 @@ test("invitation → registration → login", async ({ page }) => {
   await expect(page).toHaveURL(/\/login$/);
 
   await page.getByLabel("Email").fill(inviteeEmail);
-  await page.getByLabel("Password").fill("invitee-password-123");
+  await page.getByLabel("Password", { exact: true }).fill("invitee-password-123");
   await page.getByRole("button", { name: /log in/i }).click();
 
   await expect(page).toHaveURL(/\/feed$/);

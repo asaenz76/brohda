@@ -91,3 +91,52 @@ jobs:
       - name: Stop local Supabase
         if: always()
         run: pnpm supabase:stop
+
+  e2e:
+    name: End-to-end tests (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright's chromium browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      # Same local-stack pattern as the integration job — invite-flow.spec.ts
+      # creates its own admin/invitee via SUPABASE_SERVICE_ROLE_KEY rather
+      # than relying on a bootstrapped account, so no create-super-admin
+      # step is needed here.
+      - name: Start local Supabase
+        run: pnpm supabase start
+
+      - name: Write .env.local from the local Supabase stack
+        run: |
+          eval "$(pnpm supabase status -o env | grep -E '^(API_URL|ANON_KEY|SERVICE_ROLE_KEY)=')"
+          cat > .env.local <<EOF
+          NEXT_PUBLIC_SUPABASE_URL=$API_URL
+          NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY
+          SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY
+          API_FOOTBALL_BASE_URL=https://v3.football.api-sports.io
+          API_FOOTBALL_KEY=ci-placeholder
+          API_FOOTBALL_ENABLED=false
+          DEFAULT_TIMEZONE=America/Costa_Rica
+          APP_URL=http://localhost:3000
+          CRON_SECRET=ci-placeholder
+          RESEND_API_KEY=
+          NEXT_PUBLIC_SENTRY_DSN=
+          EOF
+
+      # playwright.config.ts's webServer starts `pnpm dev` itself and waits
+      # for it to respond before running specs.
+      - run: pnpm test:e2e
+
+      - name: Stop local Supabase
+        if: always()
+        run: pnpm supabase:stop
