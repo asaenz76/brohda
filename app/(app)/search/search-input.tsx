@@ -46,7 +46,7 @@ export function SearchInput({ initialQuery }: { initialQuery: string }) {
         onChange={(e) => setValue(e.target.value)}
         placeholder="Search players, fixtures, or markets"
         aria-label="Search players, fixtures, or markets"
-        className="w-full rounded-full border border-border-subtle bg-surface-secondary py-2 pl-9 pr-3 text-sm text-text-primary outline-none placeholder:text-text-muted"
+        className="w-full rounded-full border border-border-subtle bg-surface-secondary py-2 pl-9 pr-3 text-sm text-text-primary outline-none placeholder:text-text-muted focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
       />
     </div>
   );

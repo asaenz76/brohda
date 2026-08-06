@@ -52,6 +52,12 @@ export function AppShell({
               aria-label={
                 unreadNotificationCount > 0 ? `Activity (${unreadNotificationCount} unread)` : "Activity"
               }
+              // Every other icon in primary navigation (MobileBottomNavigation)
+              // has a visible text label under it — this is the one bare icon
+              // in the header, with nothing telling a first-time visitor what
+              // it does. A native tooltip is a light-touch fix that doesn't
+              // require redesigning an already-tight header row.
+              title="Activity"
               className="relative flex size-8 items-center justify-center rounded-full text-text-secondary transition-colors hover:text-text-primary"
             >
               <Bell className="size-5" aria-hidden="true" />

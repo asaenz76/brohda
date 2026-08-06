@@ -142,20 +142,30 @@
   --border-strong: #d4d4d4;
   --text-primary: #111111;
   --text-secondary: #737373;
-  --text-muted: #a3a3a3;
+  /* #a3a3a3 measured 2.52:1 against surface-primary — well under WCAG AA's
+     4.5:1 floor for the text-xs sizes this token is actually used at
+     (timestamps, footer notes, muted labels throughout the app). #707070
+     measures 4.95:1 on surface-primary and 4.54:1 on surface-secondary. */
+  --text-muted: #707070;
   --accent-primary: #4f46e5;
   --accent-primary-hover: #4338ca;
   --accent-primary-subtle: #eef2ff;
   --accent-primary-label: var(--accent-primary); /* fine as-is on a light card */
-  --warning-muted: #f59e0b;
+  /* #f59e0b (amber-500) measured 2.15:1 against surface-primary — badly
+     fails WCAG AA. Only overridden here in light mode: the same hex passes
+     comfortably (8.1:1) against .dark's darker surfaces below, so it's
+     left unchanged there. #a2620a measures 4.9:1 on surface-primary. */
+  --warning-muted: #a2620a;
   --danger: #ef4444;
   --credit: #22c55e;
   --debit: #ef4444;
   --pool-win: #22c55e;
   --pool-loss: #ef4444;
   /* Amber, not orange — orange is reserved exclusively for streaks now, so
-     "this match is live" gets the warning hue instead of its old orange. */
-  --pool-live: #f59e0b;
+     "this match is live" gets the warning hue instead of its old orange.
+     Same light-mode contrast fix as --warning-muted above (identical
+     underlying failure: #f59e0b measured 2.15:1 on surface-primary). */
+  --pool-live: #a2620a;
   /* New: streaks only. Never reused as a general accent/warning color. */
   --streak: #fb923c;
   /* New: leaderboard podium only (Podium.tsx) — theme-invariant medal
@@ -221,7 +231,11 @@
   --border-strong: #3a3d46;
   --text-primary: #f5f5f5;
   --text-secondary: #a1a1aa;
-  --text-muted: #71717a;
+  /* #71717a only clears WCAG AA's 3:1 large-text floor (3.6:1 on
+     surface-primary), not the 4.5:1 normal-text floor this token actually
+     needs at the text-xs sizes it's used at. #8d8d95 measures 5.28:1 on
+     surface-primary and 4.78:1 on surface-secondary. */
+  --text-muted: #8d8d95;
   --accent-primary: #6366f1;
   --accent-primary-hover: #818cf8;
   --accent-primary-subtle: #20264a;
