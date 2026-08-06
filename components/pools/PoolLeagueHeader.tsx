@@ -5,7 +5,6 @@ import type { PoolVisibility } from "@/lib/pools/card-state";
 import type { PoolType } from "@/lib/pools/templates";
 import type { SocialPoolCardViewModel } from "@/lib/pools/view-model";
 import { LeagueFollowToggle } from "@/components/pools/LeagueFollowToggle";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 interface PoolLeagueHeaderProps {
@@ -130,10 +129,16 @@ export function PoolLeagueHeader({
           <span className="rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] font-medium text-text-muted">
             {visibility === "HIDDEN" ? "Private" : "Public"}
           </span>
+          {/* Deliberately the same quiet, neutral pill as the Public/Private
+              metadata next to it — money/entry state should read as a
+              calm fact you register in passing ("oh right, I'm in this
+              one"), not as an accent-colored, attention-grabbing badge.
+              Bright/celebratory treatment is reserved for genuine outcomes
+              (the pool-win/pool-loss convention), not routine confirmation. */}
           {hasEntered && (
-            <Badge className="bg-accent-primary/15 text-accent-primary-label" size="default">
+            <span className="rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] font-medium text-text-secondary">
               You&apos;re in
-            </Badge>
+            </span>
           )}
           {leagueFollow && (
             <LeagueFollowToggle
