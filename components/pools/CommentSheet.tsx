@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { MentionInput } from "@/components/pools/MentionInput";
 import { MentionText } from "@/components/pools/MentionText";
 import { UserFollowToggle } from "@/components/pools/UserFollowToggle";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 function relativeTime(iso: string): string {
   const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
@@ -143,39 +144,7 @@ export function CommentSheet({
     onCountChange(comments.length);
   }, [comments, onCountChange]);
 
-  useEffect(() => {
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    sheetRef.current?.focus();
-
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        onClose();
-        return;
-      }
-      if (e.key !== "Tab" || !sheetRef.current) return;
-
-      const focusables = sheetRef.current.querySelectorAll<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-      );
-      if (focusables.length === 0) return;
-
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    }
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      previouslyFocused?.focus();
-    };
-  }, [onClose]);
+  useFocusTrap(sheetRef, onClose);
 
   function postComment(text: string, parentCommentId: string | null) {
     setError(null);

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Mail, Link2, Check, MoreHorizontal } from "lucide-react";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 function WhatsAppIcon() {
   return (
@@ -54,39 +55,7 @@ export function ShareSheet({
   const [copyError, setCopyError] = useState(false);
   const sheetRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    sheetRef.current?.focus();
-
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        onClose();
-        return;
-      }
-      if (e.key !== "Tab" || !sheetRef.current) return;
-
-      const focusables = sheetRef.current.querySelectorAll<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-      );
-      if (focusables.length === 0) return;
-
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    }
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      previouslyFocused?.focus();
-    };
-  }, [onClose]);
+  useFocusTrap(sheetRef, onClose);
 
   const encodedUrl = encodeURIComponent(url);
   const encodedText = encodeURIComponent(question);

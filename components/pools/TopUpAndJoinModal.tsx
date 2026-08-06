@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useRef, useState } from "react";
 import { submitWalletRequestAction, type WalletRequestState } from "@/lib/actions/wallet-requests";
 import { formatCents } from "@/lib/utils/money";
 import type { PaymentMethod } from "@/lib/payment-methods/constants";
@@ -9,6 +9,7 @@ import { DepositFields } from "@/components/wallet/DepositFields";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 interface TopUpAndJoinModalProps {
   poolId: string;
@@ -48,39 +49,7 @@ export function TopUpAndJoinModal({
   const justSubmitted = state.success && state.idempotencyKey === idempotencyKey;
   const shortfallCents = entryFee - balanceCents;
 
-  useEffect(() => {
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    sheetRef.current?.focus();
-
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        onClose();
-        return;
-      }
-      if (e.key !== "Tab" || !sheetRef.current) return;
-
-      const focusables = sheetRef.current.querySelectorAll<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-      );
-      if (focusables.length === 0) return;
-
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    }
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      previouslyFocused?.focus();
-    };
-  }, [onClose]);
+  useFocusTrap(sheetRef, onClose);
 
   return (
     <div

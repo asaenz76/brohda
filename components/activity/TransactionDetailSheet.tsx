@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import Link from "next/link";
 import { formatCents } from "@/lib/utils/money";
 import { voidReasonLabel } from "@/lib/pools/notices";
 import type { LedgerEntry } from "@/lib/wallet/ledger";
 import { Button } from "@/components/ui/button";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 interface TransactionDetailSheetProps {
   entry: LedgerEntry;
@@ -18,39 +19,7 @@ export function TransactionDetailSheet({ entry, onClose }: TransactionDetailShee
   const sheetRef = useRef<HTMLDivElement>(null);
   const isCredit = entry.direction === "credit";
 
-  useEffect(() => {
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    sheetRef.current?.focus();
-
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        onClose();
-        return;
-      }
-      if (e.key !== "Tab" || !sheetRef.current) return;
-
-      const focusables = sheetRef.current.querySelectorAll<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-      );
-      if (focusables.length === 0) return;
-
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    }
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      previouslyFocused?.focus();
-    };
-  }, [onClose]);
+  useFocusTrap(sheetRef, onClose);
 
   return (
     <div
