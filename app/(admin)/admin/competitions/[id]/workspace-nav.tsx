@@ -4,12 +4,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
+// Templates and Settings folded into the Dashboard itself as collapsible
+// sections (Phase 7: Admin Cleanup) — both were the thinnest tabs in the
+// workspace, and worth one fewer navigation for something an admin only
+// occasionally needs to check or change.
 const SUB_NAV = [
   { suffix: "", label: "Dashboard" },
   { suffix: "/health", label: "Health" },
   { suffix: "/synchronization", label: "Synchronization" },
-  { suffix: "/templates", label: "Templates" },
-  { suffix: "/settings", label: "Settings" },
   { suffix: "/lifecycle", label: "Lifecycle" },
 ];
 

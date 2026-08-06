@@ -1,7 +1,25 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getCompetitionWorkspaceData } from "@/lib/competitions/workspace-data";
+import { TEMPLATE_REGISTRY } from "@/lib/pools/templates/registry";
 import { Button } from "@/components/ui/button";
+import { SettingsForm } from "./settings/settings-form";
+
+// Coverage-based enforcement isn't built yet (see the odds-integration
+// coverage_snapshot design note) — this only surfaces what the snapshot
+// suggests, informationally, so an admin isn't guessing at data support.
+function coverageNote(coverage: unknown, templateId: string): string | null {
+  if (!coverage || typeof coverage !== "object") return null;
+  const c = coverage as Record<string, unknown>;
+  const fixtures = c.fixtures as Record<string, unknown> | undefined;
+  if (["RED_CARD", "PENALTY_AWARDED", "OWN_GOAL", "GOAL_AFTER_MINUTE", "FIRST_TEAM_TO_SCORE"].includes(templateId)) {
+    if (fixtures && fixtures.events === false) return "Provider coverage does not confirm match-event data for this competition.";
+  }
+  if (templateId === "PLAYER_TO_SCORE" && fixtures && fixtures.statistics_players === false) {
+    return "Provider coverage does not confirm player statistics for this competition.";
+  }
+  return null;
+}
 
 function formatRelative(iso: string | null): string {
   if (!iso) return "—";
@@ -17,6 +35,8 @@ export default async function CompetitionDashboardPage({ params }: { params: Pro
   if (!data) notFound();
 
   const currentJob = data.jobs.find((j) => j.status === "PENDING" || j.status === "RUNNING");
+  const hasHistoricalImport = data.jobs.some((j) => j.includeHistorical && j.status === "SUCCEEDED");
+  const activeTemplates = TEMPLATE_REGISTRY.filter((t) => t.activeForCreation);
 
   return (
     <div className="space-y-4">
@@ -62,6 +82,46 @@ export default async function CompetitionDashboardPage({ params }: { params: Pro
           Browse upcoming fixtures
         </Button>
       </Link>
+
+      {/* Folded in from the old standalone Templates/Settings sub-tabs
+          (Phase 7: Admin Cleanup — 6 workspace tabs down to 4). Both were
+          the thinnest tabs in the workspace (informational-only, and a
+          19-line stub wrapping a single form respectively) — collapsed by
+          default so the dashboard stays scannable, but one click away
+          instead of a full navigation. */}
+      <details className="rounded-lg border border-border-subtle p-3">
+        <summary className="cursor-pointer text-sm font-medium text-text-primary">Templates</summary>
+        <p className="mt-2 text-xs text-text-muted">
+          Informational only — cross-references the global template registry against this competition&apos;s
+          coverage snapshot. Nothing here restricts which templates can be used yet.
+        </p>
+        <div className="mt-2 divide-y divide-border-subtle rounded-lg border border-border-subtle">
+          {activeTemplates.map((template) => {
+            const note = coverageNote(data.coverageSnapshot, template.id);
+            return (
+              <div key={template.id} className="px-3 py-2.5 text-sm">
+                <p className="font-medium text-text-primary">{template.name}</p>
+                {note ? (
+                  <p className="text-xs text-warning-muted">{note}</p>
+                ) : (
+                  <p className="text-xs text-text-muted">No coverage concerns noted.</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </details>
+
+      <details className="rounded-lg border border-border-subtle p-3">
+        <summary className="cursor-pointer text-sm font-medium text-text-primary">Settings</summary>
+        <div className="mt-2">
+          <SettingsForm
+            leagueSeasonImportId={data.id}
+            initialPoolCreationEnabled={data.poolCreationEnabled}
+            hasHistoricalImport={hasHistoricalImport}
+          />
+        </div>
+      </details>
     </div>
   );
 }
