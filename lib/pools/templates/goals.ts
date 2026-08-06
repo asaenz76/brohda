@@ -51,7 +51,7 @@ export const matchTotalGoals: PoolTemplate<MinimumGoalsConfig> = {
   category: "GOALS",
   name: "Match total goals",
   description: "Will there be a set number of goals or more, after regulation?",
-  questionBuilder: (_fixture, config) => `Will there be ${config.minimumGoals} or more goals?`,
+  questionBuilder: (_fixture, config) => `Will there be ${config.minimumGoals} or more goals after regulation?`,
   requiredConfigFields: [{ key: "minimumGoals", label: "Minimum goals", type: "INTEGER", min: MIN_GOALS_THRESHOLD, max: MAX_GOALS_THRESHOLD }],
   requiredDataSources: ["FIXTURE"],
   availabilityCheck: () => ({ available: true }),
@@ -82,7 +82,7 @@ export const bothTeamsToScore: PoolTemplate<EmptyConfig> = {
   category: "GOALS",
   name: "Both teams to score",
   description: "Will both teams score at least once after regulation?",
-  questionBuilder: () => "Will both teams score?",
+  questionBuilder: () => "Will both teams score after regulation?",
   requiredConfigFields: [],
   requiredDataSources: ["FIXTURE"],
   availabilityCheck: () => ({ available: true }),
@@ -148,7 +148,7 @@ export const winningMargin: PoolTemplate<WinningMarginConfig> = {
   name: "Winning margin",
   description: "Will the selected team win by a set number of goals or more?",
   questionBuilder: (fixture, config) =>
-    `Will ${teamName(fixture, config.team)} win by ${config.minimumMargin} or more goals?`,
+    `Will ${teamName(fixture, config.team)} win by ${config.minimumMargin} or more goals after regulation?`,
   requiredConfigFields: [
     { key: "team", label: "Team", type: "TEAM_SIDE" },
     { key: "minimumMargin", label: "Minimum winning margin", type: "INTEGER", min: MIN_MARGIN_THRESHOLD, max: MAX_MARGIN_THRESHOLD },

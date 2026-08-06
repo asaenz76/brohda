@@ -190,7 +190,7 @@ describe("createPoolsForFixturesAction", () => {
     expect(result.results.every((r) => r.poolId)).toBe(true);
     expect(poolInserts).toHaveLength(2);
     expect(poolInserts[0].template_id).toBe("MATCH_TOTAL_GOALS");
-    expect(poolInserts[0].question).toBe("Will there be 3 or more goals?");
+    expect(poolInserts[0].question).toBe("Will there be 3 or more goals after regulation?");
     // Stage 1: newly-created TEMPLATE_GRADED pools stamp the resolved
     // template version and opt into the balanced-participation check.
     expect(poolInserts[0].template_version).toBe(1);

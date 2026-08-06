@@ -265,7 +265,7 @@ describe("matchTotalGoals", () => {
 
   it("never displays decimal handicap language", () => {
     expect(matchTotalGoals.questionBuilder(fixture(), { minimumGoals: 3 })).toBe(
-      "Will there be 3 or more goals?",
+      "Will there be 3 or more goals after regulation?",
     );
   });
 });
@@ -357,7 +357,7 @@ describe("winningMargin", () => {
 
   it("question never uses decimal handicap language", () => {
     expect(winningMargin.questionBuilder(fixture(), { team: "HOME", minimumMargin: 2 })).toBe(
-      "Will Real Madrid win by 2 or more goals?",
+      "Will Real Madrid win by 2 or more goals after regulation?",
     );
   });
 });

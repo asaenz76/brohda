@@ -5,6 +5,8 @@ import type { PoolVisibility } from "@/lib/pools/card-state";
 import type { PoolType } from "@/lib/pools/templates";
 import type { SocialPoolCardViewModel } from "@/lib/pools/view-model";
 import { LeagueFollowToggle } from "@/components/pools/LeagueFollowToggle";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 interface PoolLeagueHeaderProps {
   competitionName: string | null;
@@ -27,6 +29,11 @@ interface PoolLeagueHeaderProps {
   // True for any resolved/terminal state — hides this line entirely rather
   // than showing a stale/misleading "Choices Locked" or countdown.
   isResolved: boolean;
+  // A card the viewer has already entered otherwise looks identical to
+  // every other open card while scrolling back past it in the feed — the
+  // per-option "Your Choice" badge only surfaces once you've scanned into
+  // the option list. This gives the same fact away at a glance.
+  hasEntered?: boolean;
 }
 
 function relativeTime(iso: string): string {
@@ -45,6 +52,17 @@ function countdown(iso: string): string {
   const hours = Math.floor(minutes / 60);
   const remainder = minutes % 60;
   return hours > 0 ? `Locks in ${hours}h ${remainder}m` : `Locks in ${remainder}m`;
+}
+
+// "Check before kickoff — that's the last chance to see who's with the
+// room" only reads as a real moment if the countdown itself signals
+// urgency once it's actually close. 15 minutes matches the same
+// last-call window a countdown timer conventionally uses.
+const URGENT_LOCK_WINDOW_MS = 15 * 60_000;
+
+function isUrgentLock(iso: string): boolean {
+  const diffMs = new Date(iso).getTime() - Date.now();
+  return diffMs > 0 && diffMs <= URGENT_LOCK_WINDOW_MS;
 }
 
 // Every pool is admin-created, so a creator identity (who posted it) isn't
@@ -69,6 +87,7 @@ export function PoolLeagueHeader({
   locksAt,
   isLocked,
   isResolved,
+  hasEntered = false,
   leagueFollow = null,
 }: PoolLeagueHeaderProps) {
   // relativeTime()/countdown() below are pure reads of Date.now() — with
@@ -111,6 +130,11 @@ export function PoolLeagueHeader({
           <span className="rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] font-medium text-text-muted">
             {visibility === "HIDDEN" ? "Private" : "Public"}
           </span>
+          {hasEntered && (
+            <Badge className="bg-accent-primary/15 text-accent-primary-label" size="default">
+              You&apos;re in
+            </Badge>
+          )}
           {leagueFollow && (
             <LeagueFollowToggle
               leagueId={leagueFollow.id}
@@ -121,7 +145,14 @@ export function PoolLeagueHeader({
         </div>
         <p className="text-xs text-text-muted">Posted {relativeTime(createdAt)}</p>
         {!isResolved && (
-          <p className="text-xs font-medium text-accent-primary-label">
+          <p
+            className={cn(
+              "text-xs font-medium",
+              !isLocked && isUrgentLock(locksAt)
+                ? "font-semibold text-warning-muted"
+                : "text-accent-primary-label",
+            )}
+          >
             {isLocked ? "Choices Locked" : countdown(locksAt)}
           </p>
         )}

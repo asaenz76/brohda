@@ -140,6 +140,7 @@ export function SocialPoolCard({
             locksAt={viewModel.locksAt}
             isLocked={isLocked || isLive}
             isResolved={!isPreVote && !isPostVote && !isLocked && !isLive}
+            hasEntered={viewModel.currentUser.hasEntered}
             leagueFollow={viewModel.fixture.leagueFollow}
           />
         </div>
@@ -295,6 +296,7 @@ export function SocialPoolCard({
             optionLabel={selectedOption.label}
             ruleLabel={viewModel.ruleLabel}
             entryFee={viewModel.entryFee}
+            houseFeeBasisPoints={viewModel.houseFeeBasisPoints}
             balanceCents={balanceCents}
             locksAt={viewModel.locksAt}
             onClose={() => setSelectedOptionId(null)}

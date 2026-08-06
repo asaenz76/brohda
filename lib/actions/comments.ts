@@ -18,13 +18,17 @@ export type PoolCommentItem = {
   avatarUrl: string | null;
   username: string | null;
   parentCommentId: string | null;
+  // Lets a commenter be followed straight from the thread — reading
+  // someone's take and deciding to follow them shouldn't require a full
+  // profile-page visit first.
+  isFollowing: boolean;
 };
 
 // Read path for CommentSheet — uses the RLS-respecting client (comments
 // inherit their pool's own read policy), not the service role, since this
 // is just a query, not a mutation.
 export async function getPoolCommentsAction(poolId: string): Promise<PoolCommentItem[]> {
-  await requireUser();
+  const user = await requireUser();
   const supabase = await createClient();
 
   const { data: comments } = await supabase
@@ -36,7 +40,11 @@ export async function getPoolCommentsAction(poolId: string): Promise<PoolComment
   if (!comments || comments.length === 0) return [];
 
   const userIds = [...new Set(comments.map((c) => c.user_id))];
-  const { data: profiles } = await supabase.from("public_profiles").select("*").in("id", userIds);
+  const [{ data: profiles }, { data: followRows }] = await Promise.all([
+    supabase.from("public_profiles").select("*").in("id", userIds),
+    supabase.from("follows").select("followee_id").eq("follower_id", user.id).in("followee_id", userIds),
+  ]);
+  const followingIds = new Set((followRows ?? []).map((f) => f.followee_id));
 
   return comments.map((c) => {
     const profile = profiles?.find((p) => p.id === c.user_id);
@@ -49,6 +57,7 @@ export async function getPoolCommentsAction(poolId: string): Promise<PoolComment
       avatarUrl: profile?.avatar_url ?? null,
       username: profile?.username ?? null,
       parentCommentId: c.parent_comment_id,
+      isFollowing: followingIds.has(c.user_id),
     };
   });
 }
@@ -146,6 +155,9 @@ export async function addCommentAction(
       avatarUrl: user.avatar_url,
       username: user.username,
       parentCommentId: comment.parent_comment_id,
+      // Always your own fresh comment here — the follow toggle is hidden
+      // for the viewer's own rows regardless of this value.
+      isFollowing: false,
     },
   };
 }

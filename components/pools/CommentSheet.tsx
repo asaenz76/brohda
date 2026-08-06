@@ -13,6 +13,7 @@ import { Avatar } from "@/components/Avatar";
 import { Button } from "@/components/ui/button";
 import { MentionInput } from "@/components/pools/MentionInput";
 import { MentionText } from "@/components/pools/MentionText";
+import { UserFollowToggle } from "@/components/pools/UserFollowToggle";
 
 function relativeTime(iso: string): string {
   const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
@@ -51,6 +52,13 @@ function CommentRow({
             {comment.displayName}
           </Link>
           <p className="text-xs text-text-muted">{relativeTime(comment.createdAt)}</p>
+          {comment.userId !== viewer.id && (
+            <UserFollowToggle
+              userId={comment.userId}
+              displayName={comment.displayName}
+              initiallyFollowing={comment.isFollowing}
+            />
+          )}
         </div>
         <MentionText text={comment.body} className="text-sm text-text-secondary" />
         {onReply && (

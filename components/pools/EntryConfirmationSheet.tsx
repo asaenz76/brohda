@@ -2,7 +2,7 @@
 
 import { useActionState, useEffect, useRef, useState } from "react";
 import { enterPoolAction, type EnterPoolState } from "@/lib/actions/entries";
-import { formatCents } from "@/lib/utils/money";
+import { formatCents, formatBps } from "@/lib/utils/money";
 import { LocalDateTime } from "@/components/LocalDateTime";
 import { RulePill } from "./RulePill";
 import { SlideToConfirm } from "./SlideToConfirm";
@@ -13,6 +13,7 @@ interface EntryConfirmationSheetProps {
   optionLabel: string;
   ruleLabel: string;
   entryFee: number;
+  houseFeeBasisPoints: number;
   balanceCents: number;
   locksAt: string;
   onClose: () => void;
@@ -30,6 +31,7 @@ export function EntryConfirmationSheet({
   optionLabel,
   ruleLabel,
   entryFee,
+  houseFeeBasisPoints,
   balanceCents,
   locksAt,
   onClose,
@@ -118,6 +120,13 @@ export function EntryConfirmationSheet({
             <dd className="text-text-primary">{formatCents(balanceAfter)}</dd>
           </div>
         </dl>
+
+        {/* Restated right at the moment of commitment, not just on the feed
+            card's small footer text — silence about money is the product's
+            single biggest trust gap (see the wallet pending-state fix). */}
+        <p className="text-xs text-text-muted">
+          Platform Fee {formatBps(houseFeeBasisPoints)} — applies to winnings, not your entry.
+        </p>
 
         <p className="text-xs text-text-muted">
           Locks{" "}
