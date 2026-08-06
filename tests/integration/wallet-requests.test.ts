@@ -186,10 +186,11 @@ describe.skipIf(!SERVICE_ROLE_KEY)("wallet requests", () => {
 
     if (createdPoolIds.length > 0) {
       // wallet_requests.intended_pool_id/intended_option_id FK these test
-      // pools/options — must clear before pool_options/pools can go.
-      // service_role has no DELETE grant on wallet_requests (by design,
-      // matching every other wallet-adjacent table), so null the FKs out
-      // instead of deleting the rows.
+      // pools/options — must clear before pool_options/pools can go. Nulling
+      // the FKs (rather than deleting the rows outright, which the DELETE
+      // grant added in 20260101000103 now permits) keeps this cleanup
+      // symmetric with the deposit/withdrawal rows other tests leave behind
+      // for manual inspection.
       let result = await admin
         .from("wallet_requests")
         .update({ intended_pool_id: null, intended_option_id: null })
@@ -202,6 +203,27 @@ describe.skipIf(!SERVICE_ROLE_KEY)("wallet requests", () => {
       result = await admin.from("pools").delete().in("id", createdPoolIds);
       if (result.error) throw result.error;
     }
+  });
+
+  // Regression test for the missing service_role DELETE grant (Phase 8
+  // Technical Debt, same bug class as provider_request_log/
+  // fixture_odds_cache) — before 20260101000103, this delete returned an
+  // error the caller wasn't checking, so the row silently survived.
+  it("lets service_role delete a wallet_requests row", async () => {
+    const { userId } = await createTestPlayer(`wallet-req-delete-grant-${Date.now()}@example.com`);
+    createdUserIds.push(userId);
+
+    const request = await insertRequest({ userId, type: "deposit", amount: 500 });
+
+    const { error: deleteError } = await admin.from("wallet_requests").delete().eq("id", request.id);
+    expect(deleteError).toBeNull();
+
+    const { data: stillThere } = await admin
+      .from("wallet_requests")
+      .select("id")
+      .eq("id", request.id)
+      .maybeSingle();
+    expect(stillThere).toBeNull();
   });
 
   it("approving a deposit request credits the wallet and marks it approved", async () => {
