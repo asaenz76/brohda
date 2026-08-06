@@ -23,7 +23,13 @@ export interface FixtureGoalsLines {
 export async function getFixtureGoalsLinesAction(externalFixtureId: string): Promise<FixtureGoalsLines> {
   await requireAdminOrAbove();
 
-  const odds = await apiFootballProvider.getFixtureOdds(externalFixtureId);
+  // Best-effort, same as getFixtureMarketsAction below: a fixture with no
+  // real provider coverage (no odds posted, provider outage, or — for a
+  // dev-seed/synthetic fixture — an external_fixture_id the provider
+  // rejects outright) must not break the wizard. Without this catch, a
+  // thrown ProviderApiError here surfaces as an unhandled rejection on the
+  // client's un-caught `.then()`, permanently soft-locking the wizard.
+  const odds = await apiFootballProvider.getFixtureOdds(externalFixtureId).catch(() => null);
   if (!odds) return { matchLine: null, firstHalfLine: null, homeTeamLine: null, awayTeamLine: null };
 
   return {
@@ -66,7 +72,14 @@ export async function getFixtureMarketsAction(externalFixtureId: string): Promis
     return cached.normalized_markets;
   }
 
-  const fresh = await apiFootballProvider.getFixtureMarkets(externalFixtureId);
+  // Best-effort — see getFixtureGoalsLinesAction's comment above. Without
+  // this catch, getFixtureQuestionContextAction's Promise.all rejects
+  // whole, so the wizard's step 2 never resolves questionContext and gets
+  // stuck on "Checking existing pools on this fixture…" forever, even
+  // though a markets-fetch failure was always meant to be recoverable
+  // (rankRecommendations already treats null markets as "no markets
+  // fetched" and falls back to the static prior).
+  const fresh = await apiFootballProvider.getFixtureMarkets(externalFixtureId).catch(() => null);
   if (fresh) {
     await adminClient
       .from("fixture_odds_cache")
