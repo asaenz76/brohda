@@ -9,6 +9,11 @@ export default defineConfig({
   // Turbopack hasn't compiled yet on a freshly-started dev server — every
   // CI run starts fresh, so this isn't a one-time local warmup cost.
   timeout: 60_000,
+  // Web-first assertions (expect(page).toHaveURL(), etc.) have their own
+  // separate default (5s), independent of the top-level `timeout` above —
+  // a Server Action's dev-mode compile + redirect can take several seconds
+  // longer than that on a cold Turbopack route.
+  expect: { timeout: 15_000 },
   use: {
     baseURL: process.env.APP_URL ?? "http://localhost:3000",
     trace: "on-first-retry",
