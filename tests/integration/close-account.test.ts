@@ -188,12 +188,19 @@ describe.skipIf(!SERVICE_ROLE_KEY)("close_own_account", () => {
     const userId = await createTestPlayer(`close-success-${Date.now()}@example.com`);
     createdUserIds.push(userId);
 
+    // bio/pronouns/gender/stories_last_seen_at aren't set by createTestPlayer
+    // — set them here so the scrub has something real to null out.
+    await admin
+      .from("user_profiles")
+      .update({ bio: "hi", pronouns: "they/them", gender: "nonbinary", stories_last_seen_at: new Date().toISOString() })
+      .eq("id", userId);
+
     const { error } = await admin.rpc("close_own_account", { p_user_id: userId });
     expect(error).toBeNull();
 
     const { data: profile } = await admin
       .from("user_profiles")
-      .select("is_active, display_name, username, avatar_url")
+      .select("is_active, display_name, username, avatar_url, bio, pronouns, gender, stories_last_seen_at")
       .eq("id", userId)
       .single();
     expect(profile).toEqual({
@@ -201,6 +208,10 @@ describe.skipIf(!SERVICE_ROLE_KEY)("close_own_account", () => {
       display_name: "Deleted User",
       username: null,
       avatar_url: null,
+      bio: null,
+      pronouns: null,
+      gender: null,
+      stories_last_seen_at: null,
     });
   });
 });
