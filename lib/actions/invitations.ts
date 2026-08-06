@@ -47,7 +47,9 @@ export async function createInvitationAction(
   return { error: null, inviteUrl };
 }
 
-export async function revokeInvitationAction(invitationId: string) {
+export type RevokeInvitationResult = { success: boolean; error: string | null };
+
+export async function revokeInvitationAction(invitationId: string): Promise<RevokeInvitationResult> {
   const admin = await requireAdminOrAbove();
   const adminClient = createAdminClient();
 
@@ -64,7 +66,7 @@ export async function revokeInvitationAction(invitationId: string) {
     .eq("status", "pending");
 
   if (error) {
-    throw new Error("Could not revoke invitation.");
+    return { success: false, error: "Could not revoke invitation." };
   }
 
   await writeAuditLog({
@@ -76,6 +78,7 @@ export async function revokeInvitationAction(invitationId: string) {
   });
 
   revalidatePath("/admin/invitations");
+  return { success: true, error: null };
 }
 
 export type InvitationLookup =

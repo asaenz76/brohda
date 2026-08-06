@@ -1,6 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { revokeInvitationAction } from "@/lib/actions/invitations";
-import { Button } from "@/components/ui/button";
+import { RevokeInvitationButton } from "./revoke-invitation-button";
 
 const STATUS_STYLE: Record<string, string> = {
   pending: "text-text-secondary",
@@ -38,13 +37,7 @@ export default async function AdminInvitationsPage() {
                 {new Date(inv.expires_at).toLocaleDateString()}
               </td>
               <td className="px-3 py-2 text-right">
-                {inv.status === "pending" && (
-                  <form action={revokeInvitationAction.bind(null, inv.id)}>
-                    <Button type="submit" variant="outline" size="sm">
-                      Revoke
-                    </Button>
-                  </form>
-                )}
+                {inv.status === "pending" && <RevokeInvitationButton invitationId={inv.id} />}
               </td>
             </tr>
           ))}

@@ -21,6 +21,8 @@ function revalidatePoolPaths(poolId: string) {
   revalidatePath("/feed");
 }
 
+export type ForceLockPoolResult = { success: boolean; error: string | null };
+
 /**
  * Manual "Lock now" — OPEN -> LOCKED on demand, not gated on locks_at having
  * passed (matches spec's admin Force Lock capability — no invariant depends
@@ -28,13 +30,13 @@ function revalidatePoolPaths(poolId: string) {
  * cron that normally does this (`lockDuePools`) only runs once a minute in
  * production and not at all in local dev.
  */
-export async function forceLockPoolAction(poolId: string) {
+export async function forceLockPoolAction(poolId: string): Promise<ForceLockPoolResult> {
   const admin = await requireAdminOrAbove();
   const adminClient = createAdminClient();
 
   const { data: pool } = await adminClient.from("pools").select("*").eq("id", poolId).single();
   if (!pool || pool.status !== "OPEN") {
-    throw new Error("This pool isn't open, so it can't be locked.");
+    return { success: false, error: "This pool isn't open, so it can't be locked." };
   }
 
   const { error } = await adminClient
@@ -43,7 +45,7 @@ export async function forceLockPoolAction(poolId: string) {
     .eq("id", poolId)
     .eq("status", "OPEN");
 
-  if (error) throw new Error("Could not lock this pool.");
+  if (error) return { success: false, error: "Could not lock this pool." };
 
   await writeAuditLog({
     actorId: admin.id,
@@ -55,7 +57,10 @@ export async function forceLockPoolAction(poolId: string) {
   });
 
   revalidatePoolPaths(poolId);
+  return { success: true, error: null };
 }
+
+export type AdvanceLockedPoolResult = { success: boolean; error: string | null };
 
 /**
  * Manual advance for a LOCKED pool — calls the same atomic
@@ -66,21 +71,21 @@ export async function forceLockPoolAction(poolId: string) {
  * cancels and refunds too (ONE_SIDED_POOL); unresolvable binary options
  * route to MANUAL_REVIEW; otherwise the pool advances to AWAITING_RESULT.
  */
-export async function advanceLockedPoolAction(poolId: string) {
+export async function advanceLockedPoolAction(poolId: string): Promise<AdvanceLockedPoolResult> {
   const admin = await requireSuperAdmin();
   const adminClient = createAdminClient();
 
   const { data: pool } = await adminClient.from("pools").select("id, status").eq("id", poolId).single();
 
   if (!pool || pool.status !== "LOCKED") {
-    throw new Error("This pool isn't locked, so it can't be advanced.");
+    return { success: false, error: "This pool isn't locked, so it can't be advanced." };
   }
 
   const { data: updatedPool, error } = await adminClient.rpc("advance_or_cancel_locked_pool", {
     p_pool_id: poolId,
     p_admin_id: admin.id,
   });
-  if (error || !updatedPool) throw new Error("Could not advance this pool.");
+  if (error || !updatedPool) return { success: false, error: "Could not advance this pool." };
 
   if (updatedPool.status === "CANCELLED") {
     await writeAuditLog({
@@ -122,6 +127,7 @@ export async function advanceLockedPoolAction(poolId: string) {
   }
 
   revalidatePoolPaths(poolId);
+  return { success: true, error: null };
 }
 
 export type GradeManuallyState = { error: string | null };

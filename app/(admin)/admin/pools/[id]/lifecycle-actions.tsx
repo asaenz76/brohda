@@ -56,22 +56,64 @@ export function UndoGradingButton({ poolId }: { poolId: string }) {
 }
 
 export function ForceLockButton({ poolId }: { poolId: string }) {
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  function handleLock() {
+    setError(null);
+    startTransition(async () => {
+      const result = await forceLockPoolAction(poolId);
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
+      router.refresh();
+    });
+  }
+
   return (
-    <form action={forceLockPoolAction.bind(null, poolId)}>
-      <Button type="submit" variant="outline">
-        Lock now
+    <div className="space-y-1.5">
+      <Button type="button" variant="outline" disabled={isPending} onClick={handleLock}>
+        {isPending ? "Locking…" : "Lock now"}
       </Button>
-    </form>
+      {error && (
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 
 export function AdvanceLockedPoolButton({ poolId }: { poolId: string }) {
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  function handleAdvance() {
+    setError(null);
+    startTransition(async () => {
+      const result = await advanceLockedPoolAction(poolId);
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
+      router.refresh();
+    });
+  }
+
   return (
-    <form action={advanceLockedPoolAction.bind(null, poolId)}>
-      <Button type="submit" variant="outline">
-        Advance to awaiting result
+    <div className="space-y-1.5">
+      <Button type="button" variant="outline" disabled={isPending} onClick={handleAdvance}>
+        {isPending ? "Advancing…" : "Advance to awaiting result"}
       </Button>
-    </form>
+      {error && (
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 

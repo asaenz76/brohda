@@ -681,7 +681,9 @@ export async function createPoolsForFixturesAction(
   return { error: null, results };
 }
 
-export async function publishPoolAction(poolId: string) {
+export type PublishPoolResult = { success: boolean; error: string | null };
+
+export async function publishPoolAction(poolId: string): Promise<PublishPoolResult> {
   const admin = await requireAdminOrAbove();
   const adminClient = createAdminClient();
 
@@ -694,7 +696,7 @@ export async function publishPoolAction(poolId: string) {
     .eq("status", "DRAFT");
 
   if (error) {
-    throw new Error("Could not publish this pool.");
+    return { success: false, error: "Could not publish this pool." };
   }
 
   await writeAuditLog({
@@ -718,6 +720,8 @@ export async function publishPoolAction(poolId: string) {
       visibility: before.visibility as string,
     });
   }
+
+  return { success: true, error: null };
 }
 
 export type UpdatePoolState = { error: string | null };
