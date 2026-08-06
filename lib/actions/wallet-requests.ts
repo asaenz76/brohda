@@ -128,7 +128,13 @@ export async function submitWalletRequestAction(
   });
 
   if (!parsed.success) {
-    return { error: "Enter a valid amount.", success: false, idempotencyKey };
+    // Surface whichever field actually failed (the withdrawal-destination
+    // check and the payment-reference checks below both set a specific,
+    // actionable message via ctx.addIssue) — falling back to the generic
+    // amount copy only covers truly field-less failures (e.g. a malformed
+    // request shape), not the common "wrong field" case.
+    const message = parsed.error.issues[0]?.message ?? "Enter a valid amount.";
+    return { error: message, success: false, idempotencyKey };
   }
 
   const adminClient = createAdminClient();

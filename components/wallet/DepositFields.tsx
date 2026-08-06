@@ -2,7 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { Copy, Check } from "lucide-react";
-import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "@/lib/payment-methods/constants";
+import {
+  PAYMENT_METHOD_LABELS,
+  PAYMENT_REFERENCE_REQUIREMENT,
+  PAYMENT_REFERENCE_LABEL,
+  PAYMENT_REFERENCE_PLACEHOLDER,
+  PAYMENT_REFERENCE_HELP,
+  CRYPTO_TX_HASH_PATTERN,
+  type PaymentMethod,
+} from "@/lib/payment-methods/constants";
 import type { PaymentMethodRow } from "@/lib/payment-methods/fetch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -87,6 +95,11 @@ export function DepositFields({
   // intact for whenever a second rail is ever re-enabled.
   const onlyMethod = paymentMethods.length === 1 ? paymentMethods[0] : null;
   const selectedMethodRow = onlyMethod ?? paymentMethods.find((m) => m.method === paymentMethod) ?? null;
+  // Drives the reference field's label/placeholder/requiredness below —
+  // falls back to "optional" until a method is actually chosen, so the
+  // field doesn't demand input before there's anything to be specific about.
+  const effectiveMethod: PaymentMethod | null = selectedMethodRow?.method ?? (paymentMethod || null);
+  const referenceRequirement = effectiveMethod ? PAYMENT_REFERENCE_REQUIREMENT[effectiveMethod] : "optional";
 
   // Both call sites (WalletRequestForm, TopUpAndJoinModal) own their own
   // paymentMethod state for other purposes (e.g. WITHDRAWAL_NOTE_COPY) —
@@ -148,15 +161,32 @@ export function DepositFields({
           same as any named method, so this must not skip OTHER. */}
       {mode === "deposit" && selectedMethodRow && <DestinationHint method={selectedMethodRow} />}
 
+      {/* Method-aware, matching lib/validations/wallet.ts's superRefine
+          exactly (same PAYMENT_REFERENCE_REQUIREMENT lookup and the same
+          CRYPTO_TX_HASH_PATTERN as the HTML `pattern` attribute) — Brohda's
+          review is entirely manual, so whatever's required here is
+          genuinely the only evidence an admin has, not proof for its own
+          sake. OTHER stays optional since it has no predictable receipt
+          shape to require. */}
       {mode === "deposit" && (
         <div className="space-y-1.5">
-          <Label htmlFor={`${idPrefix}-transaction-ref`}>Transaction #/ID</Label>
+          <Label htmlFor={`${idPrefix}-transaction-ref`}>
+            {effectiveMethod ? PAYMENT_REFERENCE_LABEL[effectiveMethod] : "Payment reference"}
+          </Label>
           <Input
             id={`${idPrefix}-transaction-ref`}
             name="transactionRef"
-            placeholder="e.g. the tx hash or confirmation number"
-            required
+            placeholder={
+              effectiveMethod
+                ? PAYMENT_REFERENCE_PLACEHOLDER[effectiveMethod]
+                : "e.g. a tx hash, confirmation number, or last 4 digits"
+            }
+            required={referenceRequirement !== "optional"}
+            pattern={referenceRequirement === "crypto_hash" ? CRYPTO_TX_HASH_PATTERN : undefined}
           />
+          {effectiveMethod && PAYMENT_REFERENCE_HELP[effectiveMethod] && (
+            <p className="text-xs text-text-muted">{PAYMENT_REFERENCE_HELP[effectiveMethod]}</p>
+          )}
         </div>
       )}
     </>

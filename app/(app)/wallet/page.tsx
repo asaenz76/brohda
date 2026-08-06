@@ -48,9 +48,12 @@ export default async function WalletPage() {
     <div className="space-y-6">
       <h1 className="sr-only">Ledger</h1>
 
-      <div className="rounded-2xl border border-border-subtle bg-surface-primary p-4">
+      {/* Confidence starts with clearly seeing what you have — the balance
+          is deliberately the loudest number on the page, bigger than any
+          button or heading below it. */}
+      <div className="rounded-2xl border border-border-subtle bg-surface-primary p-5">
         <p className="text-sm text-text-muted">Current balance</p>
-        <p className="text-2xl font-bold text-text-primary">{formatCents(balanceCents)}</p>
+        <p className="text-4xl font-bold text-text-primary">{formatCents(balanceCents)}</p>
       </div>
 
       <WalletRequestForm paymentMethods={enabledPaymentMethods} />

@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { PAYMENT_METHODS } from "@/lib/payment-methods/constants";
+import {
+  PAYMENT_METHODS,
+  PAYMENT_METHOD_LABELS,
+  PAYMENT_REFERENCE_REQUIREMENT,
+  CRYPTO_TX_HASH_REGEX,
+} from "@/lib/payment-methods/constants";
 
 export const walletAdjustmentSchema = z
   .object({
@@ -24,12 +29,13 @@ export const walletRequestSchema = z
     // land. Left undefined for every ordinary deposit/withdrawal request.
     intendedPoolId: z.string().uuid().optional(),
     intendedOptionId: z.string().uuid().optional(),
-    // All three optional at the schema level, not enforced here — both
-    // deposit-mode UIs (WalletRequestForm and TopUpAndJoinModal, via the
-    // shared DepositFields component) require paymentMethod and
-    // transactionRef via plain HTML `required` on their own inputs instead.
-    // Kept optional here so older/partial submissions still parse rather
-    // than hard-failing.
+    // paymentMethod stays optional at the schema level — WalletRequestForm
+    // and TopUpAndJoinModal (both via DepositFields) require it via plain
+    // HTML `required` on their own inputs instead, and older/partial
+    // submissions should still parse rather than hard-failing. transactionRef
+    // is method-aware (see the superRefine below): required and
+    // format-checked for crypto rails, required for Venmo/Cash App/Zelle,
+    // genuinely optional only for OTHER.
     paymentMethod: z.enum(PAYMENT_METHODS).optional(),
     otherMethodNote: z.string().trim().max(200).optional(),
     transactionRef: z.string().trim().max(200).optional(),
@@ -45,6 +51,45 @@ export const walletRequestSchema = z
   .refine((data) => data.type !== "withdrawal" || (data.note && data.note.length > 0), {
     message: "Enter where the funds should be sent.",
     path: ["note"],
+  })
+  // Brohda's review is entirely manual (no on-chain lookup or provider
+  // webhook for any rail) — whatever's in transactionRef is the only
+  // evidence an admin has, so how strictly it's required tracks what each
+  // rail actually, reliably hands the sender. Only runs for deposits with a
+  // known paymentMethod; transactionRef isn't collected for withdrawals at
+  // all (DepositFields never renders that input outside deposit mode).
+  .superRefine((data, ctx) => {
+    if (data.type !== "deposit" || !data.paymentMethod) return;
+
+    const requirement = PAYMENT_REFERENCE_REQUIREMENT[data.paymentMethod];
+    if (requirement === "optional") return;
+
+    const ref = data.transactionRef ?? "";
+    if (requirement === "crypto_hash") {
+      if (!ref) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["transactionRef"],
+          message: "Enter the transaction hash for this deposit.",
+        });
+      } else if (!CRYPTO_TX_HASH_REGEX.test(ref)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["transactionRef"],
+          message: "That doesn't look like a valid transaction hash.",
+        });
+      }
+      return;
+    }
+
+    // requirement === "reference"
+    if (!ref) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["transactionRef"],
+        message: `Enter the confirmation number ${PAYMENT_METHOD_LABELS[data.paymentMethod]} gave you.`,
+      });
+    }
   });
 
 export type WalletRequestInput = z.infer<typeof walletRequestSchema>;
