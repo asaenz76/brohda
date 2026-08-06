@@ -133,7 +133,11 @@ export function PoolTemplateBuilder({
   const [houseFeePercent, setHouseFeePercent] = useState(defaultHouseFeePercent);
   const [locksAtLocal, setLocksAtLocal] = useState("");
   const [visibility, setVisibility] = useState(defaultVisibility);
-  const [participationVisibility, setParticipationVisibility] = useState(defaultParticipationVisibility);
+  // Fixed, not admin-configurable — see the hidden input near the
+  // visibility section below. Still seeded from defaultParticipationVisibility
+  // (duplicate-pool flow) rather than a bare constant, so duplicating an
+  // older pool created before this simplification preserves its value.
+  const [participationVisibility] = useState(defaultParticipationVisibility);
   const [publishImmediately, setPublishImmediately] = useState(false);
   const [goalsLines, setGoalsLines] = useState<{
     forFixtureId: string;
@@ -1014,36 +1018,27 @@ export function PoolTemplateBuilder({
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="visibility">Visibility</Label>
-                <select
-                  id="visibility"
-                  name="visibility"
-                  className={SELECT_CLASS}
-                  value={visibility}
-                  onChange={(e) => setVisibility(e.target.value)}
-                >
-                  <option value="VISIBLE_TO_ALL_MEMBERS">Visible to all members</option>
-                  <option value="HIDDEN">Hidden (link only)</option>
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="participationVisibility">Show distribution</Label>
-                <select
-                  id="participationVisibility"
-                  name="participationVisibility"
-                  className={SELECT_CLASS}
-                  value={participationVisibility}
-                  onChange={(e) => setParticipationVisibility(e.target.value)}
-                >
-                  <option value="SHOW_BEFORE_ENTRY">Before entry</option>
-                  <option value="SHOW_AFTER_ENTRY">After entry</option>
-                  <option value="SHOW_AFTER_LOCK">After lock</option>
-                  <option value="NEVER_SHOW">Never</option>
-                </select>
-              </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="visibility">Visibility</Label>
+              <select
+                id="visibility"
+                name="visibility"
+                className={SELECT_CLASS}
+                value={visibility}
+                onChange={(e) => setVisibility(e.target.value)}
+              >
+                <option value="VISIBLE_TO_ALL_MEMBERS">Visible to all members</option>
+                <option value="HIDDEN">Hidden (link only)</option>
+              </select>
             </div>
+            {/* Participation visibility ("show distribution") is no longer
+                an admin-facing choice — launch simplification always shows
+                the community-sentiment distribution before entry, which is
+                the setting every pool already defaulted to in practice.
+                Still submitted as a real form field (the schema/DB column
+                is untouched) so a future admin surface could reintroduce
+                the choice without a migration. */}
+            <input type="hidden" name="participationVisibility" value={participationVisibility} />
 
             {/* Read-only preview of the generated pool — not itself part of
                 the submitted form, just a summary of the state above. */}

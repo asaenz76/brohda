@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TEMPLATE_REGISTRY, getLatestTemplate } from "@/lib/pools/templates/registry";
+import { cleanSheet } from "@/lib/pools/templates/goals";
 import {
   defaultConfigFor,
   detectConflicts,
@@ -144,9 +145,15 @@ describe("scoreTemplate", () => {
 describe("rankRecommendations", () => {
   it("splits eligible registry templates into recommended (capped) and other", () => {
     const { recommended, other } = rankRecommendations([]);
-    // MATCH_RESULT(4) + GOALS(11) + DISCIPLINE(1) = 16 scorable templates;
-    // PLAYER_TO_SCORE (PLAYER_PROPS) is excluded from ranking entirely.
-    expect(recommended.length + other.length).toBe(16);
+    // Launch simplification retired 12 of 17 templates from creation (see
+    // template-cards.ts) — getLatestTemplate (which rankRecommendations
+    // resolves every candidate through) returns null for a retired
+    // template, so only the 5 still-active templates are scorable today:
+    // HOME_TEAM_TO_WIN/AWAY_TEAM_TO_WIN (MATCH_RESULT) +
+    // MATCH_TOTAL_GOALS/BOTH_TEAMS_TO_SCORE/WINNING_MARGIN (GOALS).
+    // PLAYER_TO_SCORE (PLAYER_PROPS) is excluded from ranking entirely,
+    // regardless of activeForCreation.
+    expect(recommended.length + other.length).toBe(5);
     expect(recommended.length).toBeLessThanOrEqual(5);
     expect(recommended.every((r) => r.template.category !== "PLAYER_PROPS")).toBe(true);
     expect(other.every((r) => r.template.category !== "PLAYER_PROPS")).toBe(true);
@@ -255,8 +262,19 @@ describe("rankRecommendations — HOME/AWAY unbiased generation", () => {
       ],
     };
 
-    const { recommended, other } = rankRecommendations([], markets);
-    const cleanSheetRec = [...recommended, ...other].find((r) => r.template.id === "CLEAN_SHEET")!;
+    // CLEAN_SHEET is retired from creation for launch (activeForCreation:
+    // false — see lib/pools/templates/goals.ts), so it's no longer
+    // reachable through rankRecommendations (which resolves every
+    // candidate through getLatestTemplate). The HOME/AWAY market-balancing
+    // logic under test here — score both sides, keep whichever lands
+    // closer to 50/50 — lives in recommendations.ts's private
+    // scoreCandidate/betterBalanced helpers; reproduced directly against
+    // scoreTemplate (still fully functional, just no longer offered for
+    // creation) rather than exporting a private helper solely for this test.
+    const homeRec = scoreTemplate(cleanSheet, [], { ...defaultConfigFor(cleanSheet), team: "HOME" }, markets);
+    const awayRec = scoreTemplate(cleanSheet, [], { ...defaultConfigFor(cleanSheet), team: "AWAY" }, markets);
+    const cleanSheetRec =
+      Math.abs(homeRec.yesProbability - 0.5) <= Math.abs(awayRec.yesProbability - 0.5) ? homeRec : awayRec;
     expect(cleanSheetRec.config.team).toBe("AWAY");
     expect(Math.abs(cleanSheetRec.yesProbability - 0.5)).toBeLessThan(0.1);
   });

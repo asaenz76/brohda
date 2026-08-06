@@ -17,7 +17,10 @@ export type GoalAfterMinuteConfig = z.infer<typeof goalAfterMinuteConfigSchema>;
 export const firstTeamToScore: PoolTemplate<TeamSideConfig> = {
   id: "FIRST_TEAM_TO_SCORE",
   version: 1,
-  activeForCreation: true,
+  // Retired from creation for launch (fewer, higher-usage templates) —
+  // getTemplate(id, version) still resolves this exactly for any pool
+  // already created against it, so existing pools keep grading correctly.
+  activeForCreation: false,
   category: "GOALS",
   name: "First team to score",
   description: "Will the selected team score the first valid goal of the match?",
@@ -50,7 +53,8 @@ export const firstTeamToScore: PoolTemplate<TeamSideConfig> = {
 export const redCard: PoolTemplate<RedCardConfig> = {
   id: "RED_CARD",
   version: 1,
-  activeForCreation: true,
+  // Retired from creation for launch — see firstTeamToScore above.
+  activeForCreation: false,
   category: "DISCIPLINE",
   name: "Red card",
   description: "Will there be a red card in the match?",
@@ -77,7 +81,8 @@ export const redCard: PoolTemplate<RedCardConfig> = {
 export const penaltyAwarded: PoolTemplate<EmptyConfig> = {
   id: "PENALTY_AWARDED",
   version: 1,
-  activeForCreation: true,
+  // Retired from creation for launch — see firstTeamToScore above.
+  activeForCreation: false,
   category: "GOALS",
   name: "Penalty awarded",
   description: "Will a penalty be awarded during the match (scored or missed)?",
@@ -99,7 +104,8 @@ export const penaltyAwarded: PoolTemplate<EmptyConfig> = {
 export const ownGoal: PoolTemplate<EmptyConfig> = {
   id: "OWN_GOAL",
   version: 1,
-  activeForCreation: true,
+  // Retired from creation for launch — see firstTeamToScore above.
+  activeForCreation: false,
   category: "GOALS",
   name: "Own goal",
   description: "Will there be an own goal during the match?",
@@ -121,7 +127,8 @@ export const ownGoal: PoolTemplate<EmptyConfig> = {
 export const goalAfterMinute: PoolTemplate<GoalAfterMinuteConfig> = {
   id: "GOAL_AFTER_MINUTE",
   version: 1,
-  activeForCreation: true,
+  // Retired from creation for launch — see firstTeamToScore above.
+  activeForCreation: false,
   category: "GOALS",
   name: "Goal after selected minute",
   description: "Will there be a goal strictly after a chosen minute (stoppage time counts)?",

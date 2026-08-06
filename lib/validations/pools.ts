@@ -34,7 +34,12 @@ const sharedPoolFinancialFields = {
   entryFeeCents: z.number().int().positive(),
   houseFeeBps: z.number().int().min(0).max(10000),
   visibility: visibilityEnum,
-  participationVisibility: participationVisibilityEnum,
+  // No longer an admin-facing choice in either creation wizard (launch
+  // simplification — always shows community sentiment before entry) — both
+  // wizards still submit "SHOW_BEFORE_ENTRY" explicitly, and this default
+  // is a defense-in-depth backstop for any caller that omits the field,
+  // not something either wizard currently relies on.
+  participationVisibility: participationVisibilityEnum.optional().default("SHOW_BEFORE_ENTRY"),
   // Publishing-guidance override (Question Family/mirror/duplicate
   // warnings, lib/pools/templates/recommendations.ts) — never a hard
   // block, so this is how an admin explicitly proceeds despite one.

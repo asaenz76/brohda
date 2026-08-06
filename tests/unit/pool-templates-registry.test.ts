@@ -55,11 +55,23 @@ describe("registry", () => {
     expect(getLatestTemplate("NOT_A_TEMPLATE")).toBeNull();
   });
 
-  it("every registry template is version 1 and activeForCreation today", () => {
+  it("every registry template is version 1", () => {
     for (const template of TEMPLATE_REGISTRY) {
       expect(template.version).toBe(1);
-      expect(template.activeForCreation).toBe(true);
     }
+  });
+
+  // Launch simplification retired 12 of 17 templates from creation (see
+  // template-cards.ts's REGISTRY_CARDS filter) — they stay in the registry,
+  // fully gradable via getTemplate(id, version) for any pool already
+  // created against them, just no longer offered as a card. This locks in
+  // exactly which 5 survived the cut so a future edit to the wrong flag
+  // fails a test instead of silently changing what's creatable.
+  it("exactly 5 templates are activeForCreation today", () => {
+    const active = TEMPLATE_REGISTRY.filter((t) => t.activeForCreation).map((t) => t.id).sort();
+    expect(active).toEqual(
+      ["AWAY_TEAM_TO_WIN", "BOTH_TEAMS_TO_SCORE", "HOME_TEAM_TO_WIN", "MATCH_TOTAL_GOALS", "WINNING_MARGIN"].sort(),
+    );
   });
 
   it("getTemplateConfigSchema resolves by (id, version) and null otherwise", () => {

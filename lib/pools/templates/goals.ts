@@ -108,7 +108,10 @@ export const bothTeamsToScore: PoolTemplate<EmptyConfig> = {
 export const teamTotalGoals: PoolTemplate<TeamMinimumGoalsConfig> = {
   id: "TEAM_TOTAL_GOALS",
   version: 1,
-  activeForCreation: true,
+  // Retired from creation for launch (fewer, higher-usage templates) —
+  // getTemplate(id, version) still resolves this exactly for any pool
+  // already created against it, so existing pools keep grading correctly.
+  activeForCreation: false,
   category: "GOALS",
   name: "Team total goals",
   description: "Will the selected team score a set number of goals or more?",
@@ -177,7 +180,8 @@ export const winningMargin: PoolTemplate<WinningMarginConfig> = {
 export const cleanSheet: PoolTemplate<TeamSideOnlyConfig> = {
   id: "CLEAN_SHEET",
   version: 1,
-  activeForCreation: true,
+  // Retired from creation for launch — see teamTotalGoals above.
+  activeForCreation: false,
   category: "GOALS",
   name: "Clean sheet",
   description: "Will the selected team's opponent fail to score?",
@@ -205,7 +209,8 @@ export const cleanSheet: PoolTemplate<TeamSideOnlyConfig> = {
 export const winToNil: PoolTemplate<TeamSideOnlyConfig> = {
   id: "WIN_TO_NIL",
   version: 1,
-  activeForCreation: true,
+  // Retired from creation for launch — see teamTotalGoals above.
+  activeForCreation: false,
   category: "GOALS",
   name: "Win to nil",
   description: "Will the selected team win without conceding?",
@@ -237,7 +242,8 @@ export const winToNil: PoolTemplate<TeamSideOnlyConfig> = {
 export const firstHalfTotalGoals: PoolTemplate<MinimumGoalsConfig> = {
   id: "FIRST_HALF_TOTAL_GOALS",
   version: 1,
-  activeForCreation: true,
+  // Retired from creation for launch — see teamTotalGoals above.
+  activeForCreation: false,
   category: "GOALS",
   name: "First-half total goals",
   description: "Will there be a set number of goals or more in the first half?",

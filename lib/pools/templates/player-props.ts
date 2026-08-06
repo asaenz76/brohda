@@ -10,7 +10,10 @@ export type PlayerToScoreConfig = z.infer<typeof playerToScoreConfigSchema>;
 export const playerToScore: PoolTemplate<PlayerToScoreConfig> = {
   id: "PLAYER_TO_SCORE",
   version: 1,
-  activeForCreation: true,
+  // Retired from creation for launch (fewer, higher-usage templates) —
+  // getTemplate(id, version) still resolves this exactly for any pool
+  // already created against it, so existing pools keep grading correctly.
+  activeForCreation: false,
   category: "PLAYER_PROPS",
   name: "Player to score",
   description: "Will the selected player score a valid goal?",

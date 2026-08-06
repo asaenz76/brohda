@@ -94,6 +94,16 @@ export function CommentSheet({
   onClose: () => void;
   onCountChange: (count: number) => void;
 }) {
+  // relativeTime() below is a pure read of Date.now() — with nothing else
+  // ticking this component's re-render, "Posted Xm ago" would otherwise
+  // freeze at whatever it showed on first render for as long as the sheet
+  // stays open. 30s matches the minute-level display granularity.
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => forceTick((n) => n + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
   const [comments, setComments] = useState<PoolCommentItem[] | null>(null);
   const [body, setBody] = useState("");
   const [replyingToId, setReplyingToId] = useState<string | null>(null);

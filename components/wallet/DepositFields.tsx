@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Copy, Check } from "lucide-react";
 import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "@/lib/payment-methods/constants";
 import type { PaymentMethodRow } from "@/lib/payment-methods/fetch";
@@ -79,29 +79,55 @@ export function DepositFields({
   paymentMethod: PaymentMethod | "";
   onPaymentMethodChange: (method: PaymentMethod) => void;
 }) {
-  const selectedMethodRow = paymentMethods.find((m) => m.method === paymentMethod) ?? null;
+  // Launch simplification defaults to exactly one enabled payment rail
+  // (see supabase/migrations — payment_methods.enabled is the single
+  // source of truth every caller of getPaymentMethods() already filters
+  // by). With only one real choice, a dropdown is dead UI — show it as a
+  // plain label instead, while keeping the full multi-method picker fully
+  // intact for whenever a second rail is ever re-enabled.
+  const onlyMethod = paymentMethods.length === 1 ? paymentMethods[0] : null;
+  const selectedMethodRow = onlyMethod ?? paymentMethods.find((m) => m.method === paymentMethod) ?? null;
+
+  // Both call sites (WalletRequestForm, TopUpAndJoinModal) own their own
+  // paymentMethod state for other purposes (e.g. WITHDRAWAL_NOTE_COPY) —
+  // sync it to the only real choice here, once, rather than duplicating
+  // this effect in every caller.
+  useEffect(() => {
+    if (onlyMethod && paymentMethod !== onlyMethod.method) {
+      onPaymentMethodChange(onlyMethod.method);
+    }
+  }, [onlyMethod, paymentMethod, onPaymentMethodChange]);
 
   return (
     <>
       <div className="space-y-1.5">
         <Label htmlFor={`${idPrefix}-payment-method`}>Method</Label>
-        <select
-          id={`${idPrefix}-payment-method`}
-          name="paymentMethod"
-          className={SELECT_CLASS}
-          value={paymentMethod}
-          onChange={(e) => onPaymentMethodChange(e.target.value as PaymentMethod)}
-          required
-        >
-          <option value="" disabled>
-            Select a method…
-          </option>
-          {paymentMethods.map((m) => (
-            <option key={m.method} value={m.method}>
-              {PAYMENT_METHOD_LABELS[m.method]}
+        {onlyMethod ? (
+          <>
+            <p id={`${idPrefix}-payment-method`} className="text-sm font-medium text-text-primary">
+              {PAYMENT_METHOD_LABELS[onlyMethod.method]}
+            </p>
+            <input type="hidden" name="paymentMethod" value={onlyMethod.method} />
+          </>
+        ) : (
+          <select
+            id={`${idPrefix}-payment-method`}
+            name="paymentMethod"
+            className={SELECT_CLASS}
+            value={paymentMethod}
+            onChange={(e) => onPaymentMethodChange(e.target.value as PaymentMethod)}
+            required
+          >
+            <option value="" disabled>
+              Select a method…
             </option>
-          ))}
-        </select>
+            {paymentMethods.map((m) => (
+              <option key={m.method} value={m.method}>
+                {PAYMENT_METHOD_LABELS[m.method]}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       {mode === "deposit" && paymentMethod === "OTHER" && (

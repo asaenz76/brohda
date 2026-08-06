@@ -140,7 +140,14 @@ describe("createPoolsForFixturesAction", () => {
     ]);
   });
 
-  it("rejects a PLAYER_PROPS template — not portable across different fixtures", async () => {
+  // PLAYER_TO_SCORE is retired from creation for launch (activeForCreation:
+  // false, see lib/pools/templates/player-props.ts), so getLatestTemplate
+  // now returns null for it and this request is rejected by the earlier,
+  // generic "Unknown template" guard before ever reaching the
+  // PLAYER_PROPS-not-portable-across-fixtures check that guard code still
+  // exists for (defense-in-depth, in case a player-props template is ever
+  // reactivated without also updating multi-fixture-builder.tsx's filter).
+  it("rejects a retired/unknown template id — not writable", async () => {
     fixtureRows = [fixtureRow({ id: "3fa85f64-5717-4562-b3fc-2c963f66afa6" }), fixtureRow({ id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8" })];
 
     const result = await createPoolsForFixturesAction({
@@ -150,7 +157,7 @@ describe("createPoolsForFixturesAction", () => {
       templateConfig: { playerExternalId: "99", playerName: "Test Player" },
     });
 
-    expect(result.error).toMatch(/Player prop templates/);
+    expect(result.error).toMatch(/Unknown template/);
     expect(poolInserts).toHaveLength(0);
   });
 

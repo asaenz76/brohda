@@ -30,13 +30,14 @@ import { cn } from "@/lib/utils";
 
 // Player props bake in one specific fixture's roster (a picked player's
 // external id, fetched via lib/actions/squads.ts once a single fixture is
-// known) and COMBO pools are free-typed text tied to one match — neither
-// is portable across different fixtures, so both are hidden here. Every
-// other template only uses TEAM_SIDE/INTEGER/BOOLEAN config, which is
+// known) — not portable across different fixtures, so it's hidden here.
+// Every other template only uses TEAM_SIDE/INTEGER/BOOLEAN config, which is
 // generic ("home team", "2.5", "yes/no") and applies identically
-// regardless of which two teams are actually playing.
-const MULTI_TABS = TABS.filter((cat) => cat !== "COMBO" && cat !== "PLAYER_PROPS");
-const MULTI_CARDS = ALL_CARDS.filter((c) => c.category !== "COMBO" && c.category !== "PLAYER_PROPS");
+// regardless of which two teams are actually playing. COMBO (also
+// fixture-specific, free-typed) no longer appears in TABS/ALL_CARDS at all
+// — see template-cards.ts — so it needs no filter here anymore.
+const MULTI_TABS = TABS.filter((cat) => cat !== "PLAYER_PROPS");
+const MULTI_CARDS = ALL_CARDS.filter((c) => c.category !== "PLAYER_PROPS");
 
 const MULTI_STEP_LABELS = ["Fixtures", "Template", "Financials & review"];
 
@@ -77,7 +78,8 @@ export function MultiFixtureBuilder({
   const [houseFeePercent, setHouseFeePercent] = useState(defaultHouseFeePercent);
   const [lockMinutes, setLockMinutes] = useState(String(MINIMUM_LOCK_LEAD_MINUTES));
   const [visibility, setVisibility] = useState("VISIBLE_TO_ALL_MEMBERS");
-  const [participationVisibility, setParticipationVisibility] = useState("SHOW_BEFORE_ENTRY");
+  // Fixed, not admin-configurable — see the visibility section below.
+  const participationVisibility = "SHOW_BEFORE_ENTRY";
   const [publishImmediately, setPublishImmediately] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [results, setResults] = useState<CreatePoolsForFixturesResult[] | null>(null);
@@ -619,33 +621,23 @@ export function MultiFixtureBuilder({
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="multiVisibility">Visibility</Label>
-            <select
-              id="multiVisibility"
-              className={SELECT_CLASS}
-              value={visibility}
-              onChange={(e) => setVisibility(e.target.value)}
-            >
-              <option value="VISIBLE_TO_ALL_MEMBERS">Visible to all members</option>
-              <option value="HIDDEN">Hidden (link only)</option>
-            </select>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="multiParticipationVisibility">Show distribution</Label>
-            <select
-              id="multiParticipationVisibility"
-              className={SELECT_CLASS}
-              value={participationVisibility}
-              onChange={(e) => setParticipationVisibility(e.target.value)}
-            >
-              <option value="SHOW_BEFORE_ENTRY">Before entry</option>
-              <option value="SHOW_AFTER_ENTRY">After entry</option>
-              <option value="SHOW_AFTER_LOCK">After lock</option>
-              <option value="NEVER_SHOW">Never</option>
-            </select>
-          </div>
+        {/* Participation visibility ("show distribution") is no longer an
+            admin-facing choice — launch simplification always shows the
+            community-sentiment distribution before entry (the value every
+            pool already defaulted to in practice). `participationVisibility`
+            state stays fixed at that default and is still passed through to
+            the action below unchanged. */}
+        <div className="space-y-1.5">
+          <Label htmlFor="multiVisibility">Visibility</Label>
+          <select
+            id="multiVisibility"
+            className={SELECT_CLASS}
+            value={visibility}
+            onChange={(e) => setVisibility(e.target.value)}
+          >
+            <option value="VISIBLE_TO_ALL_MEMBERS">Visible to all members</option>
+            <option value="HIDDEN">Hidden (link only)</option>
+          </select>
         </div>
 
         <div className="rounded-xl border border-border-subtle bg-surface-secondary p-3 text-sm">

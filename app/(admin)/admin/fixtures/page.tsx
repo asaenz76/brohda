@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireAdminOrAbove } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { apiFootballProvider } from "@/lib/sports-data/api-football-provider";
@@ -24,17 +25,27 @@ export default async function AdminFixturesPage({
   const supabase = await createClient();
   const params = await searchParams;
   const mode = normalizeMode(params.mode);
+  // Folded in from the old standalone /admin/fixture-archive page (launch
+  // simplification — one fewer admin destination for the same underlying
+  // list, just a different status filter) — ?archived=1 switches the
+  // imported-fixtures list below from "still active" to "finished,
+  // cancelled, abandoned, or awarded" without changing anything about the
+  // discovery modes above it.
+  const showArchived = params.archived === "1";
 
   const providerEnabled = apiFootballProvider.isEnabled();
 
+  const fixturesQuery = supabase
+    .from("fixtures")
+    .select(
+      "id, external_fixture_id, sport, home_team_name, away_team_name, competition_name, competition_country, scheduled_start_utc, hidden_from_pool_creation",
+    )
+    .order("scheduled_start_utc", { ascending: false });
+
   const [{ data: fixtures }, { data: pools }, { data: workspaceRows }] = await Promise.all([
-    supabase
-      .from("fixtures")
-      .select(
-        "id, external_fixture_id, sport, home_team_name, away_team_name, competition_name, competition_country, scheduled_start_utc, hidden_from_pool_creation",
-      )
-      .not("internal_status", "in", `(${TERMINAL_STATUSES.join(",")})`)
-      .order("scheduled_start_utc", { ascending: false }),
+    showArchived
+      ? fixturesQuery.in("internal_status", TERMINAL_STATUSES)
+      : fixturesQuery.not("internal_status", "in", `(${TERMINAL_STATUSES.join(",")})`),
     supabase.from("pools").select("fixture_id").not("fixture_id", "is", null),
     mode === "competition"
       ? supabase.from("league_season_imports").select("id, external_league_id, season")
@@ -76,6 +87,19 @@ export default async function AdminFixturesPage({
   const initialCustomTo = params.to ?? "";
   const initialCompetitionExternalId = params.competition ?? "";
 
+  // Preserves every other current param (mode, date-range filters, etc.)
+  // while flipping just ?archived — so switching to the archived view from
+  // a filtered date-mode search returns to that same search on the way back.
+  const archivedToggleParams = new URLSearchParams(
+    Object.entries(params).filter((entry): entry is [string, string] => entry[1] !== undefined),
+  );
+  if (showArchived) {
+    archivedToggleParams.delete("archived");
+  } else {
+    archivedToggleParams.set("archived", "1");
+  }
+  const archivedToggleQuery = archivedToggleParams.toString();
+
   return (
     <div className="space-y-6">
       <h1 className="sr-only">Fixtures</h1>
@@ -93,7 +117,19 @@ export default async function AdminFixturesPage({
       {mode === "competition" && <CompetitionMode workspaces={workspaces} providerDisabled={!providerEnabled} />}
       {mode === "fixture-id" && <FixtureIdMode providerDisabled={!providerEnabled} />}
 
-      <ImportedFixturesList fixtures={importedFixtures} isSuperAdmin={isSuperAdmin} />
+      <div className="flex justify-end">
+        <Link
+          href={`?${archivedToggleQuery}`}
+          className="text-xs font-medium text-accent-primary hover:underline"
+        >
+          {showArchived ? "View active fixtures" : "View archived fixtures"}
+        </Link>
+      </div>
+      <ImportedFixturesList
+        fixtures={importedFixtures}
+        isSuperAdmin={isSuperAdmin}
+        heading={showArchived ? "Archived fixtures" : "Imported fixtures"}
+      />
     </div>
   );
 }

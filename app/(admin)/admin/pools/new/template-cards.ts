@@ -77,14 +77,13 @@ export function buildCompetitionOptions(fixtures: FixtureOption[]): CompetitionO
 // MATCH_RESULT (lib/pools/templates/families.ts) so duplicate/mirror
 // detection still catches the overlap between "Who will advance?" and
 // "Will Team X win?" even though they now live in separate tabs.
-export type CardCategory = "MATCH_RESULT" | "GOALS" | "DISCIPLINE" | "PLAYER_PROPS" | "TRADITIONAL" | "COMBO";
+export type CardCategory = "MATCH_RESULT" | "GOALS" | "DISCIPLINE" | "PLAYER_PROPS" | "TRADITIONAL";
 export const CATEGORY_LABELS: Record<CardCategory, string> = {
   MATCH_RESULT: "Prediction questions",
   GOALS: "Goals",
   DISCIPLINE: "Cards",
   PLAYER_PROPS: "Players",
   TRADITIONAL: "Traditional markets",
-  COMBO: "Combos",
 };
 
 const DATA_SOURCE_LABELS: Record<string, string> = {
@@ -143,24 +142,22 @@ const LEGACY_CARDS: TemplateCard[] = [
     dataSource: "Fixture score",
     family: getQuestionFamily("REGULATION_RESULT"),
   },
-  {
-    id: "COMBO",
-    category: "COMBO",
-    name: "Combo (multi-leg Yes/No)",
-    description: "Yes/No prop tied to this match. “Yes” wins only if every condition is met.",
-    gradingReliability: "MANUAL",
-    dataSource: "Manual grading",
-    family: getQuestionFamily("COMBO"),
-  },
 ];
 
 const REGISTRY_BY_CATEGORY = listByCategory();
+// Only activeForCreation templates are offered as cards — a retired
+// template (launched, later dropped for simplicity) stays fully gradable
+// via getTemplate(id, version) for any pool already created against it,
+// it just stops appearing as a choice here. Mirrors getLatestTemplate's
+// own filter in lib/pools/templates/registry.ts.
 const REGISTRY_CARDS: TemplateCard[] = [
   ...(REGISTRY_BY_CATEGORY.MATCH_RESULT ?? []),
   ...(REGISTRY_BY_CATEGORY.GOALS ?? []),
   ...(REGISTRY_BY_CATEGORY.DISCIPLINE ?? []),
   ...(REGISTRY_BY_CATEGORY.PLAYER_PROPS ?? []),
-].map((t) => ({
+]
+  .filter((t) => t.activeForCreation)
+  .map((t) => ({
   id: t.id,
   category: t.category as CardCategory,
   name: t.name,
@@ -177,11 +174,11 @@ export const ALL_CARDS = [...REGISTRY_CARDS, ...LEGACY_CARDS].sort(
 );
 
 export const TABS = (
-  ["MATCH_RESULT", "GOALS", "DISCIPLINE", "PLAYER_PROPS", "TRADITIONAL", "COMBO"] as CardCategory[]
+  ["MATCH_RESULT", "GOALS", "DISCIPLINE", "PLAYER_PROPS", "TRADITIONAL"] as CardCategory[]
 ).filter((cat) => ALL_CARDS.some((c) => c.category === cat));
 
-export function isLegacyId(id: string): id is "WHO_WILL_ADVANCE" | "REGULATION_RESULT" | "COMBO" {
-  return id === "WHO_WILL_ADVANCE" || id === "REGULATION_RESULT" || id === "COMBO";
+export function isLegacyId(id: string): id is "WHO_WILL_ADVANCE" | "REGULATION_RESULT" {
+  return id === "WHO_WILL_ADVANCE" || id === "REGULATION_RESULT";
 }
 
 export const SELECT_CLASS =
