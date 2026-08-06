@@ -4,16 +4,21 @@ import { createClient } from "@/lib/supabase/server";
 import { formatCents } from "@/lib/utils/money";
 import { cn } from "@/lib/utils";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
+import { Badge } from "@/components/ui/badge";
 import { getLedgerEntries } from "@/lib/wallet/ledger";
 import { getPaymentMethods } from "@/lib/payment-methods/fetch";
 import { TransactionList } from "@/components/activity/TransactionList";
 import { WalletRequestForm } from "./wallet-request-form";
 import { HouseRevenueView } from "./house-revenue-view";
 
-const STATUS_STYLE: Record<string, string> = {
-  pending: "text-text-secondary",
-  approved: "font-medium text-text-primary",
-  rejected: "text-danger",
+// Pending is the state a player is actively waiting and wondering about, so
+// it gets the loudest treatment — the same warning-muted "needs attention"
+// styling used across /admin. Approved/rejected are already-resolved
+// outcomes and stay quiet by comparison.
+const STATUS_BADGE_STYLE: Record<string, string> = {
+  pending: "bg-warning-muted/20 text-warning-muted",
+  approved: "bg-credit/10 text-credit",
+  rejected: "bg-danger/10 text-danger",
 };
 
 export default async function WalletPage() {
@@ -70,9 +75,9 @@ export default async function WalletPage() {
                   <span className="text-sm font-medium text-text-primary">
                     {request.type === "deposit" ? "Deposit" : "Withdrawal"} request
                   </span>
-                  <span className={cn("text-sm font-medium capitalize", STATUS_STYLE[request.status])}>
+                  <Badge className={cn("capitalize", STATUS_BADGE_STYLE[request.status])}>
                     {request.status}
-                  </span>
+                  </Badge>
                 </div>
                 <p
                   className={cn(
@@ -85,6 +90,9 @@ export default async function WalletPage() {
                 {request.note && <p className="text-xs text-text-muted">{request.note}</p>}
                 {request.admin_note && (
                   <p className="text-xs text-text-muted">Admin note: {request.admin_note}</p>
+                )}
+                {request.status === "pending" && (
+                  <p className="text-xs text-warning-muted">Usually reviewed within a few hours.</p>
                 )}
                 <p className="text-xs text-text-muted">{new Date(request.created_at).toLocaleString()}</p>
               </li>

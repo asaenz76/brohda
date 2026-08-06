@@ -60,7 +60,8 @@ export function WalletRequestForm({ paymentMethods }: { paymentMethods: PaymentM
   if (justSubmitted) {
     return (
       <div className="space-y-2 rounded-xl border border-border-subtle p-4">
-        <p className="text-sm text-text-primary">Request submitted.</p>
+        <p className="text-sm font-medium text-text-primary">Request submitted.</p>
+        <p className="text-sm text-text-secondary">Usually reviewed within a few hours.</p>
         <Button type="button" variant="outline" onClick={reset}>
           Make another request
         </Button>

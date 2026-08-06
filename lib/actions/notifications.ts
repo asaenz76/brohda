@@ -9,6 +9,7 @@ import { attachNotificationHrefs } from "@/lib/notifications/links";
 export interface NotificationPollState {
   unreadCount: number;
   latestId: string | null;
+  latestType: string | null;
   latestTitle: string | null;
   latestBody: string | null;
   latestHref: string | null;
@@ -27,6 +28,7 @@ export async function getNotificationPollStateAction(): Promise<NotificationPoll
   return {
     unreadCount,
     latestId: latest?.id ?? null,
+    latestType: latest?.type ?? null,
     latestTitle: latest?.title ?? null,
     latestBody: latest?.body ?? null,
     latestHref: latest?.href ?? null,

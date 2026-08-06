@@ -3,12 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { getNotificationPollStateAction } from "@/lib/actions/notifications";
+import { getNotificationTier } from "@/lib/notifications/tiers";
+import { cn } from "@/lib/utils";
 
 const POLL_INTERVAL_MS = 20_000;
 const AUTO_DISMISS_MS = 6_000;
 
 interface ToastState {
   id: string;
+  type: string;
   title: string;
   body: string;
   href: string | null;
@@ -54,6 +57,7 @@ export function NotificationToast({ initialUnreadCount }: { initialUnreadCount: 
       if (state.latestId != null && state.latestId !== seenIdRef.current && unreadIncreased && state.latestTitle) {
         setToast({
           id: state.latestId,
+          type: state.latestType ?? "",
           title: state.latestTitle,
           body: state.latestBody ?? "",
           href: state.latestHref,
@@ -80,11 +84,30 @@ export function NotificationToast({ initialUnreadCount }: { initialUnreadCount: 
 
   if (!toast) return null;
 
+  // Reuses the same pool-win/pool-loss tier-1 treatment already established
+  // in PoolStatusNotice.tsx and the Activity list, so a win reads as the
+  // same distinct, celebratory event no matter which of the three surfaces
+  // the player happens to see it on first.
+  const tier = getNotificationTier(toast.type);
+  const isWin = toast.type === "SETTLED_WON";
+  const isLoss = toast.type === "SETTLED_LOST";
+
+  const titleClassName = cn(
+    "text-sm font-medium text-text-primary",
+    tier === 1 && "text-base font-bold",
+    tier === 1 && isWin && "text-pool-win",
+    tier === 1 && isLoss && "text-pool-loss",
+  );
+
   return (
     <div
       role="status"
       aria-live="polite"
-      className="fixed inset-x-4 bottom-20 z-50 mx-auto flex max-w-sm items-start gap-3 rounded-xl border border-border-subtle bg-surface-primary p-4 shadow-lg animate-[toast-slide-in_0.25s_ease-out]"
+      className={cn(
+        "fixed inset-x-4 bottom-20 z-50 mx-auto flex max-w-sm items-start gap-3 rounded-xl border border-border-subtle bg-surface-primary p-4 shadow-lg animate-[toast-slide-in_0.25s_ease-out]",
+        tier === 1 && isWin && "bg-pool-win/10 animate-[toast-slide-in_0.25s_ease-out,celebrate-pop_0.4s_ease-out]",
+        tier === 1 && isLoss && "bg-pool-loss/10",
+      )}
     >
       {toast.href ? (
         // Plain <a>, not next/link — see TransactionRow's comment: a
@@ -92,12 +115,12 @@ export function NotificationToast({ initialUnreadCount }: { initialUnreadCount: 
         // "hashchange" actually fires when this toast is shown while
         // already sitting on /activity.
         <a href={toast.href} className="flex-1" onClick={() => setToast(null)}>
-          <p className="text-sm font-medium text-text-primary">{toast.title}</p>
+          <p className={titleClassName}>{toast.title}</p>
           {toast.body && <p className="mt-0.5 text-sm text-text-secondary">{toast.body}</p>}
         </a>
       ) : (
         <div className="flex-1">
-          <p className="text-sm font-medium text-text-primary">{toast.title}</p>
+          <p className={titleClassName}>{toast.title}</p>
           {toast.body && <p className="mt-0.5 text-sm text-text-secondary">{toast.body}</p>}
         </div>
       )}
