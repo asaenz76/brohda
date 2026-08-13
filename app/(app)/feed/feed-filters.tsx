@@ -2,6 +2,21 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 
+// fixtures.sport is the raw provider-facing value (api-football writes
+// "football", api-nfl writes "american_football" — see mapGame in each
+// provider) — naively capitalizing it read as "American_football" in the
+// filter dropdown (underscore intact, only the first letter cased). This
+// is purely a display label; the option's `value` stays the raw sport
+// string so the actual filter/query param is unaffected.
+const SPORT_LABELS: Record<string, string> = {
+  football: "Football",
+  american_football: "NFL Football",
+};
+
+function sportLabel(sport: string): string {
+  return SPORT_LABELS[sport] ?? sport.charAt(0).toUpperCase() + sport.slice(1);
+}
+
 export function FeedFilters({
   sportOptions,
   leagueOptions,
@@ -45,7 +60,7 @@ export function FeedFilters({
         <option value="">All sports</option>
         {sportOptions.map((sport) => (
           <option key={sport} value={sport}>
-            {sport.charAt(0).toUpperCase() + sport.slice(1)}
+            {sportLabel(sport)}
           </option>
         ))}
       </select>
