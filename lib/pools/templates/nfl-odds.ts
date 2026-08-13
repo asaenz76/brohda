@@ -154,50 +154,78 @@ const ASIAN_HANDICAP_PATTERN = /^(Home|Away)\s+(-?\d+(?:\.\d+)?)$/;
 /**
  * Best-effort spread magnitude — UNCONFIRMED, see this file's header.
  *
- * What was checked before writing this: real Asian Handicap data pulled
- * live for 3 games showed the provider listing BOTH "Home -X" and
- * "Away -X" (identical sign) at overlapping magnitudes for the same
- * bookmaker — not the simple "favorite gets -X, underdog gets +X" pair a
- * standard Asian Handicap quote implies. That pairing convention could
- * not be confirmed with confidence (the same conclusion the codebase
- * already reached for football's WINNING_MARGIN, see odds-mapping.ts).
+ * Previously took each bookmaker's SMALLEST offered "-X" magnitude for the
+ * favorite, on the theory that an alt-lines menu builds outward from the
+ * true closing number, so the smallest is the closest proxy for it. A real
+ * production case (NFL, Jets @ Buccaneers, 8/14/2026) disproved that: the
+ * smallest-magnitude estimate came back 1.5 while the real sportsbook line
+ * was 6 — the offered alt-lines menu didn't start anywhere near the true
+ * number for that game.
  *
- * What IS safe: the moneyline-determined favorite label ("Home"/"Away")
- * is unambiguous on its own. This function only ever reads the favorite
- * team's own "-X" entries (ignoring the underdog's and ignoring any "+X"
- * entries entirely) and, per bookmaker, takes the SMALLEST such magnitude
- * — sportsbooks size their alternate-lines menu around the true closing
- * spread and build outward from it, so the smallest offered magnitude for
- * the actual favorite is a reasonable, defensible proxy for "the" spread,
- * without needing to resolve the ambiguous pairing at all. The median of
- * each bookmaker's smallest magnitude is taken across bookmakers for
- * robustness to one book's outlier menu. Still a heuristic, still
- * unconfirmed — callers must flag it as such.
+ * Now mirrors estimateBestOverUnderLine's approach instead: at each
+ * magnitude the favorite is offered a "-X" line at, pair it with the
+ * underdog's own "-X" entry at the same magnitude (the pairing convention
+ * established below — both sides listed with the same sign, disambiguated
+ * only by which one is unambiguously the moneyline favorite), de-vig both
+ * sides, and pick the magnitude whose fair probability lands closest to a
+ * 50/50 split, same principle totals already uses: a sportsbook prices its
+ * true closing number closest to even money on both sides, and alternate
+ * (bought-up/bought-down) lines away from it get correspondingly skewed
+ * odds. Requires at least MIN_BOOKS_FOR_ESTIMATE bookmakers quoting a given
+ * magnitude before it's eligible at all (same guard every other estimate
+ * here uses), so a single stale/outlier quote can't win outright.
+ *
+ * What IS safe on its own: the moneyline-determined favorite label
+ * ("Home"/"Away") — this function only ever reads the favorite's own "-X"
+ * entries paired against the underdog's "-X" at the same magnitude,
+ * ignoring "+X" entries entirely, exactly as before.
+ *
+ * Still a heuristic, still unconfirmed — callers must flag it as such. A
+ * thinly-quoted-but-fair-looking magnitude can still outrank a heavily-
+ * quoted-but-slightly-skewed one; that's the same tradeoff totals
+ * estimation already accepts, not a new risk this introduces.
  */
 function estimateSpreadMagnitude(bookmakers: NflBookmakerOdds[], favoriteTeam: TeamSide): NflLineEstimate | null {
   const favoriteLabel = favoriteTeam === "HOME" ? "Home" : "Away";
-  const perBookmakerMin: number[] = [];
+  const underdogLabel = favoriteTeam === "HOME" ? "Away" : "Home";
+  const byMagnitude = new Map<number, Array<{ yesOdd: number; noOdd: number }>>();
 
   for (const bm of bookmakers) {
-    let min: number | null = null;
+    const byMagnitudeForBm = new Map<number, { favoriteOdd?: number; underdogOdd?: number }>();
     for (const raw of bm.asianHandicap) {
       const match = ASIAN_HANDICAP_PATTERN.exec(raw.value);
-      if (!match || match[1] !== favoriteLabel) continue;
+      if (!match) continue;
       // The capture group includes the sign (e.g. "-3.5"), so a real "-X"
-      // entry parses as a NEGATIVE number here — only those count as a
-      // "this team is favored by X" line. "+0"/"+1.5" entries parse as
+      // entry parses as a NEGATIVE number here — only those count as "this
+      // team is favored by X" lines. "+0"/"+1.5" entries parse as
       // non-negative (or fail to match at all, since the regex has no "+"
       // branch) and are excluded either way.
       const signed = Number(match[2]);
       if (!(signed < 0)) continue;
       const magnitude = -signed;
-      if (min == null || magnitude < min) min = magnitude;
+      const entry = byMagnitudeForBm.get(magnitude) ?? {};
+      if (match[1] === favoriteLabel) entry.favoriteOdd = raw.odd;
+      else if (match[1] === underdogLabel) entry.underdogOdd = raw.odd;
+      byMagnitudeForBm.set(magnitude, entry);
     }
-    if (min != null) perBookmakerMin.push(min);
+    for (const [magnitude, { favoriteOdd, underdogOdd }] of byMagnitudeForBm) {
+      if (favoriteOdd == null || underdogOdd == null) continue;
+      const list = byMagnitude.get(magnitude) ?? [];
+      list.push({ yesOdd: favoriteOdd, noOdd: underdogOdd });
+      byMagnitude.set(magnitude, list);
+    }
   }
 
-  if (perBookmakerMin.length === 0) return null;
-  return { line: roundUpToHalfPoint(median(perBookmakerMin)), bookmakerCount: perBookmakerMin.length };
+  let best: { magnitude: number; probability: number; bookmakerCount: number } | null = null;
+  for (const [magnitude, pairs] of byMagnitude) {
+    const consensus = localConsensus(pairs);
+    if (!consensus) continue;
+    if (!best || Math.abs(consensus.probability - 0.5) < Math.abs(best.probability - 0.5)) {
+      best = { magnitude, probability: consensus.probability, bookmakerCount: consensus.bookmakerCount };
+    }
+  }
+  if (!best) return null;
+  return { line: roundUpToHalfPoint(best.magnitude), bookmakerCount: best.bookmakerCount };
 }
 
 export function estimateNflFixtureLines(odds: NormalizedNflFixtureOdds): NflFixtureLineEstimates {

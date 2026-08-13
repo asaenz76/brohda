@@ -278,15 +278,50 @@ describe("estimateNflFixtureLines — spread (best-effort, unconfirmed)", () => 
     expect(result.spread!.line).toBeGreaterThan(0);
   });
 
-  it("only reads the favorite's own '-X' entries across 11 real bookmakers, ignoring '+X' entries and the underdog's '-X' entries", () => {
-    // Away (Packers) is favorite. Every bookmaker's own smallest "Away -X"
-    // magnitude, medianed: [1.5,1.5,1.5,1,1.5,1.5,1,1.5,1,0.5,1.5] -> 1.5 —
-    // already a half-point, matching this real game's actual close spread.
+  it("picks the magnitude closest to fair (balanced) odds, not just the smallest offered, across 11 real bookmakers", () => {
+    // Away (Packers) is favorite. Only magnitudes with >=2 bookmakers
+    // quoting BOTH sides are eligible: 1 (3 books, fair ~0.497), 1.5 (10
+    // books, fair ~0.505), 2 (2 books: Unibet 1.90/1.92, Pinnacle 1.93/1.92,
+    // fair ~0.501), 6.5 (2 books, wildly skewed ~0.696, correctly excluded
+    // as an alternate line far from the true number). Magnitude 2 lands
+    // closest to 0.5 even though it has fewer supporting bookmakers than
+    // 1.5 — the known, accepted tradeoff documented on
+    // estimateSpreadMagnitude (mirrors the same tradeoff totals accepts).
     const result = estimateNflFixtureLines({ externalFixtureId: "21466", providerUpdatedAt: null, bookmakers: steelersPackers });
     expect(result.favorite!.team).toBe("AWAY");
     expect(result.spread).not.toBeNull();
-    expect(result.spread!.line).toBe(1.5);
-    expect(result.spread!.bookmakerCount).toBe(steelersPackers.length);
+    expect(result.spread!.line).toBe(2.5); // roundUpToHalfPoint(2)
+    expect(result.spread!.bookmakerCount).toBe(2);
+  });
+
+  it("picks a magnitude with fair (balanced) odds over the smallest-offered magnitude when the smallest is skewed — the exact failure mode a real production case hit (NFL, Jets @ Buccaneers, 8/14/2026: smallest-magnitude estimate came back 1.5, real sportsbook line was 6)", () => {
+    // Synthetic, not captured live (no payload was saved for the real
+    // incident) — modeled on it: a big favorite where the smallest offered
+    // magnitude (1.5) is priced well off a 50/50 split (the market telling
+    // you it's NOT the true number), while a much larger magnitude (6.5)
+    // is priced close to even on both sides (the market's actual signal
+    // for the true closing line).
+    const bigFavoriteSkewedSmallLine: NflBookmakerOdds[] = [
+      bm(1, "BookA", {
+        "1": [{ value: "Home", odd: "1.30" }, { value: "Away", odd: "3.60" }],
+        "2": [
+          { value: "Home -1.5", odd: "1.50" }, { value: "Away -1.5", odd: "2.60" },
+          { value: "Home -6.5", odd: "1.91" }, { value: "Away -6.5", odd: "1.91" },
+        ],
+      }),
+      bm(2, "BookB", {
+        "1": [{ value: "Home", odd: "1.32" }, { value: "Away", odd: "3.40" }],
+        "2": [
+          { value: "Home -1.5", odd: "1.55" }, { value: "Away -1.5", odd: "2.45" },
+          { value: "Home -6.5", odd: "1.90" }, { value: "Away -6.5", odd: "1.92" },
+        ],
+      }),
+    ];
+    const result = estimateNflFixtureLines({ externalFixtureId: "synthetic-skewed-small-line", providerUpdatedAt: null, bookmakers: bigFavoriteSkewedSmallLine });
+    expect(result.favorite!.team).toBe("HOME");
+    expect(result.spread).not.toBeNull();
+    expect(result.spread!.line).toBe(6.5); // NOT 1.5 — the old smallest-magnitude heuristic's exact failure
+    expect(result.spread!.bookmakerCount).toBe(2);
   });
 
   it("is null when the favorite has no '-X' entries at all (e.g. only a pick'em '+0' line)", () => {
