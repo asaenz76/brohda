@@ -24,6 +24,17 @@ import { ProviderApiError } from "./api-football-provider";
 // what was confirmed and what wasn't.
 const PROVIDER_NAME = "api_nfl";
 
+// Self-hosted, not the provider's own media.api-sports.io/american-
+// football/leagues/1.png — confirmed live to intermittently fail to load
+// (browser "image not available") from at least one real user's network
+// while loading fine from others, evidently a CDN availability/caching
+// gap specific to this lower-traffic asset (team logos on the same CDN
+// were unaffected). There's exactly one NFL league (see
+// supported-nfl-competitions.ts), so this is a flat constant, not a
+// per-league lookup — public/logo-nfl.png is a byte-identical copy of
+// that same real logo, fetched once.
+const SELF_HOSTED_NFL_LOGO_URL = "/logo-nfl.png";
+
 // Confirmed live: /leagues returns { league: {id, name, logo}, country,
 // seasons: [...] } — id: 1, name: "NFL". Only one season's coverage
 // sub-object was inspected closely; "statisitcs" (not a typo introduced
@@ -129,7 +140,7 @@ function mapGame(raw: ApiNflGameResponse): NormalizedFixture {
     competitionExternalId: String(raw.league.id),
     competitionName: raw.league.name,
     competitionCountry: raw.league.country?.name ?? null,
-    competitionLogoUrl: raw.league.logo ?? null,
+    competitionLogoUrl: SELF_HOSTED_NFL_LOGO_URL,
     season: String(raw.league.season),
     // No single "round" field on API-NFL — stage + week is the closest
     // equivalent to football's round string (e.g. "Regular Season -
