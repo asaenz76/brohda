@@ -31,12 +31,20 @@ import {
   redCardConfigSchema,
 } from "./match-events";
 import { playerToScore, playerToScoreConfigSchema } from "./player-props";
+import {
+  nflGameTotal,
+  nflGameTotalConfigSchema,
+  nflSpread,
+  nflSpreadConfigSchema,
+  nflTeamTotal,
+  nflTeamTotalConfigSchema,
+} from "./nfl";
 
 // Every registry-driven template (Phase 1: match-result + goals; Phase 2:
-// match-events + player-props). Adding a template means writing a
-// PoolTemplate definition in its category file and listing it here —
-// nothing else needs to change to make it show up in the wizard, and
-// nothing else needs to change for lib/sports-data/sync.ts to know it
+// match-events + player-props; NFL: nfl.ts). Adding a template means
+// writing a PoolTemplate definition in its category file and listing it
+// here — nothing else needs to change to make it show up in the wizard,
+// and nothing else needs to change for lib/sports-data/sync.ts to know it
 // needs FIXTURE_EVENTS (see EVENT_DEPENDENT_TEMPLATE_IDS below). The 4
 // legacy pool_types (WHO_WILL_ADVANCE/REGULATION_RESULT/COMBO/CUSTOM) are
 // deliberately NOT in this registry — their grading lives in SQL, not
@@ -59,6 +67,9 @@ export const TEMPLATE_REGISTRY: PoolTemplate<Record<string, unknown>>[] = [
   ownGoal,
   goalAfterMinute,
   playerToScore,
+  nflSpread,
+  nflGameTotal,
+  nflTeamTotal,
 ];
 
 // Guards against a copy-paste mistake (two entries sharing an id+version)
@@ -134,6 +145,9 @@ export const TEMPLATE_CONFIG_SCHEMAS: Record<string, ZodType> = {
   "OWN_GOAL:1": emptyConfigSchema,
   "GOAL_AFTER_MINUTE:1": goalAfterMinuteConfigSchema,
   "PLAYER_TO_SCORE:1": playerToScoreConfigSchema,
+  "NFL_SPREAD:1": nflSpreadConfigSchema,
+  "NFL_GAME_TOTAL:1": nflGameTotalConfigSchema,
+  "NFL_TEAM_TOTAL:1": nflTeamTotalConfigSchema,
 };
 
 export function getTemplateConfigSchema(templateId: string, version: number): ZodType | null {

@@ -14,6 +14,7 @@ export const playerToScore: PoolTemplate<PlayerToScoreConfig> = {
   // getTemplate(id, version) still resolves this exactly for any pool
   // already created against it, so existing pools keep grading correctly.
   activeForCreation: false,
+  sports: ["football"],
   category: "PLAYER_PROPS",
   name: "Player to score",
   description: "Will the selected player score a valid goal?",

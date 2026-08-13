@@ -7,7 +7,8 @@ import {
   getFixtureQuestionContextAction,
   type CreatePoolFromTemplateState,
 } from "@/lib/actions/pools";
-import { getFixtureGoalsLinesAction } from "@/lib/actions/odds";
+import { getFixtureGoalsLinesAction, getNflFixtureLinesAction } from "@/lib/actions/odds";
+import type { NflFixtureLineEstimates } from "@/lib/pools/templates/nfl-odds";
 import { MINIMUM_POOL_ENTRIES, MINIMUM_LOCK_LEAD_MINUTES } from "@/lib/validations/pools";
 import { generatePoolTemplate, getRuleLabel, getTemplateEligibility } from "@/lib/pools/templates";
 import { getLatestTemplate } from "@/lib/pools/templates/registry";
@@ -33,7 +34,9 @@ import {
   GRADING_BADGE,
   SELECT_CLASS,
   TABS,
+  cardMatchesSport,
   isLegacyId,
+  tabsForSport,
   type CardCategory,
   type CompetitionOption,
   type FixtureOption,
@@ -61,6 +64,10 @@ export interface DuplicateTemplate {
 }
 
 const GOALS_LINE_TEMPLATE_IDS = new Set(["MATCH_TOTAL_GOALS", "FIRST_HALF_TOTAL_GOALS", "TEAM_TOTAL_GOALS"]);
+const NFL_LINE_TEMPLATE_IDS = new Set(["NFL_SPREAD", "NFL_GAME_TOTAL", "NFL_TEAM_TOTAL"]);
+// Only these two carry a TEAM_SIDE field that should auto-select the real
+// moneyline favorite — NFL_GAME_TOTAL has no team field at all.
+const NFL_TEAM_AUTO_FAVORITE_TEMPLATE_IDS = new Set(["NFL_SPREAD", "NFL_TEAM_TOTAL"]);
 
 const initialState: CreatePoolFromTemplateState = { error: null };
 const MAX_COMBO_LEGS = 10;
@@ -147,6 +154,8 @@ export function PoolTemplateBuilder({
     awayTeamLine: number | null;
   } | null>(null);
   const oddsFetchedForFixtureId = useRef<string | null>(null);
+  const [nflLines, setNflLines] = useState<({ forFixtureId: string } & NflFixtureLineEstimates) | null>(null);
+  const nflOddsFetchedForFixtureId = useRef<string | null>(null);
   // Duplicate-apply is one-shot — only the *first* fixture pick in this
   // wizard session gets the duplicated template auto-selected; picking a
   // different fixture afterward resets Step 2 to blank same as it always
@@ -172,8 +181,22 @@ export function PoolTemplateBuilder({
   const isCombo = selectedCardId === "COMBO";
   const isLegacy = selectedCardId != null && isLegacyId(selectedCardId);
   const registryTemplate = selectedCardId && !isLegacy ? getLatestTemplate(selectedCardId) : null;
-  const eligibility = getTemplateEligibility(selectedFixture?.competitionType ?? null);
+  const eligibility = getTemplateEligibility(selectedFixture?.competitionType ?? null, selectedFixture?.sport ?? null);
   const needsGoalsLine = selectedCardId != null && GOALS_LINE_TEMPLATE_IDS.has(selectedCardId);
+  const needsNflLine = selectedCardId != null && NFL_LINE_TEMPLATE_IDS.has(selectedCardId);
+  // Football-era registry cards (goals, clean sheets, red cards — anything
+  // sport-scoped to ["football"]) never apply to an NFL fixture, so a tab
+  // that's left with zero applicable cards shouldn't render at all — see
+  // tabsForSport's own comment.
+  const availableTabs = tabsForSport(selectedFixture?.sport ?? "football");
+  // Derived at render time, not synced via an effect+setState (which would
+  // cause a cascading extra render) — if the raw activeTab state points at
+  // a tab that's disappeared for the newly-picked fixture's sport (e.g.
+  // "Prediction questions" for a football fixture, then an NFL fixture is
+  // picked), fall back to the first tab that's still available. activeTab
+  // itself is left untouched so a later fixture pick that brings the
+  // original tab back doesn't need any extra state to remember it.
+  const displayedTab = availableTabs.includes(activeTab) ? activeTab : (availableTabs[0] ?? TABS[0]);
 
   // Fetches the fixture's odds-derived goals suggestion at most once per
   // fixture (not per template switch) — MATCH_TOTAL_GOALS and
@@ -211,6 +234,70 @@ export function PoolTemplateBuilder({
     if (!needsGoalsLine) return raw;
     const suggested = currentGoalsSuggestion();
     return suggested != null ? String(suggested) : raw;
+  }
+
+  // Fetches the fixture's real Spread/Game Total/Team Total lines at most
+  // once per fixture — mirrors the goals-line fetch above. Falls back to
+  // an all-null shape on provider failure (getNflFixtureLinesAction
+  // already swallows the error) so currentNflLines below still resolves
+  // "fetch finished, nothing found" instead of staying stuck loading.
+  useEffect(() => {
+    if (!needsNflLine || !selectedFixture?.externalFixtureId) return;
+    if (nflOddsFetchedForFixtureId.current === selectedFixture.id) return;
+    nflOddsFetchedForFixtureId.current = selectedFixture.id;
+    const fixtureId = selectedFixture.id;
+    getNflFixtureLinesAction(selectedFixture.externalFixtureId).then((lines) => {
+      setNflLines({
+        forFixtureId: fixtureId,
+        favorite: lines?.favorite ?? null,
+        spread: lines?.spread ?? null,
+        gameTotal: lines?.gameTotal ?? null,
+        homeTeamTotal: lines?.homeTeamTotal ?? null,
+        awayTeamTotal: lines?.awayTeamTotal ?? null,
+      });
+    });
+  }, [needsNflLine, selectedFixture]);
+
+  // Null while the fetch for this fixture hasn't resolved yet — distinct
+  // from "fetch finished but found nothing" (an object with null fields).
+  function currentNflLines(): ({ forFixtureId: string } & NflFixtureLineEstimates) | null {
+    if (!nflLines || nflLines.forFixtureId !== selectedFixture?.id) return null;
+    return nflLines;
+  }
+
+  // Pure derived value (no effect/setState) for the TEAM_SIDE field on
+  // NFL_SPREAD/NFL_TEAM_TOTAL — same "only while untouched" philosophy as
+  // resolveNflLine below. selectCard seeds this field to "" for these two
+  // template ids specifically (see that function's comment) so this can
+  // tell "untouched" apart from an explicit "HOME" pick and safely default
+  // to the real moneyline favorite once odds resolve, without ever
+  // clobbering an admin's own choice.
+  function resolveNflTeamSide(field: { key: string }): "HOME" | "AWAY" | "" {
+    const raw = configValues[field.key];
+    if (raw === "HOME" || raw === "AWAY") return raw;
+    if (!selectedCardId || !NFL_TEAM_AUTO_FAVORITE_TEMPLATE_IDS.has(selectedCardId)) return "";
+    return currentNflLines()?.favorite?.team ?? "";
+  }
+
+  // Pure derived value (no effect/setState) for HALF_POINT_LINE fields on
+  // NFL_SPREAD/NFL_GAME_TOTAL/NFL_TEAM_TOTAL — same "only while untouched"
+  // philosophy as resolveMinimumGoals above. NFL_SPREAD's value is a
+  // best-effort, UNCONFIRMED estimate (see nfl-odds.ts) — the field below
+  // that renders this also renders an explicit "unconfirmed" note for that
+  // template specifically, never presenting it with the same confidence as
+  // the other two.
+  function resolveNflLine(field: { key: string }): string {
+    const raw = configValues[field.key] ?? "";
+    if (raw !== "") return raw;
+    const lines = currentNflLines();
+    if (!lines) return raw;
+    if (selectedCardId === "NFL_GAME_TOTAL") return lines.gameTotal ? String(lines.gameTotal.line) : raw;
+    if (selectedCardId === "NFL_SPREAD") return lines.spread ? String(lines.spread.line) : raw;
+    if (selectedCardId === "NFL_TEAM_TOTAL") {
+      const estimate = resolveNflTeamSide({ key: "team" }) === "AWAY" ? lines.awayTeamTotal : lines.homeTeamTotal;
+      return estimate ? String(estimate.line) : raw;
+    }
+    return raw;
   }
 
   // The pool creator can lock earlier than this, never later — the server
@@ -259,7 +346,7 @@ export function PoolTemplateBuilder({
     setShowOtherQuestions(false);
     setOverridePublishWarnings(false);
     setQuestionContext(null);
-    getFixtureQuestionContextAction(fixture.id, fixture.externalFixtureId).then(setQuestionContext);
+    getFixtureQuestionContextAction(fixture.id, fixture.externalFixtureId, fixture.sport).then(setQuestionContext);
 
     if (duplicateTemplate && !duplicateAppliedRef.current) {
       duplicateAppliedRef.current = true;
@@ -275,9 +362,13 @@ export function PoolTemplateBuilder({
     const cardId = duplicate.templateId ?? duplicate.poolType;
     const card = ALL_CARDS.find((c) => c.id === cardId);
     if (!card) return;
+    // Same reasoning as the eligibility check below — a registry template
+    // duplicated onto a different-sport fixture (e.g. a football GOALS
+    // template duplicated onto an NFL fixture) isn't valid there either.
+    if (!cardMatchesSport(card, fixture.sport)) return;
 
     if (cardId === "WHO_WILL_ADVANCE" || cardId === "REGULATION_RESULT") {
-      const fixtureEligibility = getTemplateEligibility(fixture.competitionType);
+      const fixtureEligibility = getTemplateEligibility(fixture.competitionType, fixture.sport);
       const eligible =
         cardId === "WHO_WILL_ADVANCE"
           ? fixtureEligibility.whoWillAdvanceEnabled
@@ -346,8 +437,22 @@ export function PoolTemplateBuilder({
     if (template) {
       const defaults: Record<string, string> = {};
       for (const field of template.requiredConfigFields) {
-        if (field.type === "TEAM_SIDE") defaults[field.key] = "HOME";
-        else if (field.type === "INTEGER") defaults[field.key] = String(field.min);
+        if (field.type === "TEAM_SIDE") {
+          // NFL_SPREAD/NFL_TEAM_TOTAL: left unset so the auto-favorite
+          // effect above can tell "untouched" apart from an explicit
+          // "HOME" pick and safely fill in the real moneyline favorite
+          // once odds resolve — see that effect's comment.
+          defaults[field.key] = NFL_TEAM_AUTO_FAVORITE_TEMPLATE_IDS.has(card.id) ? "" : "HOME";
+        } else if (field.type === "INTEGER") defaults[field.key] = String(field.min);
+        // Deliberately left unset, unlike INTEGER's field.min default —
+        // football templates with this field type have no real-odds
+        // source (pre-filling field.min would look like a vetted number
+        // rather than what it actually is). NFL_SPREAD/NFL_GAME_TOTAL/
+        // NFL_TEAM_TOTAL do have a real source (resolveNflLine above,
+        // fed by getNflFixtureLinesAction) — left blank here too, since
+        // that resolver only overrides the *displayed* value while the
+        // field stays at this empty sentinel, exactly like minimumGoals.
+        else if (field.type === "HALF_POINT_LINE") defaults[field.key] = "";
         else if (field.type === "BOOLEAN") defaults[field.key] = "false";
         // PLAYER has no sensible default — left unset until the picker
         // resolves a real player (see PlayerPicker's onSelect below).
@@ -409,13 +514,21 @@ export function PoolTemplateBuilder({
       const raw =
         field.key === "minimumGoals" && field.type === "INTEGER"
           ? resolveMinimumGoals(field)
-          : configValues[field.key];
+          : field.type === "HALF_POINT_LINE" && needsNflLine
+            ? resolveNflLine(field)
+            : field.type === "TEAM_SIDE" && selectedCardId && NFL_TEAM_AUTO_FAVORITE_TEMPLATE_IDS.has(selectedCardId)
+              ? resolveNflTeamSide(field)
+              : configValues[field.key];
       config[field.key] =
-        field.type === "INTEGER" ? Number(raw) : field.type === "BOOLEAN" ? raw === "true" : raw;
+        field.type === "INTEGER" || field.type === "HALF_POINT_LINE"
+          ? Number(raw)
+          : field.type === "BOOLEAN"
+            ? raw === "true"
+            : raw;
     }
     return config;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- resolveMinimumGoals closes over these same values, listed explicitly
-  }, [registryTemplate, configValues, goalsLines, selectedCardId, selectedFixture?.id, needsGoalsLine]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- resolveMinimumGoals/resolveNflLine close over these same values, listed explicitly
+  }, [registryTemplate, configValues, goalsLines, nflLines, selectedCardId, selectedFixture?.id, needsGoalsLine, needsNflLine]);
 
   const registryQuestion =
     registryTemplate && selectedFixture
@@ -433,9 +546,42 @@ export function PoolTemplateBuilder({
 
   const registryConfigValid = registryTemplate
     ? registryTemplate.requiredConfigFields.every((field) => {
-        if (field.type === "TEAM_SIDE") return configValues[field.key] === "HOME" || configValues[field.key] === "AWAY";
+        if (field.type === "TEAM_SIDE") {
+          // Reads through resolveNflTeamSide for the same reason the
+          // HALF_POINT_LINE branch below reads through resolveNflLine —
+          // selectCard seeds this field to "" for NFL_SPREAD/NFL_TEAM_TOTAL
+          // on purpose, so the raw value alone doesn't reflect an
+          // already-resolved real favorite.
+          const resolved =
+            selectedCardId && NFL_TEAM_AUTO_FAVORITE_TEMPLATE_IDS.has(selectedCardId)
+              ? resolveNflTeamSide(field)
+              : configValues[field.key];
+          return resolved === "HOME" || resolved === "AWAY";
+        }
         if (field.type === "PLAYER") return Boolean(configValues.playerId) && Boolean(configValues.playerName);
         if (field.type === "BOOLEAN") return configValues[field.key] === "true" || configValues[field.key] === "false";
+        if (field.type === "HALF_POINT_LINE") {
+          // Reads through resolveNflLine (not raw configValues) when a
+          // real-odds prefill applies — otherwise an auto-filled-looking
+          // field would show a real value while the wizard still reports
+          // it as invalid, since selectCard seeds this field to "" on
+          // purpose (see that function's comment) and resolveNflLine only
+          // overrides the *displayed*/submitted value, never configValues
+          // itself. Must be a multiple of 0.5 (n*2 is a whole number) AND
+          // not itself a whole number — mirrors the server's
+          // halfPointLineSchema refine exactly (client-side check only,
+          // server is authoritative).
+          const raw = needsNflLine ? resolveNflLine(field) : configValues[field.key];
+          const n = Number(raw);
+          return (
+            raw !== "" &&
+            !Number.isNaN(n) &&
+            n >= field.min &&
+            n <= field.max &&
+            (n * 2) % 1 === 0 &&
+            n % 1 !== 0
+          );
+        }
         const raw = configValues[field.key];
         const n = Number(raw);
         return raw !== "" && !Number.isNaN(n) && n >= field.min && n <= field.max;
@@ -693,14 +839,14 @@ export function PoolTemplateBuilder({
             {otherQuestionsOpen && (
               <>
                 <div className="flex gap-1 border-b border-border-subtle">
-                  {TABS.map((tab) => (
+                  {availableTabs.map((tab) => (
                     <button
                       key={tab}
                       type="button"
                       onClick={() => setActiveTab(tab)}
                       className={cn(
                         "rounded-t-lg px-3 py-1.5 text-sm font-medium",
-                        activeTab === tab
+                        displayedTab === tab
                           ? "border-b-2 border-accent-primary text-text-primary"
                           : "text-text-muted hover:text-text-secondary",
                       )}
@@ -711,7 +857,9 @@ export function PoolTemplateBuilder({
                 </div>
 
                 <div className="grid gap-2 sm:grid-cols-2">
-                  {ALL_CARDS.filter((c) => c.category === activeTab).map((card) => {
+                  {ALL_CARDS.filter(
+                    (c) => c.category === displayedTab && cardMatchesSport(c, selectedFixture?.sport ?? "football"),
+                  ).map((card) => {
                     const disabled =
                       (card.id === "WHO_WILL_ADVANCE" && !eligibility.whoWillAdvanceEnabled) ||
                       (card.id === "REGULATION_RESULT" && !eligibility.regulationResultEnabled);
@@ -810,7 +958,9 @@ export function PoolTemplateBuilder({
                               onClick={() => setConfigValues((prev) => ({ ...prev, [field.key]: side }))}
                               className={cn(
                                 "rounded-lg border px-3 py-1.5 text-sm",
-                                configValues[field.key] === side
+                                (selectedCardId && NFL_TEAM_AUTO_FAVORITE_TEMPLATE_IDS.has(selectedCardId)
+                                  ? resolveNflTeamSide(field)
+                                  : configValues[field.key]) === side
                                   ? "border-accent-primary bg-accent-primary/10 text-text-primary"
                                   : "border-border-subtle text-text-secondary hover:bg-surface-secondary",
                               )}
@@ -819,6 +969,16 @@ export function PoolTemplateBuilder({
                             </button>
                           ))}
                         </div>
+                        {selectedCardId && NFL_TEAM_AUTO_FAVORITE_TEMPLATE_IDS.has(selectedCardId) && (() => {
+                          const lines = currentNflLines();
+                          if (!lines) return <p className="text-xs text-text-muted">Checking today&apos;s moneyline odds…</p>;
+                          if (!lines.favorite) return null;
+                          return (
+                            <p className="text-xs text-text-muted">
+                              Defaulted to today&apos;s moneyline favorite — feel free to change it.
+                            </p>
+                          );
+                        })()}
                       </div>
                     );
                   }
@@ -863,7 +1023,14 @@ export function PoolTemplateBuilder({
                         type="number"
                         min={field.min}
                         max={field.max}
-                        value={field.key === "minimumGoals" ? resolveMinimumGoals(field) : (configValues[field.key] ?? "")}
+                        step={field.type === "HALF_POINT_LINE" ? 0.5 : undefined}
+                        value={
+                          field.key === "minimumGoals"
+                            ? resolveMinimumGoals(field)
+                            : field.type === "HALF_POINT_LINE" && needsNflLine
+                              ? resolveNflLine(field)
+                              : (configValues[field.key] ?? "")
+                        }
                         onChange={(e) =>
                           setConfigValues((prev) => ({ ...prev, [field.key]: e.target.value }))
                         }
@@ -884,6 +1051,38 @@ export function PoolTemplateBuilder({
                         }
                         return null;
                       })()}
+                      {field.type === "HALF_POINT_LINE" && needsNflLine && (() => {
+                        const lines = currentNflLines();
+                        if (!lines) return <p className="text-xs text-text-muted">Checking today&apos;s odds…</p>;
+                        if (selectedCardId === "NFL_SPREAD") {
+                          if (!lines.spread) return null;
+                          return (
+                            <p className="text-xs text-warning-muted">
+                              Best-effort estimate from today&apos;s spread odds — UNCONFIRMED, verify the real
+                              line before publishing.
+                            </p>
+                          );
+                        }
+                        const estimate =
+                          selectedCardId === "NFL_GAME_TOTAL"
+                            ? lines.gameTotal
+                            : configValues.team === "AWAY"
+                              ? lines.awayTeamTotal
+                              : lines.homeTeamTotal;
+                        if (!estimate) return null;
+                        return (
+                          <p className="text-xs text-text-muted">
+                            Prefilled from today&apos;s odds — feel free to change it.
+                          </p>
+                        );
+                      })()}
+                      {field.type === "HALF_POINT_LINE" && (
+                        <p className="text-xs text-text-muted">
+                          Half-point lines only — this keeps every NFL pool resolving to Yes/No with no push. If
+                          your source line is a whole number, round up to the nearest half-point using the
+                          favorite/juice side.
+                        </p>
+                      )}
                     </div>
                   );
                 })}

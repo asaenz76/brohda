@@ -1,3 +1,4 @@
+import type { createAdminClient } from "@/lib/supabase/admin";
 import type { NormalizedFixture } from "./types";
 
 /** Maps a NormalizedFixture to the `fixtures` table row shape, shared by
@@ -83,4 +84,26 @@ export function toLeagueRow(fixture: NormalizedFixture) {
     name: fixture.competitionName,
     logo_url: fixture.competitionLogoUrl,
   };
+}
+
+/** Writes one fixture (any provider — nothing here is football-specific)
+ * plus its teams/leagues follow-target rows in one call. Moved here from
+ * sync.ts so the NFL sync path can share it verbatim instead of
+ * duplicating the same three upserts. Teams/leagues upsert with `do
+ * update` (not `do nothing`) so a provider rename/rebrand is reflected on
+ * next sync. */
+export async function upsertFixture(
+  admin: ReturnType<typeof createAdminClient>,
+  fixture: NormalizedFixture,
+): Promise<void> {
+  await admin.from("fixtures").upsert(toFixtureRow(fixture), { onConflict: "provider,external_fixture_id" });
+
+  const teamRows = toTeamRows(fixture);
+  if (teamRows.length > 0) {
+    await admin.from("teams").upsert(teamRows, { onConflict: "provider,external_id" });
+  }
+  const leagueRow = toLeagueRow(fixture);
+  if (leagueRow) {
+    await admin.from("leagues").upsert(leagueRow, { onConflict: "provider,external_id" });
+  }
 }

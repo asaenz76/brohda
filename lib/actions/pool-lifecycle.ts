@@ -12,6 +12,7 @@ import {
 } from "@/lib/pools/anomaly";
 import { createRefundNotifications } from "@/lib/notifications/create";
 import { gradeTemplatePool } from "@/lib/pools/templates/grade";
+import { resolveNflFixtureRow } from "@/lib/pools/templates/nfl-confirmed-result";
 import { cancelPoolSchema } from "@/lib/validations/pool-lifecycle";
 import type { FixtureInternalStatus } from "@/lib/sports-data/types";
 
@@ -197,7 +198,7 @@ export async function checkPoolResultNowAction(
   const { data: pool } = await adminClient
     .from("pools")
     .select(
-      "id, status, pool_type, template_id, template_config, template_version, fixtures(internal_status, scheduled_start_utc, venue_timezone, home_team_name, away_team_name, home_team_external_id, away_team_external_id, regulation_home_score, regulation_away_score, halftime_home_score, halftime_away_score, provider_events_payload)",
+      "id, fixture_id, status, pool_type, template_id, template_config, template_version, fixtures(internal_status, scheduled_start_utc, venue_timezone, home_team_name, away_team_name, home_team_external_id, away_team_external_id, regulation_home_score, regulation_away_score, halftime_home_score, halftime_away_score, provider_events_payload, provider)",
     )
     .eq("id", poolId)
     .single();
@@ -219,6 +220,7 @@ export async function checkPoolResultNowAction(
     halftime_home_score: number | null;
     halftime_away_score: number | null;
     provider_events_payload: unknown;
+    provider: string;
   } | null;
 
   if (!fixture) {
@@ -270,7 +272,13 @@ export async function checkPoolResultNowAction(
   }
 
   if (pool.pool_type === "TEMPLATE_GRADED") {
-    const outcome = await gradeTemplatePool(pool, fixture);
+    const { fixtureRow, resultEvidence } = await resolveNflFixtureRow(
+      adminClient,
+      pool.fixture_id as string,
+      fixture.provider,
+      fixture,
+    );
+    const outcome = await gradeTemplatePool(pool, fixtureRow, { resultEvidence });
     if (outcome === "failed") {
       return { message: null, error: "Could not grade this pool from its template." };
     }

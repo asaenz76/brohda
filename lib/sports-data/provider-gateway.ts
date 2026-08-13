@@ -50,8 +50,17 @@ const CIRCUIT_BREAKER_COOLDOWN_MS = 15 * 60_000;
  * lib/sports-data/http.ts's fetchWithRetry). Backs the admin Provider
  * Status panel and can be reused by any caller that wants to check
  * "is it even worth trying" before looping over many competitions.
+ *
+ * `provider` defaults to "api_football" so every existing call site keeps
+ * working unchanged; a second provider (e.g. "api_nfl") gets its own
+ * independent circuit-breaker/quota read by passing its own provider key
+ * — provider_request_log already has a `provider` column per row, so
+ * this is a filter parameter, not a schema or behavior change.
  */
-export async function getProviderStatus(providerEnabled: boolean): Promise<ProviderStatus> {
+export async function getProviderStatus(
+  providerEnabled: boolean,
+  provider: string = "api_football",
+): Promise<ProviderStatus> {
   if (!providerEnabled) {
     return {
       enabled: false,
@@ -71,13 +80,13 @@ export async function getProviderStatus(providerEnabled: boolean): Promise<Provi
     adminClient
       .from("provider_request_log")
       .select("response_status, error, created_at")
-      .eq("provider", "api_football")
+      .eq("provider", provider)
       .order("created_at", { ascending: false })
       .limit(20),
     adminClient
       .from("provider_request_log")
       .select("*", { count: "exact", head: true })
-      .eq("provider", "api_football")
+      .eq("provider", provider)
       .gte("created_at", since24h),
   ]);
 

@@ -55,6 +55,40 @@ const CITY_TIMEZONES: Record<string, string> = {
   cairo: "Africa/Cairo",
   lagos: "Africa/Lagos",
   johannesburg: "Africa/Johannesburg",
+
+  // NFL team-city venues (this map was originally built for European
+  // soccer venues only, so every US city below was previously an unmapped
+  // miss falling through to the platform default — confirmed live for
+  // Canton while building the NFL provider).
+  glendale: "America/Phoenix",
+  baltimore: "America/New_York",
+  buffalo: "America/New_York",
+  charlotte: "America/New_York",
+  chicago: "America/Chicago",
+  cincinnati: "America/New_York",
+  cleveland: "America/New_York",
+  arlington: "America/Chicago",
+  denver: "America/Denver",
+  detroit: "America/New_York",
+  "green bay": "America/Chicago",
+  houston: "America/Chicago",
+  indianapolis: "America/Indiana/Indianapolis",
+  jacksonville: "America/New_York",
+  "kansas city": "America/Chicago",
+  "las vegas": "America/Los_Angeles",
+  inglewood: "America/Los_Angeles",
+  minneapolis: "America/Chicago",
+  nashville: "America/Chicago",
+  foxborough: "America/New_York",
+  "new orleans": "America/Chicago",
+  "east rutherford": "America/New_York",
+  philadelphia: "America/New_York",
+  pittsburgh: "America/New_York",
+  "santa clara": "America/Los_Angeles",
+  seattle: "America/Los_Angeles",
+  tampa: "America/New_York",
+  landover: "America/New_York",
+  canton: "America/New_York",
 };
 
 export function resolveVenueTimezone(

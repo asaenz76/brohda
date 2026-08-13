@@ -48,6 +48,7 @@ export const matchTotalGoals: PoolTemplate<MinimumGoalsConfig> = {
   id: "MATCH_TOTAL_GOALS",
   version: 1,
   activeForCreation: true,
+  sports: ["football"],
   category: "GOALS",
   name: "Match total goals",
   description: "Will there be a set number of goals or more, after regulation?",
@@ -79,6 +80,7 @@ export const bothTeamsToScore: PoolTemplate<EmptyConfig> = {
   id: "BOTH_TEAMS_TO_SCORE",
   version: 1,
   activeForCreation: true,
+  sports: ["football"],
   category: "GOALS",
   name: "Both teams to score",
   description: "Will both teams score at least once after regulation?",
@@ -112,6 +114,7 @@ export const teamTotalGoals: PoolTemplate<TeamMinimumGoalsConfig> = {
   // getTemplate(id, version) still resolves this exactly for any pool
   // already created against it, so existing pools keep grading correctly.
   activeForCreation: false,
+  sports: ["football"],
   category: "GOALS",
   name: "Team total goals",
   description: "Will the selected team score a set number of goals or more?",
@@ -144,6 +147,7 @@ export const winningMargin: PoolTemplate<WinningMarginConfig> = {
   id: "WINNING_MARGIN",
   version: 1,
   activeForCreation: true,
+  sports: ["football"],
   category: "GOALS",
   name: "Winning margin",
   description: "Will the selected team win by a set number of goals or more?",
@@ -182,6 +186,7 @@ export const cleanSheet: PoolTemplate<TeamSideOnlyConfig> = {
   version: 1,
   // Retired from creation for launch — see teamTotalGoals above.
   activeForCreation: false,
+  sports: ["football"],
   category: "GOALS",
   name: "Clean sheet",
   description: "Will the selected team's opponent fail to score?",
@@ -211,6 +216,7 @@ export const winToNil: PoolTemplate<TeamSideOnlyConfig> = {
   version: 1,
   // Retired from creation for launch — see teamTotalGoals above.
   activeForCreation: false,
+  sports: ["football"],
   category: "GOALS",
   name: "Win to nil",
   description: "Will the selected team win without conceding?",
@@ -244,6 +250,7 @@ export const firstHalfTotalGoals: PoolTemplate<MinimumGoalsConfig> = {
   version: 1,
   // Retired from creation for launch — see teamTotalGoals above.
   activeForCreation: false,
+  sports: ["football"],
   category: "GOALS",
   name: "First-half total goals",
   description: "Will there be a set number of goals or more in the first half?",

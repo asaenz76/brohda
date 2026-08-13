@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createRefundNotifications, createSettlementNotifications } from "@/lib/notifications/create";
 import { getTemplate, getTemplateConfigSchema } from "./registry";
 import { parseEvents } from "./event-helpers";
-import type { TemplateFixtureScore } from "./types";
+import type { GradingEvidenceItem, TemplateFixtureScore } from "./types";
 
 export interface TemplateGradedPool {
   id: string;
@@ -97,6 +97,12 @@ async function routeToManualReview(
 export async function gradeTemplatePool(
   pool: TemplateGradedPool,
   fixtureRow: TemplateFixtureRow,
+  // Set by callers that already resolved a sport-specific authoritative
+  // result upstream of this function (see lib/pools/templates/nfl-
+  // confirmed-result.ts) — recorded in pool_grading_evidence so it's
+  // possible to prove which result revision backed a grading decision.
+  // gradingRule itself stays pure/synchronous and knows nothing about this.
+  gradeOptions?: { resultEvidence?: GradingEvidenceItem },
 ): Promise<GradeTemplatePoolOutcome> {
   if (fixtureRow.internal_status !== "COMPLETED") {
     return "pending";
@@ -223,6 +229,9 @@ export async function gradeTemplatePool(
   await admin.from("pool_options").update({ is_winning_option: false }).eq("pool_id", pool.id);
   await admin.from("pool_options").update({ is_winning_option: true }).eq("id", winningOption.id);
 
+  const evidence = gradeOptions?.resultEvidence
+    ? [...grading.evidence, gradeOptions.resultEvidence]
+    : grading.evidence;
   await admin.from("pool_grading_evidence").insert({
     pool_id: pool.id,
     settlement_id: settlement.id,
@@ -230,7 +239,7 @@ export async function gradeTemplatePool(
     template_version: template.version,
     result: grading.result,
     reason: grading.reason,
-    evidence: grading.evidence,
+    evidence,
   });
 
   // The point of the automatic grading pipeline: a normal, unambiguous

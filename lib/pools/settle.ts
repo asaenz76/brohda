@@ -8,6 +8,7 @@ import {
 } from "@/lib/pools/anomaly";
 import { createRefundNotifications } from "@/lib/notifications/create";
 import { gradeTemplatePool } from "@/lib/pools/templates/grade";
+import { resolveNflFixtureRow } from "@/lib/pools/templates/nfl-confirmed-result";
 import type { FixtureInternalStatus } from "@/lib/sports-data/types";
 
 export interface ProcessResultsResult {
@@ -65,7 +66,7 @@ export async function processAwaitingResults(): Promise<ProcessResultsResult> {
   const { data: pools } = await admin
     .from("pools")
     .select(
-      "id, pool_type, template_id, template_config, template_version, fixtures(internal_status, scheduled_start_utc, venue_timezone, home_team_name, away_team_name, home_team_external_id, away_team_external_id, regulation_home_score, regulation_away_score, halftime_home_score, halftime_away_score, provider_events_payload)",
+      "id, fixture_id, pool_type, template_id, template_config, template_version, fixtures(internal_status, scheduled_start_utc, venue_timezone, home_team_name, away_team_name, home_team_external_id, away_team_external_id, regulation_home_score, regulation_away_score, halftime_home_score, halftime_away_score, provider_events_payload, provider)",
     )
     .eq("status", "AWAITING_RESULT");
 
@@ -85,6 +86,7 @@ export async function processAwaitingResults(): Promise<ProcessResultsResult> {
       halftime_home_score: number | null;
       halftime_away_score: number | null;
       provider_events_payload: unknown;
+      provider: string;
     }>(pool.fixtures);
 
     if (!fixture) {
@@ -132,7 +134,13 @@ export async function processAwaitingResults(): Promise<ProcessResultsResult> {
 
     if (internalStatus === "COMPLETED") {
       if (pool.pool_type === "TEMPLATE_GRADED") {
-        const outcome = await gradeTemplatePool(pool, fixture);
+        const { fixtureRow, resultEvidence } = await resolveNflFixtureRow(
+          admin,
+          pool.fixture_id as string,
+          fixture.provider,
+          fixture,
+        );
+        const outcome = await gradeTemplatePool(pool, fixtureRow, { resultEvidence });
         if (outcome === "settled") {
           result.settled++;
         } else if (outcome === "readyForReview") {

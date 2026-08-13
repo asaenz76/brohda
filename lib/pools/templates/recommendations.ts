@@ -314,6 +314,7 @@ export function defaultConfigFor(template: PoolTemplate<Record<string, unknown>>
   for (const field of template.requiredConfigFields) {
     if (field.type === "TEAM_SIDE") config[field.key] = "HOME";
     else if (field.type === "INTEGER") config[field.key] = field.min;
+    else if (field.type === "HALF_POINT_LINE") config[field.key] = field.min;
     else if (field.type === "BOOLEAN") config[field.key] = false;
     // PLAYER fields are left unset — no fixture-independent default exists.
   }
@@ -395,6 +396,37 @@ export function toSerializableRecommendation(rec: TemplateRecommendation): Seria
 // excluded from ranking entirely, same as the existing wizard already
 // treats PLAYER fields as requiring a live fixture roster.
 const RECOMMENDABLE_CATEGORIES = new Set(["MATCH_RESULT", "GOALS", "DISCIPLINE"]);
+
+// INTEGER (e.g. minimumGoals) and HALF_POINT_LINE (e.g. a spread/total)
+// fields both name a specific NUMBER the recommendation has to pick — that
+// number is only ever legitimate when it comes from a real bookmaker line
+// for this exact fixture (ODDS_ALLOWLIST_TEMPLATE_IDS + markets actually
+// available and cleared the consensus bar; see estimateYesProbabilityWithSource).
+// Absent that, defaultConfigFor's fallback (the field's bare minimum) is a
+// fabricated placeholder, not a real value — recommending it anyway, dressed
+// up with a star rating and a percentage, would look like vetted analysis
+// and isn't. A super admin must never be steered into treating a guessed
+// number as data. TEAM_SIDE/BOOLEAN fields don't have this problem (no
+// number is being invented — "which of the two known teams" or "on/off"
+// aren't guesses the same way a threshold is), so they're unaffected.
+//
+// This is fixture-specific, not template-specific: MATCH_TOTAL_GOALS is
+// odds-allowlisted, so it's a real recommendation whenever this fixture
+// actually has live market data, and correctly withheld otherwise — same
+// template, different fixtures, different outcomes. WINNING_MARGIN and
+// every NFL line template (SPREAD/GAME_TOTAL/TEAM_TOTAL) have no real-odds
+// path at all yet (see odds-mapping.ts's ODDS_ALLOWLIST_TEMPLATE_IDS
+// comment, and lib/pools/templates/nfl.ts respectively), so their
+// probabilitySource is always STATIC_PRIOR and they're always excluded
+// here — still browsable manually, never auto-recommended.
+const THRESHOLD_FIELD_TYPES = new Set(["INTEGER", "HALF_POINT_LINE"]);
+function hasThresholdField(template: PoolTemplate<Record<string, unknown>>): boolean {
+  return template.requiredConfigFields.some((f) => THRESHOLD_FIELD_TYPES.has(f.type));
+}
+function isDataBackedRecommendation(rec: TemplateRecommendation): boolean {
+  return !hasThresholdField(rec.template) || rec.probabilitySource !== "STATIC_PRIOR";
+}
+
 const RECOMMENDED_LIMIT = 5;
 
 /** Whichever of two scored candidates for the same template is closer to a
@@ -436,15 +468,23 @@ function scoreCandidate(
  * already fetched by the caller (never fetched here; this function stays
  * pure/synchronous). Null when odds aren't available, in which case every
  * candidate falls back to its static prior, identical to this function's
- * behavior before real odds existed. */
+ * behavior before real odds existed.
+ *
+ * `sport` — every football-era template is written in football-specific
+ * language/data assumptions (goals, clean sheets, red cards), so a
+ * candidate is only scored/offered when its own `sports` list includes this
+ * fixture's sport. Defaults to "football" for every existing caller that
+ * predates NFL. */
 export function rankRecommendations(
   activePools: ActivePoolSummary[],
   markets: NormalizedFixtureMarkets | null = null,
+  sport: string = "football",
 ): RankedRecommendations {
-  const scored = TEMPLATE_REGISTRY.filter((t) => RECOMMENDABLE_CATEGORIES.has(t.category))
+  const scored = TEMPLATE_REGISTRY.filter((t) => RECOMMENDABLE_CATEGORIES.has(t.category) && t.sports.includes(sport))
     .map((t) => getLatestTemplate(t.id))
     .filter((t): t is PoolTemplate<Record<string, unknown>> => t !== null)
-    .map((t) => scoreCandidate(t, activePools, markets));
+    .map((t) => scoreCandidate(t, activePools, markets))
+    .filter(isDataBackedRecommendation);
 
   scored.sort((a, b) => b.stars - a.stars || b.yesProbability - a.yesProbability);
 

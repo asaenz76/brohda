@@ -4,6 +4,7 @@ import {
   CATEGORY_LABELS,
   TABS,
   buildCompetitionOptions,
+  tabsForSport,
   type FixtureOption,
 } from "@/app/(admin)/admin/pools/new/template-cards";
 
@@ -18,6 +19,7 @@ function fixture(overrides: Partial<FixtureOption>): FixtureOption {
     awayTeamName: "Away",
     awayTeamLogoUrl: null,
     competitionType: null,
+    sport: "football",
     league: "England | Premier League",
     label: "Home vs Away",
     scheduledStartUtc: "2026-01-01T00:00:00.000Z",
@@ -53,6 +55,16 @@ describe("template-cards", () => {
     for (const tab of TABS) {
       expect(CATEGORY_LABELS[tab]).toBeTruthy();
     }
+  });
+
+  it("tabsForSport excludes TRADITIONAL for american_football — both legacy pool types are disabled for NFL, so the tab has nothing to show", () => {
+    const nflTabs = tabsForSport("american_football");
+    expect(nflTabs).not.toContain("TRADITIONAL");
+    expect(nflTabs).toContain("GOALS");
+  });
+
+  it("tabsForSport still includes TRADITIONAL for football", () => {
+    expect(tabsForSport("football")).toContain("TRADITIONAL");
   });
 });
 

@@ -291,6 +291,40 @@ export interface NormalizedFixtureMarkets {
   markets: OddsMarket[];
 }
 
+// ---------------------------------------------------------------------
+// NFL raw odds layer — backs the Spread/Game Total/Team Total prefill in
+// the pool-creation wizard (lib/pools/templates/nfl-odds.ts). Deliberately
+// its own shape, not squeezed into OddsMarket/OddsMarketKey above (those
+// are soccer-specific: 3-way match winner, no moneyline/Asian-Handicap
+// concept). Kept RAW — the provider's own value labels verbatim (e.g.
+// "Home -3.5", "Over 37.5") — rather than pre-interpreted here: the Asian
+// Handicap value-pairing convention is genuinely ambiguous (see
+// nfl-odds.ts's estimateSpreadMagnitude), so that interpretation, and the
+// job of flagging it as unconfirmed, belongs in the one place that owns
+// it, not silently baked into normalization.
+// ---------------------------------------------------------------------
+
+export interface NflRawOddsValue {
+  value: string;
+  odd: number;
+}
+
+export interface NflBookmakerOdds {
+  bookmakerId: number;
+  bookmakerName: string;
+  moneyline: NflRawOddsValue[]; // bet id 1, "Home"/"Away" — unambiguous
+  asianHandicap: NflRawOddsValue[]; // bet id 2, e.g. "Home -3.5" — ambiguous pairing, see nfl-odds.ts
+  gameTotal: NflRawOddsValue[]; // bet id 3, e.g. "Over 37.5" / "Under 37"
+  homeTeamTotal: NflRawOddsValue[]; // bet id 8, "Total - Home"
+  awayTeamTotal: NflRawOddsValue[]; // bet id 9, "Total - Away"
+}
+
+export interface NormalizedNflFixtureOdds {
+  externalFixtureId: string;
+  providerUpdatedAt: string | null;
+  bookmakers: NflBookmakerOdds[];
+}
+
 export interface SportsDataProvider {
   readonly name: string;
   isEnabled(): boolean;

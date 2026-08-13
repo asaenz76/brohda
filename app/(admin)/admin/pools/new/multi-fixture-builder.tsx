@@ -21,10 +21,12 @@ import {
   GRADING_BADGE,
   SELECT_CLASS,
   TABS,
+  cardMatchesSport,
   isLegacyId,
   type CardCategory,
   type CompetitionOption,
   type FixtureOption,
+  type TemplateCard,
 } from "./template-cards";
 import { cn } from "@/lib/utils";
 
@@ -36,7 +38,11 @@ import { cn } from "@/lib/utils";
 // regardless of which two teams are actually playing. COMBO (also
 // fixture-specific, free-typed) no longer appears in TABS/ALL_CARDS at all
 // — see template-cards.ts — so it needs no filter here anymore.
-const MULTI_TABS = TABS.filter((cat) => cat !== "PLAYER_PROPS");
+// Explicit CardCategory[] annotation (not inferred) — otherwise TS narrows
+// the array's element type by the `!== "PLAYER_PROPS"` filter predicate,
+// which then rejects the full-CardCategory-typed activeTab state everywhere
+// this array is compared against it (.includes(activeTab), etc.).
+const MULTI_TABS: CardCategory[] = TABS.filter((cat) => cat !== "PLAYER_PROPS");
 const MULTI_CARDS = ALL_CARDS.filter((c) => c.category !== "PLAYER_PROPS");
 
 const MULTI_STEP_LABELS = ["Fixtures", "Template", "Financials & review"];
@@ -127,10 +133,27 @@ export function MultiFixtureBuilder({
   // is safe to apply to all of them at once.
   const whoWillAdvanceEnabled =
     selectedFixtures.length > 0 &&
-    selectedFixtures.every((f) => getTemplateEligibility(f.competitionType).whoWillAdvanceEnabled);
+    selectedFixtures.every((f) => getTemplateEligibility(f.competitionType, f.sport).whoWillAdvanceEnabled);
   const regulationResultEnabled =
     selectedFixtures.length > 0 &&
-    selectedFixtures.every((f) => getTemplateEligibility(f.competitionType).regulationResultEnabled);
+    selectedFixtures.every((f) => getTemplateEligibility(f.competitionType, f.sport).regulationResultEnabled);
+
+  // Same reasoning as whoWillAdvanceEnabled/regulationResultEnabled above,
+  // one level more general: a football-era registry card (goals, clean
+  // sheets, red cards — anything sport-scoped to ["football"]) is only
+  // offered when every selected fixture's sport matches. Mixing an NFL
+  // fixture into a football batch (or vice versa) hides the card entirely
+  // rather than greying it out — unlike the knockout/league mismatch case
+  // above, "wrong sport" isn't a temporarily-inapplicable version of the
+  // same question, it's simply not a question this batch can ask at all.
+  const sportEligible = (card: TemplateCard) => selectedFixtures.every((f) => cardMatchesSport(card, f.sport));
+  const availableMultiTabs = MULTI_TABS.filter((tab) => MULTI_CARDS.some((c) => c.category === tab && sportEligible(c)));
+  // Derived at render time, not synced via an effect+setState (which would
+  // cause a cascading extra render) — if the raw activeTab state points at
+  // a tab that lost every card once the fixture selection changed sport
+  // (e.g. an NFL fixture added to a previously all-football batch), fall
+  // back to the first tab that still has something to show.
+  const displayedTab = availableMultiTabs.includes(activeTab) ? activeTab : (availableMultiTabs[0] ?? MULTI_TABS[0]);
 
   const isLegacy = selectedCardId != null && isLegacyId(selectedCardId);
   const registryTemplate = selectedCardId && !isLegacy ? getLatestTemplate(selectedCardId) : null;
@@ -138,6 +161,7 @@ export function MultiFixtureBuilder({
   function selectCard(card: (typeof MULTI_CARDS)[number]) {
     if (card.id === "WHO_WILL_ADVANCE" && !whoWillAdvanceEnabled) return;
     if (card.id === "REGULATION_RESULT" && !regulationResultEnabled) return;
+    if (!sportEligible(card)) return;
 
     setSelectedCardId(card.id);
     setConfigValues({});
@@ -149,6 +173,10 @@ export function MultiFixtureBuilder({
       for (const field of template.requiredConfigFields) {
         if (field.type === "TEAM_SIDE") defaults[field.key] = "HOME";
         else if (field.type === "INTEGER") defaults[field.key] = String(field.min);
+        // Deliberately left unset, unlike INTEGER's field.min default — a
+        // real spread/total line only comes from an actual sportsbook (V1
+        // has no provider for this); the admin must type in the real line.
+        else if (field.type === "HALF_POINT_LINE") defaults[field.key] = "";
         else if (field.type === "BOOLEAN") defaults[field.key] = "false";
       }
       setConfigValues(defaults);
@@ -161,7 +189,11 @@ export function MultiFixtureBuilder({
     for (const field of registryTemplate.requiredConfigFields) {
       const raw = configValues[field.key];
       config[field.key] =
-        field.type === "INTEGER" ? Number(raw) : field.type === "BOOLEAN" ? raw === "true" : raw;
+        field.type === "INTEGER" || field.type === "HALF_POINT_LINE"
+          ? Number(raw)
+          : field.type === "BOOLEAN"
+            ? raw === "true"
+            : raw;
     }
     return config;
   }, [registryTemplate, configValues]);
@@ -174,6 +206,17 @@ export function MultiFixtureBuilder({
         if (field.type === "PLAYER") return false;
         const raw = configValues[field.key];
         const n = Number(raw);
+        if (field.type === "HALF_POINT_LINE") {
+          return (
+            raw !== undefined &&
+            raw !== "" &&
+            !Number.isNaN(n) &&
+            n >= field.min &&
+            n <= field.max &&
+            (n * 2) % 1 === 0 &&
+            n % 1 !== 0
+          );
+        }
         return raw !== undefined && raw !== "" && !Number.isNaN(n) && n >= field.min && n <= field.max;
       })
     : true;
@@ -428,14 +471,14 @@ export function MultiFixtureBuilder({
         </p>
 
         <div className="flex gap-1 border-b border-border-subtle">
-          {MULTI_TABS.map((tab) => (
+          {availableMultiTabs.map((tab) => (
             <button
               key={tab}
               type="button"
               onClick={() => setActiveTab(tab)}
               className={cn(
                 "rounded-t-lg px-3 py-1.5 text-sm font-medium",
-                activeTab === tab
+                displayedTab === tab
                   ? "border-b-2 border-accent-primary text-text-primary"
                   : "text-text-muted hover:text-text-secondary",
               )}
@@ -446,7 +489,7 @@ export function MultiFixtureBuilder({
         </div>
 
         <div className="grid gap-2 sm:grid-cols-2">
-          {MULTI_CARDS.filter((c) => c.category === activeTab).map((card) => {
+          {MULTI_CARDS.filter((c) => c.category === displayedTab && sportEligible(c)).map((card) => {
             const disabled =
               (card.id === "WHO_WILL_ADVANCE" && !whoWillAdvanceEnabled) ||
               (card.id === "REGULATION_RESULT" && !regulationResultEnabled);
@@ -546,10 +589,17 @@ export function MultiFixtureBuilder({
                     type="number"
                     min={field.min}
                     max={field.max}
+                    step={field.type === "HALF_POINT_LINE" ? 0.5 : undefined}
                     value={configValues[field.key] ?? ""}
                     onChange={(e) => setConfigValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
                     className="w-32"
                   />
+                  {field.type === "HALF_POINT_LINE" && (
+                    <p className="text-xs text-text-muted">
+                      Half-point lines only. If your source line is a whole number, round up to the nearest
+                      half-point using the favorite/juice side.
+                    </p>
+                  )}
                 </div>
               );
             })}

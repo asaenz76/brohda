@@ -46,8 +46,22 @@ export interface TemplateEligibility {
  * An unknown competition type (not yet enriched by the provider, or a type
  * string this app doesn't recognize) stays permissive on both sides —
  * missing metadata should never silently block pool creation.
+ *
+ * `sport` narrows this further: for any non-football sport (the NFL today),
+ * both legacy pool types are excluded outright, not just WHO_WILL_ADVANCE.
+ * WHO_WILL_ADVANCE's "Includes Extra Time & Penalties" framing never fit a
+ * sport without that structure. REGULATION_RESULT's "home win / draw / away
+ * win" framing would technically still grade correctly (the NFL's own rare
+ * regular-season tie included), but it's Moneyline in disguise — the
+ * product decision for NFL is that pools are modeled on sportsbook lines
+ * (spread/game total/team total — see lib/pools/templates/nfl.ts), not a
+ * generic three-way match result, so REGULATION_RESULT is disabled for NFL
+ * too, not left technically-gradable-but-off-strategy.
  */
-export function getTemplateEligibility(competitionType: string | null): TemplateEligibility {
+export function getTemplateEligibility(competitionType: string | null, sport?: string | null): TemplateEligibility {
+  if (sport && sport !== "football") {
+    return { whoWillAdvanceEnabled: false, regulationResultEnabled: false };
+  }
   if (competitionType === "Cup") {
     return { whoWillAdvanceEnabled: true, regulationResultEnabled: false };
   }

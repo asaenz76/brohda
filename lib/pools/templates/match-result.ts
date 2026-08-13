@@ -38,6 +38,7 @@ export const homeTeamToWin: PoolTemplate<EmptyConfig> = {
   id: "HOME_TEAM_TO_WIN",
   version: 1,
   activeForCreation: true,
+  sports: ["football"],
   category: "MATCH_RESULT",
   name: "Home team to win",
   description: "Will the home team win after regulation?",
@@ -74,6 +75,7 @@ export const awayTeamToWin: PoolTemplate<EmptyConfig> = {
   id: "AWAY_TEAM_TO_WIN",
   version: 1,
   activeForCreation: true,
+  sports: ["football"],
   category: "MATCH_RESULT",
   name: "Away team to win",
   description: "Will the away team win after regulation?",
@@ -109,6 +111,7 @@ export const eitherTeamToWin: PoolTemplate<EmptyConfig> = {
   // getTemplate(id, version) still resolves this exactly for any pool
   // already created against it, so existing pools keep grading correctly.
   activeForCreation: false,
+  sports: ["football"],
   category: "MATCH_RESULT",
   name: "Either team to win",
   description: "Will this match have a winner after regulation (not a draw)?",
@@ -142,6 +145,7 @@ export const teamToAvoidDefeat: PoolTemplate<TeamSideConfig> = {
   version: 1,
   // Retired from creation for launch — see eitherTeamToWin above.
   activeForCreation: false,
+  sports: ["football"],
   category: "MATCH_RESULT",
   name: "Team to avoid defeat",
   description: "Will the selected team win or draw after regulation?",

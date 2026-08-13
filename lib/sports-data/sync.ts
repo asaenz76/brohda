@@ -1,7 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { apiFootballProvider } from "./api-football-provider";
-import { toFixtureRow, toLeagueRow, toTeamRows } from "./persist";
+import { upsertFixture } from "./persist";
 import { TERMINAL_STATUSES } from "./status-map";
 import type { FixtureInternalStatus } from "./types";
 import { EVENT_DEPENDENT_TEMPLATE_IDS } from "@/lib/pools/templates/registry";
@@ -156,26 +156,6 @@ export async function runFixtureSync(): Promise<SyncResult> {
   }
 
   return result;
-}
-
-async function upsertFixture(
-  admin: ReturnType<typeof createAdminClient>,
-  fixture: Parameters<typeof toFixtureRow>[0],
-) {
-  await admin
-    .from("fixtures")
-    .upsert(toFixtureRow(fixture), { onConflict: "provider,external_fixture_id" });
-
-  // Keeps the teams/leagues follow-target tables current — do update (not
-  // do nothing) so a provider rename/rebrand is reflected on next sync.
-  const teamRows = toTeamRows(fixture);
-  if (teamRows.length > 0) {
-    await admin.from("teams").upsert(teamRows, { onConflict: "provider,external_id" });
-  }
-  const leagueRow = toLeagueRow(fixture);
-  if (leagueRow) {
-    await admin.from("leagues").upsert(leagueRow, { onConflict: "provider,external_id" });
-  }
 }
 
 // Separate from upsertFixture/toFixtureRow deliberately — events come from

@@ -3,7 +3,9 @@
 import { requireAdminOrAbove } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { apiFootballProvider } from "@/lib/sports-data/api-football-provider";
+import { apiNflProvider } from "@/lib/sports-data/api-nfl-provider";
 import { suggestMinimumGoalsFromExactDistribution, suggestMinimumGoalsFromOdds } from "@/lib/pools/templates/goals-odds";
+import { estimateNflFixtureLines, type NflFixtureLineEstimates } from "@/lib/pools/templates/nfl-odds";
 import { isFresh } from "@/lib/utils/freshness";
 import type { NormalizedFixtureMarkets } from "@/lib/sports-data/types";
 
@@ -87,4 +89,24 @@ export async function getFixtureMarketsAction(externalFixtureId: string): Promis
       .upsert({ external_fixture_id: externalFixtureId, normalized_markets: fresh, fetched_at: new Date().toISOString() });
   }
   return fresh;
+}
+
+/**
+ * Backs the pool-creation wizard's NFL_SPREAD/NFL_GAME_TOTAL/
+ * NFL_TEAM_TOTAL prefill — plain read-only async call, same uncached
+ * shape as getFixtureGoalsLinesAction above (called at most once per
+ * wizard template-selection, not worth a cache table for V1). Returns
+ * null on any provider failure (best-effort, same reasoning as the two
+ * actions above) rather than throwing into an un-caught client `.then()`.
+ *
+ * result.spread is a best-effort, UNCONFIRMED estimate — see nfl-odds.ts's
+ * file header for why. Every caller must present it as needing manual
+ * verification, never with the same confidence as the other three fields.
+ */
+export async function getNflFixtureLinesAction(externalFixtureId: string): Promise<NflFixtureLineEstimates | null> {
+  await requireAdminOrAbove();
+
+  const odds = await apiNflProvider.getFixtureRawOdds(externalFixtureId).catch(() => null);
+  if (!odds) return null;
+  return estimateNflFixtureLines(odds);
 }

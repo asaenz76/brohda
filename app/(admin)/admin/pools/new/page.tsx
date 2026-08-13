@@ -100,7 +100,7 @@ export default async function NewPoolPage({
   const { data: fixtures } = await supabase
     .from("fixtures_available_for_pool_creation")
     .select(
-      "id, external_fixture_id, home_team_external_id, home_team_name, home_team_logo_url, away_team_external_id, away_team_name, away_team_logo_url, competition_name, competition_country, competition_type, provider, competition_external_id, season, scheduled_start_utc",
+      "id, external_fixture_id, home_team_external_id, home_team_name, home_team_logo_url, away_team_external_id, away_team_name, away_team_logo_url, competition_name, competition_country, competition_type, sport, provider, competition_external_id, season, scheduled_start_utc",
     )
     .order("scheduled_start_utc", { ascending: true });
 
@@ -120,6 +120,7 @@ export default async function NewPoolPage({
       awayTeamName: f.away_team_name,
       awayTeamLogoUrl: f.away_team_logo_url,
       competitionType: f.competition_type,
+      sport: f.sport,
       league,
       label: `${f.home_team_name} vs ${f.away_team_name}${league ? ` (${league})` : ""} — ${new Date(
         f.scheduled_start_utc,

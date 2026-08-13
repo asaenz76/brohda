@@ -143,20 +143,71 @@ describe("scoreTemplate", () => {
 });
 
 describe("rankRecommendations", () => {
-  it("splits eligible registry templates into recommended (capped) and other", () => {
+  it("splits eligible registry templates into recommended (capped) and other — with no real odds, only threshold-free templates qualify", () => {
     const { recommended, other } = rankRecommendations([]);
-    // Launch simplification retired 12 of 17 templates from creation (see
-    // template-cards.ts) — getLatestTemplate (which rankRecommendations
-    // resolves every candidate through) returns null for a retired
-    // template, so only the 5 still-active templates are scorable today:
-    // HOME_TEAM_TO_WIN/AWAY_TEAM_TO_WIN (MATCH_RESULT) +
-    // MATCH_TOTAL_GOALS/BOTH_TEAMS_TO_SCORE/WINNING_MARGIN (GOALS).
-    // PLAYER_TO_SCORE (PLAYER_PROPS) is excluded from ranking entirely,
-    // regardless of activeForCreation.
-    expect(recommended.length + other.length).toBe(5);
+    // Launch simplification retired 12 of 17 football templates from
+    // creation (see template-cards.ts) — getLatestTemplate (which
+    // rankRecommendations resolves every candidate through) returns null
+    // for a retired template, so only 5 football templates are scorable
+    // for the default sport ("football") to begin with: HOME_TEAM_TO_WIN/
+    // AWAY_TEAM_TO_WIN (MATCH_RESULT) + MATCH_TOTAL_GOALS/BOTH_TEAMS_TO_SCORE/
+    // WINNING_MARGIN (GOALS). Of those, MATCH_TOTAL_GOALS and WINNING_MARGIN
+    // both name a numeric threshold (minimumGoals/minimumMargin) — with no
+    // `markets` passed here, neither has a real bookmaker line behind it, so
+    // isDataBackedRecommendation correctly excludes both (a fabricated
+    // "field.min" threshold must never be presented as a vetted
+    // recommendation — see its own doc comment). Only the 3 threshold-free
+    // templates (HOME_TEAM_TO_WIN/AWAY_TEAM_TO_WIN/BOTH_TEAMS_TO_SCORE)
+    // remain. See the "with real market data" test below for the case where
+    // MATCH_TOTAL_GOALS's threshold IS real and correctly included. The 3
+    // NFL templates are all sports: ["american_football"], so they're
+    // excluded here (rankRecommendations defaults to "football") — see the
+    // sport-scoped test below. PLAYER_TO_SCORE (PLAYER_PROPS) is excluded
+    // from ranking entirely, regardless of activeForCreation.
+    expect(recommended.length + other.length).toBe(3);
+    expect([...recommended, ...other].map((r) => r.template.id).sort()).toEqual(
+      ["AWAY_TEAM_TO_WIN", "BOTH_TEAMS_TO_SCORE", "HOME_TEAM_TO_WIN"].sort(),
+    );
     expect(recommended.length).toBeLessThanOrEqual(5);
     expect(recommended.every((r) => r.template.category !== "PLAYER_PROPS")).toBe(true);
     expect(other.every((r) => r.template.category !== "PLAYER_PROPS")).toBe(true);
+  });
+
+  it("includes a threshold template once it has a REAL bookmaker line behind it — the fix is fixture-specific, not a blanket exclusion", () => {
+    const markets: NormalizedFixtureMarkets = {
+      externalFixtureId: "f1",
+      providerUpdatedAt: "2026-08-03T00:15:08Z",
+      matchWinner: [],
+      markets: [
+        {
+          key: "MATCH_TOTAL_GOALS",
+          lines: [
+            {
+              point: 2.5,
+              propositions: [
+                { bookmakerId: 1, bookmakerName: "10Bet", yesOdd: 1.9, noOdd: 1.9 },
+                { bookmakerId: 4, bookmakerName: "Pinnacle", yesOdd: 1.95, noOdd: 1.85 },
+                { bookmakerId: 8, bookmakerName: "Bet365", yesOdd: 1.88, noOdd: 1.92 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const { recommended, other } = rankRecommendations([], markets);
+    const matchTotalGoals = [...recommended, ...other].find((r) => r.template.id === "MATCH_TOTAL_GOALS");
+    expect(matchTotalGoals).toBeDefined();
+    expect(matchTotalGoals?.probabilitySource).toBe("MARKET_CONSENSUS");
+    // WINNING_MARGIN still has no real-odds path at all (not odds-
+    // allowlisted — see odds-mapping.ts's own comment on why), so it stays
+    // excluded even with markets present for this fixture.
+    expect([...recommended, ...other].some((r) => r.template.id === "WINNING_MARGIN")).toBe(false);
+  });
+
+  it("scopes candidates to the given sport — american_football has no real-odds path at all yet, so none of its 3 templates are ever auto-recommended", () => {
+    const { recommended, other } = rankRecommendations([], null, "american_football");
+    expect(recommended).toHaveLength(0);
+    expect(other).toHaveLength(0);
   });
 
   it("never recommends a template with an active exact duplicate or mirror", () => {

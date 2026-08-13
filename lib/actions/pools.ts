@@ -81,7 +81,11 @@ async function notifyFollowersOfPublish(pool: { id: string; question: string; fi
  * live-preview publish warnings as an admin picks/configures a template —
  * called once a fixture is selected. Read-only; never touches pools.
  */
-export async function getFixtureQuestionContextAction(fixtureId: string, externalFixtureId: string | null = null) {
+export async function getFixtureQuestionContextAction(
+  fixtureId: string,
+  externalFixtureId: string | null = null,
+  sport: string = "football",
+) {
   await requireAdminOrAbove();
   const adminClient = createAdminClient();
   const [activePools, markets] = await Promise.all([
@@ -92,7 +96,7 @@ export async function getFixtureQuestionContextAction(fixtureId: string, externa
     // treats null exactly like "no markets fetched").
     externalFixtureId ? getFixtureMarketsAction(externalFixtureId) : Promise.resolve(null),
   ]);
-  const recommendations = rankRecommendations(activePools, markets);
+  const recommendations = rankRecommendations(activePools, markets, sport);
   return {
     activePools,
     recommendations: {
@@ -105,7 +109,7 @@ export async function getFixtureQuestionContextAction(fixtureId: string, externa
 export type CreatePoolFromTemplateState = { error: string | null; warnings?: PublishWarning[] };
 
 const FIXTURE_SELECT_FOR_POOL_CREATION =
-  "id, external_fixture_id, home_team_external_id, home_team_name, home_team_logo_url, away_team_external_id, away_team_name, away_team_logo_url, competition_type, scheduled_start_utc";
+  "id, external_fixture_id, home_team_external_id, home_team_name, home_team_logo_url, away_team_external_id, away_team_name, away_team_logo_url, competition_type, scheduled_start_utc, sport";
 
 type PoolFixtureRow = {
   id: string;
@@ -118,6 +122,7 @@ type PoolFixtureRow = {
   away_team_logo_url: string | null;
   competition_type: string | null;
   scheduled_start_utc: string;
+  sport: string;
 };
 
 // The fixture-independent part of a pool's configuration — shared by the
@@ -187,7 +192,7 @@ async function createPoolForFixture(
   // isn't a valid template for it, and vice versa for "Who will advance?"
   // on a League fixture.
   if (input.poolType === "WHO_WILL_ADVANCE" || input.poolType === "REGULATION_RESULT") {
-    const eligibility = getTemplateEligibility(fixture.competition_type);
+    const eligibility = getTemplateEligibility(fixture.competition_type, fixture.sport);
     if (input.poolType === "WHO_WILL_ADVANCE" && !eligibility.whoWillAdvanceEnabled) {
       return { error: "\"Who will advance?\" isn't available for this fixture — it isn't a knockout match." };
     }
@@ -215,6 +220,15 @@ async function createPoolForFixture(
     selectedTemplate = getLatestTemplate(input.templateId);
     if (!selectedTemplate) {
       return { error: "Unknown template." };
+    }
+    // Re-checked here, not just in the client's card list — every
+    // football-era registry template is written in football-specific
+    // language/data assumptions (goals, clean sheets, events data the NFL
+    // provider never populates), so it's scoped to sports: ["football"];
+    // this is the actual enforcement boundary, same pattern as the
+    // WHO_WILL_ADVANCE/REGULATION_RESULT eligibility re-check above.
+    if (!selectedTemplate.sports.includes(fixture.sport)) {
+      return { error: `"${selectedTemplate.name}" isn't available for this fixture's sport.` };
     }
     // Re-checked here, not just in the client's disabled-card UI — mirrors
     // the WHO_WILL_ADVANCE/REGULATION_RESULT eligibility re-check above.

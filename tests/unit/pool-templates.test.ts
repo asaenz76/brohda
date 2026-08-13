@@ -78,6 +78,28 @@ describe("getTemplateEligibility", () => {
       regulationResultEnabled: true,
     });
   });
+
+  it("excludes both legacy pool types for a non-football sport regardless of competition type — NFL pools are modeled on lines (spread/game total/team total), not a generic Moneyline/knockout result", () => {
+    expect(getTemplateEligibility("Cup", "american_football")).toEqual({
+      whoWillAdvanceEnabled: false,
+      regulationResultEnabled: false,
+    });
+    expect(getTemplateEligibility(null, "american_football")).toEqual({
+      whoWillAdvanceEnabled: false,
+      regulationResultEnabled: false,
+    });
+  });
+
+  it("stays unchanged for football (the default when sport is omitted)", () => {
+    expect(getTemplateEligibility("Cup", "football")).toEqual({
+      whoWillAdvanceEnabled: true,
+      regulationResultEnabled: false,
+    });
+    expect(getTemplateEligibility("Cup", undefined)).toEqual({
+      whoWillAdvanceEnabled: true,
+      regulationResultEnabled: false,
+    });
+  });
 });
 
 describe("getRuleLabel", () => {

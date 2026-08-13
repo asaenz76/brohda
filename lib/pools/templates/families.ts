@@ -70,6 +70,13 @@ const TEMPLATE_FAMILY: Record<string, QuestionFamily> = {
   WHO_WILL_ADVANCE: "MATCH_RESULT",
   REGULATION_RESULT: "MATCH_RESULT",
   COMBO: "COMBO",
+  // NFL_SPREAD asks the identical "win by N+" shape as WINNING_MARGIN —
+  // shares its family for the same liquidity-splitting-duplicate reasoning.
+  NFL_SPREAD: "WINNING_MARGIN",
+  // Combined-score threshold question, same shape as MATCH_TOTAL_GOALS.
+  NFL_GAME_TOTAL: "GOALS",
+  // Single-team-score threshold question, same shape as TEAM_TOTAL_GOALS.
+  NFL_TEAM_TOTAL: "TEAM_GOALS",
 };
 
 // Fails fast (at import time, like registry.ts's own duplicate-key guard)
@@ -103,6 +110,8 @@ export const TEAM_SCOPED_TEMPLATE_IDS = new Set([
   "CLEAN_SHEET",
   "WIN_TO_NIL",
   "FIRST_TEAM_TO_SCORE",
+  "NFL_SPREAD",
+  "NFL_TEAM_TOTAL",
 ]);
 
 export interface QuestionCandidate {

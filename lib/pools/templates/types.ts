@@ -49,7 +49,13 @@ export type ConfigFieldDefinition =
   | { key: string; label: string; type: "TEAM_SIDE" }
   | { key: string; label: string; type: "INTEGER"; min: number; max: number }
   | { key: string; label: string; type: "PLAYER" }
-  | { key: string; label: string; type: "BOOLEAN" };
+  | { key: string; label: string; type: "BOOLEAN" }
+  // A betting-line value that must land exactly on a half-point (1.5, 2.5,
+  // ...) — never a whole number, so grading can never produce a push/tie.
+  // `min`/`max` must themselves be half-point values (they seed the
+  // wizard's default). See lib/pools/templates/nfl.ts's halfPointLineSchema
+  // for the matching server-side Zod enforcement.
+  | { key: string; label: string; type: "HALF_POINT_LINE"; min: number; max: number };
 
 /** The minimal fixture shape every Phase-1 gradingRule reads — a subset of
  * the `fixtures` row's own columns (never provider-raw shapes). */
@@ -97,6 +103,16 @@ export interface PoolTemplate<TConfig = Record<string, unknown>> {
    * questionBuilder/gradingRule semantics genuinely change; a wording-only
    * tweak doesn't need a new version. */
   version: number;
+  /** Which fixture.sport value(s) this template is offered for — every
+   * Phase 1/2 template was written in football-specific language ("goals",
+   * "clean sheet", "red card") and most (the FIXTURE_EVENTS/FIXTURE_PLAYERS
+   * ones especially) aren't even gradable for a sport whose provider never
+   * populates those data sources, so they're all scoped to ["football"].
+   * Checked both when building the wizard's card list/recommendations
+   * (cosmetic) and again server-side in createPoolForFixture (the actual
+   * enforcement boundary) — same two-layer pattern as
+   * getTemplateEligibility's whoWillAdvanceEnabled/regulationResultEnabled. */
+  sports: string[];
   /** Creation (getLatestTemplate) only ever offers the highest-version
    * entry among those with activeForCreation === true for a given id;
    * historical grading resolves the exact stored version regardless of

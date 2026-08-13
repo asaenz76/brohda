@@ -40,8 +40,8 @@ function fixture(overrides: Partial<TemplateFixtureScore> = {}): TemplateFixture
 }
 
 describe("registry", () => {
-  it("has 17 templates (11 Phase-1 + 6 Phase-2)", () => {
-    expect(TEMPLATE_REGISTRY).toHaveLength(17);
+  it("has 20 templates (11 Phase-1 + 6 Phase-2 + 3 NFL)", () => {
+    expect(TEMPLATE_REGISTRY).toHaveLength(20);
   });
 
   it("getTemplate resolves an exact (id, version) pair and returns null otherwise", () => {
@@ -61,16 +61,27 @@ describe("registry", () => {
     }
   });
 
-  // Launch simplification retired 12 of 17 templates from creation (see
-  // template-cards.ts's REGISTRY_CARDS filter) — they stay in the registry,
-  // fully gradable via getTemplate(id, version) for any pool already
-  // created against them, just no longer offered as a card. This locks in
-  // exactly which 5 survived the cut so a future edit to the wrong flag
-  // fails a test instead of silently changing what's creatable.
-  it("exactly 5 templates are activeForCreation today", () => {
+  // Launch simplification retired 12 of 17 football templates from
+  // creation (see template-cards.ts's REGISTRY_CARDS filter) — they stay in
+  // the registry, fully gradable via getTemplate(id, version) for any pool
+  // already created against them, just no longer offered as a card. This
+  // locks in exactly which templates survived the cut (plus the 3 NFL
+  // templates, all active-for-creation from day one) so a future edit to
+  // the wrong flag fails a test instead of silently changing what's
+  // creatable.
+  it("exactly 8 templates are activeForCreation today", () => {
     const active = TEMPLATE_REGISTRY.filter((t) => t.activeForCreation).map((t) => t.id).sort();
     expect(active).toEqual(
-      ["AWAY_TEAM_TO_WIN", "BOTH_TEAMS_TO_SCORE", "HOME_TEAM_TO_WIN", "MATCH_TOTAL_GOALS", "WINNING_MARGIN"].sort(),
+      [
+        "AWAY_TEAM_TO_WIN",
+        "BOTH_TEAMS_TO_SCORE",
+        "HOME_TEAM_TO_WIN",
+        "MATCH_TOTAL_GOALS",
+        "NFL_SPREAD",
+        "NFL_GAME_TOTAL",
+        "NFL_TEAM_TOTAL",
+        "WINNING_MARGIN",
+      ].sort(),
     );
   });
 
@@ -91,7 +102,7 @@ describe("registry", () => {
   it("listByCategory groups by category", () => {
     const grouped = listByCategory();
     expect(grouped.MATCH_RESULT?.length).toBe(4);
-    expect(grouped.GOALS?.length).toBe(11);
+    expect(grouped.GOALS?.length).toBe(14);
     expect(grouped.DISCIPLINE?.length).toBe(1);
     expect(grouped.PLAYER_PROPS?.length).toBe(1);
   });
@@ -269,6 +280,11 @@ describe("matchTotalGoals", () => {
     );
   });
 });
+
+// NFL_SPREAD/NFL_GAME_TOTAL/NFL_TEAM_TOTAL's own detailed grading/
+// validation examples live in tests/unit/nfl-templates.test.ts — this file
+// just confirms they're correctly wired into the shared registry
+// machinery (already covered above by the registry/family/category counts).
 
 describe("bothTeamsToScore", () => {
   it("YES when both score", () => {

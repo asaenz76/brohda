@@ -64,6 +64,7 @@ function fixtureRow(overrides: Partial<Record<string, unknown>> = {}) {
     away_team_name: "Away FC",
     away_team_logo_url: null,
     competition_type: "Cup",
+    sport: "football",
     scheduled_start_utc: "2026-08-01T18:00:00.000Z",
     ...overrides,
   };
@@ -174,6 +175,31 @@ describe("createPoolsForFixturesAction", () => {
 
     expect(result.error).not.toBeNull();
     expect(poolInserts).toHaveLength(0);
+  });
+
+  it("rejects a football-only template (e.g. MATCH_TOTAL_GOALS) for an NFL fixture — not just the client's card list", async () => {
+    // fixtureIds requires at least 2 (createPoolsForFixturesSchema) — mixes
+    // one NFL fixture (must be rejected per-fixture) with one football
+    // fixture (must still succeed), proving the sport check is scoped to
+    // the individual fixture, not a blanket reject of the whole batch.
+    fixtureRows = [
+      fixtureRow({ id: "3fa85f64-5717-4562-b3fc-2c963f66afa6", sport: "american_football" }),
+      fixtureRow({ id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", sport: "football" }),
+    ];
+
+    const result = await createPoolsForFixturesAction({
+      ...BASE_INPUT,
+      poolType: "TEMPLATE_GRADED",
+      templateId: "MATCH_TOTAL_GOALS",
+      templateConfig: { minimumGoals: 3 },
+    });
+
+    const nflResult = result.results.find((r) => r.fixtureId === "3fa85f64-5717-4562-b3fc-2c963f66afa6");
+    const footballResult = result.results.find((r) => r.fixtureId === "6ba7b810-9dad-11d1-80b4-00c04fd430c8");
+    expect(nflResult?.poolId).toBeNull();
+    expect(nflResult?.error).toContain("isn't available for this fixture's sport");
+    expect(footballResult?.poolId).toBeTruthy();
+    expect(poolInserts).toHaveLength(1);
   });
 
   it("creates a TEMPLATE_GRADED pool per fixture using a fixture-portable template", async () => {

@@ -21,6 +21,7 @@ export const firstTeamToScore: PoolTemplate<TeamSideConfig> = {
   // getTemplate(id, version) still resolves this exactly for any pool
   // already created against it, so existing pools keep grading correctly.
   activeForCreation: false,
+  sports: ["football"],
   category: "GOALS",
   name: "First team to score",
   description: "Will the selected team score the first valid goal of the match?",
@@ -55,6 +56,7 @@ export const redCard: PoolTemplate<RedCardConfig> = {
   version: 1,
   // Retired from creation for launch — see firstTeamToScore above.
   activeForCreation: false,
+  sports: ["football"],
   category: "DISCIPLINE",
   name: "Red card",
   description: "Will there be a red card in the match?",
@@ -83,6 +85,7 @@ export const penaltyAwarded: PoolTemplate<EmptyConfig> = {
   version: 1,
   // Retired from creation for launch — see firstTeamToScore above.
   activeForCreation: false,
+  sports: ["football"],
   category: "GOALS",
   name: "Penalty awarded",
   description: "Will a penalty be awarded during the match (scored or missed)?",
@@ -106,6 +109,7 @@ export const ownGoal: PoolTemplate<EmptyConfig> = {
   version: 1,
   // Retired from creation for launch — see firstTeamToScore above.
   activeForCreation: false,
+  sports: ["football"],
   category: "GOALS",
   name: "Own goal",
   description: "Will there be an own goal during the match?",
@@ -129,6 +133,7 @@ export const goalAfterMinute: PoolTemplate<GoalAfterMinuteConfig> = {
   version: 1,
   // Retired from creation for launch — see firstTeamToScore above.
   activeForCreation: false,
+  sports: ["football"],
   category: "GOALS",
   name: "Goal after selected minute",
   description: "Will there be a goal strictly after a chosen minute (stoppage time counts)?",

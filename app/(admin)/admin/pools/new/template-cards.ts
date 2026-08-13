@@ -12,6 +12,7 @@ export interface FixtureOption {
   awayTeamName: string;
   awayTeamLogoUrl: string | null;
   competitionType: string | null;
+  sport: string;
   league: string | null;
   label: string;
   scheduledStartUtc: string;
@@ -121,6 +122,27 @@ export interface TemplateCard {
   gradingReliability: GradingReliability;
   dataSource: string;
   family: QuestionFamily | null;
+  // Which fixture.sport value(s) this card applies to. Registry cards get a
+  // real array from PoolTemplate.sports (see registry.ts/types.ts) — every
+  // football-era template is written in football-specific language
+  // ("goals", "clean sheet") and most need FIXTURE_EVENTS data the NFL
+  // provider never populates, so none of them are offered for NFL fixtures.
+  // The 2 legacy cards are also always football-only now — their real
+  // eligibility still depends on competition type (Cup vs League), checked
+  // separately via getTemplateEligibility, but getTemplateEligibility
+  // unconditionally disables both for any non-football sport regardless of
+  // competition type, so `["football"]` here is behaviorally lossless and
+  // lets tabsForSport correctly drop the whole "Traditional markets" tab
+  // for NFL instead of showing it with both cards greyed out.
+  sports: string[] | null;
+}
+
+// True when `card` is applicable to a fixture of the given sport — the one
+// place both wizards should check this, so a future sport doesn't need the
+// filtering logic duplicated between pool-template-builder.tsx and
+// multi-fixture-builder.tsx.
+export function cardMatchesSport(card: TemplateCard, sport: string): boolean {
+  return card.sports === null || card.sports.includes(sport);
 }
 
 const LEGACY_CARDS: TemplateCard[] = [
@@ -132,6 +154,7 @@ const LEGACY_CARDS: TemplateCard[] = [
     gradingReliability: "AUTO",
     dataSource: "Fixture score",
     family: getQuestionFamily("WHO_WILL_ADVANCE"),
+    sports: ["football"],
   },
   {
     id: "REGULATION_RESULT",
@@ -141,6 +164,7 @@ const LEGACY_CARDS: TemplateCard[] = [
     gradingReliability: "AUTO",
     dataSource: "Fixture score",
     family: getQuestionFamily("REGULATION_RESULT"),
+    sports: ["football"],
   },
 ];
 
@@ -167,6 +191,7 @@ const REGISTRY_CARDS: TemplateCard[] = [
     : "AUTO") as GradingReliability,
   dataSource: DATA_SOURCE_LABELS[t.requiredDataSources[0]] ?? "Fixture score",
   family: getQuestionFamily(t.id),
+  sports: t.sports,
 }));
 
 export const ALL_CARDS = [...REGISTRY_CARDS, ...LEGACY_CARDS].sort(
@@ -176,6 +201,15 @@ export const ALL_CARDS = [...REGISTRY_CARDS, ...LEGACY_CARDS].sort(
 export const TABS = (
   ["MATCH_RESULT", "GOALS", "DISCIPLINE", "PLAYER_PROPS", "TRADITIONAL"] as CardCategory[]
 ).filter((cat) => ALL_CARDS.some((c) => c.category === cat));
+
+// Same as TABS, but for one specific sport — a tab with cards for football
+// only (e.g. "Cards"/DISCIPLINE, entirely red-card templates) has nothing
+// to show for an NFL fixture and shouldn't render as a clickable-but-empty
+// tab. Both wizards use this instead of the static TABS once a fixture (or,
+// in multi-fixture mode, at least one fixture) is selected.
+export function tabsForSport(sport: string): CardCategory[] {
+  return TABS.filter((tab) => ALL_CARDS.some((c) => c.category === tab && cardMatchesSport(c, sport)));
+}
 
 export function isLegacyId(id: string): id is "WHO_WILL_ADVANCE" | "REGULATION_RESULT" {
   return id === "WHO_WILL_ADVANCE" || id === "REGULATION_RESULT";
