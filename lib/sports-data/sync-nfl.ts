@@ -2,7 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAuditLog } from "@/lib/audit/log";
 import { apiNflProvider } from "./api-nfl-provider";
-import { upsertFixture } from "./persist";
+import { upsertFixturesBatch } from "./persist";
 import { TERMINAL_STATUSES } from "./status-map";
 import type { FixtureInternalStatus } from "./types";
 import { SUPPORTED_NFL_COMPETITIONS } from "./supported-nfl-competitions";
@@ -22,6 +22,15 @@ export interface NflSyncResult {
   checked: number;
   refreshed: number;
   skipped: number;
+  // Postseason bracket slots API-NFL schedules before the matchup is
+  // determined (Wild Card/Divisional/Conference/Super Bowl) come back with
+  // a placeholder team (`id: 0`, `name: null`) on both sides — real, live-
+  // confirmed shape, not malformed data. `fixtures.home_team_name`/
+  // `away_team_name` are NOT NULL, so these can't be written yet; they're
+  // filtered out before the batch upsert (one still-undetermined row would
+  // otherwise fail the whole batch) and re-checked every tick until the
+  // provider fills in the real teams once the bracket is set.
+  pendingMatchup: number;
   failed: number;
   // Confirmed-result reconciliation (lib/pools/templates/nfl-confirmed-
   // result.ts is what actually reads these rows for grading) — counted
@@ -36,6 +45,7 @@ export async function runNflFixtureSync(): Promise<NflSyncResult> {
     checked: 0,
     refreshed: 0,
     skipped: 0,
+    pendingMatchup: 0,
     failed: 0,
     resultsConfirmed: 0,
     resultsCorrected: 0,
@@ -79,24 +89,34 @@ export async function runNflFixtureSync(): Promise<NflSyncResult> {
     (existingRows ?? []).map((row) => [row.external_fixture_id, row.id as string]),
   );
 
-  for (const fixture of fixtures) {
+  // Batched, not per-fixture (see upsertFixturesBatch's own comment) — a
+  // first-ever sync writing ~320 new games serially, 3 round trips each,
+  // measured in production to exceed cron-job.org's fixed 30s job
+  // timeout. One round trip per table regardless of season size instead.
+  const toUpsert = fixtures.filter((fixture) => {
     result.checked++;
-
     if (storedTerminal.has(fixture.externalFixtureId)) {
       result.skipped++;
-      continue;
+      return false;
     }
+    if (fixture.homeTeamName == null || fixture.awayTeamName == null) {
+      result.pendingMatchup++;
+      return false;
+    }
+    return true;
+  });
 
+  if (toUpsert.length > 0) {
     try {
-      await upsertFixture(admin, fixture);
-      result.refreshed++;
+      await upsertFixturesBatch(admin, toUpsert);
+      result.refreshed += toUpsert.length;
     } catch (error) {
-      result.failed++;
+      result.failed += toUpsert.length;
       await admin
         .from("fixtures")
         .update({ sync_error: error instanceof Error ? error.message : "unknown error" })
         .eq("provider", "api_nfl")
-        .eq("external_fixture_id", fixture.externalFixtureId);
+        .in("external_fixture_id", toUpsert.map((f) => f.externalFixtureId));
     }
   }
 

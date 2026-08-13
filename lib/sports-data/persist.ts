@@ -107,3 +107,68 @@ export async function upsertFixture(
     await admin.from("leagues").upsert(leagueRow, { onConflict: "provider,external_id" });
   }
 }
+
+/** Same three upserts as upsertFixture, but one round trip per TABLE
+ * instead of one per FIXTURE — for sync-nfl.ts's use only. NFL's sync
+ * fetches an entire ~320-game season in a single provider call (unlike
+ * football's adaptive per-fixture polling, which genuinely processes one
+ * fixture at a time and has no batch to make), so a first-ever run that
+ * looped upsertFixture per game would serialize ~960 DB round trips —
+ * measured in production to blow past cron-job.org's fixed 30s job
+ * timeout. Every upsert's `error` is checked and thrown explicitly — the
+ * Supabase JS client resolves (never rejects) on a PostgREST error, so an
+ * un-checked `await` here would silently no-op instead of failing loudly
+ * (exactly what happened during testing: a batch upsert error was
+ * swallowed, reporting 328 "refreshed" while writing zero rows). Fixture
+ * rows are deduplicated by (provider, external_fixture_id) before
+ * upserting — a single multi-row upsert statement errors outright
+ * ("ON CONFLICT DO UPDATE command cannot affect row a second time") if
+ * two rows in the same call share a conflict key, unlike upsertFixture's
+ * per-row loop where a duplicate is harmless (second write just
+ * overwrites the first). Teams/leagues rows are deduplicated the same
+ * way, since the same team/league appears in many fixtures. On failure,
+ * every fixture in the batch is reported failed together (not isolated
+ * per-fixture like upsertFixture) — an acceptable tradeoff here since the
+ * next cron tick re-fetches and retries the full season anyway. */
+export async function upsertFixturesBatch(
+  admin: ReturnType<typeof createAdminClient>,
+  fixtures: NormalizedFixture[],
+): Promise<void> {
+  if (fixtures.length === 0) return;
+
+  const fixturesByKey = new Map<string, NormalizedFixture>();
+  for (const fixture of fixtures) {
+    fixturesByKey.set(`${fixture.provider}:${fixture.externalFixtureId}`, fixture);
+  }
+  const dedupedFixtures = [...fixturesByKey.values()];
+
+  const { error: fixturesError } = await admin
+    .from("fixtures")
+    .upsert(dedupedFixtures.map(toFixtureRow), { onConflict: "provider,external_fixture_id" });
+  if (fixturesError) throw fixturesError;
+
+  const teamRowsByKey = new Map<string, ReturnType<typeof toTeamRows>[number]>();
+  for (const fixture of dedupedFixtures) {
+    for (const row of toTeamRows(fixture)) {
+      teamRowsByKey.set(`${row.provider}:${row.external_id}`, row);
+    }
+  }
+  if (teamRowsByKey.size > 0) {
+    const { error: teamsError } = await admin
+      .from("teams")
+      .upsert([...teamRowsByKey.values()], { onConflict: "provider,external_id" });
+    if (teamsError) throw teamsError;
+  }
+
+  const leagueRowsByKey = new Map<string, NonNullable<ReturnType<typeof toLeagueRow>>>();
+  for (const fixture of dedupedFixtures) {
+    const row = toLeagueRow(fixture);
+    if (row) leagueRowsByKey.set(`${row.provider}:${row.external_id}`, row);
+  }
+  if (leagueRowsByKey.size > 0) {
+    const { error: leaguesError } = await admin
+      .from("leagues")
+      .upsert([...leagueRowsByKey.values()], { onConflict: "provider,external_id" });
+    if (leaguesError) throw leaguesError;
+  }
+}
