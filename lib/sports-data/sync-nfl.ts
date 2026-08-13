@@ -31,6 +31,16 @@ export interface NflSyncResult {
   // otherwise fail the whole batch) and re-checked every tick until the
   // provider fills in the real teams once the bracket is set.
   pendingMatchup: number;
+  // Preseason/postseason games API-NFL includes in the same season-wide
+  // response — deliberately excluded from *new* imports (see the
+  // isNewRegularSeasonGame check below) per product scope: regular
+  // season only, backend-enforced (never surfaced as a wizard toggle).
+  // Only applies to fixtures this sync has never seen before — a fixture
+  // already tracked (e.g. a preseason game with a pool already created
+  // on it before this filter existed) keeps syncing normally so it can
+  // finish its lifecycle and settle correctly, rather than freezing
+  // mid-flight.
+  outOfScope: number;
   failed: number;
   // Confirmed-result reconciliation (lib/pools/templates/nfl-confirmed-
   // result.ts is what actually reads these rows for grading) — counted
@@ -40,12 +50,24 @@ export interface NflSyncResult {
   resultsFailed: number;
 }
 
+// mapGame (api-nfl-provider.ts) joins the provider's raw `stage` field
+// ("Pre Season" | "Regular Season" | "Post Season", confirmed live) with
+// `week` into this single string — e.g. "Regular Season - Week 5",
+// "Pre Season - Week 1", "Post Season - Super Bowl". Checking the prefix
+// here avoids threading a second raw field through NormalizedFixture (a
+// type shared with football, which has no equivalent stage concept) just
+// for this one scope check.
+function isRegularSeasonGame(fixture: { round: string | null }): boolean {
+  return fixture.round?.startsWith("Regular Season") ?? false;
+}
+
 export async function runNflFixtureSync(): Promise<NflSyncResult> {
   const result: NflSyncResult = {
     checked: 0,
     refreshed: 0,
     skipped: 0,
     pendingMatchup: 0,
+    outOfScope: 0,
     failed: 0,
     resultsConfirmed: 0,
     resultsCorrected: 0,
@@ -82,6 +104,11 @@ export async function runNflFixtureSync(): Promise<NflSyncResult> {
       .filter((row) => TERMINAL_STATUSES.includes(row.internal_status as FixtureInternalStatus))
       .map((row) => row.external_fixture_id),
   );
+  // Every fixture this sync has ever tracked before, regardless of stage
+  // — the regular-season-only scope filter below only ever blocks a
+  // fixture NOT already in this set (a brand-new preseason/postseason
+  // game), never one we're already tracking.
+  const knownExternalIds = new Set((existingRows ?? []).map((row) => row.external_fixture_id));
   // Confirmed-result reconciliation below needs the internal fixture id
   // (the FK nfl_game_results.fixture_id points at), keyed by the same
   // external_fixture_id the provider array uses.
@@ -97,6 +124,10 @@ export async function runNflFixtureSync(): Promise<NflSyncResult> {
     result.checked++;
     if (storedTerminal.has(fixture.externalFixtureId)) {
       result.skipped++;
+      return false;
+    }
+    if (!knownExternalIds.has(fixture.externalFixtureId) && !isRegularSeasonGame(fixture)) {
+      result.outOfScope++;
       return false;
     }
     if (fixture.homeTeamName == null || fixture.awayTeamName == null) {
