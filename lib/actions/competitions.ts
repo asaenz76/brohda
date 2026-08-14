@@ -155,8 +155,21 @@ export async function startCompetitionImportAction(
     return fail("Could not fetch fixtures for this competition from the sports data provider.", lsi.id);
   }
 
+  // Complete-season storage is the normal behavior for a supported
+  // competition (Phase 1 of the universal sports architecture proposal,
+  // 2026-08): the provider already returns the whole season — past,
+  // current, and future — in the one getSeasonFixtures call above, so
+  // storing all of it costs no extra provider requests, only a filter
+  // decision on what to do with a response already in hand. No caller in
+  // the admin UI ever passes `options.includeHistorical` explicitly today
+  // (confirmed: every "Import"/"Import selected"/"Import all recommended"
+  // call site omits it) — flipping the default here is the entire change
+  // needed for every normal import to become complete-season, with no UI
+  // changes. The option itself stays available as an explicit override for
+  // any future caller that genuinely wants future-only.
+  const includeHistorical = options.includeHistorical ?? true;
   const now = Date.now();
-  const fixturesToImport = options.includeHistorical
+  const fixturesToImport = includeHistorical
     ? allFixtures
     : allFixtures.filter((f) => new Date(f.scheduledStartUtc).getTime() > now);
 
@@ -167,7 +180,7 @@ export async function startCompetitionImportAction(
     .insert({
       league_season_import_id: lsi.id,
       status: "PENDING",
-      include_historical: options.includeHistorical ?? false,
+      include_historical: includeHistorical,
       total_fixtures: fixturesToImport.length,
       max_attempts: IMPORT_JOB_MAX_ATTEMPTS,
       started_at: new Date().toISOString(),
@@ -263,7 +276,7 @@ export async function startCompetitionImportAction(
     action: "competition.import_started",
     entityType: "league_season_import",
     entityId: lsi.id,
-    after: { externalLeagueId, season, totalFixtures: fixturesToImport.length, includeHistorical: options.includeHistorical ?? false },
+    after: { externalLeagueId, season, totalFixtures: fixturesToImport.length, includeHistorical },
   });
 
   revalidatePath("/admin/competitions");

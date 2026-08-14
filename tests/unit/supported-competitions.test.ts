@@ -32,6 +32,36 @@ describe("SUPPORTED_COMPETITIONS", () => {
     expect(superCup?.externalLeagueId).toBeNull();
     expect(superCup?.enabled).toBe(false);
   });
+
+  // Phase 1 of the universal sports architecture proposal (2026-08).
+  it("disables Saudi Pro League (307) without removing it — historical data stays, it just stops participating in new imports/discovery/sync/browsing/pool creation", () => {
+    const entry = SUPPORTED_COMPETITIONS.find((c) => c.externalLeagueId === "307");
+    expect(entry?.name).toBe("Saudi Pro League");
+    expect(entry?.enabled).toBe(false);
+    expect(isSupportedCompetition("307")).toBe(false);
+  });
+
+  it("adds the 5 newly-approved competitions, all resolved (never a fabricated id) and enabled", () => {
+    const expected: Array<{ id: string; name: string; type: "LEAGUE" | "CUP" }> = [
+      { id: "94", name: "Primeira Liga", type: "LEAGUE" },
+      { id: "88", name: "Eredivisie", type: "LEAGUE" },
+      { id: "13", name: "Copa Libertadores", type: "CUP" },
+      { id: "11", name: "Copa Sudamericana", type: "CUP" },
+      { id: "16", name: "CONCACAF Champions Cup", type: "CUP" },
+    ];
+    for (const { id, name, type } of expected) {
+      const entry = SUPPORTED_COMPETITIONS.find((c) => c.externalLeagueId === id);
+      expect(entry?.name).toBe(name);
+      expect(entry?.type).toBe(type);
+      expect(entry?.group).toBe("GLOBAL");
+      expect(entry?.enabled).toBe(true);
+      expect(isSupportedCompetition(id)).toBe(true);
+    }
+  });
+
+  it("does not introduce a CONTINENTAL group — every entry is still GLOBAL or COSTA_RICA", () => {
+    expect(SUPPORTED_COMPETITIONS.every((c) => c.group === "GLOBAL" || c.group === "COSTA_RICA")).toBe(true);
+  });
 });
 
 describe("getSupportedCompetitionMap / isSupportedCompetition", () => {

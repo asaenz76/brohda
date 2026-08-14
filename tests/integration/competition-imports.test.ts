@@ -154,7 +154,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition import orchestration", () => {
 
   afterAll(cleanupAllTestData);
 
-  it("imports upcoming fixtures only by default, marks IMPORTED, and stamps season metadata", async () => {
+  it("imports the complete season by default (Phase 1: complete-season storage is now the normal behavior) — both past and future fixtures, marks IMPORTED, and stamps season metadata", async () => {
     mockLeague = testLeague();
     const future = new Date(Date.now() + 5 * 86400_000).toISOString();
     const past = new Date(Date.now() - 5 * 86400_000).toISOString();
@@ -170,23 +170,24 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition import orchestration", () => {
       .eq("id", result.leagueSeasonImportId!)
       .single();
     expect(lsi.import_status).toBe("IMPORTED");
-    expect(lsi.fixture_count_imported).toBe(1); // only the future fixture
+    expect(lsi.fixture_count_imported).toBe(2); // both — the provider's one season response is stored in full by default now
     expect(lsi.upcoming_fixture_count).toBe(1);
+    expect(lsi.completed_fixture_count).toBe(1);
     expect(lsi.provider_fixture_count).toBe(2); // both fixtures the provider reported
     expect(lsi.season_start_date).toBe("2026-08-01");
     expect(lsi.season_end_date).toBe("2027-05-01");
     expect(lsi.provider_current).toBe(true);
     expect(lsi.coverage_snapshot?.fixtures?.events).toBe(true);
 
-    const { data: importedFixture } = await admin.from("fixtures").select("id").eq("external_fixture_id", "9001").maybeSingle();
-    expect(importedFixture).not.toBeNull();
-    const { data: notImportedFixture } = await admin.from("fixtures").select("id").eq("external_fixture_id", "9002").maybeSingle();
-    expect(notImportedFixture).toBeNull(); // past fixture excluded by default
+    const { data: importedFuture } = await admin.from("fixtures").select("id").eq("external_fixture_id", "9001").maybeSingle();
+    expect(importedFuture).not.toBeNull();
+    const { data: importedPast } = await admin.from("fixtures").select("id").eq("external_fixture_id", "9002").maybeSingle();
+    expect(importedPast).not.toBeNull(); // no longer excluded — complete-season storage is the default
 
-    await admin.from("fixtures").delete().eq("external_fixture_id", "9001");
+    await admin.from("fixtures").delete().in("external_fixture_id", ["9001", "9002"]);
   });
 
-  it("includes historical fixtures when includeHistorical is set", async () => {
+  it("includes historical fixtures when includeHistorical is explicitly set (still works, now redundant with the default but not wrong)", async () => {
     mockLeague = testLeague();
     const future = new Date(Date.now() + 5 * 86400_000).toISOString();
     const past = new Date(Date.now() - 5 * 86400_000).toISOString();
@@ -201,6 +202,28 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition import orchestration", () => {
     expect(lsi.completed_fixture_count).toBe(1);
 
     await admin.from("fixtures").delete().in("external_fixture_id", ["9003", "9004"]);
+  });
+
+  it("still honors an explicit includeHistorical: false override — the option remains available for any caller that genuinely wants future-only", async () => {
+    mockLeague = testLeague();
+    const future = new Date(Date.now() + 5 * 86400_000).toISOString();
+    const past = new Date(Date.now() - 5 * 86400_000).toISOString();
+    mockSeasonFixtures = [fixture("9008", future), fixture("9009", past)];
+
+    const result = await startCompetitionImportAction("78", "2026", { includeHistorical: false });
+    expect(result.success).toBe(true);
+    createdLsiIds.push(result.leagueSeasonImportId!);
+
+    const { data: lsi } = await admin.from("league_season_imports").select("*").eq("id", result.leagueSeasonImportId!).single();
+    expect(lsi.fixture_count_imported).toBe(1); // only the future one
+    expect(lsi.completed_fixture_count).toBe(0);
+
+    const { data: importedFuture } = await admin.from("fixtures").select("id").eq("external_fixture_id", "9008").maybeSingle();
+    expect(importedFuture).not.toBeNull();
+    const { data: notImportedPast } = await admin.from("fixtures").select("id").eq("external_fixture_id", "9009").maybeSingle();
+    expect(notImportedPast).toBeNull();
+
+    await admin.from("fixtures").delete().eq("external_fixture_id", "9008");
   });
 
   it("rejects a second import for the same league+season while one is already imported", async () => {

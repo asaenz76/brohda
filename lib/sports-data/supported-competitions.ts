@@ -54,7 +54,33 @@ export const SUPPORTED_COMPETITIONS: SupportedCompetition[] = [
   { externalLeagueId: "128", name: "Liga Profesional Argentina", country: "Argentina", group: "GLOBAL", type: "LEAGUE", enabled: true },
   { externalLeagueId: "262", name: "Liga MX", country: "Mexico", group: "GLOBAL", type: "LEAGUE", enabled: true },
   { externalLeagueId: "253", name: "Major League Soccer", country: "USA", group: "GLOBAL", type: "LEAGUE", enabled: true },
-  { externalLeagueId: "307", name: "Saudi Pro League", country: "Saudi Arabia", group: "GLOBAL", type: "LEAGUE", enabled: true },
+  { externalLeagueId: "94", name: "Primeira Liga", country: "Portugal", group: "GLOBAL", type: "LEAGUE", enabled: true },
+  { externalLeagueId: "88", name: "Eredivisie", country: "Netherlands", group: "GLOBAL", type: "LEAGUE", enabled: true },
+  // Continental club competitions — added per Phase 1 of the universal
+  // sports architecture proposal (2026-08). Grouped under GLOBAL rather
+  // than a separate continental taxonomy, matching the already-established
+  // UEFA Champions/Europa League precedent above — this grouping is an
+  // admin/product convenience, not a formal statement about governing
+  // bodies. IDs resolved live via searchLeagues (never fabricated); real
+  // country values are a product-chosen display label here too, same as
+  // "Europe" for the UEFA entries above, not a literal passthrough of the
+  // provider's own (unhelpful "World") countryName field.
+  { externalLeagueId: "13", name: "Copa Libertadores", country: "South America", group: "GLOBAL", type: "CUP", enabled: true },
+  { externalLeagueId: "11", name: "Copa Sudamericana", country: "South America", group: "GLOBAL", type: "CUP", enabled: true },
+  // Confirmed live: API-Football's own internal name for this competition
+  // is still "CONCACAF Champions League" (id 16) — its real-world rebrand
+  // to "Concacaf Champions Cup" (2023) isn't reflected in the provider's
+  // league name. There is a separate id (1136, "CONCACAF W Champions Cup")
+  // for the women's competition specifically, which is not this entry.
+  { externalLeagueId: "16", name: "CONCACAF Champions Cup", country: "North America", group: "GLOBAL", type: "CUP", enabled: true },
+  // Disabled per an explicit product decision (Phase 1 of the universal
+  // sports architecture proposal, 2026-08) — not part of the curated
+  // list going forward. Historical data already imported under this
+  // league is intentionally left in place, not deleted; this entry stays
+  // documented (not removed) so its disabled state is a visible,
+  // deliberate decision — same convention as the two unresolved Costa
+  // Rica cup entries below.
+  { externalLeagueId: "307", name: "Saudi Pro League", country: "Saudi Arabia", group: "GLOBAL", type: "LEAGUE", enabled: false },
 
   // --- Costa Rica ---
   { externalLeagueId: "162", name: "Primera División", country: "Costa Rica", group: "COSTA_RICA", type: "LEAGUE", enabled: true },
