@@ -8,6 +8,7 @@ import { EVENT_DEPENDENT_TEMPLATE_IDS } from "@/lib/pools/templates/registry";
 import { getProviderStatus, isQuotaExhaustedError } from "./provider-gateway";
 import { API_FOOTBALL_PROVIDER } from "./provider-names";
 import { shouldReserveQuota } from "./quota-reserve";
+import { extractErrorMessage } from "./provider-errors";
 
 const MINUTE_MS = 60_000;
 
@@ -158,9 +159,13 @@ export async function runFixtureSync(): Promise<SyncResult> {
       }
     } catch (error) {
       result.failed++;
+      // extractErrorMessage — same fix as sync-nfl.ts's equivalent catch,
+      // applied here for consistency/defense-in-depth even though this
+      // specific catch mostly sees real Error instances (getFixtureById's
+      // thrown provider errors) rather than raw Postgrest errors.
       await admin
         .from("fixtures")
-        .update({ sync_error: error instanceof Error ? error.message : "unknown error" })
+        .update({ sync_error: extractErrorMessage(error, "unknown error") })
         .eq("id", fixture.id);
 
       // Same reasoning as runCompetitionDiscoverySync: once the provider

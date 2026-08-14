@@ -116,39 +116,67 @@ local dev and CI both work today with no Sentry account at all.
 
 ## 5. Cron jobs (cron-job.org, not Vercel Cron)
 
-The app exposes **7** cron-secret-gated routes under `app/api/cron/*`, but
-only **3** are actually confirmed scheduled anywhere — this section used to
-only document those 3, which made it easy to assume the other 4 were
-running too. They are not, unless you add them below. Vercel's Hobby plan
-only allows daily cron invocations (Pro is required for per-minute native
-Vercel Cron), so this project uses
+The app exposes **7** cron-secret-gated routes under `app/api/cron/*`.
+**6 are meant to be scheduled** (per the operational phase that followed
+Phase 3 of the universal-sports-architecture work); one
+(`refresh-recommendation-cache`) is deliberately left unscheduled for now.
+Vercel's Hobby plan only allows daily cron invocations (Pro is required for
+per-minute native Vercel Cron), so this project uses
 [cron-job.org](https://cron-job.org) — a free external scheduler that calls
 these routes over plain authenticated HTTP, independent of the Vercel plan
-tier.
+tier. **cron-job.org's own dashboard is the actual scheduler configuration
+and lives entirely outside this repo** — nothing here can prove a job is
+firing on schedule; it can only prove the endpoint itself works correctly
+when called (see "Live verification" below) and document what the
+dashboard *should* be set to.
 
 Every route checks `Authorization: Bearer $CRON_SECRET` and returns `401`
 on a mismatch. Set `CRON_SECRET` to a long random value in the Vercel
-project's env vars first.
+project's env vars first — this value is Vercel-side only; `.env.local` in
+this repo is not deployed and does not need to (and may not) match it.
 
-**Full inventory** (Phase 3 audit, confirmed against this repo — not
-against cron-job.org's own dashboard, which this repo can't see):
+Every route is also wrapped in `recordJobRun` (`lib/jobs/record.ts`), which
+acquires a named Postgres advisory lock (`try_acquire_cron_lock`) scoped to
+that job's own name before running, and skips the tick entirely (no
+provider call, no `background_jobs` row) if a previous invocation of the
+*same* job is still holding it — so two overlapping runs of the same job
+can never stack, and one job's lock never affects another job's. This
+guard already exists for every route below; nothing needed to change for
+this operational phase, only the scheduling itself.
 
-| Endpoint | Provider | Function | Cadence | Scheduled today? |
-| --- | --- | --- | --- | --- |
-| `/api/cron/sync-fixtures` | api_football | `runFixtureSync` | Every 1 minute | **Yes** — see table below |
-| `/api/cron/lock-pools` | none (DB-only) | `lockDuePools` | Every 1 minute | **Yes** — see table below |
-| `/api/cron/process-results` | none (DB-only) | `processAwaitingResults` | Every 1 minute | **Yes** — see table below |
-| `/api/cron/sync-fixtures-nfl` | api_nfl | `runNflFixtureSync` | Not yet decided — every 5 min is a reasonable starting point (charges 1 request per tick regardless of season size) | **No** — not configured anywhere |
-| `/api/cron/discover-competitions` | api_football | `runCompetitionDiscoverySync` | Per-competition staleness is 6h (`DISCOVERY_SYNC_INTERVAL_HOURS`); the route itself can safely run more often than that since it no-ops for anything not yet due — hourly is a reasonable starting point | **No** — not configured anywhere |
-| `/api/cron/refresh-recommendation-cache` | api_football | `refreshRecommendationAvailabilityCache` | Per-row TTL is 6h (has fixtures) / 24h (no fixtures); hourly is a reasonable starting point, same reasoning as above | **No** — not configured anywhere |
-| `/api/cron/process-competition-imports` | none (DB-only — makes zero provider calls, see the function's own comment) | `runCompetitionImportProcessing` | No fixed staleness window; only matters while an import is actually staged. Every few minutes is a reasonable starting point | **No** — not configured anywhere |
+**Full inventory and target schedule:**
 
-Every job's run is recorded in `background_jobs` regardless of whether it's
-externally scheduled — an unscheduled route simply never gets invoked, so
-it never appears there at all. Check `/admin/reports`' Job Health section
-to see which of the 7 are actually firing in your deployment.
+| Endpoint | Provider | Consumes quota? | Function | Target cadence | Scheduled today? |
+| --- | --- | --- | --- | --- | --- |
+| `/api/cron/sync-fixtures` | api_football | Yes | `runFixtureSync` | Every 1 minute (unchanged) | **Yes** |
+| `/api/cron/lock-pools` | none (DB-only) | No | `lockDuePools` | Every 1 minute (unchanged) | **Yes** |
+| `/api/cron/process-results` | none (DB-only) | No | `processAwaitingResults` | Every 1 minute (unchanged) | **Yes** |
+| `/api/cron/sync-fixtures-nfl` | api_nfl | Yes — one request per tick regardless of season size | `runNflFixtureSync` | **Every 5 minutes** | Add to cron-job.org (see below) |
+| `/api/cron/discover-competitions` | api_football | Yes — up to `DISCOVERY_COMPETITIONS_PER_CRON_TICK` (10) requests per tick, only for competitions actually due (6h staleness) | `runCompetitionDiscoverySync` | **Every 6 hours** | Add to cron-job.org (see below) |
+| `/api/cron/process-competition-imports` | none — DB-only, processes already-staged import chunks; makes zero provider calls even when API-Football quota is exhausted | `runCompetitionImportProcessing` | **Every 5 minutes** | Add to cron-job.org (see below) |
+| `/api/cron/refresh-recommendation-cache` | api_football | Yes | `refreshRecommendationAvailabilityCache` | **Intentionally not scheduled** — the architecture is moving away from recommendation/provider-discovery as a primary workflow now that browsing is local-first (see the Phase 2 local-first browsing work). Endpoint stays live; whether to schedule it is deferred to the later Competition Management cleanup phase. | **No** — deliberate, not an oversight |
 
-**The 3 confirmed-scheduled jobs**, on cron-job.org:
+Expected max duration for every job is well under cron-job.org's timeout —
+observed production durations are sub-second to a few seconds
+(`sync-fixtures`) and low seconds (`discover-competitions`,
+`sync-fixtures-nfl`, both bounded by their per-tick limits above).
+`process-competition-imports` is bounded by `IMPORT_CHUNKS_PER_CRON_TICK`
+(10 chunks) and is DB-only, so its duration is dominated by database round
+trips, not network latency to a provider.
+
+**Adding the 3 new jobs to cron-job.org** (same pattern as the 3 existing
+ones — request method `GET`, `Authorization` header under that job's
+"Request headers" section, using the real `CRON_SECRET` value from Vercel;
+never paste that value anywhere outside cron-job.org's own settings and
+the Vercel env var):
+
+| Job | URL | Schedule | Header |
+| --- | --- | --- | --- |
+| Sync NFL fixtures | `https://brohda.com/api/cron/sync-fixtures-nfl` | Every 5 minutes | `Authorization: Bearer <CRON_SECRET>` |
+| Discover competitions | `https://brohda.com/api/cron/discover-competitions` | Every 6 hours | `Authorization: Bearer <CRON_SECRET>` |
+| Process competition imports | `https://brohda.com/api/cron/process-competition-imports` | Every 5 minutes | `Authorization: Bearer <CRON_SECRET>` |
+
+**The 3 existing jobs**, unchanged:
 
 | Job | URL | Schedule | Header |
 | --- | --- | --- | --- |
@@ -156,31 +184,36 @@ to see which of the 7 are actually firing in your deployment.
 | Lock pools | `https://brohda.com/api/cron/lock-pools` | Every 1 minute | `Authorization: Bearer <CRON_SECRET>` |
 | Process results | `https://brohda.com/api/cron/process-results` | Every 1 minute | `Authorization: Bearer <CRON_SECRET>` |
 
-For each job: request method `GET`, and add the `Authorization` line under
-that job's "Request headers" section using the actual `CRON_SECRET` value
-(never paste that value anywhere outside cron-job.org's own settings and
-the Vercel env var). Leaving cron off Vercel entirely also means Vercel's
-Hobby (free) plan is sufficient for hosting — no Pro upgrade is required
-purely for this.
+Leaving cron off Vercel entirely also means Vercel's Hobby (free) plan is
+sufficient for hosting — no Pro upgrade is required purely for this.
 
-**The 4 unconfirmed jobs above are real, working, secret-gated routes —
-they're just never invoked today.** Practical effect: NFL fixtures never
-refresh after their initial sync unless you add `sync-fixtures-nfl`;
-already-imported football competitions never pick up newly-scheduled
-fixtures unless you add `discover-competitions`; the Recommended tab's
-availability cache goes stale unless you add
-`refresh-recommendation-cache`; and a competition import can get stuck
-mid-way if its cron never runs (`process-competition-imports` — though the
-reconciliation pass added in an earlier phase also catches this on the
-next tick of whichever cron *does* run it, if any). None of these are
-enabled here automatically — add them to cron-job.org the same way as the
-3 above, choosing your own cadence from the table.
+**Practical effect of the 3 newly-scheduled jobs, once added:** NFL
+fixtures now refresh (status/scores/newly-resolved playoff matchups) every
+5 minutes instead of only at initial season import — this is what makes
+NFL genuinely self-maintaining rather than a one-time import. Already-
+imported football competitions now pick up newly-added, postponed/
+rescheduled, and newly-resolved-participant fixtures every 6 hours instead
+of never. A multi-chunk competition import now finishes automatically
+within minutes of being started, instead of depending on some *other*
+cron tick's reconciliation pass to notice it's stuck.
 
-Every run is recorded in `background_jobs` (job name, success/error, result)
-— check `/admin/reports`' Job Health section after the first deploy to
-confirm the jobs you've configured are actually firing, and check
-cron-job.org's own job history for delivery failures (e.g. a 401 means
-`CRON_SECRET` doesn't match between cron-job.org and the Vercel env var).
+**Live verification, not scheduling.** Nothing in this repo — or in a
+single successful `curl` — can prove a cron-job.org schedule is actually
+configured and firing on the stated cadence; only cron-job.org's own
+dashboard is authoritative for that. What repo-level verification *can*
+prove, and what was checked before recommending the schedule above: each
+endpoint requires the correct `CRON_SECRET` and returns a real success
+response when called once; the overlap lock and provider quota/breaker
+guards behave correctly; and the DB-only job makes zero provider calls.
+After adding a job to cron-job.org, confirm it's actually firing via
+`/admin/reports`' Job Health section (reads `background_jobs`) and
+cron-job.org's own job history (a 401 there means `CRON_SECRET` doesn't
+match between cron-job.org and the Vercel env var).
+
+Every run is recorded in `background_jobs` (job name, success/error,
+result) regardless of whether the job is externally scheduled — an
+unscheduled route simply never gets invoked, so it never appears there at
+all.
 
 ## 6. Deploying migrations for later changes
 

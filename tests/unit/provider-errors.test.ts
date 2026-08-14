@@ -1,5 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { classifyProviderError, UnsupportedOperationError } from "@/lib/sports-data/provider-errors";
+import { classifyProviderError, extractErrorMessage, UnsupportedOperationError } from "@/lib/sports-data/provider-errors";
+
+describe("extractErrorMessage", () => {
+  it("extracts .message from a real Error instance", () => {
+    expect(extractErrorMessage(new Error("boom"))).toBe("boom");
+  });
+
+  it("extracts .message from a Postgrest-shaped plain object (not an Error instance) — the real live bug this fixes", () => {
+    const postgrestError = { message: "duplicate key value violates unique constraint", code: "23505", details: null, hint: null };
+    expect(extractErrorMessage(postgrestError)).toBe("duplicate key value violates unique constraint");
+  });
+
+  it("falls back for anything with no usable message", () => {
+    expect(extractErrorMessage("just a string")).toBe("Unknown error");
+    expect(extractErrorMessage(null)).toBe("Unknown error");
+    expect(extractErrorMessage(undefined)).toBe("Unknown error");
+    expect(extractErrorMessage({ code: "23505" })).toBe("Unknown error"); // no .message field
+  });
+
+  it("uses the caller-supplied fallback when given one", () => {
+    expect(extractErrorMessage("oops", "unknown error")).toBe("unknown error");
+  });
+});
 
 describe("classifyProviderError", () => {
   it("classifies UnsupportedOperationError as UNSUPPORTED_OPERATION", () => {

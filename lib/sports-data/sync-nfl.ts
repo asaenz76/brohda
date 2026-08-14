@@ -9,6 +9,7 @@ import { SUPPORTED_NFL_COMPETITIONS } from "./supported-nfl-competitions";
 import { getProviderStatus } from "./provider-gateway";
 import { API_NFL_PROVIDER } from "./provider-names";
 import { shouldReserveQuota } from "./quota-reserve";
+import { extractErrorMessage } from "./provider-errors";
 
 // Deliberately much simpler than football's runFixtureSync (lib/sports-
 // data/sync.ts): that job polls each of hundreds of individually-tracked
@@ -124,9 +125,16 @@ export async function runNflFixtureSync(): Promise<NflSyncResult> {
       result.refreshed += toUpsert.length;
     } catch (error) {
       result.failed += toUpsert.length;
+      // extractErrorMessage, not `error instanceof Error ? ... : "unknown
+      // error"` — upsertFixturesBatch throws the raw PostgrestError object
+      // on a DB failure (persist.ts: `if (fixturesError) throw
+      // fixturesError`), which is a plain object with a real `.message`,
+      // never an Error instance. The old check silently discarded that
+      // message on every real failure here — confirmed live during this
+      // operational phase's verification run.
       await admin
         .from("fixtures")
-        .update({ sync_error: error instanceof Error ? error.message : "unknown error" })
+        .update({ sync_error: extractErrorMessage(error, "unknown error") })
         .eq("provider", API_NFL_PROVIDER)
         .in("external_fixture_id", toUpsert.map((f) => f.externalFixtureId));
     }

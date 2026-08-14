@@ -55,10 +55,35 @@ const UNAVAILABLE_PATTERN = /network|fetch failed|econnrefused|econnreset|etimed
 // generic "some other 4xx" case.
 const PERMANENT_ERROR_PATTERN = /^Provider returned permanent error (\d+)$/;
 
+/**
+ * Extracts a human-readable message from anything that might have been
+ * thrown — a real `Error`, a Supabase/Postgrest error (a plain object
+ * with a `.message` string, never an `Error` instance — `throw
+ * someSupabaseError` is a real, common throw site in this codebase, e.g.
+ * persist.ts's upsertFixturesBatch), or something else entirely.
+ *
+ * Exists because `error instanceof Error ? error.message : "unknown
+ * error"` (repeated at several catch sites, including this file's own
+ * classifyProviderError before this fix) silently discards the real,
+ * often actionable message on every Postgrest failure. This is not
+ * hypothetical: a live production run of sync-fixtures-nfl during this
+ * operational phase failed a 314-fixture batch upsert, and the real cause
+ * was unrecoverable afterward because the catch site logged the literal
+ * string "unknown error" instead of the thrown PostgrestError's actual
+ * `.message`.
+ */
+export function extractErrorMessage(error: unknown, fallback = "Unknown error"): string {
+  if (error instanceof Error) return error.message;
+  if (error != null && typeof error === "object" && "message" in error && typeof (error as { message: unknown }).message === "string") {
+    return (error as { message: string }).message;
+  }
+  return fallback;
+}
+
 export function classifyProviderError(error: unknown): ProviderErrorType {
   if (error instanceof UnsupportedOperationError) return "UNSUPPORTED_OPERATION";
 
-  const message = error instanceof Error ? error.message : String(error);
+  const message = extractErrorMessage(error, String(error));
 
   if (RATE_LIMIT_PATTERN.test(message)) return "RATE_LIMITED";
   if (DAILY_QUOTA_PATTERN.test(message)) return "QUOTA_EXHAUSTED";
