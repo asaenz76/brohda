@@ -17,6 +17,7 @@ import {
   type PublishWarning,
 } from "@/lib/pools/templates/recommendations";
 import { getFixtureMarketsAction } from "@/lib/actions/odds";
+import { API_FOOTBALL_PROVIDER } from "@/lib/sports-data/provider-names";
 import { getPoolLiveStats, type PoolLiveStats } from "@/lib/pools/fetch";
 import { notifyFollowedPoolPublished } from "@/lib/email/notify-followed-pool-published";
 import { getPoolPublishFollowRecipients } from "@/lib/pools/follow-recipients";
@@ -84,6 +85,7 @@ async function notifyFollowersOfPublish(pool: { id: string; question: string; fi
 export async function getFixtureQuestionContextAction(
   fixtureId: string,
   externalFixtureId: string | null = null,
+  provider: string = API_FOOTBALL_PROVIDER,
   sport: string = "football",
 ) {
   await requireAdminOrAbove();
@@ -93,8 +95,14 @@ export async function getFixtureQuestionContextAction(
     // Real odds are optional, best-effort — a fixture with the provider
     // disabled, no odds posted yet, or a fetch failure still gets a full
     // recommendation list, just on the static prior (rankRecommendations
-    // treats null exactly like "no markets fetched").
-    externalFixtureId ? getFixtureMarketsAction(externalFixtureId) : Promise.resolve(null),
+    // treats null exactly like "no markets fetched"). Only ever fetched for
+    // api_football fixtures — getFixtureMarketsAction has no NFL (or any
+    // other non-football) equivalent yet, so a non-football fixture simply
+    // skips this fetch entirely rather than reaching a football-only
+    // action with the wrong provider's fixture ID (the fixed incident).
+    externalFixtureId && provider === API_FOOTBALL_PROVIDER
+      ? getFixtureMarketsAction(externalFixtureId, provider)
+      : Promise.resolve(null),
   ]);
   const recommendations = rankRecommendations(activePools, markets, sport);
   return {
@@ -109,7 +117,7 @@ export async function getFixtureQuestionContextAction(
 export type CreatePoolFromTemplateState = { error: string | null; warnings?: PublishWarning[] };
 
 const FIXTURE_SELECT_FOR_POOL_CREATION =
-  "id, external_fixture_id, home_team_external_id, home_team_name, home_team_logo_url, away_team_external_id, away_team_name, away_team_logo_url, competition_type, scheduled_start_utc, sport";
+  "id, external_fixture_id, home_team_external_id, home_team_name, home_team_logo_url, away_team_external_id, away_team_name, away_team_logo_url, competition_type, scheduled_start_utc, sport, provider";
 
 type PoolFixtureRow = {
   id: string;
@@ -123,6 +131,7 @@ type PoolFixtureRow = {
   competition_type: string | null;
   scheduled_start_utc: string;
   sport: string;
+  provider: string;
 };
 
 // The fixture-independent part of a pool's configuration — shared by the
@@ -250,9 +259,13 @@ async function createPoolForFixture(
   // the pool at insert time, so the two always agree with each other.
   // Never fetched for non-TEMPLATE_GRADED pools (WHO_WILL_ADVANCE/
   // REGULATION_RESULT/COMBO have no single well-defined YES probability).
+  // Also never fetched for a non-football fixture — this is the other half
+  // of the fixed incident: an NFL TEMPLATE_GRADED submission (NFL_SPREAD/
+  // NFL_GAME_TOTAL/NFL_TEAM_TOTAL are all TEMPLATE_GRADED) used to reach
+  // this same football-only call with the NFL fixture's own external ID.
   const markets =
-    input.poolType === "TEMPLATE_GRADED" && fixture.external_fixture_id
-      ? await getFixtureMarketsAction(fixture.external_fixture_id)
+    input.poolType === "TEMPLATE_GRADED" && fixture.external_fixture_id && fixture.provider === API_FOOTBALL_PROVIDER
+      ? await getFixtureMarketsAction(fixture.external_fixture_id, fixture.provider)
       : null;
 
   // Publishing guidance (Question Family/mirror/duplicate detection) — never

@@ -20,6 +20,7 @@ function fixture(overrides: Partial<FixtureOption>): FixtureOption {
     awayTeamLogoUrl: null,
     competitionType: null,
     sport: "football",
+    provider: "api_football",
     league: "England | Premier League",
     label: "Home vs Away",
     scheduledStartUtc: "2026-01-01T00:00:00.000Z",

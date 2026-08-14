@@ -17,12 +17,13 @@ import type {
   SportsDataProvider,
 } from "./types";
 import { ProviderApiError } from "./api-football-provider";
+import { API_NFL_PROVIDER } from "./provider-names";
 
 // API-NFL (api-sports.io's American-football sibling to API-Football).
 // Shapes below are transcribed from real, live-verified responses (not
 // vendor docs) — see the header comment on each interface for exactly
 // what was confirmed and what wasn't.
-const PROVIDER_NAME = "api_nfl";
+const PROVIDER_NAME = API_NFL_PROVIDER;
 
 // Self-hosted, not the provider's own media.api-sports.io/american-
 // football/leagues/1.png — confirmed live to intermittently fail to load

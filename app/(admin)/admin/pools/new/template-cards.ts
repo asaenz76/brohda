@@ -13,6 +13,11 @@ export interface FixtureOption {
   awayTeamLogoUrl: string | null;
   competitionType: string | null;
   sport: string;
+  // The sports-data provider this fixture came from (e.g. "api_football",
+  // "api_nfl") — threaded through so odds/markets calls can be routed to
+  // the correct provider instead of assumed, see lib/actions/odds.ts's
+  // assertProvider.
+  provider: string;
   league: string | null;
   label: string;
   scheduledStartUtc: string;

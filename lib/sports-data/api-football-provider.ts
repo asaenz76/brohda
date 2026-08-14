@@ -3,6 +3,7 @@ import { fetchWithRetry } from "./http";
 import { normalizeApiFootballStatus } from "./status-map";
 import { normalizeEventDetail, normalizeEventType } from "./events";
 import { resolveVenueTimezone } from "./timezone";
+import { API_FOOTBALL_PROVIDER } from "./provider-names";
 import type {
   FixtureSearchParams,
   LeagueSeasonCoverage,
@@ -23,7 +24,7 @@ import type {
   SportsDataProvider,
 } from "./types";
 
-const PROVIDER_NAME = "api_football";
+const PROVIDER_NAME = API_FOOTBALL_PROVIDER;
 
 interface ApiFootballFixtureResponse {
   fixture: {

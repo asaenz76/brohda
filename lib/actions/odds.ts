@@ -4,10 +4,32 @@ import { requireAdminOrAbove } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { apiFootballProvider } from "@/lib/sports-data/api-football-provider";
 import { apiNflProvider } from "@/lib/sports-data/api-nfl-provider";
+import { API_FOOTBALL_PROVIDER, API_NFL_PROVIDER, type FixtureProvider } from "@/lib/sports-data/provider-names";
 import { suggestMinimumGoalsFromExactDistribution, suggestMinimumGoalsFromOdds } from "@/lib/pools/templates/goals-odds";
 import { estimateNflFixtureLines, type NflFixtureLineEstimates } from "@/lib/pools/templates/nfl-odds";
 import { isFresh } from "@/lib/utils/freshness";
 import type { NormalizedFixtureMarkets } from "@/lib/sports-data/types";
+
+/**
+ * Every odds/markets action below takes the fixture's own `provider`
+ * column as an explicit argument and refuses to proceed on a mismatch,
+ * rather than assuming a provider from the function's own name or from
+ * the shape of `externalFixtureId`. This is the fix for a real incident:
+ * selecting an NFL fixture in the pool wizard used to send its API-NFL
+ * numeric game ID to API-Football's `/odds` endpoint, because the shared
+ * recommendation/markets path had no sport or provider check at all.
+ * External fixture IDs are only unique within a provider's own numbering
+ * — a mismatched provider here is a real bug, not a degraded-data case,
+ * so it throws instead of silently returning null or falling back.
+ */
+function assertProvider(actual: string, expected: FixtureProvider, actionName: string): void {
+  if (actual !== expected) {
+    throw new Error(
+      `${actionName} only supports "${expected}" fixtures, but was called with provider "${actual}". ` +
+        "Provider must be derived from the fixture itself, never assumed.",
+    );
+  }
+}
 
 export interface FixtureGoalsLines {
   matchLine: number | null;
@@ -21,10 +43,13 @@ export interface FixtureGoalsLines {
  * (app/(admin)/admin/pools/new/pool-template-builder.tsx) — plain
  * read-only async call, not a useActionState mutation, mirroring
  * getTeamSquadAction's shape. Only ever returns four integers (or null);
- * the underlying bookmaker odds never leave apiFootballProvider.
+ * the underlying bookmaker odds never leave apiFootballProvider. `provider`
+ * is the caller's fixture.provider — this football-only market never
+ * silently runs for a non-football fixture (see assertProvider above).
  */
-export async function getFixtureGoalsLinesAction(externalFixtureId: string): Promise<FixtureGoalsLines> {
+export async function getFixtureGoalsLinesAction(externalFixtureId: string, provider: string): Promise<FixtureGoalsLines> {
   await requireAdminOrAbove();
+  assertProvider(provider, API_FOOTBALL_PROVIDER, "getFixtureGoalsLinesAction");
 
   // Best-effort, same as getFixtureMarketsAction below: a fixture with no
   // real provider coverage (no odds posted, provider outage, or — for a
@@ -60,14 +85,27 @@ interface FixtureOddsCacheRow {
  * never the full odds catalog). Reads/writes fixture_odds_cache directly
  * via the admin client since this cache has no per-user shape and is
  * never read by anything except this function.
+ *
+ * `provider` is the caller's fixture.provider, not inferred from
+ * `externalFixtureId` — external IDs are only unique within one provider's
+ * own numbering, so an NFL and a football fixture can legitimately share
+ * the same numeric ID. This football-only market never runs for a
+ * non-football fixture (see assertProvider above), and the cache key
+ * includes provider so a same-numbered NFL/football pair can never read
+ * or overwrite each other's cached markets.
  */
-export async function getFixtureMarketsAction(externalFixtureId: string): Promise<NormalizedFixtureMarkets | null> {
+export async function getFixtureMarketsAction(
+  externalFixtureId: string,
+  provider: string,
+): Promise<NormalizedFixtureMarkets | null> {
   await requireAdminOrAbove();
+  assertProvider(provider, API_FOOTBALL_PROVIDER, "getFixtureMarketsAction");
   const adminClient = createAdminClient();
 
   const { data: cached } = await adminClient
     .from("fixture_odds_cache")
     .select("normalized_markets, fetched_at")
+    .eq("provider", provider)
     .eq("external_fixture_id", externalFixtureId)
     .maybeSingle<FixtureOddsCacheRow>();
 
@@ -86,7 +124,7 @@ export async function getFixtureMarketsAction(externalFixtureId: string): Promis
   if (fresh) {
     await adminClient
       .from("fixture_odds_cache")
-      .upsert({ external_fixture_id: externalFixtureId, normalized_markets: fresh, fetched_at: new Date().toISOString() });
+      .upsert({ provider, external_fixture_id: externalFixtureId, normalized_markets: fresh, fetched_at: new Date().toISOString() });
   }
   return fresh;
 }
@@ -102,9 +140,14 @@ export async function getFixtureMarketsAction(externalFixtureId: string): Promis
  * result.spread is a best-effort, UNCONFIRMED estimate — see nfl-odds.ts's
  * file header for why. Every caller must present it as needing manual
  * verification, never with the same confidence as the other three fields.
+ *
+ * `provider` is the caller's fixture.provider — this NFL-only market never
+ * silently runs for a non-NFL fixture (see assertProvider above); the
+ * mirror image of the api_football guard above.
  */
-export async function getNflFixtureLinesAction(externalFixtureId: string): Promise<NflFixtureLineEstimates | null> {
+export async function getNflFixtureLinesAction(externalFixtureId: string, provider: string): Promise<NflFixtureLineEstimates | null> {
   await requireAdminOrAbove();
+  assertProvider(provider, API_NFL_PROVIDER, "getNflFixtureLinesAction");
 
   const odds = await apiNflProvider.getFixtureRawOdds(externalFixtureId).catch(() => null);
   if (!odds) return null;

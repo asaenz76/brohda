@@ -121,6 +121,7 @@ export default async function NewPoolPage({
       awayTeamLogoUrl: f.away_team_logo_url,
       competitionType: f.competition_type,
       sport: f.sport,
+      provider: f.provider,
       league,
       label: `${f.home_team_name} vs ${f.away_team_name}${league ? ` (${league})` : ""} — ${new Date(
         f.scheduled_start_utc,

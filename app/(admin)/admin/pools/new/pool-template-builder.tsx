@@ -206,7 +206,7 @@ export function PoolTemplateBuilder({
     if (oddsFetchedForFixtureId.current === selectedFixture.id) return;
     oddsFetchedForFixtureId.current = selectedFixture.id;
     const fixtureId = selectedFixture.id;
-    getFixtureGoalsLinesAction(selectedFixture.externalFixtureId).then((lines) => {
+    getFixtureGoalsLinesAction(selectedFixture.externalFixtureId, selectedFixture.provider).then((lines) => {
       setGoalsLines({ forFixtureId: fixtureId, ...lines });
     });
   }, [needsGoalsLine, selectedFixture]);
@@ -246,7 +246,7 @@ export function PoolTemplateBuilder({
     if (nflOddsFetchedForFixtureId.current === selectedFixture.id) return;
     nflOddsFetchedForFixtureId.current = selectedFixture.id;
     const fixtureId = selectedFixture.id;
-    getNflFixtureLinesAction(selectedFixture.externalFixtureId).then((lines) => {
+    getNflFixtureLinesAction(selectedFixture.externalFixtureId, selectedFixture.provider).then((lines) => {
       setNflLines({
         forFixtureId: fixtureId,
         favorite: lines?.favorite ?? null,
@@ -346,7 +346,7 @@ export function PoolTemplateBuilder({
     setShowOtherQuestions(false);
     setOverridePublishWarnings(false);
     setQuestionContext(null);
-    getFixtureQuestionContextAction(fixture.id, fixture.externalFixtureId, fixture.sport).then(setQuestionContext);
+    getFixtureQuestionContextAction(fixture.id, fixture.externalFixtureId, fixture.provider, fixture.sport).then(setQuestionContext);
 
     if (duplicateTemplate && !duplicateAppliedRef.current) {
       duplicateAppliedRef.current = true;
