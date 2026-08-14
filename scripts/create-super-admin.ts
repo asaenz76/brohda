@@ -7,6 +7,7 @@
  *   pnpm create-super-admin --email you@example.com --password 'xxxx' --name "Admin Name"
  */
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { assertProductionWriteConfirmed } from "./lib/production-guard";
 
 // Not importing lib/supabase/admin.ts here: it's guarded by the `server-only`
 // package, which throws unconditionally when required outside Next's
@@ -36,6 +37,8 @@ async function main() {
     );
     process.exit(1);
   }
+
+  assertProductionWriteConfirmed(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "", "create-super-admin");
 
   const admin = createAdminClient();
 

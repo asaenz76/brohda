@@ -6,6 +6,9 @@ import { upsertFixturesBatch } from "./persist";
 import { TERMINAL_STATUSES } from "./status-map";
 import type { FixtureInternalStatus } from "./types";
 import { SUPPORTED_NFL_COMPETITIONS } from "./supported-nfl-competitions";
+import { getProviderStatus } from "./provider-gateway";
+import { API_NFL_PROVIDER } from "./provider-names";
+import { shouldReserveQuota } from "./quota-reserve";
 
 // Deliberately much simpler than football's runFixtureSync (lib/sports-
 // data/sync.ts): that job polls each of hundreds of individually-tracked
@@ -54,6 +57,15 @@ export async function runNflFixtureSync(): Promise<NflSyncResult> {
 
   if (!apiNflProvider.isEnabled()) return result;
 
+  // Phase 3 fix: this job previously had no circuit-breaker or quota-
+  // reserve check at all — unlike every football job (sync.ts,
+  // discovery-sync.ts, availability-cache.ts), it would keep hitting
+  // API-NFL on every cron tick even after a confirmed quota-exhaustion
+  // error. Same guards, same reasoning, now applied here too.
+  const status = await getProviderStatus(true, API_NFL_PROVIDER);
+  if (status.circuitBreakerOpen) return result;
+  if (await shouldReserveQuota(API_NFL_PROVIDER)) return result;
+
   const nfl = SUPPORTED_NFL_COMPETITIONS.find((c) => c.enabled);
   if (!nfl?.externalLeagueId) return result;
 
@@ -76,7 +88,7 @@ export async function runNflFixtureSync(): Promise<NflSyncResult> {
   const { data: existingRows } = await admin
     .from("fixtures")
     .select("id, external_fixture_id, internal_status")
-    .eq("provider", "api_nfl");
+    .eq("provider", API_NFL_PROVIDER);
   const storedTerminal = new Set(
     (existingRows ?? [])
       .filter((row) => TERMINAL_STATUSES.includes(row.internal_status as FixtureInternalStatus))
@@ -115,7 +127,7 @@ export async function runNflFixtureSync(): Promise<NflSyncResult> {
       await admin
         .from("fixtures")
         .update({ sync_error: error instanceof Error ? error.message : "unknown error" })
-        .eq("provider", "api_nfl")
+        .eq("provider", API_NFL_PROVIDER)
         .in("external_fixture_id", toUpsert.map((f) => f.externalFixtureId));
     }
   }
@@ -221,33 +233,51 @@ export async function runNflFixtureSync(): Promise<NflSyncResult> {
   const { data: leagueRow } = await admin
     .from("leagues")
     .select("id")
-    .eq("provider", "api_nfl")
+    .eq("provider", API_NFL_PROVIDER)
     .eq("external_id", nfl.externalLeagueId)
     .maybeSingle();
 
   if (leagueRow) {
-    const league = await apiNflProvider.getLeagueById(nfl.externalLeagueId);
-    const currentSeasonInfo = league?.seasons.find((s) => s.year === currentSeason);
+    // Phase 3 fix: this getLeagueById call previously had no try/catch —
+    // a failure here (network blip, quota exhausted mid-tick) threw
+    // straight out of runNflFixtureSync, discarding the already-correct
+    // result computed above (fixtures had already synced successfully;
+    // only the informational league_season_imports metadata refresh was
+    // still pending). recordJobRun still caught and logged the throw, but
+    // the caller never saw the real result — the whole tick reported as a
+    // hard failure even though most of the work had already succeeded.
+    try {
+      const league = await apiNflProvider.getLeagueById(nfl.externalLeagueId);
+      const currentSeasonInfo = league?.seasons.find((s) => s.year === currentSeason);
 
-    await admin.from("league_season_imports").upsert(
-      {
-        provider: "api_nfl",
-        external_league_id: nfl.externalLeagueId,
-        season: currentSeason,
-        league_id: leagueRow.id,
-        season_start_date: currentSeasonInfo?.startDate ?? null,
-        season_end_date: currentSeasonInfo?.endDate ?? null,
-        provider_current: currentSeasonInfo?.current ?? true,
-        import_status: "IMPORTED",
-        imported_at: new Date().toISOString(),
-        sync_status: "IDLE",
-        last_synced_at: new Date().toISOString(),
-        fixture_count_imported: result.refreshed,
-        pool_creation_enabled: true,
-        is_active: true,
-      },
-      { onConflict: "provider,external_league_id,season" },
-    );
+      await admin.from("league_season_imports").upsert(
+        {
+          provider: API_NFL_PROVIDER,
+          external_league_id: nfl.externalLeagueId,
+          season: currentSeason,
+          league_id: leagueRow.id,
+          season_start_date: currentSeasonInfo?.startDate ?? null,
+          season_end_date: currentSeasonInfo?.endDate ?? null,
+          provider_current: currentSeasonInfo?.current ?? true,
+          import_status: "IMPORTED",
+          imported_at: new Date().toISOString(),
+          sync_status: "IDLE",
+          last_synced_at: new Date().toISOString(),
+          fixture_count_imported: result.refreshed,
+          pool_creation_enabled: true,
+          is_active: true,
+        },
+        { onConflict: "provider,external_league_id,season" },
+      );
+    } catch {
+      // Swallowed deliberately — the fixture sync above already
+      // succeeded and is reflected in `result`; a failure here only means
+      // this tick's league_season_imports metadata refresh (season
+      // start/end dates, "current season" flag) didn't happen, not that
+      // the fixtures themselves are stale. The real failure is still
+      // recorded in provider_request_log via fetchWithRetry. Next tick
+      // retries this same upsert regardless of this tick's outcome.
+    }
   }
 
   return result;

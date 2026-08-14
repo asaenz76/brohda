@@ -143,4 +143,62 @@ describe.skipIf(!SERVICE_ROLE_KEY)("circuit breaker — real DB round-trip", () 
       .single();
     expect(row?.error).toBeNull();
   });
+
+  // Phase 3 §7: the same soft-error detection, breaker-open, and
+  // isolation behavior proven for API-Football above, now proven for
+  // API-NFL too — identical failure scenario, different provider, and the
+  // two must never contaminate each other's state.
+  it("API-NFL soft-error detection writes a real, correctly-shaped error row and opens only its own breaker", async () => {
+    stubProviderFetch(quotaExhaustedFetchResponse);
+
+    await expect(
+      fetchWithRetry(FAKE_PROVIDER_URL, {}, { provider: "api_nfl", requestType: TEST_REQUEST_TYPE }),
+    ).rejects.toThrow();
+
+    const { data: row } = await admin
+      .from("provider_request_log")
+      .select("provider, response_status, error, normalized_error_type")
+      .eq("request_type", TEST_REQUEST_TYPE)
+      .single();
+    expect(row?.provider).toBe("api_nfl");
+    expect(row?.response_status).toBe(200);
+    expect(row?.error).toMatch(/request limit/i);
+    expect(row?.normalized_error_type).toBe("QUOTA_EXHAUSTED");
+
+    const nflStatus = await getProviderStatus(true, "api_nfl");
+    expect(nflStatus.quotaState).toBe("EXHAUSTED");
+    expect(nflStatus.circuitBreakerOpen).toBe(true);
+
+    // The mirror image of the existing football→NFL isolation test above:
+    // an NFL quota error must never open football's breaker.
+    const footballStatus = await getProviderStatus(true, "api_football");
+    expect(footballStatus.lastErrorMessage ?? "").not.toMatch(/request limit for the day, upgrade your plan/i);
+  });
+
+  it("a permanent 4xx is normalized to INVALID_REQUEST (or AUTH_FAILED for 401/403), and is never retried", async () => {
+    let callCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        if (url === FAKE_PROVIDER_URL) {
+          callCount++;
+          return Promise.resolve(new Response("{}", { status: 400 }));
+        }
+        return realFetch(input, init);
+      }),
+    );
+
+    await expect(
+      fetchWithRetry(FAKE_PROVIDER_URL, {}, { provider: "api_football", requestType: TEST_REQUEST_TYPE }),
+    ).rejects.toThrow();
+    expect(callCount).toBe(1); // never retried
+
+    const { data: row } = await admin
+      .from("provider_request_log")
+      .select("normalized_error_type")
+      .eq("request_type", TEST_REQUEST_TYPE)
+      .single();
+    expect(row?.normalized_error_type).toBe("INVALID_REQUEST");
+  });
 });

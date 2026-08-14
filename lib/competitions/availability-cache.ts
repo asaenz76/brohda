@@ -3,6 +3,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { apiFootballProvider } from "@/lib/sports-data/api-football-provider";
 import { SUPPORTED_COMPETITIONS } from "@/lib/sports-data/supported-competitions";
 import { getProviderStatus, isQuotaExhaustedError } from "@/lib/sports-data/provider-gateway";
+import { API_FOOTBALL_PROVIDER } from "@/lib/sports-data/provider-names";
+import { shouldReserveQuota } from "@/lib/sports-data/quota-reserve";
 import { isFresh } from "@/lib/utils/freshness";
 import {
   AVAILABILITY_CACHE_TTL_NO_FIXTURES_HOURS,
@@ -36,13 +38,14 @@ export async function refreshRecommendationAvailabilityCache(
   // Checked before spending any requests — if the breaker is already open
   // from a recent quota error, every call this tick would fail
   // identically; skip it entirely and keep serving the existing cache.
-  const status = await getProviderStatus(true);
+  const status = await getProviderStatus(true, API_FOOTBALL_PROVIDER);
   if (status.circuitBreakerOpen) return result;
+  if (await shouldReserveQuota(API_FOOTBALL_PROVIDER)) return result;
 
   const { data: cachedRows } = await adminClient
     .from("competition_availability_cache")
     .select("external_league_id, season, upcoming_fixture_count, checked_at")
-    .eq("provider", "api_football");
+    .eq("provider", API_FOOTBALL_PROVIDER);
   const cacheByLeague = new Map((cachedRows ?? []).map((row) => [row.external_league_id, row]));
 
   const now = Date.now();
@@ -117,7 +120,7 @@ async function upsertCacheRow(
 ) {
   await adminClient.from("competition_availability_cache").upsert(
     {
-      provider: "api_football",
+      provider: API_FOOTBALL_PROVIDER,
       external_league_id: externalLeagueId,
       season,
       upcoming_fixture_count: upcomingFixtureCount,

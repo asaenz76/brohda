@@ -4,6 +4,7 @@ import { normalizeApiFootballStatus } from "./status-map";
 import { normalizeEventDetail, normalizeEventType } from "./events";
 import { resolveVenueTimezone } from "./timezone";
 import { API_FOOTBALL_PROVIDER } from "./provider-names";
+import { getCachedRawOdds, setCachedRawOdds } from "./odds-raw-cache";
 import type {
   FixtureSearchParams,
   LeagueSeasonCoverage,
@@ -698,6 +699,16 @@ function normalizeFixtureMarkets(externalFixtureId: string, item: ApiFootballOdd
 }
 
 async function callOddsEndpoint(externalFixtureId: string): Promise<ApiFootballOddsResponseItem | null> {
+  // Phase 3 dedup (spec §14): getFixtureOdds and getFixtureMarkets below
+  // both call this same function for the same fixture — confirmed to
+  // happen within moments of each other during pool creation. A short-TTL
+  // cache of the raw item here means the second call reuses the first's
+  // live response instead of making its own; both methods' normalization
+  // logic is completely unchanged, since they still each derive their own
+  // shape from `item` exactly as before.
+  const cached = await getCachedRawOdds<ApiFootballOddsResponseItem>(PROVIDER_NAME, externalFixtureId);
+  if (cached) return cached;
+
   const url = new URL(`${baseUrl()}/odds`);
   url.searchParams.set("fixture", externalFixtureId);
 
@@ -708,7 +719,9 @@ async function callOddsEndpoint(externalFixtureId: string): Promise<ApiFootballO
   );
 
   const body = await parseApiFootballBody<ApiFootballOddsListResponse>(response);
-  return body.response?.[0] ?? null;
+  const item = body.response?.[0] ?? null;
+  if (item) await setCachedRawOdds(PROVIDER_NAME, externalFixtureId, item);
+  return item;
 }
 
 export class ApiFootballProvider implements SportsDataProvider {

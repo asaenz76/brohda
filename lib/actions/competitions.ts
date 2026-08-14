@@ -18,6 +18,7 @@ import {
 } from "@/lib/competitions/constants";
 import { refreshRecommendationAvailabilityCache } from "@/lib/competitions/availability-cache";
 import { isQuotaExhaustedError } from "@/lib/sports-data/provider-gateway";
+import { API_FOOTBALL_PROVIDER } from "@/lib/sports-data/provider-names";
 import {
   buildImportedCompetitionRows,
   buildRecommendedCompetitions,
@@ -77,7 +78,7 @@ export async function startCompetitionImportAction(
   const { data: existing } = await adminClient
     .from("league_season_imports")
     .select("id, import_status")
-    .eq("provider", "api_football")
+    .eq("provider", API_FOOTBALL_PROVIDER)
     .eq("external_league_id", externalLeagueId)
     .eq("season", season)
     .maybeSingle();
@@ -115,7 +116,7 @@ export async function startCompetitionImportAction(
   const { data: leagueRow, error: leagueError } = await adminClient
     .from("leagues")
     .upsert(
-      { provider: "api_football", external_id: externalLeagueId, name: league.name, logo_url: league.logoUrl },
+      { provider: API_FOOTBALL_PROVIDER, external_id: externalLeagueId, name: league.name, logo_url: league.logoUrl },
       { onConflict: "provider,external_id" },
     )
     .select("id")
@@ -125,7 +126,7 @@ export async function startCompetitionImportAction(
   }
 
   const lsiPayload = {
-    provider: "api_football",
+    provider: API_FOOTBALL_PROVIDER,
     external_league_id: externalLeagueId,
     season,
     league_id: leagueRow.id,

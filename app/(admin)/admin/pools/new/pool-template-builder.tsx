@@ -1030,6 +1030,7 @@ export function PoolTemplateBuilder({
                         homeTeamName={selectedFixture.homeTeamName}
                         awayTeamExternalId={selectedFixture.awayTeamExternalId}
                         awayTeamName={selectedFixture.awayTeamName}
+                        provider={selectedFixture.provider}
                         selectedPlayerId={configValues.playerId ?? ""}
                         selectedPlayerName={configValues.playerName ?? ""}
                         onSelect={(player) =>

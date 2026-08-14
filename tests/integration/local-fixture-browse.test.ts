@@ -89,7 +89,7 @@ function fixtureRow(externalId: string, scheduledStartUtc: string, overrides: Re
 function normalizedFixture(overrides: Partial<NormalizedFixture> = {}): NormalizedFixture {
   return {
     provider: "api_football",
-    externalFixtureId: "800001",
+    externalFixtureId: "tlfb-800001",
     sport: "football",
     competitionExternalId: UNSUPPORTED_ID,
     competitionName: "Unsupported Test League",
@@ -128,13 +128,24 @@ function normalizedFixture(overrides: Partial<NormalizedFixture> = {}): Normaliz
 }
 
 async function cleanupTestData() {
-  const { data: fixtureRows } = await admin.from("fixtures").select("id").or(`season.eq.${TEST_SEASON},external_fixture_id.eq.800001,external_fixture_id.eq.800002`);
+  // Matched by the "tlfb-" prefix (guaranteed never to collide with a real
+  // numeric provider id) rather than by season alone — a real production
+  // fixture already existed at bare numeric ids this suite originally used
+  // (e.g. "900007", a real 2022-season fixture under an unrelated
+  // competition), which silently broke a batch insert containing it. The
+  // prefix makes collision structurally impossible; matching cleanup on it
+  // also correctly sweeps the one row here that deliberately uses a
+  // non-TEST_SEASON season override.
+  const { data: fixtureRows } = await admin
+    .from("fixtures")
+    .select("id")
+    .or(`season.eq.${TEST_SEASON},external_fixture_id.like.tlfb-%`);
   const fixtureIds = (fixtureRows ?? []).map((f) => f.id as string);
   if (fixtureIds.length > 0) {
     await admin.from("pools").delete().in("fixture_id", fixtureIds);
   }
   await admin.from("fixtures").delete().eq("season", TEST_SEASON);
-  await admin.from("fixtures").delete().in("external_fixture_id", ["800001", "800002"]);
+  await admin.from("fixtures").delete().like("external_fixture_id", "tlfb-%");
   await admin.from("league_season_imports").delete().eq("season", TEST_SEASON);
   await admin.from("leagues").delete().eq("external_id", UNSUPPORTED_ID);
 }
@@ -192,16 +203,16 @@ describe.skipIf(!SERVICE_ROLE_KEY)("Phase 2 local-first fixture browsing", () =>
       const beforeWindow = new Date(inWindow.getTime() - 25 * 60 * 60 * 1000); // safely a different CR calendar day
 
       await admin.from("fixtures").insert([
-        fixtureRow("900001", inWindow.toISOString()),
-        fixtureRow("900002", beforeWindow.toISOString()),
+        fixtureRow("tlfb-900001", inWindow.toISOString()),
+        fixtureRow("tlfb-900002", beforeWindow.toISOString()),
       ]);
 
       const result = await browseFixturesByDateAction({ preset: "today" });
       expect(result.success).toBe(true);
       if (!result.success) return;
       const ids = result.result.fixtures.map((f) => f.externalFixtureId);
-      expect(ids).toContain("900001");
-      expect(ids).not.toContain("900002");
+      expect(ids).toContain("tlfb-900001");
+      expect(ids).not.toContain("tlfb-900002");
     });
 
     it("Tomorrow and Today+Tomorrow presets scope correctly relative to each other", async () => {
@@ -210,24 +221,24 @@ describe.skipIf(!SERVICE_ROLE_KEY)("Phase 2 local-first fixture browsing", () =>
       const tomorrowNoonCR = new Date(todayNoonCR.getTime() + 24 * 60 * 60 * 1000);
 
       await admin.from("fixtures").insert([
-        fixtureRow("900003", todayNoonCR.toISOString()),
-        fixtureRow("900004", tomorrowNoonCR.toISOString()),
+        fixtureRow("tlfb-900003", todayNoonCR.toISOString()),
+        fixtureRow("tlfb-900004", tomorrowNoonCR.toISOString()),
       ]);
 
       const tomorrowOnly = await browseFixturesByDateAction({ preset: "tomorrow" });
       expect(tomorrowOnly.success).toBe(true);
       if (tomorrowOnly.success) {
         const ids = tomorrowOnly.result.fixtures.map((f) => f.externalFixtureId);
-        expect(ids).toContain("900004");
-        expect(ids).not.toContain("900003");
+        expect(ids).toContain("tlfb-900004");
+        expect(ids).not.toContain("tlfb-900003");
       }
 
       const both = await browseFixturesByDateAction({ preset: "today_tomorrow" });
       expect(both.success).toBe(true);
       if (both.success) {
         const ids = both.result.fixtures.map((f) => f.externalFixtureId);
-        expect(ids).toContain("900003");
-        expect(ids).toContain("900004");
+        expect(ids).toContain("tlfb-900003");
+        expect(ids).toContain("tlfb-900004");
       }
     });
 
@@ -241,21 +252,21 @@ describe.skipIf(!SERVICE_ROLE_KEY)("Phase 2 local-first fixture browsing", () =>
       outside.setHours(12, 0, 0, 0);
 
       const fmt = (d: Date) => d.toISOString().slice(0, 10);
-      await admin.from("fixtures").insert([fixtureRow("900005", inside.toISOString()), fixtureRow("900006", outside.toISOString())]);
+      await admin.from("fixtures").insert([fixtureRow("tlfb-900005", inside.toISOString()), fixtureRow("tlfb-900006", outside.toISOString())]);
 
       const result = await browseFixturesByDateAction({ preset: "custom", customFromDate: fmt(from), customToDate: fmt(to) });
       expect(result.success).toBe(true);
       if (!result.success) return;
       const ids = result.result.fixtures.map((f) => f.externalFixtureId);
-      expect(ids).toContain("900005");
-      expect(ids).not.toContain("900006");
+      expect(ids).toContain("tlfb-900005");
+      expect(ids).not.toContain("tlfb-900006");
     });
 
     it("excludes unsupported-competition fixtures by default, includes them with includeUnsupported: true (spec §3/§16)", async () => {
       const soon = iso(3600_000);
       await admin.from("fixtures").insert([
-        fixtureRow("900007", soon, { competition_external_id: SUPPORTED_ID }),
-        fixtureRow("900008", soon, { competition_external_id: UNSUPPORTED_ID, competition_name: "Unsupported League" }),
+        fixtureRow("tlfb-900007", soon, { competition_external_id: SUPPORTED_ID }),
+        fixtureRow("tlfb-900008", soon, { competition_external_id: UNSUPPORTED_ID, competition_name: "Unsupported League" }),
       ]);
 
       const preset = "today_tomorrow" as const;
@@ -268,29 +279,29 @@ describe.skipIf(!SERVICE_ROLE_KEY)("Phase 2 local-first fixture browsing", () =>
       expect(defaultResult.success).toBe(true);
       if (defaultResult.success) {
         const ids = defaultResult.result.fixtures.map((f) => f.externalFixtureId);
-        expect(ids).toContain("900007");
-        expect(ids).not.toContain("900008");
+        expect(ids).toContain("tlfb-900007");
+        expect(ids).not.toContain("tlfb-900008");
       }
 
       const withUnsupported = await browseFixturesByDateAction({ preset: "next_7_days", includeUnsupported: true });
       expect(withUnsupported.success).toBe(true);
       if (withUnsupported.success) {
         const ids = withUnsupported.result.fixtures.map((f) => f.externalFixtureId);
-        expect(ids).toContain("900007");
-        expect(ids).toContain("900008");
-        const unsupportedFixture = withUnsupported.result.fixtures.find((f) => f.externalFixtureId === "900008");
+        expect(ids).toContain("tlfb-900007");
+        expect(ids).toContain("tlfb-900008");
+        const unsupportedFixture = withUnsupported.result.fixtures.find((f) => f.externalFixtureId === "tlfb-900008");
         expect(unsupportedFixture?.isSupported).toBe(false);
       }
     });
 
     it("a completed fixture stays visible through a wide range but is never presented as pool-eligible (spec §15)", async () => {
       await admin.from("fixtures").insert(
-        fixtureRow("900009", iso(3600_000), { internal_status: "COMPLETED", home_score: 2, away_score: 1 }),
+        fixtureRow("tlfb-900009", iso(3600_000), { internal_status: "COMPLETED", home_score: 2, away_score: 1 }),
       );
       const result = await browseFixturesByDateAction({ preset: "next_7_days" });
       expect(result.success).toBe(true);
       if (!result.success) return;
-      const fixture = result.result.fixtures.find((f) => f.externalFixtureId === "900009");
+      const fixture = result.result.fixtures.find((f) => f.externalFixtureId === "tlfb-900009");
       expect(fixture).toBeDefined();
       expect(fixture?.statusBucket).toBe("COMPLETED");
       expect(fixture?.eligibility).toBe("COMPLETED");
@@ -311,16 +322,16 @@ describe.skipIf(!SERVICE_ROLE_KEY)("Phase 2 local-first fixture browsing", () =>
   describe("browseFixturesByCompetitionSeasonAction — By competition (spec §6/§7)", () => {
     it("returns only the requested competition+season's local fixtures", async () => {
       await admin.from("fixtures").insert([
-        fixtureRow("900010", iso(3600_000)),
-        fixtureRow("900011", iso(7200_000), { season: "8888" }), // different season, must not appear
+        fixtureRow("tlfb-900010", iso(3600_000)),
+        fixtureRow("tlfb-900011", iso(7200_000), { season: "8888" }), // different season, must not appear
       ]);
 
       const result = await browseFixturesByCompetitionSeasonAction(SUPPORTED_ID, TEST_SEASON);
       expect(result.success).toBe(true);
       if (!result.success) return;
       const ids = result.result.fixtures.map((f) => f.externalFixtureId);
-      expect(ids).toContain("900010");
-      expect(ids).not.toContain("900011");
+      expect(ids).toContain("tlfb-900010");
+      expect(ids).not.toContain("tlfb-900011");
     });
 
     it("rejects an unsupported competition id — no silent bypass", async () => {
@@ -407,14 +418,14 @@ describe.skipIf(!SERVICE_ROLE_KEY)("Phase 2 local-first fixture browsing", () =>
 
       const { data: fixture } = await admin
         .from("fixtures")
-        .insert(fixtureRow("900012", iso(3_600_000)))
+        .insert(fixtureRow("tlfb-900012", iso(3_600_000)))
         .select("id")
         .single();
 
       const beforePool = await browseFixturesByCompetitionSeasonAction(SUPPORTED_ID, TEST_SEASON);
       expect(beforePool.success).toBe(true);
       if (beforePool.success) {
-        const f = beforePool.result.fixtures.find((x) => x.externalFixtureId === "900012");
+        const f = beforePool.result.fixtures.find((x) => x.externalFixtureId === "tlfb-900012");
         expect(f?.poolCount).toBe(0);
         expect(f?.eligibility).toBe("ELIGIBLE");
       }
@@ -435,18 +446,18 @@ describe.skipIf(!SERVICE_ROLE_KEY)("Phase 2 local-first fixture browsing", () =>
       const afterPool = await browseFixturesByCompetitionSeasonAction(SUPPORTED_ID, TEST_SEASON);
       expect(afterPool.success).toBe(true);
       if (afterPool.success) {
-        const f = afterPool.result.fixtures.find((x) => x.externalFixtureId === "900012");
+        const f = afterPool.result.fixtures.find((x) => x.externalFixtureId === "tlfb-900012");
         expect(f?.poolCount).toBe(1);
         expect(f?.eligibility).toBe("ELIGIBLE"); // an OPEN pool still leaves it eligible for another
       }
     });
 
     it("a hidden fixture (hidden_from_pool_creation) shows as LOCKED, not ELIGIBLE or COMPLETED", async () => {
-      await admin.from("fixtures").insert(fixtureRow("900013", iso(3_600_000), { hidden_from_pool_creation: true }));
+      await admin.from("fixtures").insert(fixtureRow("tlfb-900013", iso(3_600_000), { hidden_from_pool_creation: true }));
       const result = await browseFixturesByDateAction({ preset: "next_7_days" });
       expect(result.success).toBe(true);
       if (!result.success) return;
-      const f = result.result.fixtures.find((x) => x.externalFixtureId === "900013");
+      const f = result.result.fixtures.find((x) => x.externalFixtureId === "tlfb-900013");
       expect(f?.eligibility).toBe("LOCKED");
     });
   });
@@ -454,26 +465,26 @@ describe.skipIf(!SERVICE_ROLE_KEY)("Phase 2 local-first fixture browsing", () =>
   describe("supported-competition gate on direct fixture-ID import (spec §8)", () => {
     it("imports a supported-competition fixture normally, with no warning and pool creation not hidden", async () => {
       getFixtureByIdMock.mockResolvedValueOnce(
-        normalizedFixture({ externalFixtureId: "800001", competitionExternalId: SUPPORTED_ID, competitionName: "Premier League" }),
+        normalizedFixture({ externalFixtureId: "tlfb-800001", competitionExternalId: SUPPORTED_ID, competitionName: "Premier League" }),
       );
-      const [result] = await importFixturesAction(["800001"]);
+      const [result] = await importFixturesAction(["tlfb-800001"]);
       expect(result.success).toBe(true);
       expect(result.warning).toBeNull();
 
-      const { data: row } = await admin.from("fixtures").select("hidden_from_pool_creation").eq("external_fixture_id", "800001").single();
+      const { data: row } = await admin.from("fixtures").select("hidden_from_pool_creation").eq("external_fixture_id", "tlfb-800001").single();
       expect(row?.hidden_from_pool_creation).toBe(false);
     });
 
     it("imports an unsupported-competition fixture for inspection, but forces hidden_from_pool_creation and returns a warning — no silent bypass", async () => {
       getFixtureByIdMock.mockResolvedValueOnce(
-        normalizedFixture({ externalFixtureId: "800002", competitionExternalId: UNSUPPORTED_ID, competitionName: "Unsupported League" }),
+        normalizedFixture({ externalFixtureId: "tlfb-800002", competitionExternalId: UNSUPPORTED_ID, competitionName: "Unsupported League" }),
       );
-      const [result] = await importFixturesAction(["800002"]);
+      const [result] = await importFixturesAction(["tlfb-800002"]);
       expect(result.success).toBe(true);
       expect(result.warning).not.toBeNull();
       expect(result.warning).toContain("not a supported competition");
 
-      const { data: row } = await admin.from("fixtures").select("hidden_from_pool_creation").eq("external_fixture_id", "800002").single();
+      const { data: row } = await admin.from("fixtures").select("hidden_from_pool_creation").eq("external_fixture_id", "tlfb-800002").single();
       expect(row?.hidden_from_pool_creation).toBe(true);
     });
   });

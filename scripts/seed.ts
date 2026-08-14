@@ -11,12 +11,16 @@
  *   pnpm create-super-admin --email you@example.com --password 'xxxx' --name "Admin"
  *   pnpm seed
  *
- * NEVER run against production — see docs/DEPLOYMENT.md.
+ * NEVER run against production — see docs/DEPLOYMENT.md. Enforced (not
+ * just documented) as of Phase 3 — see assertProductionWriteConfirmed.
  */
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { generatePoolTemplate, type PoolType } from "../lib/pools/templates";
 import { buildNoticeCopy } from "../lib/pools/notices";
 import type { PoolVoidReason } from "../lib/pools/anomaly";
+import { assertProductionWriteConfirmed } from "./lib/production-guard";
+
+assertProductionWriteConfirmed(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "", "seed");
 
 function createAdminClient() {
   return createSupabaseClient(

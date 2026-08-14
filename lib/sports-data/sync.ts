@@ -6,6 +6,8 @@ import { TERMINAL_STATUSES } from "./status-map";
 import type { FixtureInternalStatus } from "./types";
 import { EVENT_DEPENDENT_TEMPLATE_IDS } from "@/lib/pools/templates/registry";
 import { getProviderStatus, isQuotaExhaustedError } from "./provider-gateway";
+import { API_FOOTBALL_PROVIDER } from "./provider-names";
+import { shouldReserveQuota } from "./quota-reserve";
 
 const MINUTE_MS = 60_000;
 
@@ -68,16 +70,32 @@ export async function runFixtureSync(): Promise<SyncResult> {
   // requests. Without it, a quota-exhaustion event left every due fixture
   // to fail individually, one wasted (and logged) request each, for the
   // entire cron run instead of skipping the tick.
-  const status = await getProviderStatus(true);
+  const status = await getProviderStatus(true, API_FOOTBALL_PROVIDER);
   if (status.circuitBreakerOpen) {
+    return result;
+  }
+
+  // Opt-in self-imposed daily budget (spec §18) — a no-op unless an admin
+  // has actually configured API_FOOTBALL_DAILY_REQUEST_BUDGET. Checked
+  // separately from the breaker above: the breaker reacts to a request
+  // that already failed, this stops the tick from spending toward
+  // exhaustion in the first place.
+  if (await shouldReserveQuota(API_FOOTBALL_PROVIDER)) {
     return result;
   }
 
   const admin = createAdminClient();
   const terminalList = TERMINAL_STATUSES.join(",");
+  // Phase 3 fix: this query previously had no provider filter, so every
+  // non-terminal NFL fixture (most of them — NFL rows stay NOT_STARTED
+  // for weeks) was picked up here too, and its API-NFL numeric game id
+  // got sent to apiFootballProvider.getFixtureById below. Mirrors
+  // sync-nfl.ts's own equivalent query, which already correctly filters
+  // `.eq("provider", "api_nfl")`.
   const { data: fixtures } = await admin
     .from("fixtures")
     .select("id, external_fixture_id, internal_status, scheduled_start_utc, last_synced_at")
+    .eq("provider", API_FOOTBALL_PROVIDER)
     .not("internal_status", "in", `(${terminalList})`);
 
   if (!fixtures) return result;

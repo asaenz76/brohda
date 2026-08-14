@@ -1,5 +1,10 @@
+"use client";
+
+import { useState, useTransition } from "react";
 import type { ProviderStatus } from "@/lib/sports-data/provider-gateway";
+import { testProviderConnectionAction } from "@/lib/actions/provider-health";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 const QUOTA_BADGE: Record<ProviderStatus["quotaState"], { label: string; className: string }> = {
   OK: { label: "OK", className: "bg-credit/10 text-credit" },
@@ -13,23 +18,45 @@ function formatTimestamp(iso: string | null): string {
 }
 
 // Read-only snapshot of lib/sports-data/provider-gateway.ts's
-// getProviderStatus() — derived entirely from provider_request_log, so
-// this reflects exactly what every background job's own circuit-breaker
-// check sees. Deliberately shows the real 24h request count rather than
-// an "estimated requests remaining" figure — API-Football's actual daily
-// cap for this account was never confirmed by a documented value, and
-// fabricating one would be worse than omitting it.
-export function ProviderStatusPanel({ status }: { status: ProviderStatus }) {
+// getProviderStatus() for ONE provider — derived entirely from
+// provider_request_log, so this reflects exactly what that provider's own
+// circuit-breaker check sees. One provider's card never reflects another's
+// state (Phase 3 spec §5/§6) — the parent page renders one
+// <ProviderStatusPanel> per provider, each independently fetched.
+// Deliberately shows the real 24h request count rather than an "estimated
+// requests remaining" figure — neither provider's real daily cap has ever
+// been confirmed by a documented value, and fabricating one would be
+// worse than omitting it (spec §17).
+export function ProviderStatusPanel({
+  provider,
+  label,
+  enabledEnvHint,
+  status,
+}: {
+  provider: string;
+  label: string;
+  enabledEnvHint: string;
+  status: ProviderStatus;
+}) {
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function runTest() {
+    setTestResult(null);
+    startTransition(async () => {
+      const result = await testProviderConnectionAction(provider);
+      setTestResult(result);
+    });
+  }
+
   if (!status.enabled) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Provider status</CardTitle>
+          <CardTitle>{label}</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-text-secondary">
-            The sports data provider isn&apos;t enabled. Set <code>API_FOOTBALL_ENABLED=true</code> and a valid <code>API_FOOTBALL_KEY</code> to use it.
-          </p>
+          <p className="text-sm text-text-secondary">{enabledEnvHint}</p>
         </CardContent>
       </Card>
     );
@@ -40,7 +67,7 @@ export function ProviderStatusPanel({ status }: { status: ProviderStatus }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Provider status</CardTitle>
+        <CardTitle>{label}</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="flex flex-wrap items-center gap-2">
@@ -82,11 +109,21 @@ export function ProviderStatusPanel({ status }: { status: ProviderStatus }) {
           </dl>
 
           <p className="mt-3 text-xs text-text-muted">
-            While the circuit breaker is open, scheduled competition sync and the recommendation availability cache
-            skip their run rather than retry — see Competition Workspace &quot;Sync now&quot; for a manual,
-            single-competition retry once quota is likely available again.
+            While the circuit breaker is open, scheduled sync/discovery skip their run rather than retry — see
+            Competition Workspace &quot;Sync now&quot; for a manual, single-competition retry once quota is likely
+            available again.
           </p>
         </details>
+
+        <div className="mt-3 flex items-center gap-2 border-t border-border-subtle pt-3">
+          <Button type="button" variant="outline" size="sm" disabled={pending} onClick={runTest}>
+            {pending ? "Testing…" : "Test connection"}
+          </Button>
+          <span className="text-xs text-text-muted">Sends exactly one live request to {label}.</span>
+        </div>
+        {testResult && (
+          <p className={`mt-2 text-xs ${testResult.success ? "text-credit" : "text-danger"}`}>{testResult.message}</p>
+        )}
       </CardContent>
     </Card>
   );

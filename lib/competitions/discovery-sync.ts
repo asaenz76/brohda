@@ -5,6 +5,8 @@ import { toFixtureRow, toTeamRows } from "@/lib/sports-data/persist";
 import type { NormalizedFixture } from "@/lib/sports-data/types";
 import { getSupportedCompetitionMap } from "@/lib/sports-data/supported-competitions";
 import { getProviderStatus, isQuotaExhaustedError } from "@/lib/sports-data/provider-gateway";
+import { API_FOOTBALL_PROVIDER } from "@/lib/sports-data/provider-names";
+import { shouldReserveQuota } from "@/lib/sports-data/quota-reserve";
 import { DISCOVERY_COMPETITIONS_PER_CRON_TICK, DISCOVERY_SYNC_INTERVAL_HOURS } from "./constants";
 
 export interface DiscoverySyncResult {
@@ -147,8 +149,9 @@ export async function runCompetitionDiscoverySync(): Promise<DiscoverySyncResult
   // from a recent quota error, every call in this run would fail
   // identically, so skip the tick entirely rather than burning the
   // remaining request budget on guaranteed failures.
-  const status = await getProviderStatus(true);
+  const status = await getProviderStatus(true, API_FOOTBALL_PROVIDER);
   if (status.circuitBreakerOpen) return result;
+  if (await shouldReserveQuota(API_FOOTBALL_PROVIDER)) return result;
 
   // Discovery only ever operates on supported competitions — an
   // imported-but-now-unsupported competition (e.g. one dropped from the
@@ -162,6 +165,12 @@ export async function runCompetitionDiscoverySync(): Promise<DiscoverySyncResult
   const { data: due } = await adminClient
     .from("league_season_imports")
     .select("id, external_league_id, season")
+    // Defense-in-depth, not currently exploitable: SUPPORTED_COMPETITIONS'
+    // ids and NFL's single hardcoded league id ("1") don't collide today,
+    // but this table is genuinely multi-provider (NFL writes its own row
+    // here too), so this loop should never rely on that non-collision
+    // holding forever.
+    .eq("provider", API_FOOTBALL_PROVIDER)
     .eq("import_status", "IMPORTED")
     .eq("is_active", true)
     .in("external_league_id", supportedIds)

@@ -18,6 +18,7 @@ import type {
 } from "./types";
 import { ProviderApiError } from "./api-football-provider";
 import { API_NFL_PROVIDER } from "./provider-names";
+import { getCachedRawOdds, setCachedRawOdds } from "./odds-raw-cache";
 
 // API-NFL (api-sports.io's American-football sibling to API-Football).
 // Shapes below are transcribed from real, live-verified responses (not
@@ -318,6 +319,15 @@ function normalizeNflBookmakerOdds(bookmaker: ApiNflOddsBookmaker): NflBookmaker
 }
 
 async function callNflOddsEndpoint(externalFixtureId: string): Promise<ApiNflOddsResponseItem | null> {
+  // Phase 3 (spec §15): NFL's odds path previously had no cache at all —
+  // every getFixtureRawOdds call hit the live provider. Same short-TTL
+  // raw-response cache football's callOddsEndpoint now uses, keyed by
+  // provider so a same-numbered football/NFL fixture id pair can never
+  // collide (fixture_odds_raw_cache's key is (provider,
+  // external_fixture_id)).
+  const cached = await getCachedRawOdds<ApiNflOddsResponseItem>(PROVIDER_NAME, externalFixtureId);
+  if (cached) return cached;
+
   const url = new URL(`${baseUrl()}/odds`);
   url.searchParams.set("game", externalFixtureId);
 
@@ -328,7 +338,9 @@ async function callNflOddsEndpoint(externalFixtureId: string): Promise<ApiNflOdd
   );
 
   const body = await parseApiNflBody<ApiNflOddsListResponse>(response);
-  return body.response?.[0] ?? null;
+  const item = body.response?.[0] ?? null;
+  if (item) await setCachedRawOdds(PROVIDER_NAME, externalFixtureId, item);
+  return item;
 }
 
 export class ApiNflProvider implements SportsDataProvider {

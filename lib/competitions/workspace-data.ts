@@ -96,7 +96,20 @@ export const getCompetitionWorkspaceData = cache(async (id: string): Promise<Com
     // refresh/sync, never here) rather than a live getLeagueById call on
     // every Workspace page view — this page render must never itself
     // spend provider quota.
-    adminClient.from("competition_availability_cache").select("season").eq("external_league_id", lsi.external_league_id).maybeSingle(),
+    // Scoped by provider too, not just external_league_id — this function
+    // is generic over any league_season_imports row (football or NFL, see
+    // sync-nfl.ts's own write to this same table's league_season_imports),
+    // and competition_availability_cache's real key is (provider,
+    // external_league_id, season). Not currently exploitable (NFL never
+    // writes competition_availability_cache and its one league id, "1",
+    // has no football collision today), but the query itself shouldn't
+    // depend on that non-collision holding forever.
+    adminClient
+      .from("competition_availability_cache")
+      .select("season")
+      .eq("provider", lsi.provider)
+      .eq("external_league_id", lsi.external_league_id)
+      .maybeSingle(),
   ]);
 
   const jobIds = (jobRows ?? []).map((j) => j.id);

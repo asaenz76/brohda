@@ -12,6 +12,14 @@ interface PlayerPickerProps {
   homeTeamName: string;
   awayTeamExternalId: string | null;
   awayTeamName: string;
+  // Which provider these team ids belong to — threaded through to
+  // getTeamSquadAction so the squad lookup routes by the fixture's own
+  // identity rather than assuming football (Phase 3 spec §1). Optional
+  // only because getTeamSquadAction itself defaults to football for any
+  // caller that predates this prop; PLAYER_TO_SCORE is football-only
+  // today, so every real caller already has a football fixture.provider
+  // to pass.
+  provider?: string;
   selectedPlayerId: string;
   selectedPlayerName: string;
   onSelect: (player: { externalPlayerId: string; name: string }) => void;
@@ -28,6 +36,7 @@ export function PlayerPicker({
   homeTeamName,
   awayTeamExternalId,
   awayTeamName,
+  provider,
   selectedPlayerId,
   selectedPlayerName,
   onSelect,
@@ -39,19 +48,24 @@ export function PlayerPicker({
   const [awaySquad, setAwaySquad] = useState<{ forId: string | null; players: SquadPlayer[] } | null>(null);
   const [search, setSearch] = useState("");
 
+  // getTeamSquadAction itself no longer throws (Phase 3 fix — it falls
+  // back to cache on any provider failure), but a `.catch` stays here as
+  // defense-in-depth against a transport-level Server Action rejection,
+  // so `loading` always resolves either way instead of spinning forever
+  // on the one failure mode that isn't inside the action's own control.
   useEffect(() => {
     const id = homeTeamExternalId;
-    (id ? getTeamSquadAction(id) : Promise.resolve<SquadPlayer[]>([])).then((players) => {
-      setHomeSquad({ forId: id, players });
-    });
-  }, [homeTeamExternalId]);
+    (id ? getTeamSquadAction(id, provider) : Promise.resolve<SquadPlayer[]>([]))
+      .then((players) => setHomeSquad({ forId: id, players }))
+      .catch(() => setHomeSquad({ forId: id, players: [] }));
+  }, [homeTeamExternalId, provider]);
 
   useEffect(() => {
     const id = awayTeamExternalId;
-    (id ? getTeamSquadAction(id) : Promise.resolve<SquadPlayer[]>([])).then((players) => {
-      setAwaySquad({ forId: id, players });
-    });
-  }, [awayTeamExternalId]);
+    (id ? getTeamSquadAction(id, provider) : Promise.resolve<SquadPlayer[]>([]))
+      .then((players) => setAwaySquad({ forId: id, players }))
+      .catch(() => setAwaySquad({ forId: id, players: [] }));
+  }, [awayTeamExternalId, provider]);
 
   const loading = homeSquad?.forId !== homeTeamExternalId || awaySquad?.forId !== awayTeamExternalId;
 

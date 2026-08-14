@@ -1,5 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { classifyProviderError } from "./provider-errors";
 
 const MAX_ATTEMPTS = 3;
 const BASE_DELAY_MS = 500;
@@ -53,6 +54,13 @@ type FetchWithRetryOptions = {
   provider: string;
   requestType: string;
   requestParams?: Record<string, unknown>;
+  // Phase 3 spec §8: which kind of caller made this request — distinct
+  // scheduled jobs, manual admin actions, pool creation, discovery, and
+  // troubleshooting lookups from each other in provider_request_log,
+  // without requiring every call site to populate it (optional; a request
+  // logged without one is just less filterable later, never a hard
+  // requirement to add).
+  callerCategory?: "manual_admin" | "scheduled_sync" | "pool_creation" | "discovery" | "troubleshooting";
 };
 
 /**
@@ -82,12 +90,15 @@ export async function fetchWithRetry(
           // request will fail identically on immediate retry, so retrying
           // only spends more of the same exhausted quota. Logged as a real
           // error (not the plain success this used to be) so
-          // provider-gateway.ts's circuit breaker actually sees it.
+          // provider-gateway.ts's circuit breaker actually sees it. Every
+          // soft error observed so far is the quota-exhaustion convention
+          // — known directly here, no message-pattern guess needed.
           await logRequest({
             ...options,
             responseStatus: response.status,
             responseSnippet: softError.snippet,
             error: softError.message,
+            normalizedErrorType: "QUOTA_EXHAUSTED",
             durationMs: Date.now() - startedAt,
           });
           throw new ProviderSoftError(softError.message);
@@ -108,6 +119,7 @@ export async function fetchWithRetry(
           responseStatus: response.status,
           responseSnippet: snippet,
           error: `permanent error: ${response.status}`,
+          normalizedErrorType: response.status === 401 || response.status === 403 ? "AUTH_FAILED" : "INVALID_REQUEST",
           durationMs: Date.now() - startedAt,
         });
         throw new PermanentProviderError(`Provider returned permanent error ${response.status}`);
@@ -127,6 +139,7 @@ export async function fetchWithRetry(
   await logRequest({
     ...options,
     error: lastError instanceof Error ? lastError.message : "unknown error",
+    normalizedErrorType: classifyProviderError(lastError),
     durationMs: Date.now() - startedAt,
   });
 
@@ -153,6 +166,8 @@ async function logRequest(params: {
   responseStatus?: number;
   responseSnippet?: string;
   error?: string;
+  normalizedErrorType?: string;
+  callerCategory?: string;
   durationMs: number;
 }) {
   try {
@@ -164,6 +179,8 @@ async function logRequest(params: {
       response_status: params.responseStatus ?? null,
       response_snippet: params.responseSnippet ?? null,
       error: params.error ?? null,
+      normalized_error_type: params.normalizedErrorType ?? null,
+      caller_category: params.callerCategory ?? null,
       duration_ms: params.durationMs,
     });
   } catch {
