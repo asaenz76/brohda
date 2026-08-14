@@ -72,7 +72,16 @@ interface ApiNflGameResponse {
     week: string | null;
     date: { timezone: string | null; date: string; time: string; timestamp: number };
     venue: { name: string | null; city: string | null } | null;
-    status: { short: string | null; long: string | null; timer: number | null };
+    // `timer` was typed (and passed straight through as elapsedMinutes)
+    // as `number | null` — wrong. Confirmed live during production
+    // verification: an in-progress game returned `timer: "15:00"` (a
+    // quarter clock string, not a plain elapsed-minute count), which
+    // fixtures.elapsed_minutes (integer) rejected outright, failing the
+    // whole batch upsert for every fixture in that tick. Typed accurately
+    // here; normalizeElapsedMinutes below only ever passes through an
+    // actual number, storing null for the clock-string shape rather than
+    // guessing an unconfirmed MM:SS -> minutes conversion.
+    status: { short: string | null; long: string | null; timer: number | string | null };
   };
   league: {
     id: number;
@@ -125,6 +134,19 @@ async function parseApiNflBody<T>(response: Response): Promise<T> {
   return body;
 }
 
+// Confirmed live during production verification: `status.timer` is a
+// plain integer for at least some game states, but a "MM:SS" quarter-
+// clock string (e.g. "15:00") for others — passing it straight through as
+// elapsedMinutes (an integer column) failed an entire batch upsert. There
+// is no confirmed mapping from that clock string to a meaningful elapsed-
+// minutes count (is "15:00" time remaining or elapsed in the quarter? not
+// verified), so this stores null for that shape rather than guessing —
+// same "don't fabricate a value you haven't confirmed" discipline as
+// quota-reserve.ts's reset-time handling.
+export function normalizeElapsedMinutes(timer: number | string | null): number | null {
+  return typeof timer === "number" ? timer : null;
+}
+
 function mapGame(raw: ApiNflGameResponse): NormalizedFixture {
   const home = raw.scores?.home;
   const away = raw.scores?.away;
@@ -164,7 +186,7 @@ function mapGame(raw: ApiNflGameResponse): NormalizedFixture {
     providerStatusCode: raw.game.status.short,
     providerStatusDescription: raw.game.status.long,
     internalStatus: normalizeApiNflStatus(raw.game.status.short),
-    elapsedMinutes: raw.game.status.timer,
+    elapsedMinutes: normalizeElapsedMinutes(raw.game.status.timer),
     homeScore: home?.total ?? null,
     awayScore: away?.total ?? null,
     halftimeHomeScore: halftimeHome,
