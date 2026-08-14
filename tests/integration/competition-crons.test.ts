@@ -21,11 +21,14 @@ let mockIsEnabled = true;
 let mockLeagueById: Record<string, NormalizedLeague | null> = {};
 let mockSeasonFixturesByKey: Record<string, NormalizedFixture[]> = {};
 
+const getLeagueByIdMock = vi.fn(async (id: string) => mockLeagueById[id] ?? null);
+const getSeasonFixturesMock = vi.fn(async (id: string, season: string) => mockSeasonFixturesByKey[`${id}:${season}`] ?? []);
+
 vi.mock("@/lib/sports-data/api-football-provider", () => ({
   apiFootballProvider: {
     isEnabled: () => mockIsEnabled,
-    getLeagueById: async (id: string) => mockLeagueById[id] ?? null,
-    getSeasonFixtures: async (id: string, season: string) => mockSeasonFixturesByKey[`${id}:${season}`] ?? [],
+    getLeagueById: (id: string) => getLeagueByIdMock(id),
+    getSeasonFixtures: (id: string, season: string) => getSeasonFixturesMock(id, season),
   },
 }));
 
@@ -96,6 +99,8 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition background jobs", () => {
     mockIsEnabled = true;
     mockLeagueById = {};
     mockSeasonFixturesByKey = {};
+    getLeagueByIdMock.mockClear();
+    getSeasonFixturesMock.mockClear();
     await cleanupTestData();
   });
   afterAll(cleanupTestData);
@@ -171,6 +176,140 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition background jobs", () => {
 
       const { data: finalLsi } = await admin.from("league_season_imports").select("import_status").eq("id", lsi!.id).single();
       expect(finalLsi?.import_status).toBe("IMPORT_FAILED");
+    });
+
+    // Regression coverage for a real production incident: a historical
+    // backfill created several jobs whose chunks all genuinely succeeded
+    // (processed by a different runCompetitionImportProcessing invocation
+    // than the one that would normally notice — claim_import_job_chunks
+    // claims across every in-flight job, not scoped to any one caller's
+    // own job, so this cross-invocation finish is real, not hypothetical),
+    // but neither the job's own `status` column nor its
+    // league_season_imports row was ever updated — both stayed stuck
+    // RUNNING/IMPORTING indefinitely, since finalization used to depend
+    // entirely on "the same tick that claims the last chunk also
+    // finalizes it." The reconciliation pass in process-imports-cron.ts
+    // closes this gap.
+    describe("reconciliation pass — finalizing jobs whose last chunk finished in a different invocation", () => {
+      async function seedFinishedButUnfinalizedJob(status: "SUCCEEDED" | "FAILED" = "SUCCEEDED") {
+        const { data: league } = await admin.from("leagues").insert({ provider: "api_football", external_id: "555002", name: "Cron Test" }).select("id").single();
+        const { data: lsi } = await admin
+          .from("league_season_imports")
+          .insert({ provider: "api_football", external_league_id: "555002", season: "2026", league_id: league!.id, import_status: "IMPORTING" })
+          .select("id")
+          .single();
+        // The job's own status column is deliberately left RUNNING here —
+        // exactly the observed real state: recalculate_import_job_progress
+        // (the only thing that updates it) was never called after the
+        // chunk actually finished.
+        const { data: job } = await admin
+          .from("competition_import_jobs")
+          .insert({ league_season_import_id: lsi!.id, status: "RUNNING", total_fixtures: 1, max_attempts: 5 })
+          .select("id")
+          .single();
+
+        const future = new Date(Date.now() + 86400_000).toISOString();
+        if (status === "SUCCEEDED") {
+          // The chunk itself is already SUCCEEDED — as if a different
+          // invocation processed it — and its fixture already exists, same
+          // as processImportChunk would have written it (bypassing that
+          // function here since this test is about finalization, not
+          // chunk processing).
+          await admin.from("competition_import_job_chunks").insert({
+            job_id: job!.id,
+            chunk_index: 0,
+            fixtures_payload: [fixture("9103", future)],
+            fixture_count: 1,
+            payload_bytes: 100,
+            status: "SUCCEEDED",
+            processed_at: new Date().toISOString(),
+          });
+          await admin.from("fixtures").upsert(
+            {
+              provider: "api_football",
+              external_fixture_id: "9103",
+              sport: "football",
+              competition_external_id: "555002",
+              season: "2026",
+              round: "Round 1",
+              home_team_name: "Cron Home FC",
+              away_team_name: "Cron Away FC",
+              scheduled_start_utc: future,
+              internal_status: "NOT_STARTED",
+            },
+            { onConflict: "provider,external_fixture_id" },
+          );
+        } else {
+          await admin.from("competition_import_job_chunks").insert({
+            job_id: job!.id,
+            chunk_index: 0,
+            fixtures_payload: [],
+            fixture_count: 0,
+            payload_bytes: 2,
+            status: "FAILED",
+            attempt_count: 5, // already exhausted
+            last_error: "simulated permanent failure",
+          });
+        }
+        return { lsi: lsi!.id, job: job!.id };
+      }
+
+      it("1+2+3+4: a multi-invocation-finished job (chunks terminal, job.status still stale RUNNING, league_season_imports still IMPORTING) is found and flipped to IMPORTED by the next reconciliation pass", async () => {
+        const { lsi, job } = await seedFinishedButUnfinalizedJob("SUCCEEDED");
+
+        // Precondition, proving this is genuinely the stuck state before
+        // reconciliation runs — not already correct by some other path.
+        const { data: preJob } = await admin.from("competition_import_jobs").select("status").eq("id", job).single();
+        const { data: preLsi } = await admin.from("league_season_imports").select("import_status").eq("id", lsi).single();
+        expect(preJob?.status).toBe("RUNNING");
+        expect(preLsi?.import_status).toBe("IMPORTING");
+
+        const result = await runCompetitionImportProcessing();
+        expect(result.jobsReconciled).toBeGreaterThanOrEqual(1);
+
+        const { data: postJob } = await admin.from("competition_import_jobs").select("status").eq("id", job).single();
+        const { data: postLsi } = await admin.from("league_season_imports").select("*").eq("id", lsi).single();
+        expect(postJob?.status).toBe("SUCCEEDED");
+        expect(postLsi?.import_status).toBe("IMPORTED");
+        expect(postLsi?.fixture_count_imported).toBe(1);
+        expect(postLsi?.upcoming_fixture_count).toBe(1);
+      });
+
+      it("5: repeated finalization is idempotent — a second reconciliation pass over an already-IMPORTED row changes nothing and reconciles nothing further", async () => {
+        const { lsi, job } = await seedFinishedButUnfinalizedJob("SUCCEEDED");
+        await runCompetitionImportProcessing();
+
+        const { data: afterFirst } = await admin.from("league_season_imports").select("*").eq("id", lsi).single();
+        const secondResult = await runCompetitionImportProcessing();
+        const { data: afterSecond } = await admin.from("league_season_imports").select("*").eq("id", lsi).single();
+
+        expect(afterSecond?.import_status).toBe("IMPORTED");
+        expect(afterSecond?.fixture_count_imported).toBe(afterFirst?.fixture_count_imported);
+        expect(afterSecond?.upcoming_fixture_count).toBe(afterFirst?.upcoming_fixture_count);
+        // Nothing left to reconcile the second time — the row is no
+        // longer IMPORTING, so the pass never even considers this job.
+        expect(secondResult.jobsReconciled).toBe(0);
+
+        const { data: jobRow } = await admin.from("competition_import_jobs").select("status").eq("id", job).single();
+        expect(jobRow?.status).toBe("SUCCEEDED");
+      });
+
+      it("reconciles a FAILED job the same way — league_season_imports flips to IMPORT_FAILED, not silently left IMPORTING", async () => {
+        const { lsi } = await seedFinishedButUnfinalizedJob("FAILED");
+        const result = await runCompetitionImportProcessing();
+        expect(result.jobsReconciled).toBeGreaterThanOrEqual(1);
+
+        const { data: postLsi } = await admin.from("league_season_imports").select("import_status").eq("id", lsi).single();
+        expect(postLsi?.import_status).toBe("IMPORT_FAILED");
+      });
+
+      it("6: no provider calls occur during finalization/reconciliation — getSeasonFixtures/getLeagueById are never invoked", async () => {
+        await seedFinishedButUnfinalizedJob("SUCCEEDED");
+        await runCompetitionImportProcessing();
+
+        expect(getSeasonFixturesMock).not.toHaveBeenCalled();
+        expect(getLeagueByIdMock).not.toHaveBeenCalled();
+      });
     });
   });
 
