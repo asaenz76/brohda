@@ -5,6 +5,7 @@ import { requireAdminOrAbove, requireSuperAdmin } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAuditLog } from "@/lib/audit/log";
 import { apiFootballProvider } from "@/lib/sports-data/api-football-provider";
+import { isQuotaExhaustedError } from "@/lib/sports-data/provider-gateway";
 import { toFixtureRow, toLeagueRow, toTeamRows } from "@/lib/sports-data/persist";
 import type { NormalizedFixture } from "@/lib/sports-data/types";
 import {
@@ -133,18 +134,35 @@ export async function searchTeamsAction(
 export type ImportFixtureResult = { externalFixtureId: string; success: boolean; error: string | null };
 
 async function importOneFixture(externalFixtureId: string, adminId: string): Promise<ImportFixtureResult> {
-  const fixture = await apiFootballProvider.getFixtureById(externalFixtureId);
-  if (!fixture) {
-    return { externalFixtureId, success: false, error: "Could not find this fixture." };
-  }
+  // Wrapped so one fixture hitting a provider quota/rate-limit error (an
+  // expected operational condition, not a bug) returns a clean per-fixture
+  // failure instead of throwing the whole bulk-import batch uncaught out
+  // of importFixturesAction — the caller's loop keeps going for the rest
+  // of the batch either way.
+  let fixture, competitionType;
+  try {
+    fixture = await apiFootballProvider.getFixtureById(externalFixtureId);
+    if (!fixture) {
+      return { externalFixtureId, success: false, error: "Could not find this fixture." };
+    }
 
-  // The fixture lookup above never returns league.type (only /leagues
-  // does) — fetched separately here, once per import, so the pool-creation
-  // template picker can stage-gate "Who will advance?" vs "Result after
-  // regulation" (spec: a Cup fixture is knockout, never a draw).
-  const competitionType = fixture.competitionExternalId
-    ? await apiFootballProvider.getLeagueType(fixture.competitionExternalId)
-    : null;
+    // The fixture lookup above never returns league.type (only /leagues
+    // does) — fetched separately here, once per import, so the
+    // pool-creation template picker can stage-gate "Who will advance?" vs
+    // "Result after regulation" (spec: a Cup fixture is knockout, never a
+    // draw).
+    competitionType = fixture.competitionExternalId
+      ? await apiFootballProvider.getLeagueType(fixture.competitionExternalId)
+      : null;
+  } catch (err) {
+    return {
+      externalFixtureId,
+      success: false,
+      error: isQuotaExhaustedError(err)
+        ? "The sports data provider's request quota is exhausted right now. Try again later."
+        : "Could not reach the sports data provider.",
+    };
+  }
 
   const adminClient = createAdminClient();
   const { error } = await adminClient

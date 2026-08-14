@@ -6,6 +6,49 @@ const BASE_DELAY_MS = 500;
 
 export class PermanentProviderError extends Error {}
 
+/**
+ * A provider-level soft error — API-Sports (both API-Football and API-NFL,
+ * same envelope convention) signals quota exhaustion and other request
+ * failures with an HTTP 200 whose JSON body has a populated `errors` field
+ * (confirmed live: `{"errors":{"requests":"You have reached the request
+ * limit for the day..."},"results":0,"response":[]}`). Previously this was
+ * only ever detected by each provider's own parseApiFootballBody/
+ * parseApiNflBody, called *after* fetchWithRetry had already logged the
+ * response as a plain success — meaning provider_request_log, and every
+ * circuit-breaker read derived from it (provider-gateway.ts), never saw
+ * this failure at all. Detected here instead, at the one shared layer both
+ * providers' HTTP calls pass through, so the log and the breaker are
+ * correct regardless of which provider or endpoint made the call.
+ */
+export class ProviderSoftError extends Error {}
+
+// Every real 200-status API-Sports response has an `errors` field, normally
+// empty (`{}`/`[]`) on success — only a *populated* one is a failure. This
+// mirrors parseApiFootballBody/parseApiNflBody's own check exactly, kept
+// here as a second, earlier read of the same convention (not a replacement
+// for those — they remain the defense-in-depth check against any body
+// shape this generic peek doesn't recognize).
+async function detectSoftError(response: Response): Promise<{ message: string; snippet: string } | null> {
+  let body: unknown;
+  try {
+    // .clone() so this peek never consumes the body the caller's own
+    // parseApiFootballBody/parseApiNflBody still needs to read afterward.
+    body = await response.clone().json();
+  } catch {
+    return null; // Not JSON (or malformed) — not this convention, not our call to judge.
+  }
+  if (body == null || typeof body !== "object" || !("errors" in body)) return null;
+
+  const errors = (body as { errors?: unknown }).errors;
+  const hasErrors = errors != null && (Array.isArray(errors) ? errors.length > 0 : Object.keys(errors as object).length > 0);
+  if (!hasErrors) return null;
+
+  const summary = Array.isArray(errors)
+    ? errors.map(String).join("; ")
+    : Object.values(errors as Record<string, unknown>).map(String).join("; ");
+  return { message: `Provider request failed: ${summary}`, snippet: JSON.stringify(body).slice(0, 500) };
+}
+
 type FetchWithRetryOptions = {
   provider: string;
   requestType: string;
@@ -32,6 +75,24 @@ export async function fetchWithRetry(
       const response = await fetch(url, init);
 
       if (response.ok) {
+        const softError = await detectSoftError(response);
+        if (softError) {
+          // Never retried — same reasoning as the permanent-4xx branch
+          // below: a quota-exhausted (or otherwise provider-rejected)
+          // request will fail identically on immediate retry, so retrying
+          // only spends more of the same exhausted quota. Logged as a real
+          // error (not the plain success this used to be) so
+          // provider-gateway.ts's circuit breaker actually sees it.
+          await logRequest({
+            ...options,
+            responseStatus: response.status,
+            responseSnippet: softError.snippet,
+            error: softError.message,
+            durationMs: Date.now() - startedAt,
+          });
+          throw new ProviderSoftError(softError.message);
+        }
+
         await logRequest({
           ...options,
           responseStatus: response.status,
@@ -54,7 +115,7 @@ export async function fetchWithRetry(
 
       lastError = new Error(`Provider returned retryable error ${response.status}`);
     } catch (error) {
-      if (error instanceof PermanentProviderError) throw error;
+      if (error instanceof PermanentProviderError || error instanceof ProviderSoftError) throw error;
       lastError = error;
     }
 

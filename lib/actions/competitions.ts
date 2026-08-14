@@ -17,6 +17,7 @@ import {
   RECOMMENDATION_WINDOW_DAYS,
 } from "@/lib/competitions/constants";
 import { refreshRecommendationAvailabilityCache } from "@/lib/competitions/availability-cache";
+import { isQuotaExhaustedError } from "@/lib/sports-data/provider-gateway";
 import {
   buildImportedCompetitionRows,
   buildRecommendedCompetitions,
@@ -89,7 +90,23 @@ export async function startCompetitionImportAction(
     return fail("This competition has already been imported or is currently importing.", existing.id);
   }
 
-  const league = await apiFootballProvider.getLeagueById(externalLeagueId);
+  // Caught explicitly (not left to throw uncaught out of this server
+  // action) so a provider quota/rate-limit hit — a known, expected
+  // operational condition, not a bug — surfaces as a clean admin-facing
+  // message instead of an unhandled exception. isQuotaExhaustedError's own
+  // circuit-breaker read is still what prevents this action from being
+  // retried into a further-exhausted quota; this catch is purely about
+  // this one request's error not crashing the action.
+  let league;
+  try {
+    league = await apiFootballProvider.getLeagueById(externalLeagueId);
+  } catch (err) {
+    return fail(
+      isQuotaExhaustedError(err)
+        ? "The sports data provider's request quota is exhausted right now. Try again later."
+        : "Could not reach the sports data provider.",
+    );
+  }
   if (!league) {
     return fail("Could not find this league with the sports data provider.");
   }
@@ -521,7 +538,20 @@ export async function importSupportedCompetitionAction(externalLeagueId: string)
     return fail("The sports data provider is not enabled.");
   }
 
-  const league = await apiFootballProvider.getLeagueById(externalLeagueId);
+  // Caught explicitly for the same reason as startCompetitionImportAction's
+  // own getLeagueById call — a quota/rate-limit hit is an expected
+  // operational condition, not a bug, and should surface as a clean
+  // message rather than an unhandled exception out of this server action.
+  let league;
+  try {
+    league = await apiFootballProvider.getLeagueById(externalLeagueId);
+  } catch (err) {
+    return fail(
+      isQuotaExhaustedError(err)
+        ? "The sports data provider's request quota is exhausted right now. Try again later."
+        : "Could not reach the sports data provider.",
+    );
+  }
   const currentSeason = league?.seasons.find((s) => s.current);
   if (!currentSeason) {
     return fail("The provider has no current season for this competition right now.");
