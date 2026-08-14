@@ -4,9 +4,10 @@ import { createClient } from "@/lib/supabase/server";
 import { apiFootballProvider } from "@/lib/sports-data/api-football-provider";
 import { TERMINAL_STATUSES } from "@/lib/sports-data/status-map";
 import { parseDateRangeParam } from "@/lib/fixtures/date-window";
+import { getLocalCompetitionOptions } from "@/lib/fixtures/local-competition-options";
 import { ModeTabs, type FixturesMode } from "./mode-tabs";
 import { DateMode } from "./date-mode/date-mode";
-import { CompetitionMode, type WorkspaceRef } from "./competition-mode";
+import { CompetitionMode } from "./competition-mode";
 import { FixtureIdMode } from "./fixture-id-mode";
 import { ImportedFixturesList } from "./imported-fixtures-list";
 
@@ -42,14 +43,12 @@ export default async function AdminFixturesPage({
     )
     .order("scheduled_start_utc", { ascending: false });
 
-  const [{ data: fixtures }, { data: pools }, { data: workspaceRows }] = await Promise.all([
+  const [{ data: fixtures }, { data: pools }, competitionOptions] = await Promise.all([
     showArchived
       ? fixturesQuery.in("internal_status", TERMINAL_STATUSES)
       : fixturesQuery.not("internal_status", "in", `(${TERMINAL_STATUSES.join(",")})`),
     supabase.from("pools").select("fixture_id").not("fixture_id", "is", null),
-    mode === "competition"
-      ? supabase.from("league_season_imports").select("id, external_league_id, season")
-      : Promise.resolve({ data: [] as Array<{ id: string; external_league_id: string; season: string }> }),
+    mode === "competition" ? getLocalCompetitionOptions() : Promise.resolve([]),
   ]);
 
   const poolCountByFixtureId = new Map<string, number>();
@@ -71,17 +70,13 @@ export default async function AdminFixturesPage({
     hidden: f.hidden_from_pool_creation as boolean,
   }));
 
-  const workspaces: WorkspaceRef[] = (workspaceRows ?? []).map((w) => ({
-    id: w.id as string,
-    externalLeagueId: w.external_league_id as string,
-    season: w.season as string,
-  }));
-
   // Server-side normalization of date-mode URL params — a malformed
   // preset/date silently falls back to the default rather than ever
-  // reaching a provider call with bad input (real validation happens
-  // again, authoritatively, inside searchFixturesByDateAction; this only
-  // resolves what DateMode's initial client state should be).
+  // reaching browseFixturesByDateAction (the local-DB query, spec §2) with
+  // bad input; real validation happens again, authoritatively, inside that
+  // action (and, for the still-provider-backed explicit discovery panel,
+  // inside searchFixturesByDateAction too). This only resolves what
+  // DateMode's initial client state should be.
   const initialPreset = parseDateRangeParam(params.range);
   const initialCustomFrom = params.from ?? "";
   const initialCustomTo = params.to ?? "";
@@ -114,7 +109,7 @@ export default async function AdminFixturesPage({
           initialCompetitionExternalId={initialCompetitionExternalId}
         />
       )}
-      {mode === "competition" && <CompetitionMode workspaces={workspaces} providerDisabled={!providerEnabled} />}
+      {mode === "competition" && <CompetitionMode options={competitionOptions} providerDisabled={!providerEnabled} />}
       {mode === "fixture-id" && <FixtureIdMode providerDisabled={!providerEnabled} />}
 
       <div className="flex justify-end">

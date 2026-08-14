@@ -114,6 +114,7 @@ export function PoolTemplateBuilder({
   defaultVisibility = "VISIBLE_TO_ALL_MEMBERS",
   defaultParticipationVisibility = "SHOW_BEFORE_ENTRY",
   duplicateTemplate = null,
+  initialFixtureId,
 }: {
   fixtures: FixtureOption[];
   competitions?: CompetitionOption[];
@@ -122,6 +123,13 @@ export function PoolTemplateBuilder({
   defaultVisibility?: string;
   defaultParticipationVisibility?: string;
   duplicateTemplate?: DuplicateTemplate | null;
+  // Phase 2 (local-first football browsing) spec §13: "browse local
+  // fixture → Create Pool → existing pool creation flow" — the fixture
+  // admins pick while browsing /admin/fixtures arrives here as a
+  // `?fixtureId=` query param (page.tsx), pre-selecting Step 1 the same
+  // way a fixture click would. A stale/unknown id just falls through to
+  // the normal blank Step 1 below, same as never having the param at all.
+  initialFixtureId?: string;
 }) {
   const [state, formAction, pending] = useActionState(createPoolFromTemplate, initialState);
   const [mode, setMode] = useState<"single" | "multi">("single");
@@ -403,6 +411,25 @@ export function PoolTemplateBuilder({
     }
     setConfigValues(duplicate.configValues ?? {});
   }
+
+  // One-shot: pre-selects the fixture named by ?fixtureId= on first mount,
+  // via the exact same selectFixture path a manual Step-1 click uses (so
+  // it also gets duplicateTemplate-application "for free" if both params
+  // were ever combined). Never re-fires on a later fixtures-prop change.
+  // The call is deferred past a microtask boundary — selectFixture makes
+  // several setState calls in sequence, and react-hooks/set-state-in-effect
+  // disallows calling it synchronously in the effect body (see
+  // player-picker.tsx's PlayerPicker for the same convention applied to a
+  // single setState instead).
+  const initialFixtureAppliedRef = useRef(false);
+  useEffect(() => {
+    if (initialFixtureAppliedRef.current || !initialFixtureId) return;
+    initialFixtureAppliedRef.current = true;
+    const fixture = fixtures.find((f) => f.id === initialFixtureId);
+    if (!fixture) return;
+    Promise.resolve().then(() => selectFixture(fixture));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot on mount by design; selectFixture/fixtures intentionally excluded.
+  }, []);
 
   function selectCard(card: TemplateCard) {
     if (card.id === "WHO_WILL_ADVANCE" && !eligibility.whoWillAdvanceEnabled) return;

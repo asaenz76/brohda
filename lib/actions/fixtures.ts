@@ -7,6 +7,7 @@ import { writeAuditLog } from "@/lib/audit/log";
 import { apiFootballProvider } from "@/lib/sports-data/api-football-provider";
 import { isQuotaExhaustedError } from "@/lib/sports-data/provider-gateway";
 import { toFixtureRow, toLeagueRow, toTeamRows } from "@/lib/sports-data/persist";
+import { isSupportedCompetition } from "@/lib/sports-data/supported-competitions";
 import type { NormalizedFixture } from "@/lib/sports-data/types";
 import {
   fixtureSearchSchema,
@@ -30,6 +31,7 @@ export type FixtureSearchResult = {
   homeTeamName: string;
   awayTeamName: string;
   competitionName: string | null;
+  competitionExternalId: string | null;
   round: string | null;
   scheduledStartUtc: string;
 };
@@ -46,6 +48,7 @@ function toSearchResult(f: NormalizedFixture): FixtureSearchResult {
     homeTeamName: f.homeTeamName,
     awayTeamName: f.awayTeamName,
     competitionName: f.competitionName,
+    competitionExternalId: f.competitionExternalId,
     round: f.round,
     scheduledStartUtc: f.scheduledStartUtc,
   };
@@ -131,7 +134,17 @@ export async function searchTeamsAction(
   }
 }
 
-export type ImportFixtureResult = { externalFixtureId: string; success: boolean; error: string | null };
+export type ImportFixtureResult = {
+  externalFixtureId: string;
+  success: boolean;
+  error: string | null;
+  // Set only on a successful import of a fixture whose competition isn't
+  // in SUPPORTED_COMPETITIONS (spec §8) — the row is still written (an
+  // exceptional-lookup import may genuinely be for troubleshooting/
+  // inspection), but never silently: it's forced hidden from pool
+  // creation and the admin is told why, right where the action happened.
+  warning: string | null;
+};
 
 async function importOneFixture(externalFixtureId: string, adminId: string): Promise<ImportFixtureResult> {
   // Wrapped so one fixture hitting a provider quota/rate-limit error (an
@@ -143,7 +156,7 @@ async function importOneFixture(externalFixtureId: string, adminId: string): Pro
   try {
     fixture = await apiFootballProvider.getFixtureById(externalFixtureId);
     if (!fixture) {
-      return { externalFixtureId, success: false, error: "Could not find this fixture." };
+      return { externalFixtureId, success: false, error: "Could not find this fixture.", warning: null };
     }
 
     // The fixture lookup above never returns league.type (only /leagues
@@ -161,16 +174,34 @@ async function importOneFixture(externalFixtureId: string, adminId: string): Pro
       error: isQuotaExhaustedError(err)
         ? "The sports data provider's request quota is exhausted right now. Try again later."
         : "Could not reach the sports data provider.",
+      warning: null,
     };
   }
+
+  // Phase 2 spec §8: the direct-by-ID import stays exceptional/provider-
+  // backed, but must never let an unsupported competition silently gain
+  // normal PollPools eligibility. The fixture row is still written — a
+  // troubleshooting/inspection lookup is still useful — but forced hidden
+  // from the pool-creation dropdown (the same flag admins already use to
+  // manually hide any fixture, reusing fixtures_available_for_pool_creation's
+  // existing `not hidden_from_pool_creation` clause rather than adding a
+  // second, parallel eligibility rule). Only ever forced *true* here, never
+  // forced false — a supported-competition import never touches this
+  // column, leaving whatever an admin already set alone (see toFixtureRow's
+  // own comment on why omitted keys are left untouched on conflict).
+  const supported = fixture.competitionExternalId ? isSupportedCompetition(fixture.competitionExternalId) : false;
+  const fixtureRow = {
+    ...toFixtureRow({ ...fixture, competitionType }),
+    ...(supported ? {} : { hidden_from_pool_creation: true }),
+  };
 
   const adminClient = createAdminClient();
   const { error } = await adminClient
     .from("fixtures")
-    .upsert(toFixtureRow({ ...fixture, competitionType }), { onConflict: "provider,external_fixture_id" });
+    .upsert(fixtureRow, { onConflict: "provider,external_fixture_id" });
 
   if (error) {
-    return { externalFixtureId, success: false, error: "Could not import this fixture." };
+    return { externalFixtureId, success: false, error: "Could not import this fixture.", warning: null };
   }
 
   const teamRows = toTeamRows(fixture);
@@ -191,10 +222,18 @@ async function importOneFixture(externalFixtureId: string, adminId: string): Pro
       competitionName: fixture.competitionName,
       homeTeamName: fixture.homeTeamName,
       awayTeamName: fixture.awayTeamName,
+      supportedCompetition: supported,
     },
   });
 
-  return { externalFixtureId, success: true, error: null };
+  return {
+    externalFixtureId,
+    success: true,
+    error: null,
+    warning: supported
+      ? null
+      : `${fixture.competitionName ?? "This competition"} is not a supported competition — imported for inspection only, hidden from pool creation. An admin can unhide it manually from the Imported fixtures list if needed.`,
+  };
 }
 
 /**
@@ -207,7 +246,7 @@ export async function importFixturesAction(fixtureIds: string[]): Promise<Import
 
   const parsed = importFixturesSchema.safeParse(fixtureIds);
   if (!parsed.success) {
-    return fixtureIds.map((id) => ({ externalFixtureId: id, success: false, error: "Invalid fixture ID." }));
+    return fixtureIds.map((id) => ({ externalFixtureId: id, success: false, error: "Invalid fixture ID.", warning: null }));
   }
 
   if (!apiFootballProvider.isEnabled()) {
@@ -215,6 +254,7 @@ export async function importFixturesAction(fixtureIds: string[]): Promise<Import
       externalFixtureId: id,
       success: false,
       error: "The sports data provider is not enabled.",
+      warning: null,
     }));
   }
 

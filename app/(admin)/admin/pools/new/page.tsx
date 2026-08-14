@@ -32,12 +32,12 @@ function templateConfigToConfigValues(
 export default async function NewPoolPage({
   searchParams,
 }: {
-  searchParams: Promise<{ duplicateFrom?: string }>;
+  searchParams: Promise<{ duplicateFrom?: string; fixtureId?: string }>;
 }) {
   await requireSuperAdmin();
   const supabase = await createClient();
   const poolFeeDefaults = await getPoolFeeDefaults();
-  const { duplicateFrom } = await searchParams;
+  const { duplicateFrom, fixtureId } = await searchParams;
 
   // "Duplicate this pool" — pre-fills the wizard's template/financial
   // config from an existing pool for a *new* fixture (the fixture itself
@@ -139,6 +139,7 @@ export default async function NewPoolPage({
       <PoolTemplateBuilder
         fixtures={fixtureOptions}
         competitions={competitionOptions}
+        initialFixtureId={fixtureId}
         defaultEntryFee={duplicateEntryFee ?? (poolFeeDefaults.entryFeeCents / 100).toFixed(2)}
         defaultHouseFeePercent={
           duplicateHouseFeePercent ?? formatBps(poolFeeDefaults.houseFeeBps).replace("%", "")

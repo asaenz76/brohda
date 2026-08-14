@@ -10,6 +10,7 @@ export function FixtureResultsList({ fixtures }: { fixtures: FixtureSearchResult
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [imported, setImported] = useState<Set<string>>(new Set());
   const [bulkError, setBulkError] = useState<string | null>(null);
+  const [bulkWarning, setBulkWarning] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const importableIds = fixtures
@@ -34,10 +35,12 @@ export function FixtureResultsList({ fixtures }: { fixtures: FixtureSearchResult
     const ids = [...selected];
     if (ids.length === 0) return;
     setBulkError(null);
+    setBulkWarning(null);
     startTransition(async () => {
       const results = await importFixturesAction(ids);
       const succeeded = results.filter((r) => r.success).map((r) => r.externalFixtureId);
       const failed = results.filter((r) => !r.success);
+      const warned = results.filter((r) => r.success && r.warning);
 
       setImported((prev) => new Set([...prev, ...succeeded]));
       setSelected((prev) => {
@@ -47,6 +50,11 @@ export function FixtureResultsList({ fixtures }: { fixtures: FixtureSearchResult
       });
       if (failed.length > 0) {
         setBulkError(`${failed.length} fixture${failed.length > 1 ? "s" : ""} failed to import.`);
+      }
+      if (warned.length > 0) {
+        setBulkWarning(
+          `${warned.length} fixture${warned.length > 1 ? "s were" : " was"} imported from an unsupported competition — hidden from pool creation.`,
+        );
       }
     });
   }
@@ -65,6 +73,7 @@ export function FixtureResultsList({ fixtures }: { fixtures: FixtureSearchResult
         </div>
       )}
       {bulkError && <p className="text-sm text-danger">{bulkError}</p>}
+      {bulkWarning && <p className="text-sm text-warning-muted">{bulkWarning}</p>}
       <div className="space-y-2">
         {fixtures.map((fixture) => (
           <FixtureResultRow
