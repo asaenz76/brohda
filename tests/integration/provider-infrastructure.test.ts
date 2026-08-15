@@ -66,11 +66,36 @@ const { runCompetitionDiscoverySync } = await import("@/lib/competitions/discove
 const TEST_FIXTURE_ID = "777001";
 const TEST_REQUEST_TYPE_PREFIX = "phase3-quota-test";
 const TEST_TEAM_ID = "777100";
+// provider_request_log is a real, continuously-growing production table
+// (millions of rows from real cron traffic, per Phase 3's own audit) —
+// deleting by `request_type LIKE '...'` alone has no index to use and
+// forces a full scan, which timed out under load once the table grew
+// large enough. Bounding by `provider` + `created_at` (the composite
+// index Phase 3 added) narrows this to a tiny, recent slice before the
+// LIKE filter ever runs. Captured once, generously wide (this whole test
+// file never runs anywhere near an hour), not re-evaluated per call.
+const CLEANUP_SINCE = new Date(Date.now() - 3600_000).toISOString();
 
 async function cleanup() {
-  await admin.from("fixture_odds_raw_cache").delete().eq("external_fixture_id", TEST_FIXTURE_ID);
-  await admin.from("provider_request_log").delete().like("request_type", `${TEST_REQUEST_TYPE_PREFIX}%`);
-  await admin.from("team_players").delete().eq("team_external_id", TEST_TEAM_ID);
+  // Every delete's error is checked and thrown — a silently-failed delete
+  // here (e.g. a missing service_role grant, exactly what happened for
+  // team_players: granted select/insert/update but not delete) doesn't
+  // just fail this cleanup, it silently pollutes every later test in this
+  // file with stale rows, which is a much more confusing failure to debug
+  // than a loud one right here.
+  const results = await Promise.all([
+    admin.from("fixture_odds_raw_cache").delete().eq("external_fixture_id", TEST_FIXTURE_ID),
+    admin
+      .from("provider_request_log")
+      .delete()
+      .eq("provider", "api_football")
+      .gte("created_at", CLEANUP_SINCE)
+      .like("request_type", `${TEST_REQUEST_TYPE_PREFIX}%`),
+    admin.from("team_players").delete().eq("team_external_id", TEST_TEAM_ID),
+  ]);
+  for (const { error } of results) {
+    if (error) throw new Error(`cleanup() failed: ${error.message}`);
+  }
   delete process.env.API_FOOTBALL_DAILY_REQUEST_BUDGET;
   delete process.env.API_NFL_DAILY_REQUEST_BUDGET;
 }

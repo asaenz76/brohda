@@ -1,0 +1,15 @@
+-- team_players (20260101000062_team_players.sql) was granted
+-- select/insert/update to service_role but not delete — the same class
+-- of gap already fixed for provider_request_log (20260101000099) and
+-- fixture_odds_cache (20260101000100). Hosted Supabase projects appear to
+-- grant service_role broader default privileges than what's explicitly
+-- declared here (a delete against production silently worked), which
+-- masked this in production but not against a fresh local/CI Postgres
+-- provisioned purely from these migrations — confirmed by a real CI
+-- failure: tests/integration/provider-infrastructure.test.ts's cleanup()
+-- couldn't actually delete its own test rows against local Supabase,
+-- silently leaving them to pollute later tests in the same file. Any
+-- server-side admin client call that deletes a stale/superseded squad-
+-- cache row (e.g. this test suite's own cleanup) would otherwise fail
+-- silently with "permission denied for table team_players".
+grant delete on public.team_players to service_role;
