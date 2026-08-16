@@ -4,7 +4,16 @@ import { createAdminClient } from "@/lib/supabase/admin";
 // Rows older than this are safe to discard — provider_request_log is a
 // debug/observability log (lib/sports-data/http.ts), nothing in the app
 // reads rows this old.
-export const PROVIDER_REQUEST_LOG_RETENTION_DAYS = 30;
+//
+// Set to 3 (not the more generous 30 originally planned) on 2026-08-16:
+// the brohda Supabase project was created 2026-07-23, so at a 30-day
+// window this job would delete nothing until 2026-08-22 — no help for
+// the active quota emergency (908MB/3.87M rows, 210% over the Free-tier
+// database-size limit, in a grace period) that motivated building this
+// job in the first place. A 3-day window makes most of the existing
+// backlog immediately prunable. Safe to raise back toward 30 once the
+// project is back under quota and the backlog has drained.
+export const PROVIDER_REQUEST_LOG_RETENTION_DAYS = 3;
 
 // Rows deleted per RPC call — bounds a single database round trip.
 export const PROVIDER_REQUEST_LOG_DELETE_BATCH_SIZE = 10_000;

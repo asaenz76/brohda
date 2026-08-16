@@ -172,7 +172,11 @@ a batch comes back smaller than the batch size (caught up to the retention
 window). Added after `provider_request_log` grew to 908MB / 3.87M rows
 (86% of total DB size) with no retention policy, pushing the project over
 its Supabase Free-tier storage and egress quota; deletes rows older than
-`PROVIDER_REQUEST_LOG_RETENTION_DAYS` (30).
+`PROVIDER_REQUEST_LOG_RETENTION_DAYS`, set to **3** (not 30) as of
+2026-08-16 specifically to relieve that active quota emergency — the
+project was created 2026-07-23, so a 30-day window wouldn't have pruned
+anything until 2026-08-22. Safe to raise back toward 30 once the backlog
+has drained and the project is back under quota.
 
 **Adding the 3 new jobs to cron-job.org** (same pattern as the 3 existing
 ones — request method `GET`, `Authorization` header under that job's
