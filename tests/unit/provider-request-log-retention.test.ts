@@ -54,10 +54,18 @@ describe("runProviderRequestLogRetention", () => {
     expect(rpcMock).toHaveBeenCalledTimes(2);
   });
 
-  it("throws on an RPC error instead of swallowing it", async () => {
-    rpcMock.mockResolvedValueOnce({ data: null, error: new Error("db unreachable") });
+  it("throws a real Error on an RPC error, not the raw Postgrest error object", async () => {
+    // Postgrest errors (what supabase-js actually returns) are plain
+    // objects, not Error instances — e.g. the statement-timeout error hit
+    // in production. Asserting against this shape catches recordJobRun's
+    // `error instanceof Error ? error.message : String(error)` collapsing
+    // an unwrapped raw object to the unreadable "[object Object]".
+    rpcMock.mockResolvedValueOnce({
+      data: null,
+      error: { code: "57014", details: null, hint: null, message: "canceling statement due to statement timeout" },
+    });
 
-    await expect(runProviderRequestLogRetention()).rejects.toThrow("db unreachable");
+    await expect(runProviderRequestLogRetention()).rejects.toThrow("canceling statement due to statement timeout");
     expect(rpcMock).toHaveBeenCalledTimes(1);
   });
 });

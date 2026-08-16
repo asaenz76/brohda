@@ -16,7 +16,16 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export const PROVIDER_REQUEST_LOG_RETENTION_DAYS = 3;
 
 // Rows deleted per RPC call — bounds a single database round trip.
-export const PROVIDER_REQUEST_LOG_DELETE_BATCH_SIZE = 10_000;
+//
+// 10,000 was the original guess and it's too big: every PostgREST/RPC
+// call — service_role included — runs under the `authenticator` login
+// role's session-level `statement_timeout=8s` (SET ROLE doesn't reset
+// session GUCs set before it), and a 10k-row delete against this table's
+// 3 indexes (pkey, created_at, provider+created_at) blew past that in
+// production on 2026-08-16 (Postgres error 57014, "canceling statement
+// due to statement timeout") once real rows were actually being deleted.
+// 1,000 leaves comfortable headroom under the 8s ceiling.
+export const PROVIDER_REQUEST_LOG_DELETE_BATCH_SIZE = 1_000;
 
 // Bounded work per cron tick (same convention as
 // IMPORT_CHUNKS_PER_CRON_TICK, lib/competitions/constants.ts): caps how
@@ -40,7 +49,13 @@ export async function runProviderRequestLogRetention(): Promise<ProviderRequestL
       p_retention_days: PROVIDER_REQUEST_LOG_RETENTION_DAYS,
       p_batch_size: PROVIDER_REQUEST_LOG_DELETE_BATCH_SIZE,
     });
-    if (error) throw error;
+    // Postgrest errors are plain objects, not Error instances — recordJobRun's
+    // `error instanceof Error ? error.message : String(error)` stringifies a
+    // raw one to the useless "[object Object]" in background_jobs.error. Wrap
+    // it here so a real failure (e.g. a statement-timeout, as hit in
+    // production on 2026-08-16) is actually readable without pulling Vercel
+    // function logs.
+    if (error) throw new Error(error.message);
 
     result.batchesRun++;
     result.rowsDeleted += deletedCount ?? 0;

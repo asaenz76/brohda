@@ -166,10 +166,17 @@ observed production durations are sub-second to a few seconds
 (10 chunks) and is DB-only, so its duration is dominated by database round
 trips, not network latency to a provider. `prune-provider-request-log` is
 similarly bounded — up to `PROVIDER_REQUEST_LOG_BATCHES_PER_CRON_TICK` (20)
-batches of `PROVIDER_REQUEST_LOG_DELETE_BATCH_SIZE` (10,000) rows per tick
+batches of `PROVIDER_REQUEST_LOG_DELETE_BATCH_SIZE` (1,000) rows per tick
 (`lib/sports-data/provider-request-log-retention.ts`), stopping early once
 a batch comes back smaller than the batch size (caught up to the retention
-window). Added after `provider_request_log` grew to 908MB / 3.87M rows
+window). The batch size is deliberately small: every PostgREST/RPC call —
+service_role included — runs under the `authenticator` login role's
+session-level `statement_timeout=8s` (`SET ROLE` doesn't reset session
+GUCs set before it), and a 10,000-row batch (the original size) hit that
+ceiling in production on 2026-08-16 (Postgres error 57014) once real rows
+were actually being deleted — this table carries 3 indexes (pkey,
+created_at, provider+created_at), each needing maintenance per deleted
+row. Added after `provider_request_log` grew to 908MB / 3.87M rows
 (86% of total DB size) with no retention policy, pushing the project over
 its Supabase Free-tier storage and egress quota; deletes rows older than
 `PROVIDER_REQUEST_LOG_RETENTION_DAYS`, set to **3** (not 30) as of
