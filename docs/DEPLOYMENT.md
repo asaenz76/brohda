@@ -116,9 +116,10 @@ local dev and CI both work today with no Sentry account at all.
 
 ## 5. Cron jobs (cron-job.org, not Vercel Cron)
 
-The app exposes **7** cron-secret-gated routes under `app/api/cron/*`.
-**6 are meant to be scheduled** (per the operational phase that followed
-Phase 3 of the universal-sports-architecture work); one
+The app exposes **8** cron-secret-gated routes under `app/api/cron/*`.
+**7 are meant to be scheduled** (per the operational phase that followed
+Phase 3 of the universal-sports-architecture work, plus the later
+`provider_request_log` retention addition below); one
 (`refresh-recommendation-cache`) is deliberately left unscheduled for now.
 Vercel's Hobby plan only allows daily cron invocations (Pro is required for
 per-minute native Vercel Cron), so this project uses
@@ -155,6 +156,7 @@ this operational phase, only the scheduling itself.
 | `/api/cron/discover-competitions` | api_football | Yes — up to `DISCOVERY_COMPETITIONS_PER_CRON_TICK` (10) requests per tick, only for competitions actually due (6h staleness) | `runCompetitionDiscoverySync` | **Every 6 hours** | Add to cron-job.org (see below) |
 | `/api/cron/process-competition-imports` | none — DB-only, processes already-staged import chunks; makes zero provider calls even when API-Football quota is exhausted | `runCompetitionImportProcessing` | **Every 5 minutes** | Add to cron-job.org (see below) |
 | `/api/cron/refresh-recommendation-cache` | api_football | Yes | `refreshRecommendationAvailabilityCache` | **Intentionally not scheduled** — the architecture is moving away from recommendation/provider-discovery as a primary workflow now that browsing is local-first (see the Phase 2 local-first browsing work). Endpoint stays live; whether to schedule it is deferred to the later Competition Management cleanup phase. | **No** — deliberate, not an oversight |
+| `/api/cron/prune-provider-request-log` | none (DB-only) | No | `runProviderRequestLogRetention` | **Every 5 minutes** | Add to cron-job.org (see below) |
 
 Expected max duration for every job is well under cron-job.org's timeout —
 observed production durations are sub-second to a few seconds
@@ -162,7 +164,15 @@ observed production durations are sub-second to a few seconds
 `sync-fixtures-nfl`, both bounded by their per-tick limits above).
 `process-competition-imports` is bounded by `IMPORT_CHUNKS_PER_CRON_TICK`
 (10 chunks) and is DB-only, so its duration is dominated by database round
-trips, not network latency to a provider.
+trips, not network latency to a provider. `prune-provider-request-log` is
+similarly bounded — up to `PROVIDER_REQUEST_LOG_BATCHES_PER_CRON_TICK` (20)
+batches of `PROVIDER_REQUEST_LOG_DELETE_BATCH_SIZE` (10,000) rows per tick
+(`lib/sports-data/provider-request-log-retention.ts`), stopping early once
+a batch comes back smaller than the batch size (caught up to the retention
+window). Added after `provider_request_log` grew to 908MB / 3.87M rows
+(86% of total DB size) with no retention policy, pushing the project over
+its Supabase Free-tier storage and egress quota; deletes rows older than
+`PROVIDER_REQUEST_LOG_RETENTION_DAYS` (30).
 
 **Adding the 3 new jobs to cron-job.org** (same pattern as the 3 existing
 ones — request method `GET`, `Authorization` header under that job's
@@ -183,6 +193,13 @@ the Vercel env var):
 | Sync fixtures | `https://brohda.com/api/cron/sync-fixtures` | Every 1 minute | `Authorization: Bearer <CRON_SECRET>` |
 | Lock pools | `https://brohda.com/api/cron/lock-pools` | Every 1 minute | `Authorization: Bearer <CRON_SECRET>` |
 | Process results | `https://brohda.com/api/cron/process-results` | Every 1 minute | `Authorization: Bearer <CRON_SECRET>` |
+
+**Adding `prune-provider-request-log` to cron-job.org** (same pattern as
+above — not yet added as of this writing):
+
+| Job | URL | Schedule | Header |
+| --- | --- | --- | --- |
+| Prune provider request log | `https://brohda.com/api/cron/prune-provider-request-log` | Every 5 minutes | `Authorization: Bearer <CRON_SECRET>` |
 
 Leaving cron off Vercel entirely also means Vercel's Hobby (free) plan is
 sufficient for hosting — no Pro upgrade is required purely for this.
