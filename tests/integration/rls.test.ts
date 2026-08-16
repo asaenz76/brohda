@@ -8,14 +8,11 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { getTestAdminClient, getTestSupabaseConfig } from "./helpers/test-env";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
-const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+const { url: SUPABASE_URL, anonKey: ANON_KEY, serviceRoleKey: SERVICE_ROLE_KEY } = getTestSupabaseConfig();
 
-const admin = createSupabaseClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-  auth: { autoRefreshToken: false, persistSession: false },
-});
+const admin = getTestAdminClient();
 
 async function createTestPlayer(email: string) {
   const { data, error } = await admin.auth.admin.createUser({
@@ -156,16 +153,33 @@ describe.skipIf(!SERVICE_ROLE_KEY)("RLS: fixtures", () => {
     expect(error).not.toBeNull();
   });
 
+  // Phase 4.1: fixtures RLS is enabled with only a SELECT policy
+  // (members_can_read_fixtures) — no UPDATE/DELETE policy exists at all.
+  // Per Postgres's own documented RLS semantics, that means UPDATE/DELETE
+  // affects zero rows for `authenticated`, but the call itself does NOT
+  // return an error (RLS-blocked-by-absence-of-policy is silent, not a
+  // permission-denied throw) — confirmed live against production
+  // (pg_policy shows exactly one policy, command 'r', role
+  // authenticated). Asserting only `error !== null` can't actually prove
+  // the fixture was protected — it would pass identically whether the
+  // update silently affected 0 rows (safe) or actually mutated the row
+  // (unsafe, if a broader GRANT and a permissive policy both existed).
+  // Re-reading the row via the admin client afterward is what actually
+  // proves nothing changed.
   it("does not let a player update a fixture", async () => {
     const { error } = await player.client
       .from("fixtures")
       .update({ home_score: 99 })
       .eq("id", fixtureId);
-    expect(error).not.toBeNull();
+    void error; // may be null — RLS silently blocks rather than erroring, see comment above
+    const { data: unchanged } = await admin.from("fixtures").select("home_score").eq("id", fixtureId).single();
+    expect(unchanged?.home_score).toBeNull();
   });
 
   it("does not let a player delete a fixture", async () => {
     const { error } = await player.client.from("fixtures").delete().eq("id", fixtureId);
-    expect(error).not.toBeNull();
+    void error; // may be null — RLS silently blocks rather than erroring, see comment above
+    const { data: stillExists } = await admin.from("fixtures").select("id").eq("id", fixtureId).maybeSingle();
+    expect(stillExists?.id).toBe(fixtureId);
   });
 });

@@ -58,24 +58,22 @@ jobs:
       # fixed, publicly-documented local-dev values (identical on every
       # machine running the Supabase CLI's default local stack), never
       # real secrets, so no GitHub Actions secret is needed for this part.
-      # The remaining vars are non-Supabase and only need placeholder
-      # values here since API_FOOTBALL_ENABLED=false means the app never
-      # calls the real API-Football service during these tests.
-      - name: Write .env.local from the local Supabase stack
+      #
+      # Phase 4.1 remediation: this used to write .env.local — the SAME
+      # file a developer's real production config lives in locally. CI's
+      # own copy was always safe (fresh values every run, thrown away with
+      # the VM), but the shared filename meant "integration tests read
+      # .env.local" was true in both places, and only CI's instance of
+      # that file was actually safe. Tests now read the separate
+      # TEST_SUPABASE_* namespace via .env.test.local, which nothing else
+      # in the app or CI touches — see tests/integration/helpers/test-env.ts.
+      - name: Write .env.test.local from the local Supabase stack
         run: |
           eval "$(pnpm supabase status -o env | grep -E '^(API_URL|ANON_KEY|SERVICE_ROLE_KEY)=')"
-          cat > .env.local <<EOF
-          NEXT_PUBLIC_SUPABASE_URL=$API_URL
-          NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY
-          SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY
-          API_FOOTBALL_BASE_URL=https://v3.football.api-sports.io
-          API_FOOTBALL_KEY=ci-placeholder
-          API_FOOTBALL_ENABLED=false
-          DEFAULT_TIMEZONE=America/Costa_Rica
-          APP_URL=http://localhost:3000
-          CRON_SECRET=ci-placeholder
-          RESEND_API_KEY=
-          NEXT_PUBLIC_SENTRY_DSN=
+          cat > .env.test.local <<EOF
+          TEST_SUPABASE_URL=$API_URL
+          TEST_SUPABASE_ANON_KEY=$ANON_KEY
+          TEST_SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY
           EOF
 
       # Most integration tests look up an existing admin/super_admin
@@ -83,8 +81,17 @@ jobs:
       # so far that account already existed from the one-time
       # `pnpm create-super-admin` bootstrap a human runs once, but CI
       # starts from a genuinely empty database every run.
+      #
+      # Invoked directly (not via `pnpm create-super-admin`, which
+      # hardcodes `dotenv -e .env.local`) — passing NEXT_PUBLIC_SUPABASE_URL/
+      # SUPABASE_SERVICE_ROLE_KEY inline keeps this step working without
+      # writing a .env.local at all, so nothing in this job ever creates
+      # that file.
       - name: Bootstrap a super admin for the tests to find
-        run: pnpm create-super-admin --email ci-admin@example.com --password 'CiTestPassword123!' --name "CI Admin"
+        run: |
+          eval "$(pnpm supabase status -o env | grep -E '^(API_URL|ANON_KEY|SERVICE_ROLE_KEY)=')"
+          NEXT_PUBLIC_SUPABASE_URL="$API_URL" SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" \
+            pnpm exec tsx scripts/create-super-admin.ts --email ci-admin@example.com --password 'CiTestPassword123!' --name "CI Admin"
 
       - run: pnpm test:integration
 
@@ -110,27 +117,24 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       # Same local-stack pattern as the integration job — invite-flow.spec.ts
-      # creates its own admin/invitee via SUPABASE_SERVICE_ROLE_KEY rather
-      # than relying on a bootstrapped account, so no create-super-admin
-      # step is needed here.
+      # creates its own admin/invitee via the shared test Supabase client
+      # rather than relying on a bootstrapped account, so no
+      # create-super-admin step is needed here.
       - name: Start local Supabase
         run: pnpm supabase start
 
-      - name: Write .env.local from the local Supabase stack
+      # Phase 4.2: only TEST_SUPABASE_* is needed here — playwright.config.ts
+      # itself validates this and projects it (plus provider-disabled flags
+      # and safe placeholders for Resend/cron/Sentry) onto the vars the
+      # spawned `next dev` actually reads, via webServer.env. Nothing in
+      # this job writes .env.local.
+      - name: Write .env.test.local from the local Supabase stack
         run: |
           eval "$(pnpm supabase status -o env | grep -E '^(API_URL|ANON_KEY|SERVICE_ROLE_KEY)=')"
-          cat > .env.local <<EOF
-          NEXT_PUBLIC_SUPABASE_URL=$API_URL
-          NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY
-          SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY
-          API_FOOTBALL_BASE_URL=https://v3.football.api-sports.io
-          API_FOOTBALL_KEY=ci-placeholder
-          API_FOOTBALL_ENABLED=false
-          DEFAULT_TIMEZONE=America/Costa_Rica
-          APP_URL=http://localhost:3000
-          CRON_SECRET=ci-placeholder
-          RESEND_API_KEY=
-          NEXT_PUBLIC_SENTRY_DSN=
+          cat > .env.test.local <<EOF
+          TEST_SUPABASE_URL=$API_URL
+          TEST_SUPABASE_ANON_KEY=$ANON_KEY
+          TEST_SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY
           EOF
 
       # playwright.config.ts's webServer starts `pnpm dev` itself and waits

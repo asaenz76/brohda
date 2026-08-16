@@ -77,7 +77,15 @@ export function CompetitionManager({ initialData }: { initialData: CompetitionMa
   function refresh() {
     startTransition(async () => {
       const fresh = await (await import("@/lib/actions/competitions")).getCompetitionManagerDataAction();
-      setData(fresh);
+      if (fresh.success) {
+        setData(fresh.data);
+        setMessage(null);
+      } else {
+        // Keep showing the last-known-good data rather than blanking the
+        // page — but the error must still be visible, not silently
+        // dropped (the exact failure mode this action's rewrite fixes).
+        setMessage(fresh.error);
+      }
     });
   }
 

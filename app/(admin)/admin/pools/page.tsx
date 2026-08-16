@@ -10,16 +10,28 @@ function unwrapEmbed<T>(raw: unknown): T | null {
   return (Array.isArray(raw) ? raw[0] : raw) as T | null;
 }
 
-export default async function AdminPoolsPage() {
+export default async function AdminPoolsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | undefined>>;
+}) {
   const viewer = await requireAdminOrAbove();
   const supabase = await createClient();
+  const params = await searchParams;
+  // Events (Phase 4) links a fixture's pool-count badge here rather than
+  // building its own pools list (spec §25: "avoid duplicating the full
+  // Pools management UI inside Events") — this is the one query-param
+  // hook that makes that link do something useful.
+  const fixtureId = params.fixtureId;
 
-  const { data: pools } = await supabase
+  let poolsQuery = supabase
     .from("pools")
     .select(
       "id, question, status, locks_at, entry_fee, house_fee_bps, first_entry_at, archived_at, fixtures(home_team_name, away_team_name, competition_name, scheduled_start_utc)",
     )
     .order("created_at", { ascending: false });
+  if (fixtureId) poolsQuery = poolsQuery.eq("fixture_id", fixtureId);
+  const { data: pools } = await poolsQuery;
 
   const poolIds = (pools ?? []).map((p) => p.id);
 
@@ -114,9 +126,21 @@ export default async function AdminPoolsPage() {
     };
   });
 
+  const filteredFixtureLabel = fixtureId && rows[0] ? `${rows[0].homeTeamName ?? "?"} vs ${rows[0].awayTeamName ?? "?"}` : null;
+
   return (
     <div className="space-y-4">
       <h1 className="sr-only">Pools</h1>
+      {fixtureId && (
+        <div className="flex items-center gap-2 rounded-md border border-border-subtle bg-surface-secondary px-3 py-2 text-sm">
+          <span className="text-text-secondary">
+            Filtered to event{filteredFixtureLabel ? `: ${filteredFixtureLabel}` : ""}
+          </span>
+          <Link href="/admin/pools" className="text-xs font-medium text-accent-primary hover:underline">
+            Clear
+          </Link>
+        </div>
+      )}
       {isSuperAdmin(viewer) && (
         <div className="flex justify-end">
           <Link href="/admin/pools/new">

@@ -5,16 +5,13 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { getTestAdminClient, getTestSupabaseConfig } from "./helpers/test-env";
 import { gradeTemplatePool } from "@/lib/pools/templates/grade";
 import { processAwaitingResults } from "@/lib/pools/settle";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+const { serviceRoleKey: SERVICE_ROLE_KEY } = getTestSupabaseConfig();
 
-const admin = createSupabaseClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-  auth: { autoRefreshToken: false, persistSession: false },
-});
+const admin = getTestAdminClient();
 
 async function createTestPlayer(email: string, balanceCents = 0) {
   const { data, error } = await admin.auth.admin.createUser({
@@ -178,26 +175,51 @@ describe.skipIf(!SERVICE_ROLE_KEY)("TEMPLATE_GRADED pools — gradeTemplatePool"
   });
 
   afterAll(async () => {
+    // Phase 4.1 remediation: notifications.pool_id -> pools(id) has no ON
+    // DELETE CASCADE, and confirm_pool_settlement (exercised throughout
+    // this file) writes real notification rows for entrants — the pools
+    // delete below used to fail on that FK, silently (unchecked), leaving
+    // pools/fixtures behind on every run. Same root cause and fix as
+    // leaderboard.test.ts's afterAll.
+    const cleanupErrors: string[] = [];
     if (createdPoolIds.length > 0) {
-      await admin.from("pool_grading_evidence").delete().in("pool_id", createdPoolIds);
-
+      // pool_grading_evidence is permanently append-only by design (like
+      // audit_logs) — its migration (20260101000060) only ever grants
+      // service_role SELECT/INSERT, and a trigger blocks UPDATE/DELETE
+      // unconditionally even for service_role. There is no cleanup path
+      // for it, on purpose ("evidence survives forever" — see that
+      // migration's own header comment), so this cleanup doesn't attempt
+      // one. It has no FK to pools/fixtures, so leaving rows behind here
+      // never blocks the rest of this cleanup.
       const { data: settlementRows } = await admin
         .from("settlements")
         .select("id")
         .in("pool_id", createdPoolIds);
       const settlementIds = (settlementRows ?? []).map((s) => s.id);
       if (settlementIds.length > 0) {
-        await admin.from("settlement_payouts").delete().in("settlement_id", settlementIds);
+        const { error: payoutsError } = await admin.from("settlement_payouts").delete().in("settlement_id", settlementIds);
+        if (payoutsError) cleanupErrors.push(`settlement_payouts: ${payoutsError.message}`);
       }
 
-      await admin.from("correct_prediction_log").delete().in("pool_id", createdPoolIds);
-      await admin.from("entries").delete().in("pool_id", createdPoolIds);
-      await admin.from("settlements").delete().in("pool_id", createdPoolIds);
-      await admin.from("pool_options").delete().in("pool_id", createdPoolIds);
-      await admin.from("pools").delete().in("id", createdPoolIds);
+      const { error: logError } = await admin.from("correct_prediction_log").delete().in("pool_id", createdPoolIds);
+      if (logError) cleanupErrors.push(`correct_prediction_log: ${logError.message}`);
+      const { error: notificationsError } = await admin.from("notifications").delete().in("pool_id", createdPoolIds);
+      if (notificationsError) cleanupErrors.push(`notifications: ${notificationsError.message}`);
+      const { error: entriesError } = await admin.from("entries").delete().in("pool_id", createdPoolIds);
+      if (entriesError) cleanupErrors.push(`entries: ${entriesError.message}`);
+      const { error: settlementsError } = await admin.from("settlements").delete().in("pool_id", createdPoolIds);
+      if (settlementsError) cleanupErrors.push(`settlements: ${settlementsError.message}`);
+      const { error: optionsError } = await admin.from("pool_options").delete().in("pool_id", createdPoolIds);
+      if (optionsError) cleanupErrors.push(`pool_options: ${optionsError.message}`);
+      const { error: poolsError } = await admin.from("pools").delete().in("id", createdPoolIds);
+      if (poolsError) cleanupErrors.push(`pools: ${poolsError.message}`);
     }
     if (createdFixtureIds.length > 0) {
-      await admin.from("fixtures").delete().in("id", createdFixtureIds);
+      const { error: fixturesError } = await admin.from("fixtures").delete().in("id", createdFixtureIds);
+      if (fixturesError) cleanupErrors.push(`fixtures: ${fixturesError.message}`);
+    }
+    if (cleanupErrors.length > 0) {
+      throw new Error(`template-pools.test.ts afterAll cleanup failed:\n${cleanupErrors.join("\n")}`);
     }
   });
 
@@ -500,9 +522,15 @@ describe.skipIf(!SERVICE_ROLE_KEY)("TEMPLATE_GRADED pools — gradeTemplatePool"
     const noRow = options!.find((o) => o.label === "No")!;
     // Staged through a transient null so the (pool_id, binary_outcome)
     // partial unique index is never briefly double-held by both rows.
-    await admin.from("pool_options").update({ binary_outcome: null }).eq("id", noRow.id);
-    await admin.from("pool_options").update({ label: "Swapped A", binary_outcome: "NO" }).eq("id", yesRow.id);
-    await admin.from("pool_options").update({ label: "Swapped B", binary_outcome: "YES" }).eq("id", noRow.id);
+    // Each step's error is checked — an unchecked failure here would
+    // silently leave pool_options in a not-fully-swapped state while the
+    // rest of the test still asserts against the fully-swapped one.
+    const step1 = await admin.from("pool_options").update({ binary_outcome: null }).eq("id", noRow.id);
+    expect(step1.error).toBeNull();
+    const step2 = await admin.from("pool_options").update({ label: "Swapped A", binary_outcome: "NO" }).eq("id", yesRow.id);
+    expect(step2.error).toBeNull();
+    const step3 = await admin.from("pool_options").update({ label: "Swapped B", binary_outcome: "YES" }).eq("id", noRow.id);
+    expect(step3.error).toBeNull();
 
     const outcome = await gradeTemplatePool(
       { id: poolId, template_id: "BOTH_TEAMS_TO_SCORE", template_config: {}, template_version: 1 },
@@ -603,13 +631,44 @@ describe.skipIf(!SERVICE_ROLE_KEY)("recommendation_evidence — informational, f
   });
 
   afterAll(async () => {
+    // This describe's own name undersells it — one of its tests ("is never
+    // touched by settlement — pool_grading_evidence stays independent")
+    // does call settlePool, so settlements (and the same notifications/
+    // settlement_payouts/correct_prediction_log rows that implies) need
+    // the same full cleanup as the first describe's afterAll, not just
+    // entries/pool_options/pools/fixtures — a settlement referencing one
+    // of these pool_options via winning_option_id otherwise blocks the
+    // pool_options delete below (settlements_winning_option_id_fkey).
+    const cleanupErrors: string[] = [];
     if (createdPoolIds.length > 0) {
-      await admin.from("entries").delete().in("pool_id", createdPoolIds);
-      await admin.from("pool_options").delete().in("pool_id", createdPoolIds);
-      await admin.from("pools").delete().in("id", createdPoolIds);
+      const { data: settlementRows } = await admin
+        .from("settlements")
+        .select("id")
+        .in("pool_id", createdPoolIds);
+      const settlementIds = (settlementRows ?? []).map((s) => s.id);
+      if (settlementIds.length > 0) {
+        const { error: payoutsError } = await admin.from("settlement_payouts").delete().in("settlement_id", settlementIds);
+        if (payoutsError) cleanupErrors.push(`settlement_payouts: ${payoutsError.message}`);
+      }
+      const { error: logError } = await admin.from("correct_prediction_log").delete().in("pool_id", createdPoolIds);
+      if (logError) cleanupErrors.push(`correct_prediction_log: ${logError.message}`);
+      const { error: notificationsError } = await admin.from("notifications").delete().in("pool_id", createdPoolIds);
+      if (notificationsError) cleanupErrors.push(`notifications: ${notificationsError.message}`);
+      const { error: entriesError } = await admin.from("entries").delete().in("pool_id", createdPoolIds);
+      if (entriesError) cleanupErrors.push(`entries: ${entriesError.message}`);
+      const { error: settlementsError } = await admin.from("settlements").delete().in("pool_id", createdPoolIds);
+      if (settlementsError) cleanupErrors.push(`settlements: ${settlementsError.message}`);
+      const { error: optionsError } = await admin.from("pool_options").delete().in("pool_id", createdPoolIds);
+      if (optionsError) cleanupErrors.push(`pool_options: ${optionsError.message}`);
+      const { error: poolsError } = await admin.from("pools").delete().in("id", createdPoolIds);
+      if (poolsError) cleanupErrors.push(`pools: ${poolsError.message}`);
     }
     if (createdFixtureIds.length > 0) {
-      await admin.from("fixtures").delete().in("id", createdFixtureIds);
+      const { error: fixturesError } = await admin.from("fixtures").delete().in("id", createdFixtureIds);
+      if (fixturesError) cleanupErrors.push(`fixtures: ${fixturesError.message}`);
+    }
+    if (cleanupErrors.length > 0) {
+      throw new Error(`template-pools.test.ts afterAll cleanup failed:\n${cleanupErrors.join("\n")}`);
     }
   });
 

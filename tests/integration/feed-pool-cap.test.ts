@@ -11,14 +11,11 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { getTestAdminClient, getTestSupabaseConfig } from "./helpers/test-env";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+const { serviceRoleKey: SERVICE_ROLE_KEY } = getTestSupabaseConfig();
 
-const admin = createSupabaseClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-  auth: { autoRefreshToken: false, persistSession: false },
-});
+const admin = getTestAdminClient();
 
 const FEED_PAGE_SIZE = 50;
 const POOL_COUNT = 60;

@@ -17,14 +17,11 @@
  * Run with: pnpm test:integration (requires `pnpm supabase:start`).
  */
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { getTestAdminClient, getTestSupabaseConfig } from "./helpers/test-env";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+const { serviceRoleKey: SERVICE_ROLE_KEY } = getTestSupabaseConfig();
 
-const admin = createSupabaseClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-  auth: { autoRefreshToken: false, persistSession: false },
-});
+const admin = getTestAdminClient();
 
 let FAKE_ADMIN_ID: string;
 
@@ -61,12 +58,14 @@ describe.skipIf(!SERVICE_ROLE_KEY)("getCompetitionManagerDataAction — never ca
     // If this call reached the provider at all, the test would throw
     // synchronously from inside alwaysThrows — reaching these assertions
     // at all is the proof.
-    const data = await getCompetitionManagerDataAction();
-    expect(Array.isArray(data.imported)).toBe(true);
-    expect(Array.isArray(data.needsAttention)).toBe(true);
-    expect(Array.isArray(data.allSupported)).toBe(true);
+    const result = await getCompetitionManagerDataAction();
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(Array.isArray(result.data.imported)).toBe(true);
+    expect(Array.isArray(result.data.needsAttention)).toBe(true);
+    expect(Array.isArray(result.data.allSupported)).toBe(true);
     // allSupported is built from the static config, so it's never empty
     // regardless of database state.
-    expect(data.allSupported.length).toBeGreaterThan(0);
+    expect(result.data.allSupported.length).toBeGreaterThan(0);
   });
 });

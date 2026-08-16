@@ -43,11 +43,14 @@ reports, audit log) and require the super-admin account.
 
 ```bash
 pnpm test               # unit tests — no live Supabase needed
-pnpm test:integration   # RLS, wallet, pools/entries, settlement, reversal — requires `pnpm supabase:start`
+pnpm test:integration   # RLS, wallet, pools/entries, settlement, reversal — requires `pnpm supabase:start` + .env.test.local
 pnpm test:e2e           # Playwright — requires local Supabase + SUPABASE_SERVICE_ROLE_KEY
 pnpm lint
 pnpm exec tsc --noEmit
 ```
+
+See [`docs/TESTING.md`](docs/TESTING.md) for `.env.test.local` setup and why
+integration tests are structurally unable to target production.
 
 ## Seeding demo data
 

@@ -5,6 +5,10 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/integration/**/*.test.ts"],
+    // Phase 4.1 remediation: refuses the entire run before any test file
+    // loads if the target isn't the local Supabase CLI's fixed address —
+    // see tests/integration/helpers/global-setup.ts.
+    globalSetup: ["tests/integration/helpers/global-setup.ts"],
     testTimeout: 20_000,
     // These tests share one real database and some rely on another file's
     // setup already having run (e.g. an admin account looked up but never

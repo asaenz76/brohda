@@ -43,11 +43,27 @@ async function finalizeJobIfTerminal(
   if (!recalculated) return "not-terminal-yet";
 
   if (recalculated.status === "SUCCEEDED") {
+    // Phase 4.1: a query failure anywhere in this block used to fall
+    // through silently — getExternalLeagueId returning null on a real DB
+    // error (not just "row genuinely missing," which can't happen for a
+    // job's own valid league_season_import_id foreign key) made the
+    // upcomingCount/latestFixtureRow queries below filter on
+    // competition_external_id = "", matching zero rows, and PERSIST
+    // upcoming_fixture_count: 0 into league_season_imports for a
+    // genuinely-successful import with real upcoming fixtures. That's
+    // worse than a display glitch — it's a wrong value written to the row
+    // every other view reads from afterward. Bailing to "not-terminal-yet"
+    // is always safe here: this function is explicitly documented as
+    // idempotent and re-run every tick, so skipping a write this tick
+    // just means the next tick tries again with (presumably) working
+    // queries, never a stuck state.
     const externalLeagueId = await getExternalLeagueId(adminClient, job.league_season_import_id);
-    const { count: upcomingCount } = await adminClient
+    if (externalLeagueId == null) return "not-terminal-yet";
+
+    const upcomingResult = await adminClient
       .from("fixtures")
       .select("id", { count: "exact", head: true })
-      .eq("competition_external_id", externalLeagueId ?? "")
+      .eq("competition_external_id", externalLeagueId)
       .gt("scheduled_start_utc", new Date().toISOString());
     // The synchronous single-chunk path (startCompetitionImportAction)
     // computes this straight from its in-memory provider fetch; a
@@ -58,13 +74,23 @@ async function finalizeJobIfTerminal(
     // confirm a real completion for any multi-chunk import until its
     // first discovery sync, which is safe (never a false positive) but
     // needlessly conservative.
-    const { data: latestFixtureRow } = await adminClient
+    const latestFixtureResult = await adminClient
       .from("fixtures")
       .select("scheduled_start_utc")
-      .eq("competition_external_id", externalLeagueId ?? "")
+      .eq("competition_external_id", externalLeagueId)
       .order("scheduled_start_utc", { ascending: false })
       .limit(1)
       .maybeSingle();
+    if (upcomingResult.error || latestFixtureResult.error) {
+      console.error("[finalizeJobIfTerminal] failed to compute fixture counts, deferring finalization to next tick", {
+        upcomingError: upcomingResult.error,
+        latestFixtureError: latestFixtureResult.error,
+        leagueSeasonImportId: job.league_season_import_id,
+      });
+      return "not-terminal-yet";
+    }
+    const upcomingCount = upcomingResult.count;
+    const latestFixtureRow = latestFixtureResult.data;
 
     await adminClient
       .from("league_season_imports")
@@ -220,10 +246,16 @@ async function getExternalLeagueId(
   adminClient: ReturnType<typeof createAdminClient>,
   leagueSeasonImportId: string,
 ): Promise<string | null> {
-  const { data } = await adminClient
+  const { data, error } = await adminClient
     .from("league_season_imports")
     .select("external_league_id")
     .eq("id", leagueSeasonImportId)
     .single();
+  // A null return here should only ever happen on a genuine query
+  // failure — the caller always passes a job's own league_season_import_id,
+  // a valid foreign key that's guaranteed to have a matching row. Logging
+  // the real error distinguishes that from the (should-be-impossible)
+  // case of the row itself being gone.
+  if (error) console.error("[getExternalLeagueId] query failed", { error, leagueSeasonImportId });
   return data?.external_league_id ?? null;
 }

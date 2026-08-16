@@ -7,6 +7,7 @@ function fixture(overrides: Partial<LocalFixture>): LocalFixture {
     id: "fixture-1",
     externalFixtureId: "1",
     provider: "api_football",
+    sport: "football",
     competitionExternalId: "39",
     competitionName: "Premier League",
     competitionCountry: "England",

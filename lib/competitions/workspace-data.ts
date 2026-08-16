@@ -65,6 +65,22 @@ export interface CompetitionWorkspaceData {
   jobs: WorkspaceJob[];
 }
 
+// Phase 4.1: every query below used to destructure away `error` and fall
+// through on `data ?? []`/`data ?? null` — a genuine DB failure rendered
+// identically to "this competition doesn't exist" (`notFound()`) or "this
+// competition has no fixtures/jobs" (zeroed stats, a spurious
+// NO_UPCOMING_FIXTURES Health flag). Real errors now throw instead of
+// returning null, so a DB failure surfaces through the existing
+// app/(admin)/admin/error.tsx boundary ("Something went wrong") rather
+// than masquerading as either kind of empty state. `null` is now reserved
+// exclusively for the one case where it's actually correct: the
+// league_season_imports row genuinely doesn't exist (a real 404).
+function throwOnWorkspaceQueryError(label: string, error: { message: string } | null): void {
+  if (!error) return;
+  console.error(`[getCompetitionWorkspaceData] ${label} query failed`, error);
+  throw new Error("Competition workspace data could not be loaded.");
+}
+
 /**
  * One competition's full workspace data — cache()-wrapped so the shared
  * layout (header/sub-nav) and whichever nested page is active both call
@@ -74,12 +90,16 @@ export interface CompetitionWorkspaceData {
 export const getCompetitionWorkspaceData = cache(async (id: string): Promise<CompetitionWorkspaceData | null> => {
   const adminClient = createAdminClient();
 
-  const { data: lsi } = await adminClient.from("league_season_imports").select("*").eq("id", id).maybeSingle();
-  if (!lsi) return null;
+  const lsiResult = await adminClient.from("league_season_imports").select("*").eq("id", id).maybeSingle();
+  throwOnWorkspaceQueryError("league_season_imports", lsiResult.error);
+  const lsi = lsiResult.data;
+  if (!lsi) return null; // genuinely no row with this id — a real 404, not a query failure
 
-  const { data: league } = await adminClient.from("leagues").select("name, logo_url").eq("id", lsi.league_id).maybeSingle();
+  const leagueResult = await adminClient.from("leagues").select("name, logo_url").eq("id", lsi.league_id).maybeSingle();
+  throwOnWorkspaceQueryError("leagues", leagueResult.error);
+  const league = leagueResult.data;
 
-  const [{ data: fixtureRows }, { data: jobRows }, { data: availabilityCacheRow }] = await Promise.all([
+  const [fixturesResult, jobsResult, availabilityCacheResult] = await Promise.all([
     adminClient
       .from("fixtures")
       .select("scheduled_start_utc, internal_status")
@@ -111,11 +131,19 @@ export const getCompetitionWorkspaceData = cache(async (id: string): Promise<Com
       .eq("external_league_id", lsi.external_league_id)
       .maybeSingle(),
   ]);
+  throwOnWorkspaceQueryError("fixtures", fixturesResult.error);
+  throwOnWorkspaceQueryError("competition_import_jobs", jobsResult.error);
+  throwOnWorkspaceQueryError("competition_availability_cache", availabilityCacheResult.error);
+  const fixtureRows = fixturesResult.data;
+  const jobRows = jobsResult.data;
+  const availabilityCacheRow = availabilityCacheResult.data;
 
   const jobIds = (jobRows ?? []).map((j) => j.id);
-  const { data: chunkRows } = jobIds.length > 0
+  const chunksResult = jobIds.length > 0
     ? await adminClient.from("competition_import_job_chunks").select("job_id, status").in("job_id", jobIds)
-    : { data: [] as Array<{ job_id: string; status: string }> };
+    : { data: [] as Array<{ job_id: string; status: string }>, error: null };
+  throwOnWorkspaceQueryError("competition_import_job_chunks", chunksResult.error);
+  const chunkRows = chunksResult.data;
 
   const chunkCountsByJob = new Map<string, WorkspaceJob["chunkCounts"]>();
   for (const chunk of chunkRows ?? []) {

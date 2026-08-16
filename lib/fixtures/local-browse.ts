@@ -9,10 +9,17 @@
 // SportsDataProvider at all.
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getSupportedCompetitionMap, type CompetitionGroup } from "@/lib/sports-data/supported-competitions";
+import { getSupportedCompetitionGroup, getSupportedCompetitionMap, isSupportedCompetition, type CompetitionGroup } from "@/lib/sports-data/supported-competitions";
+import { isSupportedNflCompetition } from "@/lib/sports-data/supported-nfl-competitions";
 import { isTerminalStatus } from "@/lib/sports-data/status-map";
 import type { FixtureInternalStatus } from "@/lib/sports-data/types";
 import { localDateKeyFor, type FixtureDateWindow } from "./date-window";
+
+/** The two sports currently backed by real provider data — see
+ * lib/sports-data/api-football-provider.ts / api-nfl-provider.ts. Not a
+ * generic "every sport" union; adding a third sport means adding a value
+ * here deliberately, not something this type accepts implicitly. */
+export type EventSport = "football" | "american_football";
 
 const IN_CLAUSE_CHUNK_SIZE = 300;
 
@@ -71,6 +78,7 @@ export interface LocalFixture {
   id: string;
   externalFixtureId: string;
   provider: string;
+  sport: string;
   competitionExternalId: string | null;
   competitionName: string | null;
   competitionCountry: string | null;
@@ -107,12 +115,13 @@ export interface LocalFixtureBrowseResult {
 }
 
 const RAW_FIXTURE_COLUMNS =
-  "id, external_fixture_id, provider, competition_external_id, competition_name, competition_country, competition_type, season, round, home_team_name, away_team_name, scheduled_start_utc, internal_status, hidden_from_pool_creation";
+  "id, external_fixture_id, provider, sport, competition_external_id, competition_name, competition_country, competition_type, season, round, home_team_name, away_team_name, scheduled_start_utc, internal_status, hidden_from_pool_creation";
 
 interface RawFixtureRow {
   id: string;
   external_fixture_id: string;
   provider: string;
+  sport: string;
   competition_external_id: string | null;
   competition_name: string | null;
   competition_country: string | null;
@@ -141,9 +150,27 @@ function computeCounts(fixtures: LocalFixture[]): LocalFixtureBrowseCounts {
  * against pools/eligibility/workspace state — every lookup here is one
  * batched (chunked) query, never N+1, matching the same discipline
  * enrichFixtures (the old provider-result enricher) already established. */
+/** Sport-aware "is this row's competition one we curate" check — football
+ * and NFL each have their own supported-competitions config (see the two
+ * files imported above), and neither list's externalLeagueId space is
+ * safe to cross-check against the other (small numeric ids can coincide
+ * between providers). Every consumer of `isSupported`/`group` must route
+ * through this rather than assuming football's map alone. */
+function isRowSupported(row: Pick<RawFixtureRow, "sport" | "competition_external_id">): boolean {
+  if (row.sport === "american_football") return isSupportedNflCompetition(row.competition_external_id);
+  return isSupportedCompetition(row.competition_external_id);
+}
+
+function rowCompetitionGroup(row: Pick<RawFixtureRow, "sport" | "competition_external_id">): CompetitionGroup | null {
+  // NFL has no GLOBAL/COSTA_RICA concept (a single competition) — see
+  // supported-nfl-competitions.ts's own comment on why it doesn't share
+  // football's config shape.
+  if (row.sport === "american_football") return null;
+  return getSupportedCompetitionGroup(row.competition_external_id);
+}
+
 async function enrichLocalRows(rows: RawFixtureRow[], timeZone: string): Promise<LocalFixture[]> {
   const adminClient = createAdminClient();
-  const supportedMap = getSupportedCompetitionMap();
   const ids = rows.map((r) => r.id);
 
   const poolCountById = new Map<string, number>();
@@ -179,7 +206,6 @@ async function enrichLocalRows(rows: RawFixtureRow[], timeZone: string): Promise
   }
 
   return rows.map((row): LocalFixture => {
-    const supported = row.competition_external_id ? supportedMap.get(row.competition_external_id) : undefined;
     const workspaces = row.competition_external_id ? (workspaceByCompetition.get(row.competition_external_id) ?? []) : [];
     const matchingWorkspace = workspaces.find((w) => w.season === row.season);
     let hasOdds: boolean | null = null;
@@ -199,6 +225,7 @@ async function enrichLocalRows(rows: RawFixtureRow[], timeZone: string): Promise
       id: row.id,
       externalFixtureId: row.external_fixture_id,
       provider: row.provider,
+      sport: row.sport,
       competitionExternalId: row.competition_external_id,
       competitionName: row.competition_name,
       competitionCountry: row.competition_country,
@@ -211,8 +238,8 @@ async function enrichLocalRows(rows: RawFixtureRow[], timeZone: string): Promise
       internalStatus: row.internal_status,
       statusBucket: statusBucketFor(row.internal_status),
       hiddenFromPoolCreation: row.hidden_from_pool_creation,
-      isSupported: supported != null,
-      group: supported?.group ?? null,
+      isSupported: isRowSupported(row),
+      group: rowCompetitionGroup(row),
       hasWorkspace: matchingWorkspace != null,
       hasOdds,
       poolCount: poolCountById.get(row.id) ?? 0,
@@ -288,5 +315,47 @@ export async function queryLocalFixturesByCompetitionSeason(
   );
 
   const fixtures = await enrichLocalRows(rows, timeZone);
+  return { fixtures, counts: computeCounts(fixtures) };
+}
+
+const ALL_EVENT_SPORTS: EventSport[] = ["football", "american_football"];
+
+/**
+ * The Events admin surface's one query (Phase 4 spec §6/§28): by date
+ * window, across every currently-implemented sport in one round trip,
+ * local-DB-only — same `fetchAllRows` 1000-row-cap protection and the same
+ * chunked-lookup `enrichLocalRows` enrichment as the football-only
+ * by-date/by-competition queries above, just not hard-scoped to
+ * `sport = 'football'`. Deliberately a new function rather than adding a
+ * `sports` param to `queryLocalFixturesByDateWindow` — that function's
+ * football-only behavior is already proven (Phase 2) and used by the
+ * existing /admin/fixtures page; this keeps that path untouched while
+ * Events gets its own multi-sport entry point. The supported-competition
+ * filter is applied per-row via `isRowSupported` (sport-aware), not a
+ * single `.in()` id list, since football's and NFL's supported-id spaces
+ * are deliberately never merged (see supported-nfl-competitions.ts).
+ */
+export async function queryLocalEventsByDateWindow(
+  window: FixtureDateWindow,
+  options: { sports?: EventSport[]; competitionExternalId?: string; includeUnsupported?: boolean } = {},
+): Promise<LocalFixtureBrowseResult> {
+  const adminClient = createAdminClient();
+  const sports = options.sports && options.sports.length > 0 ? options.sports : ALL_EVENT_SPORTS;
+
+  const rows = await fetchAllRows<RawFixtureRow>((from, to) => {
+    let query = adminClient
+      .from("fixtures")
+      .select(RAW_FIXTURE_COLUMNS)
+      .in("sport", sports)
+      .gte("scheduled_start_utc", window.utcWindowStart)
+      .lt("scheduled_start_utc", window.utcWindowEnd)
+      .order("scheduled_start_utc", { ascending: true })
+      .range(from, to);
+    if (options.competitionExternalId) query = query.eq("competition_external_id", options.competitionExternalId);
+    return query;
+  });
+
+  const scoped = options.includeUnsupported ? rows : rows.filter(isRowSupported);
+  const fixtures = await enrichLocalRows(scoped, window.timeZone);
   return { fixtures, counts: computeCounts(fixtures) };
 }

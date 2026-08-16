@@ -1,21 +1,14 @@
 /**
  * spec §22 E2E: "invitation → registration → login". Requires the local
- * Supabase stack (`pnpm supabase:start`) and app (`pnpm dev`, or let
- * Playwright's webServer start it) to be running with SUPABASE_SERVICE_ROLE_KEY
- * set in the environment.
+ * Supabase stack (`pnpm supabase:start`) — `pnpm test:e2e` handles this
+ * and the rest of the isolated-target setup automatically, see
+ * docs/TESTING.md's E2E section.
  */
 import { test, expect } from "@playwright/test";
-import { createClient } from "@supabase/supabase-js";
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+import { getTestAdminClient } from "./helpers/test-env";
 
 test("invitation → registration → login", async ({ page }) => {
-  test.skip(!SERVICE_ROLE_KEY, "Requires a local Supabase instance (SUPABASE_SERVICE_ROLE_KEY)");
-
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY!, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
+  const admin = getTestAdminClient();
 
   const suffix = Date.now();
   const adminEmail = `e2e-admin-${suffix}@example.com`;

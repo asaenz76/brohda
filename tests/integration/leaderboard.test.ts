@@ -7,14 +7,11 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { getTestAdminClient, getTestSupabaseConfig } from "./helpers/test-env";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+const { serviceRoleKey: SERVICE_ROLE_KEY } = getTestSupabaseConfig();
 
-const admin = createSupabaseClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-  auth: { autoRefreshToken: false, persistSession: false },
-});
+const admin = getTestAdminClient();
 
 async function createTestPlayer(
   email: string,
@@ -56,6 +53,23 @@ async function deactivate(userId: string) {
 const createdFixtureIds: string[] = [];
 const createdPoolIds: string[] = [];
 
+// Phase 4.1: root cause of the `pool_not_open` flakiness chased below —
+// this used to create the fixture already `internal_status: "COMPLETED"`
+// with a final score, immediately after which a pool gets created
+// (`locks_at` an hour out) and entries trickle in. lockDuePools() (the
+// real production cron, running every minute against this same database
+// per .env.local) locks ANY OPEN pool whose linked fixture's
+// internal_status isn't "NOT_STARTED" — independent of locks_at entirely
+// (lib/pools/lock.ts's `fixtureStartedEarly` check). So a cron tick
+// landing between pool creation and this test's own enter() calls could
+// lock the pool out from under it at any call site, at random — exactly
+// the observed symptom, and unrelated to the open_at/now() clock-skew
+// buffer below (which is a real fix for a different, narrower race).
+// Fixed by keeping the fixture NOT_STARTED until settlePool() completes
+// it, immediately before grading — matching real-world ordering (a match
+// only finishes after entries have closed).
+const pendingFixtureResults = new Map<string, { homeScore: number; awayScore: number }>();
+
 async function createTestFixture(homeScore: number, awayScore: number): Promise<string> {
   const { data, error } = await admin
     .from("fixtures")
@@ -66,16 +80,16 @@ async function createTestFixture(homeScore: number, awayScore: number): Promise<
       home_team_external_id: "home-1",
       away_team_external_id: "away-1",
       scheduled_start_utc: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
-      internal_status: "COMPLETED",
-      regulation_home_score: homeScore,
-      regulation_away_score: awayScore,
+      internal_status: "NOT_STARTED",
       venue_timezone: "America/Costa_Rica",
     })
     .select("id")
     .single();
   if (error || !data) throw error ?? new Error("failed to create test fixture");
-  createdFixtureIds.push(data.id as string);
-  return data.id as string;
+  const fixtureId = data.id as string;
+  createdFixtureIds.push(fixtureId);
+  pendingFixtureResults.set(fixtureId, { homeScore, awayScore });
+  return fixtureId;
 }
 
 async function createTestPool(fixtureId: string, adminId: string) {
@@ -89,7 +103,18 @@ async function createTestPool(fixtureId: string, adminId: string) {
       entry_fee: 1000,
       house_fee_bps: 1000,
       min_total_entries: 2,
-      open_at: new Date().toISOString(),
+      // Phase 4.1: a few seconds in the past, not exactly `now()` — this
+      // pool is entered via create_pool_entry (which checks
+      // `open_at <= now()` using Postgres's own clock) almost immediately
+      // after this insert. Against a remote database, any clock skew or
+      // latency between this Node process and Postgres can otherwise make
+      // that check intermittently fail (`pool_not_open`) even though the
+      // pool is, logically, already open — confirmed live: this exact
+      // race produced a cryptic downstream failure (an uncaught
+      // use_confirm_pool_refund exception from settling a pool that only
+      // partially entered) before this buffer and this file's now-checked
+      // enter()/settlePool() errors made the real cause visible.
+      open_at: new Date(Date.now() - 5_000).toISOString(),
       locks_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
       status: "OPEN",
     })
@@ -112,19 +137,54 @@ async function createTestPool(fixtureId: string, adminId: string) {
   return { poolId: pool.id as string, options };
 }
 
-function enter(poolId: string, userId: string, optionId: string) {
-  return admin.rpc("create_pool_entry", {
+// Phase 4.1: this call's error used to be discarded entirely
+// (`return admin.rpc(...)` with no destructuring at all) — a transient
+// entry-creation failure (e.g. the filler player's signup/sign-in not
+// having fully settled yet) silently left a pool with fewer than 2 real
+// entries, which prepare_pool_settlement then correctly refuses to grade
+// normally (raises `use_confirm_pool_refund`, a real Postgres exception,
+// not a `{data,error}` result) — surfacing minutes later as a cryptic
+// "Unknown Error: use_confirm_pool_refund" with no indication the actual
+// problem was an entry that never landed. Throwing here instead gives a
+// direct, attributable failure at the point something actually went
+// wrong.
+async function enter(poolId: string, userId: string, optionId: string) {
+  const { error } = await admin.rpc("create_pool_entry", {
     p_pool_id: poolId,
     p_user_id: userId,
     p_option_id: optionId,
     p_amount: 1000,
     p_idempotency_key: randomUUID(),
   });
+  if (error) throw new Error(`create_pool_entry failed for pool ${poolId}, option ${optionId}: ${error.message}`);
 }
 
 async function settlePool(poolId: string, adminId: string) {
+  const { data: pool, error: poolError } = await admin
+    .from("pools")
+    .select("fixture_id")
+    .eq("id", poolId)
+    .single();
+  if (poolError || !pool) throw poolError ?? new Error(`failed to load pool ${poolId} before settlement`);
+
+  const fixtureId = pool.fixture_id as string;
+  const pendingResult = pendingFixtureResults.get(fixtureId);
+  if (pendingResult) {
+    const { error: fixtureError } = await admin
+      .from("fixtures")
+      .update({
+        internal_status: "COMPLETED",
+        regulation_home_score: pendingResult.homeScore,
+        regulation_away_score: pendingResult.awayScore,
+      })
+      .eq("id", fixtureId);
+    if (fixtureError) throw fixtureError;
+    pendingFixtureResults.delete(fixtureId);
+  }
+
   await admin.from("pools").update({ status: "AWAITING_RESULT" }).eq("id", poolId);
-  const { data: settlement } = await admin.rpc("prepare_pool_settlement", { p_pool_id: poolId });
+  const { data: settlement, error: prepareError } = await admin.rpc("prepare_pool_settlement", { p_pool_id: poolId });
+  if (prepareError || !settlement) throw prepareError ?? new Error(`prepare_pool_settlement returned no settlement for pool ${poolId}`);
   const { error } = await admin.rpc("confirm_pool_settlement", {
     p_pool_id: poolId,
     p_admin_id: adminId,
@@ -177,6 +237,19 @@ describe.skipIf(!SERVICE_ROLE_KEY)("leaderboard", () => {
   });
 
   afterAll(async () => {
+    // Phase 4.1: every delete below used to be unchecked. settlePool()
+    // drives confirm_pool_settlement, which writes real `notifications`
+    // rows for entrants — notifications.pool_id -> pools(id) has no ON
+    // DELETE CASCADE, so the pools delete was failing on that FK on every
+    // single run of this file, silently (no .error check), which in turn
+    // left the fixtures delete failing too (pools.fixture_id -> fixtures).
+    // Confirmed live: 103 leftover test pools / 129 leftover notifications
+    // / 86 leftover fixtures had accumulated in production before this was
+    // caught. Every step now checks its error and the accumulated errors
+    // throw at the end, so a cleanup regression fails loudly instead of
+    // quietly leaking rows into production again.
+    const cleanupErrors: string[] = [];
+
     if (createdPoolIds.length > 0) {
       const { data: settlements } = await admin
         .from("settlements")
@@ -184,18 +257,31 @@ describe.skipIf(!SERVICE_ROLE_KEY)("leaderboard", () => {
         .in("pool_id", createdPoolIds);
       const settlementIds = settlements?.map((s) => s.id) ?? [];
       if (settlementIds.length > 0) {
-        await admin.from("settlement_payouts").delete().in("settlement_id", settlementIds);
-        await admin.from("correct_prediction_log").delete().in("settlement_id", settlementIds);
+        const { error: payoutsError } = await admin.from("settlement_payouts").delete().in("settlement_id", settlementIds);
+        if (payoutsError) cleanupErrors.push(`settlement_payouts: ${payoutsError.message}`);
+        const { error: logError } = await admin.from("correct_prediction_log").delete().in("settlement_id", settlementIds);
+        if (logError) cleanupErrors.push(`correct_prediction_log: ${logError.message}`);
       }
-      await admin.from("settlements").delete().in("pool_id", createdPoolIds);
-      await admin.from("entries").delete().in("pool_id", createdPoolIds);
-      await admin.from("pool_options").delete().in("pool_id", createdPoolIds);
-      await admin.from("pools").delete().in("id", createdPoolIds);
+      const { error: notificationsError } = await admin.from("notifications").delete().in("pool_id", createdPoolIds);
+      if (notificationsError) cleanupErrors.push(`notifications: ${notificationsError.message}`);
+      const { error: settlementsError } = await admin.from("settlements").delete().in("pool_id", createdPoolIds);
+      if (settlementsError) cleanupErrors.push(`settlements: ${settlementsError.message}`);
+      const { error: entriesError } = await admin.from("entries").delete().in("pool_id", createdPoolIds);
+      if (entriesError) cleanupErrors.push(`entries: ${entriesError.message}`);
+      const { error: optionsError } = await admin.from("pool_options").delete().in("pool_id", createdPoolIds);
+      if (optionsError) cleanupErrors.push(`pool_options: ${optionsError.message}`);
+      const { error: poolsError } = await admin.from("pools").delete().in("id", createdPoolIds);
+      if (poolsError) cleanupErrors.push(`pools: ${poolsError.message}`);
     }
     if (createdFixtureIds.length > 0) {
-      await admin.from("fixtures").delete().in("id", createdFixtureIds);
+      const { error: fixturesError } = await admin.from("fixtures").delete().in("id", createdFixtureIds);
+      if (fixturesError) cleanupErrors.push(`fixtures: ${fixturesError.message}`);
     }
     await Promise.all(createdUserIds.map(deactivate));
+
+    if (cleanupErrors.length > 0) {
+      throw new Error(`leaderboard.test.ts afterAll cleanup failed:\n${cleanupErrors.join("\n")}`);
+    }
   });
 
   it("a settlement increments correct_predictions_count/current_streak/best_streak for winners and resets the loser's streak, logging one row per win", async () => {

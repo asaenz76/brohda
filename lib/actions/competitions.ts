@@ -390,6 +390,18 @@ export interface CompetitionManagerData {
   allSupported: AllCompetitionsRow[];
 }
 
+// Phase 4.1: getCompetitionManagerDataAction used to return
+// CompetitionManagerData directly, with every query's `error` destructured
+// away and discarded (`{ data: lsiRows }`) — a DB failure silently
+// degraded to `[]`, which the UI then rendered as "no competitions" /
+// "no imports," indistinguishable from a genuinely empty, healthy state.
+// This discriminated result makes that distinction explicit at the type
+// level: every caller must now handle `success: false` before it can even
+// read `.data`.
+export type CompetitionManagerDataResult = { success: true; data: CompetitionManagerData } | { success: false; error: string };
+
+const COMPETITION_DATA_LOAD_ERROR = "Competition data could not be loaded.";
+
 /**
  * Assembles everything the /admin/competitions list needs, across its 4
  * tabs — entirely from the database and the static SUPPORTED_COMPETITIONS
@@ -399,17 +411,38 @@ export interface CompetitionManagerData {
  * git history) and, more fundamentally, fetched hundreds of leagues
  * PollPools will never support just to enrich country/type metadata this
  * config now supplies directly.
+ *
+ * All 5 underlying queries are treated as required, not independently
+ * partial-renderable: the second round (leagues/aggregates/jobs) is
+ * derived from IDs read out of the first round's rows, so a silently
+ * degraded first round would also silently starve the second round of
+ * anything to look up — there's no safe "show what we have" split here
+ * without risking exactly the kind of misleading partial state (e.g. a
+ * real competition rendered with no fixture counts, indistinguishable
+ * from one that genuinely has none) this fix exists to prevent. Any
+ * query failure fails the whole action; the real Postgrest error is
+ * logged server-side (never sent to the client) via console.error, which
+ * this deployment's error monitoring picks up.
  */
-export async function getCompetitionManagerDataAction(): Promise<CompetitionManagerData> {
+export async function getCompetitionManagerDataAction(): Promise<CompetitionManagerDataResult> {
   await requireAdminOrAbove();
   const adminClient = createAdminClient();
 
-  const [{ data: lsiRows }, { data: cacheRows }] = await Promise.all([
+  const [lsiResult, cacheResult] = await Promise.all([
     adminClient.from("league_season_imports").select("*"),
     adminClient
       .from("competition_availability_cache")
       .select("external_league_id, season, upcoming_fixture_count, next_fixture_at, checked_at"),
   ]);
+  if (lsiResult.error || cacheResult.error) {
+    console.error("[getCompetitionManagerDataAction] failed to load league_season_imports/competition_availability_cache", {
+      lsiError: lsiResult.error,
+      cacheError: cacheResult.error,
+    });
+    return { success: false, error: COMPETITION_DATA_LOAD_ERROR };
+  }
+  const lsiRows = lsiResult.data;
+  const cacheRows = cacheResult.data;
 
   const latestSeasonByExternalId = new Map((cacheRows ?? []).map((r) => [r.external_league_id, r.season]));
 
@@ -417,10 +450,10 @@ export async function getCompetitionManagerDataAction(): Promise<CompetitionMana
   const leagueIds = [...new Set(rows.map((r) => r.league_id))];
   const externalLeagueIds = [...new Set(rows.map((r) => r.external_league_id))];
 
-  const [{ data: leagueRows }, { data: fixtureAggregateRows }, { data: jobRows }] = await Promise.all([
+  const [leaguesResult, aggregatesResult, jobsResult] = await Promise.all([
     leagueIds.length > 0
       ? adminClient.from("leagues").select("id, name, logo_url").in("id", leagueIds)
-      : Promise.resolve({ data: [] }),
+      : Promise.resolve({ data: [], error: null }),
     // Aggregated server-side, not fetched as raw rows — see
     // get_competition_fixture_aggregates's own comment: an unordered
     // `.in()` select over every fixture across every imported competition
@@ -435,7 +468,7 @@ export async function getCompetitionManagerDataAction(): Promise<CompetitionMana
           p_activation_window_days: ACTIVATION_WINDOW_DAYS,
           p_recommendation_window_days: RECOMMENDATION_WINDOW_DAYS,
         })
-      : Promise.resolve({ data: [] }),
+      : Promise.resolve({ data: [], error: null }),
     rows.length > 0
       ? adminClient
           .from("competition_import_jobs")
@@ -445,8 +478,19 @@ export async function getCompetitionManagerDataAction(): Promise<CompetitionMana
             rows.map((r) => r.id),
           )
           .order("created_at", { ascending: false })
-      : Promise.resolve({ data: [] }),
+      : Promise.resolve({ data: [], error: null }),
   ]);
+  if (leaguesResult.error || aggregatesResult.error || jobsResult.error) {
+    console.error("[getCompetitionManagerDataAction] failed to load leagues/fixture-aggregates/import-jobs", {
+      leaguesError: leaguesResult.error,
+      aggregatesError: aggregatesResult.error,
+      jobsError: jobsResult.error,
+    });
+    return { success: false, error: COMPETITION_DATA_LOAD_ERROR };
+  }
+  const leagueRows = leaguesResult.data;
+  const fixtureAggregateRows = aggregatesResult.data;
+  const jobRows = jobsResult.data;
 
   const leaguesById = new Map((leagueRows ?? []).map((l) => [l.id, l]));
   // countryName/type now come from SUPPORTED_COMPETITIONS via
@@ -514,21 +558,24 @@ export async function getCompetitionManagerDataAction(): Promise<CompetitionMana
   }));
 
   return {
-    recommended,
-    recommendedCacheStatus,
-    recommendedCacheCheckedAt: oldestCheckedAt,
-    supportedCompetitionsEligible,
-    supportedCompetitionsAlreadyImported,
-    imported: importedRows,
-    // Kept in lockstep with the badge itself (operationalStatus), not a
-    // separate reasons-based check — otherwise a normal Completed or
-    // No-upcoming-fixtures competition (which still carries an advisory
-    // reason, e.g. "consider archiving") would flood this tab despite its
-    // badge saying something else entirely. UNSUPPORTED rows never carry
-    // any needs-attention reason (see status.ts), so they're naturally
-    // excluded here too.
-    needsAttention: importedRows.filter((r) => r.operationalStatus === "NEEDS_ATTENTION"),
-    allSupported,
+    success: true,
+    data: {
+      recommended,
+      recommendedCacheStatus,
+      recommendedCacheCheckedAt: oldestCheckedAt,
+      supportedCompetitionsEligible,
+      supportedCompetitionsAlreadyImported,
+      imported: importedRows,
+      // Kept in lockstep with the badge itself (operationalStatus), not a
+      // separate reasons-based check — otherwise a normal Completed or
+      // No-upcoming-fixtures competition (which still carries an advisory
+      // reason, e.g. "consider archiving") would flood this tab despite its
+      // badge saying something else entirely. UNSUPPORTED rows never carry
+      // any needs-attention reason (see status.ts), so they're naturally
+      // excluded here too.
+      needsAttention: importedRows.filter((r) => r.operationalStatus === "NEEDS_ATTENTION"),
+      allSupported,
+    },
   };
 }
 

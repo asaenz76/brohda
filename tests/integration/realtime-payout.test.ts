@@ -11,10 +11,9 @@ import { describe, expect, it } from "vitest";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { broadcastPoolEntryAdded } from "@/lib/realtime/pool-updates";
 import { poolEntriesChannelName } from "@/lib/realtime/channel-names";
+import { getTestSupabaseConfig } from "./helpers/test-env";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
-const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+const { url: SUPABASE_URL, anonKey: ANON_KEY, serviceRoleKey: SERVICE_ROLE_KEY } = getTestSupabaseConfig();
 
 describe.skipIf(!ANON_KEY || !SERVICE_ROLE_KEY)("pool entry realtime broadcast", () => {
   it("delivers an entry_added broadcast to a subscribed listener with the expected payload", async () => {

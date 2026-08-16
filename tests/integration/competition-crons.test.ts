@@ -7,15 +7,12 @@
  * Run with: pnpm test:integration (requires `pnpm supabase:start`).
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { getTestAdminClient, getTestSupabaseConfig } from "./helpers/test-env";
 import type { NormalizedFixture, NormalizedLeague } from "@/lib/sports-data/types";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+const { serviceRoleKey: SERVICE_ROLE_KEY } = getTestSupabaseConfig();
 
-const admin = createSupabaseClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-  auth: { autoRefreshToken: false, persistSession: false },
-});
+const admin = getTestAdminClient();
 
 let mockIsEnabled = true;
 let mockLeagueById: Record<string, NormalizedLeague | null> = {};
@@ -35,6 +32,33 @@ vi.mock("@/lib/sports-data/api-football-provider", () => ({
 const { runCompetitionImportProcessing } = await import("@/lib/competitions/process-imports-cron");
 const { runCompetitionDiscoverySync } = await import("@/lib/competitions/discovery-sync");
 const { refreshRecommendationAvailabilityCache } = await import("@/lib/competitions/availability-cache");
+
+// Phase 4.1: provider_request_log is a real, continuously-growing
+// production table (3.5M+ rows from real cron traffic) — deleting by
+// `.eq("request_type", ...)` alone has no supporting index (request_type
+// isn't indexed) and forces a full table scan, which can exceed Vitest's
+// default hook/test timeouts under load. Bounding by `created_at` first
+// lets Postgres use idx_provider_request_log_created_at to narrow before
+// the request_type filter runs — same fix already proven in
+// provider-infrastructure.test.ts and circuit-breaker.test.ts.
+const PROVIDER_LOG_CLEANUP_SINCE = new Date(Date.now() - 3600_000).toISOString();
+
+// Phase 4.1: the runCompetitionDiscoverySync tests below genuinely need a
+// real, currently-enabled SUPPORTED_COMPETITIONS id ("140" = LaLiga) —
+// runCompetitionDiscoverySync's own "due" query filters
+// `.in("external_league_id", supportedIds)`, so a fake id would simply
+// never be selected and the tests would prove nothing. That real id
+// collides with real production data (confirmed live: this file's old
+// cleanup — a blanket `.eq("external_league_id", "140")` sweep — deleted
+// LaLiga's actual league_season_imports/leagues/fixtures rows in
+// production during this investigation). The fix isn't a fake id, it's
+// precise cleanup: every test that creates a "140"/"39" row pushes the
+// exact row id it created here, and cleanupTestData deletes only those
+// specific rows — never a sweep keyed by the shared, real external id.
+const createdLeagueIds: string[] = [];
+const createdLsiIds: string[] = [];
+const createdFixtureExternalIds: string[] = [];
+const createdAvailabilityCacheKeys: Array<{ externalLeagueId: string; season: string }> = [];
 
 function fixture(externalFixtureId: string, scheduledStartUtc: string, overrides: Partial<NormalizedFixture> = {}): NormalizedFixture {
   return {
@@ -78,7 +102,10 @@ function fixture(externalFixtureId: string, scheduledStartUtc: string, overrides
 }
 
 async function cleanupTestData() {
-  const { data: lsis } = await admin.from("league_season_imports").select("id").in("external_league_id", ["555002", "39", "140"]);
+  // "555002" is a synthetic 6-digit id that can never collide with a real
+  // API-Football league id (those run 1-4 digits) — a business-key sweep
+  // for it alone is safe and needs no per-row tracking.
+  const { data: lsis } = await admin.from("league_season_imports").select("id").eq("external_league_id", "555002");
   for (const lsi of lsis ?? []) {
     const { data: jobs } = await admin.from("competition_import_jobs").select("id").eq("league_season_import_id", lsi.id);
     for (const job of jobs ?? []) {
@@ -86,11 +113,37 @@ async function cleanupTestData() {
     }
     await admin.from("competition_import_jobs").delete().eq("league_season_import_id", lsi.id);
   }
-  await admin.from("league_season_imports").delete().in("external_league_id", ["555002", "39", "140"]);
-  await admin.from("leagues").delete().in("external_id", ["555002", "140"]);
-  await admin.from("fixtures").delete().in("competition_external_id", ["555002", "140"]);
-  await admin.from("competition_availability_cache").delete().eq("provider", "api_football");
-  await admin.from("provider_request_log").delete().eq("request_type", "test-quota-breaker");
+  await admin.from("league_season_imports").delete().eq("external_league_id", "555002");
+  await admin.from("leagues").delete().eq("external_id", "555002");
+  await admin.from("fixtures").delete().eq("competition_external_id", "555002");
+
+  // "39"/"140" are real, currently-supported competitions (Premier
+  // League/LaLiga) — deleted strictly by the specific row ids this file's
+  // own tests created, never by external_league_id/competition_external_id,
+  // so a real production row for either competition is never at risk.
+  if (createdLsiIds.length > 0) {
+    const { data: jobs } = await admin.from("competition_import_jobs").select("id").in("league_season_import_id", createdLsiIds);
+    for (const job of jobs ?? []) {
+      await admin.from("competition_import_job_chunks").delete().eq("job_id", job.id);
+    }
+    await admin.from("competition_import_jobs").delete().in("league_season_import_id", createdLsiIds);
+    await admin.from("league_season_imports").delete().in("id", createdLsiIds);
+    createdLsiIds.length = 0;
+  }
+  if (createdLeagueIds.length > 0) {
+    await admin.from("leagues").delete().in("id", createdLeagueIds);
+    createdLeagueIds.length = 0;
+  }
+  if (createdFixtureExternalIds.length > 0) {
+    await admin.from("fixtures").delete().in("external_fixture_id", createdFixtureExternalIds);
+    createdFixtureExternalIds.length = 0;
+  }
+  for (const key of createdAvailabilityCacheKeys) {
+    await admin.from("competition_availability_cache").delete().eq("provider", "api_football").eq("external_league_id", key.externalLeagueId).eq("season", key.season);
+  }
+  createdAvailabilityCacheKeys.length = 0;
+
+  await admin.from("provider_request_log").delete().gte("created_at", PROVIDER_LOG_CLEANUP_SINCE).eq("request_type", "test-quota-breaker");
 }
 
 describe.skipIf(!SERVICE_ROLE_KEY)("competition background jobs", () => {
@@ -321,6 +374,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition background jobs", () => {
     // don't collide.
     it("adds a newly scheduled fixture and updates a rescheduled one, on a due (never-discovered) competition", async () => {
       const { data: league } = await admin.from("leagues").insert({ provider: "api_football", external_id: "140", name: "LaLiga" }).select("id").single();
+      createdLeagueIds.push(league!.id);
       const originalStart = new Date(Date.now() + 5 * 86400_000).toISOString();
       await admin.from("fixtures").insert({
         provider: "api_football",
@@ -332,6 +386,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition background jobs", () => {
         scheduled_start_utc: originalStart,
         internal_status: "NOT_STARTED",
       });
+      createdFixtureExternalIds.push("9201", "9202");
       const { data: lsi } = await admin
         .from("league_season_imports")
         .insert({
@@ -345,6 +400,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition background jobs", () => {
         })
         .select("id")
         .single();
+      createdLsiIds.push(lsi!.id);
 
       const rescheduledStart = new Date(Date.now() + 8 * 86400_000).toISOString(); // postponed
       const newFixtureStart = new Date(Date.now() + 10 * 86400_000).toISOString();
@@ -367,20 +423,21 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition background jobs", () => {
       const { data: finalLsi } = await admin.from("league_season_imports").select("upcoming_fixture_count, last_fixture_discovery_at").eq("id", lsi!.id).single();
       expect(finalLsi?.upcoming_fixture_count).toBe(2);
       expect(finalLsi?.last_fixture_discovery_at).not.toBeNull();
-
-      await admin.from("fixtures").delete().in("external_fixture_id", ["9201", "9202"]);
     });
 
     it("never collapses fixture_count_imported to the provider's row count when it's less than what's already stored (regression: two production competitions had 98 and 56 real imported fixtures silently zeroed out this way)", async () => {
       const { data: league } = await admin.from("leagues").insert({ provider: "api_football", external_id: "140", name: "LaLiga" }).select("id").single();
+      createdLeagueIds.push(league!.id);
       const upcoming1 = new Date(Date.now() + 3 * 86400_000).toISOString();
       const upcoming2 = new Date(Date.now() + 5 * 86400_000).toISOString();
       const past = new Date(Date.now() - 3 * 86400_000).toISOString();
-      await admin.from("fixtures").insert([
+      const insertResult = await admin.from("fixtures").insert([
         { provider: "api_football", external_fixture_id: "9210", competition_external_id: "140", season: "2026", home_team_name: "A", away_team_name: "B", scheduled_start_utc: upcoming1, internal_status: "NOT_STARTED" },
         { provider: "api_football", external_fixture_id: "9211", competition_external_id: "140", season: "2026", home_team_name: "C", away_team_name: "D", scheduled_start_utc: upcoming2, internal_status: "NOT_STARTED" },
         { provider: "api_football", external_fixture_id: "9212", competition_external_id: "140", season: "2026", home_team_name: "E", away_team_name: "F", scheduled_start_utc: past, internal_status: "COMPLETED" },
       ]);
+      expect(insertResult.error).toBeNull();
+      createdFixtureExternalIds.push("9210", "9211", "9212");
       const { data: lsi } = await admin
         .from("league_season_imports")
         .insert({
@@ -396,6 +453,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition background jobs", () => {
         })
         .select("id")
         .single();
+      createdLsiIds.push(lsi!.id);
 
       // Simulates the real incident: the provider call succeeds but
       // returns fewer rows than what's already correctly imported (a
@@ -419,13 +477,12 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition background jobs", () => {
       // (smaller) count — otherwise the mismatch check it exists for
       // would be permanently tautological.
       expect(finalLsi?.provider_fixture_count).toBe(1);
-
-      await admin.from("fixtures").delete().in("external_fixture_id", ["9210", "9211", "9212"]);
     });
 
     it("skips a competition whose discovery isn't due yet", async () => {
       const { data: league } = await admin.from("leagues").insert({ provider: "api_football", external_id: "140", name: "LaLiga" }).select("id").single();
-      await admin
+      createdLeagueIds.push(league!.id);
+      const { data: lsi } = await admin
         .from("league_season_imports")
         .insert({
           provider: "api_football",
@@ -435,7 +492,11 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition background jobs", () => {
           import_status: "IMPORTED",
           is_active: true,
           last_fixture_discovery_at: new Date().toISOString(), // just discovered — not stale
-        });
+        })
+        .select("id")
+        .single();
+      createdLsiIds.push(lsi!.id);
+      createdFixtureExternalIds.push("9203");
 
       mockSeasonFixturesByKey["140:2026"] = [fixture("9203", new Date(Date.now() + 86400_000).toISOString(), { competitionExternalId: "140" })];
       const result = await runCompetitionDiscoverySync();
@@ -467,15 +528,22 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition background jobs", () => {
 
     it("skips the entire tick when the circuit breaker is open from a recent quota error, spending zero requests", async () => {
       const { data: league } = await admin.from("leagues").insert({ provider: "api_football", external_id: "140", name: "LaLiga" }).select("id").single();
-      await admin.from("league_season_imports").insert({
-        provider: "api_football",
-        external_league_id: "140",
-        season: "2026",
-        league_id: league!.id,
-        import_status: "IMPORTED",
-        is_active: true,
-        last_fixture_discovery_at: null,
-      });
+      createdLeagueIds.push(league!.id);
+      const { data: lsi } = await admin
+        .from("league_season_imports")
+        .insert({
+          provider: "api_football",
+          external_league_id: "140",
+          season: "2026",
+          league_id: league!.id,
+          import_status: "IMPORTED",
+          is_active: true,
+          last_fixture_discovery_at: null,
+        })
+        .select("id")
+        .single();
+      createdLsiIds.push(lsi!.id);
+      createdFixtureExternalIds.push("9205");
       await admin.from("provider_request_log").insert({
         provider: "api_football",
         request_type: "test-quota-breaker",
@@ -490,7 +558,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition background jobs", () => {
       const { data: notAdded } = await admin.from("fixtures").select("id").eq("external_fixture_id", "9205").maybeSingle();
       expect(notAdded).toBeNull();
 
-      await admin.from("provider_request_log").delete().eq("request_type", "test-quota-breaker");
+      await admin.from("provider_request_log").delete().gte("created_at", PROVIDER_LOG_CLEANUP_SINCE).eq("request_type", "test-quota-breaker");
     });
   });
 
@@ -511,6 +579,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition background jobs", () => {
       expect(result.checked).toBeGreaterThan(0);
       expect(result.refreshed).toBeGreaterThan(0);
 
+      createdAvailabilityCacheKeys.push({ externalLeagueId: "39", season: "2026" });
       const { data: cacheRow } = await admin
         .from("competition_availability_cache")
         .select("*")
@@ -529,6 +598,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("competition background jobs", () => {
         checked_at: new Date().toISOString(), // fresh
         window_days: 30,
       });
+      createdAvailabilityCacheKeys.push({ externalLeagueId: "39", season: "2026" });
       mockLeagueById["39"] = null; // if it were (incorrectly) re-checked, getLeagueById would return null and clobber the row
 
       await refreshRecommendationAvailabilityCache();

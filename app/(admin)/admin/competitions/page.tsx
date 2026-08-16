@@ -4,7 +4,7 @@ import { CompetitionManager } from "./competition-manager";
 
 export default async function AdminCompetitionsPage() {
   await requireAdminOrAbove();
-  const data = await getCompetitionManagerDataAction();
+  const result = await getCompetitionManagerDataAction();
 
   return (
     <div className="space-y-4">
@@ -14,7 +14,14 @@ export default async function AdminCompetitionsPage() {
           Discover, import, synchronize, and archive competitions — separate from creating pools.
         </p>
       </div>
-      <CompetitionManager initialData={data} />
+      {result.success ? (
+        <CompetitionManager initialData={result.data} />
+      ) : (
+        <div className="rounded-lg border border-danger/40 bg-danger/5 p-4 text-sm text-danger">
+          <p className="font-medium">{result.error}</p>
+          <p className="mt-1 text-text-muted">Try reloading the page. If this keeps happening, check server logs.</p>
+        </div>
+      )}
     </div>
   );
 }

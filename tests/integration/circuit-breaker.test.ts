@@ -15,27 +15,40 @@
  * to vanish because the "insert" was actually being served the mocked
  * provider response instead of ever reaching PostgREST).
  *
- * Run with: pnpm test:integration (requires `pnpm supabase:start` per the
- * repo's other integration tests, though this one — like every test file
- * in this repo per this session's findings — actually runs against
- * whatever NEXT_PUBLIC_SUPABASE_URL/.env.local resolve to).
+ * Run with: pnpm test:integration (requires `pnpm supabase:start` — see
+ * tests/integration/helpers/test-env.ts for how this and every other
+ * integration test resolves its Supabase target).
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { getTestAdminClient, getTestSupabaseConfig } from "./helpers/test-env";
 import { fetchWithRetry } from "@/lib/sports-data/http";
 import { getProviderStatus } from "@/lib/sports-data/provider-gateway";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+const { serviceRoleKey: SERVICE_ROLE_KEY } = getTestSupabaseConfig();
 
-const admin = createSupabaseClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-  auth: { autoRefreshToken: false, persistSession: false },
-});
+const admin = getTestAdminClient();
 
 // Unique per test run so a re-run (or a concurrent session) can never
 // collide with — or be confused for — a real provider_request_log row.
 const TEST_REQUEST_TYPE = `circuit-breaker-test-${Date.now()}`;
 const FAKE_PROVIDER_URL = "https://example.invalid/fixtures";
+
+// Phase 4.1: provider_request_log is a real, continuously-growing
+// production table (3.5M+ rows from real cron traffic) — cleanup()
+// used to delete by `.eq("request_type", ...)` alone, which has no
+// supporting index (request_type isn't indexed at all) and forced a full
+// table scan on every afterEach, intermittently exceeding Vitest's
+// default 10s hookTimeout. Bounding by `created_at` first lets Postgres
+// use idx_provider_request_log_created_at to narrow before the
+// request_type filter ever runs — same fix already proven in
+// provider-infrastructure.test.ts's own cleanup(), just never applied
+// here. A slow/timed-out cleanup wasn't just an annoyance: Vitest doesn't
+// cancel the in-flight delete on a hook timeout, so it kept running
+// server-side and could delete a LATER test's just-written row before
+// that test's own read-back ran — the exact cause of two other failures
+// in this file that looked unrelated at first (both read back `undefined`
+// instead of a real row).
+const CLEANUP_SINCE = new Date(Date.now() - 3600_000).toISOString();
 
 const realFetch = globalThis.fetch;
 
@@ -69,7 +82,7 @@ function stubProviderFetch(mockResponse: () => Response) {
 }
 
 async function cleanup() {
-  await admin.from("provider_request_log").delete().eq("request_type", TEST_REQUEST_TYPE);
+  await admin.from("provider_request_log").delete().gte("created_at", CLEANUP_SINCE).eq("request_type", TEST_REQUEST_TYPE);
 }
 
 describe.skipIf(!SERVICE_ROLE_KEY)("circuit breaker — real DB round-trip", () => {
@@ -85,11 +98,15 @@ describe.skipIf(!SERVICE_ROLE_KEY)("circuit breaker — real DB round-trip", () 
       fetchWithRetry(FAKE_PROVIDER_URL, {}, { provider: "api_football", requestType: TEST_REQUEST_TYPE }),
     ).rejects.toThrow();
 
-    const { data: row } = await admin
+    const { data: row, error: readError } = await admin
       .from("provider_request_log")
       .select("provider, response_status, error")
       .eq("request_type", TEST_REQUEST_TYPE)
       .single();
+    // Fails loudly on a genuine read-back miss (e.g. PGRST116, "0 rows")
+    // instead of leaving every assertion below to fail confusingly against
+    // `undefined`.
+    expect(readError).toBeNull();
     expect(row?.provider).toBe("api_football");
     expect(row?.response_status).toBe(200);
     expect(row?.error).toMatch(/request limit/i);
@@ -136,11 +153,12 @@ describe.skipIf(!SERVICE_ROLE_KEY)("circuit breaker — real DB round-trip", () 
     const response = await fetchWithRetry(FAKE_PROVIDER_URL, {}, { provider: "api_football", requestType: TEST_REQUEST_TYPE });
     expect(response.status).toBe(200);
 
-    const { data: row } = await admin
+    const { data: row, error: readError } = await admin
       .from("provider_request_log")
       .select("error")
       .eq("request_type", TEST_REQUEST_TYPE)
       .single();
+    expect(readError).toBeNull();
     expect(row?.error).toBeNull();
   });
 
@@ -155,11 +173,12 @@ describe.skipIf(!SERVICE_ROLE_KEY)("circuit breaker — real DB round-trip", () 
       fetchWithRetry(FAKE_PROVIDER_URL, {}, { provider: "api_nfl", requestType: TEST_REQUEST_TYPE }),
     ).rejects.toThrow();
 
-    const { data: row } = await admin
+    const { data: row, error: readError } = await admin
       .from("provider_request_log")
       .select("provider, response_status, error, normalized_error_type")
       .eq("request_type", TEST_REQUEST_TYPE)
       .single();
+    expect(readError).toBeNull();
     expect(row?.provider).toBe("api_nfl");
     expect(row?.response_status).toBe(200);
     expect(row?.error).toMatch(/request limit/i);
@@ -194,11 +213,12 @@ describe.skipIf(!SERVICE_ROLE_KEY)("circuit breaker — real DB round-trip", () 
     ).rejects.toThrow();
     expect(callCount).toBe(1); // never retried
 
-    const { data: row } = await admin
+    const { data: row, error: readError } = await admin
       .from("provider_request_log")
       .select("normalized_error_type")
       .eq("request_type", TEST_REQUEST_TYPE)
       .single();
+    expect(readError).toBeNull();
     expect(row?.normalized_error_type).toBe("INVALID_REQUEST");
   });
 });
