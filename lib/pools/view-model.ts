@@ -31,6 +31,7 @@ export interface SocialPoolCardViewModel {
   // representative extension, not a deviation.
   postedAt: string;
   fixture: {
+    sport: string;
     competitionName: string | null;
     competitionCountry: string | null;
     competitionLogoUrl: string | null;
@@ -118,6 +119,7 @@ export interface BuildViewModelInput {
     comment_count: number;
   };
   fixture: {
+    sport: string;
     competition_name: string | null;
     competition_country: string | null;
     competition_logo_url: string | null;
@@ -255,6 +257,7 @@ export function buildPoolCardViewModel(input: BuildViewModelInput): SocialPoolCa
     visibility: pool.visibility,
     postedAt: pool.created_at,
     fixture: {
+      sport: fixture.sport,
       competitionName: fixture.competition_name,
       competitionCountry: fixture.competition_country,
       competitionLogoUrl: fixture.competition_logo_url,

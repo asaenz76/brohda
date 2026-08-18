@@ -6,6 +6,7 @@ import { Avatar } from "@/components/Avatar";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
 import { LocalDateTime } from "@/components/LocalDateTime";
 import { resolveCategoriesFromSearchTerm } from "@/lib/pools/templates/category-labels";
+import { getMatchupSeparator, orderTeamsForDisplay } from "@/lib/sports-data/team-display-order";
 import { SearchInput } from "./search-input";
 
 type SearchProfile = {
@@ -17,13 +18,14 @@ type SearchProfile = {
 
 type SearchFixture = {
   id: string;
+  sport: string;
   homeTeamName: string;
   awayTeamName: string;
   competitionName: string | null;
   scheduledStartUtc: string;
 };
 
-const FIXTURE_SELECT = "id, home_team_name, away_team_name, competition_name, scheduled_start_utc";
+const FIXTURE_SELECT = "id, sport, home_team_name, away_team_name, competition_name, scheduled_start_utc";
 
 export default async function SearchPage({
   searchParams,
@@ -84,6 +86,7 @@ export default async function SearchPage({
       string,
       {
         id: string;
+        sport: string;
         home_team_name: string;
         away_team_name: string;
         competition_name: string | null;
@@ -122,6 +125,7 @@ export default async function SearchPage({
       .slice(0, 20)
       .map((f) => ({
         id: f.id,
+        sport: f.sport,
         homeTeamName: f.home_team_name,
         awayTeamName: f.away_team_name,
         competitionName: f.competition_name,
@@ -188,25 +192,32 @@ export default async function SearchPage({
                 Fixtures
               </h2>
               <ul className="space-y-1">
-                {fixtures.map((fixture) => (
-                  <li key={fixture.id}>
-                    <Link
-                      href={`/fixture/${fixture.id}`}
-                      className="flex flex-col rounded-xl px-3 py-2 hover:bg-surface-secondary"
-                    >
-                      <span className="text-sm font-medium text-text-primary">
-                        {fixture.homeTeamName} vs {fixture.awayTeamName}
-                      </span>
-                      <span className="text-xs text-text-muted">
-                        {fixture.competitionName ? `${fixture.competitionName} · ` : ""}
-                        <LocalDateTime
-                          iso={fixture.scheduledStartUtc}
-                          options={{ month: "short", day: "numeric" }}
-                        />
-                      </span>
-                    </Link>
-                  </li>
-                ))}
+                {fixtures.map((fixture) => {
+                  const [firstTeam, secondTeam] = orderTeamsForDisplay(
+                    fixture.sport,
+                    fixture.homeTeamName,
+                    fixture.awayTeamName,
+                  );
+                  return (
+                    <li key={fixture.id}>
+                      <Link
+                        href={`/fixture/${fixture.id}`}
+                        className="flex flex-col rounded-xl px-3 py-2 hover:bg-surface-secondary"
+                      >
+                        <span className="text-sm font-medium text-text-primary">
+                          {firstTeam} {getMatchupSeparator(fixture.sport)} {secondTeam}
+                        </span>
+                        <span className="text-xs text-text-muted">
+                          {fixture.competitionName ? `${fixture.competitionName} · ` : ""}
+                          <LocalDateTime
+                            iso={fixture.scheduledStartUtc}
+                            options={{ month: "short", day: "numeric" }}
+                          />
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
               </ul>
             </section>
           )}

@@ -40,6 +40,7 @@ function buildViewModel(overrides: Partial<SocialPoolCardViewModel> = {}): Socia
     visibility: "VISIBLE_TO_ALL_MEMBERS",
     postedAt: new Date().toISOString(),
     fixture: {
+      sport: "football",
       competitionName: null,
       competitionCountry: null,
       competitionLogoUrl: null,

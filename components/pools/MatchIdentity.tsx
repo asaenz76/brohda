@@ -1,6 +1,7 @@
 import { cn } from "@/lib/utils";
 import { LocalDateTime } from "@/components/LocalDateTime";
 import { TeamFollowToggle } from "@/components/pools/TeamFollowToggle";
+import { getMatchupSeparator, orderTeamsForDisplay } from "@/lib/sports-data/team-display-order";
 import type { SocialPoolCardViewModel } from "@/lib/pools/view-model";
 
 function TeamBadge({
@@ -49,17 +50,21 @@ function TeamBadge({
 }
 
 export function MatchIdentity({ fixture }: { fixture: SocialPoolCardViewModel["fixture"] }) {
+  // Broadcast convention differs by sport: NFL lists away first ("Away @
+  // Home"), football/soccer lists home first ("Home vs Away") — see
+  // lib/sports-data/team-display-order.ts.
+  const home = { name: fixture.homeTeamName, logoUrl: fixture.homeTeamLogoUrl, follow: fixture.homeTeamFollow };
+  const away = { name: fixture.awayTeamName, logoUrl: fixture.awayTeamLogoUrl, follow: fixture.awayTeamFollow };
+  const [first, second] = orderTeamsForDisplay(fixture.sport, home, away);
+
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between gap-3">
-        <TeamBadge name={fixture.homeTeamName} logoUrl={fixture.homeTeamLogoUrl} follow={fixture.homeTeamFollow} />
-        <span className="text-xs font-semibold text-text-muted">VS</span>
-        <TeamBadge
-          name={fixture.awayTeamName}
-          logoUrl={fixture.awayTeamLogoUrl}
-          align="right"
-          follow={fixture.awayTeamFollow}
-        />
+        <TeamBadge name={first.name} logoUrl={first.logoUrl} follow={first.follow} />
+        <span className="text-xs font-semibold text-text-muted">
+          {getMatchupSeparator(fixture.sport).toUpperCase()}
+        </span>
+        <TeamBadge name={second.name} logoUrl={second.logoUrl} align="right" follow={second.follow} />
       </div>
       <p className="text-center text-xs text-text-muted">
         {/* Full date + time + zone abbreviation, personalized to each

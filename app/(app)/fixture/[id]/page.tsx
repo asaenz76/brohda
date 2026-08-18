@@ -8,6 +8,7 @@ import { getPaymentMethods } from "@/lib/payment-methods/fetch";
 import { SocialPoolCard } from "@/components/pools/SocialPoolCard";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
 import { LocalDateTime } from "@/components/LocalDateTime";
+import { getMatchupSeparator, orderTeamsForDisplay } from "@/lib/sports-data/team-display-order";
 import type { CardState } from "@/lib/pools/card-state";
 
 // Pools still worth acting on float to the top; settled/voided history
@@ -31,7 +32,7 @@ export default async function FixturePoolsPage({ params }: { params: Promise<{ i
   const [{ data: fixture }, { data: poolRows }, { data: wallet }, paymentMethods] = await Promise.all([
     supabase
       .from("fixtures")
-      .select("home_team_name, away_team_name, competition_name, scheduled_start_utc")
+      .select("sport, home_team_name, away_team_name, competition_name, scheduled_start_utc")
       .eq("id", id)
       .single(),
     supabase.from("pools").select("id, created_at").eq("fixture_id", id),
@@ -54,12 +55,13 @@ export default async function FixturePoolsPage({ params }: { params: Promise<{ i
     .sort((a, b) => (STATUS_PRIORITY[a.status] ?? 4) - (STATUS_PRIORITY[b.status] ?? 4));
 
   const balanceCents = wallet?.balance ?? 0;
+  const [firstTeam, secondTeam] = orderTeamsForDisplay(fixture.sport, fixture.home_team_name, fixture.away_team_name);
 
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-lg font-bold text-text-primary">
-          {fixture.home_team_name} vs {fixture.away_team_name}
+          {firstTeam} {getMatchupSeparator(fixture.sport)} {secondTeam}
         </h1>
         <p className="text-xs text-text-muted">
           {fixture.competition_name ? `${fixture.competition_name} · ` : ""}

@@ -70,6 +70,7 @@ function buildInput(overrides: Partial<BuildViewModelInput> = {}): BuildViewMode
       comment_count: 0,
     },
     fixture: {
+      sport: "football",
       competition_name: null,
       competition_country: null,
       competition_logo_url: null,
