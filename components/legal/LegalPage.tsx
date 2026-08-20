@@ -16,7 +16,7 @@ export function LegalPage({
   return (
     <div className="mx-auto max-w-2xl px-4 py-12 sm:py-16">
       <Link
-        href="/login"
+        href="/"
         className="text-sm text-text-secondary underline underline-offset-4 hover:text-text-primary"
       >
         ← Back to brohda.
