@@ -7,7 +7,7 @@ export function FinalCta() {
     <section className="mx-auto max-w-2xl px-4 py-20 text-center sm:px-6">
       <h2 className="text-3xl font-bold text-text-primary sm:text-4xl">Think you know the game?</h2>
       <p className="mt-3 text-text-secondary">
-        Join the brohda. beta and start building your prediction record.
+        Join brohda and start building your prediction record.
       </p>
       <div className="mt-6 flex flex-col items-center gap-3">
         <Link href="/register" className={cn(buttonVariants({ size: "lg" }), "px-8")}>

@@ -24,7 +24,7 @@ export function LandingNav() {
             Sign in
           </Link>
           <Link href="/register" className={cn(buttonVariants({ size: "sm" }))}>
-            Join the beta
+            Sign up
           </Link>
         </div>
       </div>

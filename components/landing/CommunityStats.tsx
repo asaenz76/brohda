@@ -1,8 +1,8 @@
 import type { LandingStats } from "@/lib/landing/fetch";
 
-export function BetaStats({ stats }: { stats: LandingStats }) {
+export function CommunityStats({ stats }: { stats: LandingStats }) {
   const items = [
-    { label: "beta testers", value: stats.betaTesters },
+    { label: "players", value: stats.betaTesters },
     { label: "predictions made", value: stats.predictionsMade },
     { label: "pools completed", value: stats.poolsCompleted },
   ];
@@ -14,7 +14,7 @@ export function BetaStats({ stats }: { stats: LandingStats }) {
   return (
     <section className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
       <p className="text-center text-sm font-semibold uppercase tracking-wide text-text-muted">
-        Built with our beta community
+        Built with our community
       </p>
       <div className="mt-6 grid grid-cols-3 gap-4 text-center">
         {items.map((item) => (

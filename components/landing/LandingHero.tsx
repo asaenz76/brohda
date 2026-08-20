@@ -9,7 +9,7 @@ import { PhoneFrame } from "./PhoneFrame";
 const BULLETS = [
   { icon: Users2, label: "Compete with people, not against the house" },
   { icon: ShieldCheck, label: "Real matches" },
-  { icon: Trophy, label: "Community-created pools" },
+  { icon: Trophy, label: "Real pools" },
 ];
 
 export function LandingHero({ heroPool }: { heroPool: SocialPoolCardViewModel | null }) {
@@ -18,18 +18,18 @@ export function LandingHero({ heroPool }: { heroPool: SocialPoolCardViewModel | 
       <div className="space-y-6">
         <span className="inline-flex items-center gap-1.5 rounded-full bg-accent-primary-subtle px-3 py-1 text-xs font-semibold text-accent-primary">
           <span className="size-1.5 rounded-full bg-accent-primary" aria-hidden="true" />
-          Beta now open
+          Now open
         </span>
         <h1 className="text-balance text-4xl font-bold tracking-tight text-text-primary sm:text-5xl">
           Make the call. <span className="text-accent-primary">Challenge your friends.</span>
         </h1>
         <p className="max-w-md text-lg text-text-secondary">
-          Predict football and NFL outcomes, join community pools, and prove you know the game
-          better than your group chat.
+          Predict football and NFL outcomes, join match pools, and prove you know the game
+          better than your friends.
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <Link href="/register" className={cn(buttonVariants({ size: "lg" }), "px-6")}>
-            Join the beta
+            Sign up
           </Link>
           <a
             href="#how-it-works"
@@ -49,7 +49,7 @@ export function LandingHero({ heroPool }: { heroPool: SocialPoolCardViewModel | 
         <p className="text-xs text-text-muted">
           <span className="font-medium text-text-secondary">Available now:</span> Football, NFL
           {" · "}
-          <span className="font-medium text-text-secondary">Coming soon:</span> NBA, MLB, and more
+          <span className="font-medium text-text-secondary">Coming soon:</span> NBA, NHL, MMA, and more
         </p>
       </div>
 

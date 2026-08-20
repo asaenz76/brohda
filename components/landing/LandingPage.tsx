@@ -5,7 +5,7 @@ import { ActivityStrip } from "./ActivityStrip";
 import { HowItWorks } from "./HowItWorks";
 import { ProductShowcase } from "./ProductShowcase";
 import { ComparisonSection } from "./ComparisonSection";
-import { BetaStats } from "./BetaStats";
+import { CommunityStats } from "./CommunityStats";
 import { FinalCta } from "./FinalCta";
 import { LandingFooter } from "./LandingFooter";
 
@@ -23,7 +23,7 @@ export function LandingPage({ data }: { data: LandingPageData }) {
           sampleAnalytics={data.sampleAnalytics}
         />
         <ComparisonSection />
-        <BetaStats stats={data.stats} />
+        <CommunityStats stats={data.stats} />
         <FinalCta />
       </main>
       <LandingFooter />
