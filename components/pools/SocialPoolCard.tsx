@@ -38,12 +38,22 @@ export function SocialPoolCard({
   // open stays open regardless (those are excluded from the collapse gate
   // below), since the collapse toggle sits in that same persistent header.
   collapsible = false,
+  // Every tier of this pool's fee-tier group (see TieredPoolCard), sorted
+  // ascending by entryFee, including this card's own viewModel. Omitted
+  // for an ordinary, non-tiered pool. When present (length > 1) a compact
+  // fee dropdown renders inside the card, and the same list is threaded
+  // into EntryConfirmationSheet so the amount can be changed from inside
+  // the open sheet too, without switching cards first.
+  siblingTiers,
+  onTierChange,
 }: {
   viewModel: SocialPoolCardViewModel;
   balanceCents: number;
   paymentMethods: PaymentMethodRow[];
   viewer: { id: string; isModerator: boolean };
   collapsible?: boolean;
+  siblingTiers?: SocialPoolCardViewModel[];
+  onTierChange?: (poolId: string) => void;
 }) {
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
   const [commentsOpen, setCommentsOpen] = useState(false);
@@ -156,6 +166,26 @@ export function SocialPoolCard({
           </button>
         )}
       </div>
+
+      {siblingTiers && siblingTiers.length > 1 && (
+        <div className="flex items-center gap-2">
+          <label htmlFor={`tier-fee-${viewModel.poolId}`} className="text-xs font-medium text-text-secondary">
+            Entry fee
+          </label>
+          <select
+            id={`tier-fee-${viewModel.poolId}`}
+            value={viewModel.poolId}
+            onChange={(e) => onTierChange?.(e.target.value)}
+            className="rounded-lg border border-border-subtle bg-surface-secondary px-2 py-1 text-xs font-semibold text-text-primary"
+          >
+            {siblingTiers.map((tier) => (
+              <option key={tier.poolId} value={tier.poolId}>
+                {formatCents(tier.entryFee)}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* homeTeamName is the fetch-layer sentinel for "has a real fixture" —
           empty string only for CUSTOM pools' synthesized stand-in
@@ -299,6 +329,11 @@ export function SocialPoolCard({
             houseFeeBasisPoints={viewModel.houseFeeBasisPoints}
             balanceCents={balanceCents}
             locksAt={viewModel.locksAt}
+            tiers={siblingTiers?.map((tier) => ({
+              poolId: tier.poolId,
+              entryFee: tier.entryFee,
+              options: tier.options.map((o) => ({ optionId: o.optionId, label: o.label })),
+            }))}
             onClose={() => setSelectedOptionId(null)}
             onSuccess={() => setSelectedOptionId(null)}
           />

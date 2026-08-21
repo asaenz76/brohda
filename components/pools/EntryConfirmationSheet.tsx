@@ -17,6 +17,14 @@ interface EntryConfirmationSheetProps {
   houseFeeBasisPoints: number;
   balanceCents: number;
   locksAt: string;
+  /** Sibling tiers of the same fee-tier group (see TieredPoolCard), sorted
+   *  ascending by entryFee, including the tier this sheet was opened from.
+   *  When there's more than one, the "Entry Fee" row becomes a dropdown so
+   *  the user can pick a different amount without leaving the sheet —
+   *  matched across tiers by option label, since each tier is a distinct
+   *  pool with its own option rows (see 20260101000122). Omit for an
+   *  ordinary, non-tiered pool. */
+  tiers?: Array<{ poolId: string; entryFee: number; options: Array<{ optionId: string; label: string }> }>;
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -35,6 +43,7 @@ export function EntryConfirmationSheet({
   houseFeeBasisPoints,
   balanceCents,
   locksAt,
+  tiers,
   onClose,
   onSuccess,
 }: EntryConfirmationSheetProps) {
@@ -42,6 +51,7 @@ export function EntryConfirmationSheet({
   const [idempotencyKey] = useState(() => crypto.randomUUID());
   const sheetRef = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  const [activeTierPoolId, setActiveTierPoolId] = useState(poolId);
 
   useEffect(() => {
     if (state.success) onSuccess();
@@ -49,7 +59,16 @@ export function EntryConfirmationSheet({
 
   useFocusTrap(sheetRef, onClose);
 
-  const balanceAfter = balanceCents - entryFee;
+  const hasTierChoice = (tiers?.length ?? 0) > 1;
+  const activeTier = hasTierChoice ? tiers!.find((t) => t.poolId === activeTierPoolId) : null;
+  const effectivePoolId = activeTier?.poolId ?? poolId;
+  const effectiveEntryFee = activeTier?.entryFee ?? entryFee;
+  const effectiveOptionId = activeTier
+    ? (activeTier.options.find((o) => o.label === optionLabel)?.optionId ?? optionId)
+    : optionId;
+  const insufficientBalance = effectiveEntryFee > balanceCents;
+
+  const balanceAfter = balanceCents - effectiveEntryFee;
 
   return (
     <div
@@ -76,13 +95,31 @@ export function EntryConfirmationSheet({
         <RulePill label={ruleLabel} />
 
         <dl className="space-y-1.5 text-sm">
-          <div className="flex justify-between">
+          <div className="flex items-center justify-between">
             <dt className="text-text-secondary">Entry Fee × 1</dt>
-            <dd className="text-text-primary">{formatCents(entryFee)}</dd>
+            <dd className="text-text-primary">
+              {hasTierChoice ? (
+                <select
+                  value={effectivePoolId}
+                  onChange={(e) => setActiveTierPoolId(e.target.value)}
+                  disabled={pending}
+                  aria-label="Entry fee"
+                  className="rounded-lg border border-border-subtle bg-surface-secondary px-2 py-1 text-sm font-medium text-text-primary"
+                >
+                  {tiers!.map((t) => (
+                    <option key={t.poolId} value={t.poolId}>
+                      {formatCents(t.entryFee)}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                formatCents(effectiveEntryFee)
+              )}
+            </dd>
           </div>
           <div className="flex justify-between font-medium">
             <dt className="text-text-secondary">Total</dt>
-            <dd className="text-text-primary">{formatCents(entryFee)}</dd>
+            <dd className="text-text-primary">{formatCents(effectiveEntryFee)}</dd>
           </div>
           <div className="flex justify-between">
             <dt className="text-text-secondary">Balance after entry</dt>
@@ -112,12 +149,24 @@ export function EntryConfirmationSheet({
         </p>
 
         <form ref={formRef} action={formAction}>
-          <input type="hidden" name="poolId" value={poolId} />
-          <input type="hidden" name="optionId" value={optionId} />
-          <input type="hidden" name="amountCents" value={entryFee} />
+          <input type="hidden" name="poolId" value={effectivePoolId} />
+          <input type="hidden" name="optionId" value={effectiveOptionId} />
+          <input type="hidden" name="amountCents" value={effectiveEntryFee} />
           <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
-          <SlideToConfirm pending={pending} onConfirm={() => formRef.current?.requestSubmit()} />
+          {insufficientBalance ? (
+            <div className="flex h-11 items-center justify-center rounded-full bg-surface-secondary text-sm text-text-muted">
+              Insufficient balance for this tier
+            </div>
+          ) : (
+            <SlideToConfirm pending={pending} onConfirm={() => formRef.current?.requestSubmit()} />
+          )}
         </form>
+
+        {insufficientBalance && (
+          <p className="text-xs text-text-muted">
+            Pick a lower entry fee above, or top up your balance first.
+          </p>
+        )}
 
         {state.error && (
           <p role="alert" className="text-sm text-danger">
