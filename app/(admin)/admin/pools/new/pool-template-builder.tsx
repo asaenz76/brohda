@@ -1,15 +1,17 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Star, X } from "lucide-react";
 import {
   createPoolFromTemplate,
+  createPoolTierGroupAction,
   getFixtureQuestionContextAction,
   type CreatePoolFromTemplateState,
+  type CreatePoolTierGroupResult,
 } from "@/lib/actions/pools";
 import { getFixtureGoalsLinesAction, getNflFixtureLinesAction } from "@/lib/actions/odds";
 import type { NflFixtureLineEstimates } from "@/lib/pools/templates/nfl-odds";
-import { MINIMUM_POOL_ENTRIES, MINIMUM_LOCK_LEAD_MINUTES } from "@/lib/validations/pools";
+import { MINIMUM_POOL_ENTRIES, MINIMUM_LOCK_LEAD_MINUTES, MAX_TIERS_PER_GROUP } from "@/lib/validations/pools";
 import { generatePoolTemplate, getRuleLabel, getTemplateEligibility } from "@/lib/pools/templates";
 import { getLatestTemplate } from "@/lib/pools/templates/registry";
 import {
@@ -27,6 +29,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { PlayerPicker } from "./player-picker";
 import { MultiFixtureBuilder } from "./multi-fixture-builder";
+import { TierFeeInputs, TierCreationResults } from "./tier-fee-inputs";
 import { ImportedCompetitionFilter } from "./imported-competition-filter";
 import {
   ALL_CARDS,
@@ -133,6 +136,16 @@ export function PoolTemplateBuilder({
 }) {
   const [state, formAction, pending] = useActionState(createPoolFromTemplate, initialState);
   const [mode, setMode] = useState<"single" | "multi">("single");
+  // Whether the single-fixture flow is creating one ordinary pool or a
+  // fee-tier group — the only thing that actually differs is Step 3's
+  // entry-fee input and how the final submit is dispatched (native form
+  // action vs createPoolTierGroupAction); fixture/template selection
+  // (Steps 1-2) are identical either way.
+  const [entryMode, setEntryMode] = useState<"single" | "tiered">("single");
+  const [tierFees, setTierFees] = useState<string[]>(["", ""]);
+  const [tierResults, setTierResults] = useState<CreatePoolTierGroupResult[] | null>(null);
+  const [tierSubmitError, setTierSubmitError] = useState<string | null>(null);
+  const [isTierPending, startTierTransition] = useTransition();
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [search, setSearch] = useState("");
@@ -650,8 +663,17 @@ export function PoolTemplateBuilder({
         ? registryConfigValid
         : selectedCardId != null && question.trim().length > 0) &&
     (currentWarnings.length === 0 || overridePublishWarnings);
+  const trimmedTierFees = tierFees.map((f) => f.trim()).filter((f) => f.length > 0);
+  const tierFeesAllFilled = trimmedTierFees.length === tierFees.length;
+  const tierFeesUnique = new Set(trimmedTierFees).size === trimmedTierFees.length;
+  const tierFeesValidFormat = trimmedTierFees.every((f) => /^\d+(\.\d{1,2})?$/.test(f));
+  const tierFeeErrors = [
+    !tierFeesUnique && trimmedTierFees.length > 0 ? "Entry fees must be unique — no two tiers can be the same amount." : null,
+    !tierFeesValidFormat && trimmedTierFees.length > 0 ? "Each amount must be a plain dollar figure, e.g. 5 or 25.00." : null,
+  ].filter((m): m is string => m != null);
+
   const step3Valid =
-    entryFee.trim().length > 0 &&
+    (entryMode === "single" ? entryFee.trim().length > 0 : tierFeesAllFilled && tierFeesUnique && tierFeesValidFormat && tierFees.length >= 2) &&
     houseFeePercent.trim().length > 0 &&
     locksAtLocal.length > 0 &&
     !lockTimeTooLate;
@@ -662,7 +684,47 @@ export function PoolTemplateBuilder({
     setStep(target);
   }
 
+  function updateTierFee(index: number, value: string) {
+    setTierFees((prev) => prev.map((f, i) => (i === index ? value : f)));
+  }
+  function addTierFee() {
+    setTierFees((prev) => (prev.length >= MAX_TIERS_PER_GROUP ? prev : [...prev, ""]));
+  }
+  function removeTierFee(index: number) {
+    setTierFees((prev) => (prev.length <= 2 ? prev : prev.filter((_, i) => i !== index)));
+  }
+
   const submittedPoolType = registryTemplate ? "TEMPLATE_GRADED" : (selectedCardId ?? "");
+
+  function submitTierGroup(overridePublishWarnings = false) {
+    if (!selectedCardId || !fixtureId) return;
+    setTierSubmitError(null);
+    setTierResults(null);
+    const poolType = registryTemplate ? "TEMPLATE_GRADED" : (submittedPoolType as "WHO_WILL_ADVANCE" | "REGULATION_RESULT" | "COMBO");
+    startTierTransition(async () => {
+      const response = await createPoolTierGroupAction({
+        poolType,
+        fixtureId,
+        entryFees: trimmedTierFees,
+        houseFeePercent,
+        visibility,
+        participationVisibility,
+        locksAt: locksAtIso,
+        title: isCombo ? title : undefined,
+        question: isCombo ? question : undefined,
+        legs: isCombo ? legs : undefined,
+        templateId: registryTemplate?.id,
+        templateConfig: registryTemplate ? typedTemplateConfig : undefined,
+        publishImmediately,
+        overridePublishWarnings,
+      });
+      if (response.error) {
+        setTierSubmitError(response.error);
+        return;
+      }
+      setTierResults(response.results);
+    });
+  }
 
   return (
     <Card>
@@ -692,6 +754,21 @@ export function PoolTemplateBuilder({
             competitions={competitions}
             defaultEntryFee={defaultEntryFee}
             defaultHouseFeePercent={defaultHouseFeePercent}
+          />
+        ) : tierResults ? (
+          <TierCreationResults
+            results={tierResults}
+            isPending={isTierPending}
+            onRetryWarned={() => submitTierGroup(true)}
+            onCreateAnother={() => {
+              setTierResults(null);
+              setTierSubmitError(null);
+              setFixtureId("");
+              setSelectedCardId(null);
+              setConfigValues({});
+              setTierFees(["", ""]);
+              setStep(1);
+            }}
           />
         ) : (
           <>
@@ -1200,28 +1277,63 @@ export function PoolTemplateBuilder({
 
           {/* Step 3 — Financials & Review */}
           <div className={cn("space-y-4", step !== 3 && "hidden")}>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="entryFee">Entry fee ($)</Label>
-                <Input
-                  id="entryFee"
-                  name="entryFee"
-                  placeholder="5.00"
-                  value={entryFee}
-                  onChange={(e) => setEntryFee(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="houseFeePercent">Platform fee (%)</Label>
-                <Input
-                  id="houseFeePercent"
-                  name="houseFeePercent"
-                  placeholder="5"
-                  value={houseFeePercent}
-                  onChange={(e) => setHouseFeePercent(e.target.value)}
-                />
-              </div>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={entryMode === "single" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setEntryMode("single")}
+              >
+                Single entry fee
+              </Button>
+              <Button
+                type="button"
+                variant={entryMode === "tiered" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setEntryMode("tiered")}
+              >
+                Multiple entry fees
+              </Button>
             </div>
+
+            {entryMode === "single" ? (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="entryFee">Entry fee ($)</Label>
+                  <Input
+                    id="entryFee"
+                    name="entryFee"
+                    placeholder="5.00"
+                    value={entryFee}
+                    onChange={(e) => setEntryFee(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="houseFeePercent">Platform fee (%)</Label>
+                  <Input
+                    id="houseFeePercent"
+                    name="houseFeePercent"
+                    placeholder="5"
+                    value={houseFeePercent}
+                    onChange={(e) => setHouseFeePercent(e.target.value)}
+                  />
+                </div>
+              </div>
+            ) : (
+              <>
+                <TierFeeInputs fees={tierFees} onUpdate={updateTierFee} onAdd={addTierFee} onRemove={removeTierFee} errors={tierFeeErrors} />
+                <div className="space-y-1.5">
+                  <Label htmlFor="tierHouseFeePercent">Platform fee (%) — shared across every tier</Label>
+                  <Input
+                    id="tierHouseFeePercent"
+                    placeholder="5"
+                    value={houseFeePercent}
+                    onChange={(e) => setHouseFeePercent(e.target.value)}
+                    className="max-w-32"
+                  />
+                </div>
+              </>
+            )}
 
             <div className="space-y-1.5">
               <Label htmlFor="locksAt">Lock time</Label>
@@ -1288,9 +1400,17 @@ export function PoolTemplateBuilder({
                   ))}
                 </ul>
               )}
-              <p className="mt-1 text-text-muted">
-                Entry ${entryFee || "0.00"} · Platform fee {houseFeePercent || "0"}%
-              </p>
+              {entryMode === "single" ? (
+                <p className="mt-1 text-text-muted">
+                  Entry ${entryFee || "0.00"} · Platform fee {houseFeePercent || "0"}%
+                </p>
+              ) : (
+                <p className="mt-1 text-text-muted">
+                  {trimmedTierFees.length} tier{trimmedTierFees.length === 1 ? "" : "s"}
+                  {trimmedTierFees.length > 0 ? `: ${trimmedTierFees.map((f) => `$${f}`).join(", ")}` : ""} · Platform
+                  fee {houseFeePercent || "0"}% (shared)
+                </p>
+              )}
             </div>
 
             <label className="flex items-center gap-2 text-sm text-text-secondary">
@@ -1303,9 +1423,14 @@ export function PoolTemplateBuilder({
               Publish immediately (skip Draft — players can enter right away)
             </label>
 
-            {state.error && (
+            {entryMode === "single" && state.error && (
               <p role="alert" className="text-sm text-danger">
                 {state.error}
+              </p>
+            )}
+            {entryMode === "tiered" && tierSubmitError && (
+              <p role="alert" className="text-sm text-danger">
+                {tierSubmitError}
               </p>
             )}
 
@@ -1313,8 +1438,11 @@ export function PoolTemplateBuilder({
                 (createPoolForFixture) — this only ever fires if that check
                 found something the client-side preview in Step 2 missed,
                 e.g. another admin published a competing pool in the
-                meantime. Same override affordance either way. */}
-            {state.warnings && state.warnings.length > 0 && (
+                meantime. Same override affordance either way. Tiered mode
+                surfaces this after submit instead (TierCreationResults'
+                "Publish anyway" retry) — same pattern MultiFixtureBuilder
+                already uses for its own per-item warnings. */}
+            {entryMode === "single" && state.warnings && state.warnings.length > 0 && (
               <div className="space-y-2 rounded-xl border border-warning-muted/40 bg-warning-muted/10 p-3">
                 <p className="text-sm font-semibold text-text-primary">Before you publish this question</p>
                 <ul className="space-y-1">
@@ -1339,13 +1467,28 @@ export function PoolTemplateBuilder({
               <Button type="button" variant="outline" onClick={() => goToStep(2)}>
                 Back
               </Button>
-              <Button type="submit" className="flex-1" disabled={pending || !step3Valid}>
-                {pending
-                  ? "Creating…"
-                  : publishImmediately
-                    ? "Create and publish"
-                    : "Create draft pool"}
-              </Button>
+              {entryMode === "single" ? (
+                <Button type="submit" className="flex-1" disabled={pending || !step3Valid}>
+                  {pending
+                    ? "Creating…"
+                    : publishImmediately
+                      ? "Create and publish"
+                      : "Create draft pool"}
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  className="flex-1"
+                  disabled={isTierPending || !step3Valid}
+                  onClick={() => submitTierGroup(false)}
+                >
+                  {isTierPending
+                    ? "Creating…"
+                    : publishImmediately
+                      ? `Create and publish ${tierFees.length} tiers`
+                      : `Create ${tierFees.length} draft tiers`}
+                </Button>
+              )}
             </div>
           </div>
 

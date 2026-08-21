@@ -6,9 +6,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getPoolCardViewModels } from "@/lib/pools/fetch";
 import { getPaymentMethods } from "@/lib/payment-methods/fetch";
 import { effectivePoolStatus } from "@/lib/pools/status-filter";
-import { SocialPoolCard } from "@/components/pools/SocialPoolCard";
+import { TieredPoolCard } from "@/components/pools/TieredPoolCard";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
 import { StoriesRow, type StoryEntry } from "@/components/feed/StoriesRow";
+import { MAX_TIERS_PER_GROUP } from "@/lib/validations/pools";
 import { FeedFilters } from "./feed-filters";
 
 function unwrapEmbed<T>(raw: unknown): T | null {
@@ -34,8 +35,19 @@ function leagueLabel(name: string, country: string | null): string {
 // per-pool cost. Ordered by whichever field the active sort mode actually
 // needs (see the query below) before this cap applies, so "locking soon"
 // still surfaces the genuinely soonest-to-lock pools rather than just the
-// newest ones re-sorted.
+// newest ones re-sorted. This is a cap on CARDS, not raw pool rows — see
+// FEED_ROW_FETCH_LIMIT below, which fetches a superset since a fee-tier
+// group collapses several pool rows into one card.
 const FEED_PAGE_SIZE = 50;
+
+// A fee-tier group can be up to MAX_TIERS_PER_GROUP pool rows collapsing
+// into a single card, so fetching only FEED_PAGE_SIZE raw rows could
+// under-fill the page with as few as FEED_PAGE_SIZE / MAX_TIERS_PER_GROUP
+// cards. Fetch this superset instead, then collapse to FEED_PAGE_SIZE
+// distinct cards below (grouping by tier_group_id) before ever calling
+// getPoolCardViewModels — same defensive-cap philosophy as FEED_PAGE_SIZE
+// itself, just sized for the worst case.
+const FEED_ROW_FETCH_LIMIT = FEED_PAGE_SIZE * MAX_TIERS_PER_GROUP;
 
 export default async function FeedPage({
   searchParams,
@@ -76,7 +88,7 @@ export default async function FeedPage({
     .eq("id", user.id);
 
   const poolsSelect =
-    "id, status, locks_at, created_at, fixtures(sport, competition_name, competition_country)";
+    "id, status, locks_at, created_at, tier_group_id, fixtures(sport, competition_name, competition_country)";
 
   // Feed only ever shows open pools — fetched by DB status, then refined by
   // effectivePoolStatus() below to exclude pools past their locks_at that
@@ -88,20 +100,35 @@ export default async function FeedPage({
     .eq("visibility", "VISIBLE_TO_ALL_MEMBERS")
     .eq("status", "OPEN")
     .order(sortByLockingSoon ? "locks_at" : "created_at", { ascending: sortByLockingSoon })
-    .limit(FEED_PAGE_SIZE);
+    .limit(FEED_ROW_FETCH_LIMIT);
 
   const [{ data: pools }, { data: myEntries }, { data: wallet }, paymentMethods] = await Promise.all([
     poolsQuery,
-    supabase.from("entries").select("pool_id").eq("user_id", user.id).eq("status", "ACTIVE"),
+    // tier_group_id alongside pool_id: entering one tier must hide every
+    // sibling tier from the feed too, not just the exact pool entered —
+    // see the filter below.
+    supabase.from("entries").select("pool_id, tier_group_id").eq("user_id", user.id).eq("status", "ACTIVE"),
     supabase.from("wallet_balances").select("balance").eq("user_id", user.id).single(),
     getPaymentMethods(),
   ]);
   const enabledPaymentMethods = paymentMethods.filter((m) => m.enabled);
 
   const enteredPoolIds = new Set((myEntries ?? []).map((e) => e.pool_id));
+  // Every sibling of an already-entered tier group must also be hidden —
+  // otherwise a player who entered the $10 tier still sees the $25/$50/
+  // $100 siblings rendered as live, enterable cards for the same
+  // matchup+question, which would only fail on submit (already_entered_
+  // tier_group) with no indication beforehand.
+  const enteredTierGroupIds = new Set(
+    (myEntries ?? []).map((e) => e.tier_group_id).filter((id): id is string => id != null),
+  );
 
   const rows = (pools ?? [])
-    .filter((pool) => !enteredPoolIds.has(pool.id))
+    .filter(
+      (pool) =>
+        !enteredPoolIds.has(pool.id) &&
+        !(pool.tier_group_id && enteredTierGroupIds.has(pool.tier_group_id)),
+    )
     .map((pool) => {
       const fixture = unwrapEmbed<{
         sport: string;
@@ -113,6 +140,7 @@ export default async function FeedPage({
         status: pool.status as string,
         locksAt: pool.locks_at as string,
         createdAt: pool.created_at as string,
+        tierGroupId: pool.tier_group_id as string | null,
         sport: fixture?.sport ?? null,
         league: fixture?.competition_name ?? null,
         leagueCountry: fixture?.competition_country ?? null,
@@ -142,13 +170,42 @@ export default async function FeedPage({
         : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
 
-  const poolIds = filteredRows.map((r) => r.id);
+  // Collapse filteredRows into FEED_PAGE_SIZE distinct cards — a non-tiered
+  // pool is its own singleton group (tierGroupId ?? id), a tier group's N
+  // rows collapse into one. Scans the WHOLE list (never breaks early):
+  // once the card cap is hit, a row belonging to an already-included group
+  // still gets attached to it (a sibling can sort anywhere relative to its
+  // group's first-seen row), only a row that would START a brand-new group
+  // past the cap is skipped.
+  const groupMemberIds = new Map<string, string[]>();
+  for (const row of filteredRows) {
+    const groupKey = row.tierGroupId ?? row.id;
+    if (!groupMemberIds.has(groupKey)) {
+      if (groupMemberIds.size >= FEED_PAGE_SIZE) continue;
+      groupMemberIds.set(groupKey, []);
+    }
+    groupMemberIds.get(groupKey)!.push(row.id);
+  }
+
+  const poolIds = [...groupMemberIds.values()].flat();
   const viewModelsUnordered = await getPoolCardViewModels(poolIds, user.id);
-  // getPoolCardViewModels doesn't guarantee input order — resort to match
-  // the newest-created-first order computed above.
-  const viewModels = poolIds
-    .map((id) => viewModelsUnordered.find((vm) => vm.poolId === id))
-    .filter((vm) => vm != null);
+  const viewModelById = new Map(viewModelsUnordered.map((vm) => [vm.poolId, vm]));
+
+  // Map insertion order preserves groupMemberIds' original (newest-first or
+  // locking-soonest-first) card order — a group's position is wherever its
+  // first-seen member row landed, not disturbed by later-seen siblings.
+  const tierGroups = [...groupMemberIds.entries()]
+    .map(([groupKey, ids]) => ({
+      groupKey,
+      // Ascending by entry fee — the tier selector's natural reading order
+      // (cheapest first), independent of whatever order rows happened to
+      // sort in for card placement above.
+      tiers: ids
+        .map((id) => viewModelById.get(id))
+        .filter((vm) => vm != null)
+        .sort((a, b) => a.entryFee - b.entryFee),
+    }))
+    .filter((g) => g.tiers.length > 0);
 
   const balanceCents = wallet?.balance ?? 0;
 
@@ -157,7 +214,7 @@ export default async function FeedPage({
       <h1 className="sr-only">Feed</h1>
       <StoriesRow entries={storyEntries} />
       <FeedFilters sportOptions={sportOptions} leagueOptions={leagueOptions} activeSort={sortParam ?? "newest"} />
-      {viewModels.length === 0 ? (
+      {tierGroups.length === 0 ? (
         <EmptyFeedState
           icon={Rss}
           title={isFiltered ? "No pools match these filters" : "No open pools available at this moment"}
@@ -168,10 +225,10 @@ export default async function FeedPage({
           }
         />
       ) : (
-        viewModels.map((vm) => (
-          <SocialPoolCard
-            key={vm.poolId}
-            viewModel={vm}
+        tierGroups.map((group) => (
+          <TieredPoolCard
+            key={group.groupKey}
+            tiers={group.tiers}
             balanceCents={balanceCents}
             paymentMethods={enabledPaymentMethods}
             viewer={{ id: user.id, isModerator: isAdminOrAbove(user) }}

@@ -62,6 +62,9 @@ export async function enterPoolAction(
     if (error.message.includes("admin_cannot_enter_pool")) {
       return { error: "Admins cannot enter pools.", success: false };
     }
+    if (error.message.includes("already_entered_tier_group")) {
+      return { error: "You've already entered this pool at a different fee tier.", success: false };
+    }
     return { error: "Could not submit your entry. Try again.", success: false };
   }
 

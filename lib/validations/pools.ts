@@ -19,6 +19,12 @@ export const MINIMUM_POOL_ENTRIES = 2;
 // not a real admin-facing creation flow.
 export const MINIMUM_LOCK_LEAD_MINUTES = 5;
 
+// Upper bound on how many entry-fee tiers one pool "batch" can have
+// (createPoolTierGroupSchema below) — also reused as the feed's raw-row
+// superset multiplier (app/(app)/feed/page.tsx) when collapsing tier
+// siblings into one card, so the two numbers can't silently drift apart.
+export const MAX_TIERS_PER_GROUP = 10;
+
 const visibilityEnum = z.enum(["VISIBLE_TO_ALL_MEMBERS", "HIDDEN"]);
 const participationVisibilityEnum = z.enum([
   "SHOW_BEFORE_ENTRY",
@@ -102,6 +108,57 @@ export const createPoolFromTemplateSchema = z.discriminatedUnion("poolType", [
 ]);
 
 export type CreatePoolFromTemplateInput = z.infer<typeof createPoolFromTemplateSchema>;
+
+// The single-fixture builder's "offer at multiple entry fees" mode — same
+// shape as createPoolFromTemplateSchema, but entryFeeCents (from
+// sharedPoolFields) becomes an array: one pool per fee tier, same
+// question/template/houseFeeBps shared across all of them (confirmed
+// product decision: platform fee is shared, not per-tier). The dedupe
+// refine matters because there's no DB constraint catching a duplicate fee
+// within a batch (entry_fee isn't part of any uniqueness key) — without it
+// the loop would happily create two pools in the group at the same amount.
+const entryFeeCentsList = z
+  .array(z.number().int().positive())
+  .min(2)
+  .max(MAX_TIERS_PER_GROUP)
+  .refine((arr) => new Set(arr).size === arr.length, "Entry fees must be unique");
+
+const { entryFeeCents: _tierGroupOmittedEntryFeeCents, ...sharedPoolFieldsWithoutEntryFee } = sharedPoolFields;
+const sharedTierGroupFields = {
+  ...sharedPoolFieldsWithoutEntryFee,
+  entryFeeCentsList,
+};
+
+export const createPoolTierGroupSchema = z.discriminatedUnion("poolType", [
+  z
+    .object({
+      poolType: z.enum(["WHO_WILL_ADVANCE", "REGULATION_RESULT"]),
+      fixtureId: z.string().uuid(),
+      ...sharedTierGroupFields,
+    })
+    .strict(),
+  z
+    .object({
+      poolType: z.literal("COMBO"),
+      fixtureId: z.string().uuid(),
+      title: z.string().trim().min(1).max(200),
+      question: z.string().trim().min(1).max(200),
+      legs: z.array(z.string().trim().min(1).max(150)).min(2).max(10),
+      ...sharedTierGroupFields,
+    })
+    .strict(),
+  z
+    .object({
+      poolType: z.literal("TEMPLATE_GRADED"),
+      fixtureId: z.string().uuid(),
+      templateId: z.string().min(1),
+      templateConfig: z.record(z.string(), z.unknown()),
+      ...sharedTierGroupFields,
+    })
+    .strict(),
+]);
+
+export type CreatePoolTierGroupInput = z.infer<typeof createPoolTierGroupSchema>;
 
 // Backs the "multiple fixtures" wizard mode (create-the-same-template-
 // across-a-round) — a coordinator configures the template/financials once

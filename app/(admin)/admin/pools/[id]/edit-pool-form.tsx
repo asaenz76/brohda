@@ -41,6 +41,11 @@ interface EditPoolFormProps {
   // visibility, and distribution settings freeze once money is committed,
   // matching updatePoolAction's own check (the DB trigger is the backstop).
   hasEntries: boolean;
+  // True when this pool has a tier_group_id — updatePoolAction validates
+  // the new entry fee doesn't collide with a sibling tier's amount, and
+  // cascades a platform-fee change to every sibling (it's meant to be
+  // shared across the group, not per-tier).
+  isTierGrouped?: boolean;
 }
 
 export function EditPoolForm({
@@ -52,6 +57,7 @@ export function EditPoolForm({
   participationVisibility,
   locksAtIso,
   hasEntries,
+  isTierGrouped = false,
 }: EditPoolFormProps) {
   const [state, formAction, pending] = useActionState(updatePoolAction, initialState);
   const [locksAtLocal, setLocksAtLocal] = useState(() => toDatetimeLocalValue(locksAtIso));
@@ -70,6 +76,12 @@ export function EditPoolForm({
       {hasEntries && (
         <p className="text-sm text-text-secondary">
           This pool already has entries — only the entry fee and Platform fee can still change.
+        </p>
+      )}
+      {isTierGrouped && (
+        <p className="text-sm text-text-secondary">
+          This pool is part of a fee-tier group — its entry fee must stay unique among its siblings, and changing
+          the Platform fee here applies to every tier in the group, not just this one.
         </p>
       )}
       <div className="grid grid-cols-2 gap-3">

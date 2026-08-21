@@ -266,6 +266,7 @@ export default async function AdminPoolDetailPage({
             visibility={pool.visibility}
             participationVisibility={pool.participation_visibility}
             locksAtIso={pool.locks_at}
+            isTierGrouped={pool.tier_group_id != null}
             hasEntries={hasEntries}
           />
         </CardContent>

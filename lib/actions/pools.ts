@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireSuperAdmin, requireAdminOrAbove, requireUser } from "@/lib/auth/session";
@@ -26,6 +27,7 @@ import { parseDollarsToCents, parsePercentToBps } from "@/lib/utils/money";
 import {
   createPoolFromTemplateSchema,
   createPoolsForFixturesSchema,
+  createPoolTierGroupSchema,
   updatePoolSchema,
   voidEntrySchema,
   MINIMUM_POOL_ENTRIES,
@@ -188,6 +190,7 @@ async function createPoolForFixture(
   fixture: PoolFixtureRow,
   locksAt: string,
   publishImmediately: boolean,
+  tierGroupId?: string | null,
 ): Promise<{ pool: CreatedPool } | { error: string } | { warnings: PublishWarning[] }> {
   if (isLockTooCloseToKickoff(locksAt, fixture.scheduled_start_utc)) {
     return {
@@ -279,7 +282,7 @@ async function createPoolForFixture(
   if (input.poolType !== "COMBO") {
     const candidateId = input.poolType === "TEMPLATE_GRADED" ? input.templateId : input.poolType;
     const candidateConfig = input.poolType === "TEMPLATE_GRADED" ? input.templateConfig : {};
-    const activePools = await getActivePoolSummariesForFixture(adminClient, fixture.id);
+    const activePools = await getActivePoolSummariesForFixture(adminClient, fixture.id, undefined, tierGroupId);
     probabilityEstimate =
       input.poolType === "TEMPLATE_GRADED"
         ? estimateYesProbabilityWithSource(candidateId, candidateConfig, markets)
@@ -349,6 +352,7 @@ async function createPoolForFixture(
     .insert({
       fixture_id: fixture.id,
       created_by: admin.id,
+      tier_group_id: tierGroupId ?? null,
       pool_type: input.poolType,
       template_id: input.poolType === "TEMPLATE_GRADED" ? input.templateId : null,
       template_config: input.poolType === "TEMPLATE_GRADED" ? input.templateConfig : null,
@@ -551,6 +555,186 @@ export async function createPoolFromTemplate(
     await notifyFollowersOfPublish(outcome.pool);
   }
   redirect(`/admin/pools/${outcome.pool.id}`);
+}
+
+export type CreatePoolTierGroupActionInput = {
+  poolType: "WHO_WILL_ADVANCE" | "REGULATION_RESULT" | "COMBO" | "TEMPLATE_GRADED";
+  fixtureId: string;
+  entryFees: string[];
+  houseFeePercent: string;
+  visibility: string;
+  participationVisibility: string;
+  locksAt: string;
+  publishImmediately: boolean;
+  title?: string;
+  question?: string;
+  legs?: string[];
+  templateId?: string;
+  templateConfig?: Record<string, unknown>;
+  overridePublishWarnings?: boolean;
+};
+
+export type CreatePoolTierGroupResult = {
+  entryFeeCents: number;
+  poolId: string | null;
+  error: string | null;
+  warnings?: PublishWarning[];
+};
+
+/**
+ * The single-fixture builder's "offer at multiple entry fees" mode — one
+ * pools row per entryFees amount, all sharing a single generated
+ * tierGroupId (createPoolForFixture stamps it on each insert), same
+ * question/template/houseFeeBps every time. Financial isolation between
+ * tiers needs nothing new — each is a normal pool with its own entries/
+ * wallet_transactions, exactly like any other. What's new is
+ * unique_active_user_entry_per_tier_group (20260101000122 migration),
+ * which limits a player to one entry across the whole batch.
+ *
+ * Only the first tier's conflict check can hit a real EXTERNAL duplicate —
+ * getActivePoolSummariesForFixture already excludes every sibling sharing
+ * tierGroupId, so tiers 2+ would otherwise always trip EXACT_DUPLICATE
+ * against tier 1 (same question by design). If tier 1 itself surfaces a
+ * blocking warning that isn't overridden, the whole batch stops there
+ * (nothing is created yet to leave in a partial state) rather than
+ * continuing tier by tier — same "a warning is a checkpoint, not a skip"
+ * behavior as the single-pool wizard.
+ */
+export async function createPoolTierGroupAction(
+  input: CreatePoolTierGroupActionInput,
+): Promise<{ error: string | null; results: CreatePoolTierGroupResult[] }> {
+  const admin = await requireSuperAdmin();
+  const adminClient = createAdminClient();
+
+  const entryFeeCentsListRaw = input.entryFees.map(parseDollarsToCents);
+  if (entryFeeCentsListRaw.some((c) => c == null)) {
+    return { error: "Check the entry fee amounts — something's missing or invalid.", results: [] };
+  }
+  const entryFeeCentsList = entryFeeCentsListRaw as number[];
+
+  const houseFeeBps = parsePercentToBps(input.houseFeePercent);
+  if (houseFeeBps == null) {
+    return { error: "Check the platform fee — something's missing or invalid.", results: [] };
+  }
+
+  const parsed = createPoolTierGroupSchema.safeParse(
+    input.poolType === "TEMPLATE_GRADED"
+      ? {
+          poolType: "TEMPLATE_GRADED",
+          fixtureId: input.fixtureId,
+          templateId: input.templateId,
+          templateConfig: input.templateConfig ?? {},
+          entryFeeCentsList,
+          houseFeeBps,
+          visibility: input.visibility,
+          participationVisibility: input.participationVisibility,
+          locksAt: input.locksAt,
+          overridePublishWarnings: input.overridePublishWarnings ?? false,
+        }
+      : input.poolType === "COMBO"
+        ? {
+            poolType: "COMBO",
+            fixtureId: input.fixtureId,
+            title: input.title,
+            question: input.question,
+            legs: input.legs,
+            entryFeeCentsList,
+            houseFeeBps,
+            visibility: input.visibility,
+            participationVisibility: input.participationVisibility,
+            locksAt: input.locksAt,
+            overridePublishWarnings: input.overridePublishWarnings ?? false,
+          }
+        : {
+            poolType: input.poolType,
+            fixtureId: input.fixtureId,
+            entryFeeCentsList,
+            houseFeeBps,
+            visibility: input.visibility,
+            participationVisibility: input.participationVisibility,
+            locksAt: input.locksAt,
+            overridePublishWarnings: input.overridePublishWarnings ?? false,
+          },
+  );
+
+  if (!parsed.success) {
+    return { error: "Check the pool configuration — something's missing or invalid.", results: [] };
+  }
+
+  if (parsed.data.poolType === "COMBO" && admin.role !== "super_admin") {
+    return { error: "Only super admins can create a combo poll.", results: [] };
+  }
+
+  if (parsed.data.poolType === "TEMPLATE_GRADED") {
+    const selectedTemplate = getLatestTemplate(parsed.data.templateId);
+    const configSchema = selectedTemplate
+      ? getTemplateConfigSchema(selectedTemplate.id, selectedTemplate.version)
+      : null;
+    if (!selectedTemplate || !configSchema) {
+      return { error: "Unknown template.", results: [] };
+    }
+    const configParsed = configSchema.safeParse(parsed.data.templateConfig);
+    if (!configParsed.success) {
+      return { error: "Check the template configuration — something's missing or invalid.", results: [] };
+    }
+    parsed.data.templateConfig = configParsed.data as Record<string, unknown>;
+  }
+
+  const { data: fixture } = await adminClient
+    .from("fixtures")
+    .select(FIXTURE_SELECT_FOR_POOL_CREATION)
+    .eq("id", parsed.data.fixtureId)
+    .single();
+
+  if (!fixture) {
+    return { error: "Fixture not found.", results: [] };
+  }
+
+  const tierGroupId = randomUUID();
+  const results: CreatePoolTierGroupResult[] = [];
+  const publishedPools: CreatedPool[] = [];
+
+  for (const [index, entryFeeCents] of parsed.data.entryFeeCentsList.entries()) {
+    const { entryFeeCentsList: _omit, ...restParsed } = parsed.data;
+    const tierInput = {
+      ...restParsed,
+      entryFeeCents,
+      overridePublishWarnings: index === 0 ? parsed.data.overridePublishWarnings : true,
+    };
+
+    const outcome = await createPoolForFixture(
+      adminClient,
+      admin,
+      tierInput as PoolCreationInput,
+      fixture as PoolFixtureRow,
+      parsed.data.locksAt,
+      input.publishImmediately,
+      tierGroupId,
+    );
+
+    if ("warnings" in outcome) {
+      results.push({ entryFeeCents, poolId: null, error: null, warnings: outcome.warnings });
+      if (index === 0) break;
+      continue;
+    }
+    if ("error" in outcome) {
+      results.push({ entryFeeCents, poolId: null, error: outcome.error });
+      continue;
+    }
+
+    results.push({ entryFeeCents, poolId: outcome.pool.id, error: null });
+    if (input.publishImmediately) publishedPools.push(outcome.pool);
+  }
+
+  revalidatePath("/admin/pools");
+  if (publishedPools.length > 0) {
+    revalidatePath("/feed");
+    for (const pool of publishedPools) {
+      await notifyFollowersOfPublish(pool);
+    }
+  }
+
+  return { error: null, results };
 }
 
 export type CreatePoolsForFixturesResult = {
@@ -760,9 +944,16 @@ export async function updatePoolAction(
   const admin = await requireAdminOrAbove();
   const adminClient = createAdminClient();
 
+  // overridePublishWarnings is part of readPoolConfigFromForm's shared
+  // shape (createPoolFromTemplate needs it) but updatePoolSchema is
+  // .strict() and doesn't declare it — spreading the full shared object
+  // used to make every edit fail safeParse with "unrecognized_keys"
+  // (pre-existing bug, found while adding tier-group-aware validation
+  // below; unrelated to it).
+  const { overridePublishWarnings: _createOnlyField, ...sharedConfig } = readPoolConfigFromForm(formData);
   const parsed = updatePoolSchema.safeParse({
     poolId: formData.get("poolId"),
-    ...readPoolConfigFromForm(formData),
+    ...sharedConfig,
   });
 
   if (!parsed.success) {
@@ -794,6 +985,33 @@ export async function updatePoolAction(
     };
   }
 
+  // A tier-grouped pool's entry_fee/house_fee_bps aren't frozen by the DB
+  // trigger the way question/pool_type are (enforce_pool_fee_immutability,
+  // 20260101000072_relax_fee_immutability.sql) — same as any ordinary pool,
+  // both stay editable even with entries (beta testing needs the fee
+  // droppable mid-pool). Two things a plain per-pool update doesn't know
+  // about need explicit handling here: entry_fee must stay distinct across
+  // the group (the fee-tier selector assumes one card per amount), and
+  // house_fee_bps is a shared value by product design (confirmed when this
+  // feature was built) — an edit to one tier's platform fee must cascade
+  // to every sibling, not just silently apply to the one row being edited.
+  let siblingTierPools: Array<{ id: string; entry_fee: number }> = [];
+  if (before.tier_group_id) {
+    const { data: siblings } = await adminClient
+      .from("pools")
+      .select("id, entry_fee")
+      .eq("tier_group_id", before.tier_group_id)
+      .neq("id", parsed.data.poolId);
+    siblingTierPools = siblings ?? [];
+
+    if (
+      parsed.data.entryFeeCents !== before.entry_fee &&
+      siblingTierPools.some((s) => s.entry_fee === parsed.data.entryFeeCents)
+    ) {
+      return { error: "Another tier in this group already uses that entry fee — amounts must be unique." };
+    }
+  }
+
   if (before.fixture_id) {
     const { data: fixture } = await adminClient
       .from("fixtures")
@@ -821,6 +1039,23 @@ export async function updatePoolAction(
 
   if (error) {
     return { error: "Could not update this pool." };
+  }
+
+  // Cascade the shared platform fee to every sibling tier — see the
+  // comment above. Best-effort: the edited pool's own fee already
+  // succeeded above, so a sibling-update failure here shouldn't be
+  // reported as if this edit failed outright, just left for the admin to
+  // notice (siblings still show their prior, now-stale value if this
+  // silently doesn't apply, which is far less surprising than reporting
+  // "could not update this pool" after the main edit already committed).
+  if (siblingTierPools.length > 0 && parsed.data.houseFeeBps !== before.house_fee_bps) {
+    await adminClient
+      .from("pools")
+      .update({ house_fee_bps: parsed.data.houseFeeBps })
+      .in(
+        "id",
+        siblingTierPools.map((s) => s.id),
+      );
   }
 
   await writeAuditLog({

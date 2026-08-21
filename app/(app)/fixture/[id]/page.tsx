@@ -29,21 +29,38 @@ export default async function FixturePoolsPage({ params }: { params: Promise<{ i
   const user = await requireUser();
   const supabase = await createClient();
 
-  const [{ data: fixture }, { data: poolRows }, { data: wallet }, paymentMethods] = await Promise.all([
-    supabase
-      .from("fixtures")
-      .select("sport, home_team_name, away_team_name, competition_name, scheduled_start_utc")
-      .eq("id", id)
-      .single(),
-    supabase.from("pools").select("id, created_at").eq("fixture_id", id),
-    supabase.from("wallet_balances").select("balance").eq("user_id", user.id).single(),
-    getPaymentMethods(),
-  ]);
+  const [{ data: fixture }, { data: poolRows }, { data: myEntries }, { data: wallet }, paymentMethods] =
+    await Promise.all([
+      supabase
+        .from("fixtures")
+        .select("sport, home_team_name, away_team_name, competition_name, scheduled_start_utc")
+        .eq("id", id)
+        .single(),
+      supabase.from("pools").select("id, created_at, tier_group_id").eq("fixture_id", id),
+      // Same tier-group awareness as the feed (app/(app)/feed/page.tsx): a
+      // pool the viewer already entered a *different* tier of would
+      // otherwise render as a normal, live "join" card here — the RPC
+      // correctly rejects it (already_entered_tier_group), but nothing
+      // would warn the UI beforehand. Unlike the feed, the pool the viewer
+      // actually entered still shows (so they can see their own entry) —
+      // only *unentered sibling* tiers get filtered out below.
+      supabase.from("entries").select("pool_id, tier_group_id").eq("user_id", user.id).eq("status", "ACTIVE"),
+      supabase.from("wallet_balances").select("balance").eq("user_id", user.id).single(),
+      getPaymentMethods(),
+    ]);
   const enabledPaymentMethods = paymentMethods.filter((m) => m.enabled);
 
   if (!fixture) notFound();
 
+  const enteredPoolIds = new Set((myEntries ?? []).map((e) => e.pool_id));
+  const enteredTierGroupIds = new Set(
+    (myEntries ?? []).map((e) => e.tier_group_id).filter((tgId): tgId is string => tgId != null),
+  );
+
   const poolIds = (poolRows ?? [])
+    .filter(
+      (p) => enteredPoolIds.has(p.id) || !(p.tier_group_id && enteredTierGroupIds.has(p.tier_group_id)),
+    )
     .slice()
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     .map((p) => p.id);
