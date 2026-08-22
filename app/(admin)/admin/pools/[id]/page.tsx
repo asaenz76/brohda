@@ -272,6 +272,40 @@ export default async function AdminPoolDetailPage({
         </CardContent>
       </Card>
 
+      {/* Downloadable social-share crops — question, matchup, and options
+          only (no volume/fees/rule label), super_admin only. */}
+      {isSuperAdmin && (
+        <Card>
+          <CardContent className="space-y-3 pt-6">
+            <div>
+              <h2 className="text-sm font-semibold text-text-primary">Share images</h2>
+              <p className="text-xs text-text-muted">
+                Downloadable crops for social — sport, league, matchup, date/time, question, and
+                options only. No volume, fees, or rule label.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {(
+                [
+                  { platform: "instagram", theme: "light", label: "Instagram (light)" },
+                  { platform: "instagram", theme: "dark", label: "Instagram (dark)" },
+                  { platform: "facebook", theme: "light", label: "Facebook (light)" },
+                  { platform: "facebook", theme: "dark", label: "Facebook (dark)" },
+                ] as const
+              ).map(({ platform, theme, label }) => (
+                <a
+                  key={`${platform}-${theme}`}
+                  href={`/api/admin/pools/${pool.id}/share-image?platform=${platform}&theme=${theme}`}
+                  className="rounded-lg border border-border-subtle px-3 py-2 text-center text-sm font-medium text-accent-primary hover:bg-surface-secondary"
+                >
+                  {label}
+                </a>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Confirms settlement / pays out winners — money movement, super_admin only. */}
       {pool.status === "READY_FOR_REVIEW" && currentSettlement && isSuperAdmin && (
         <Card>
