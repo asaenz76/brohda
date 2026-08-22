@@ -467,6 +467,7 @@ export function PoolsTable({ pools, isSuperAdmin }: { pools: PoolRow[]; isSuperA
             <tr>
               {isSuperAdmin && <th className="w-8 px-3 py-2"></th>}
               <th className="w-8 px-3 py-2"></th>
+              <th className="px-3 py-2 font-medium">Matchup</th>
               <th className="px-3 py-2 font-medium">Question</th>
               <th className="px-3 py-2 font-medium">Status</th>
               <th className="px-3 py-2 font-medium">Locks</th>
@@ -491,12 +492,12 @@ export function PoolsTable({ pools, isSuperAdmin }: { pools: PoolRow[]; isSuperA
                         )}
                       </td>
                     )}
-                    <td className="p-0" colSpan={4}>
+                    <td className="p-0" colSpan={5}>
                       <button
                         type="button"
                         onClick={() => setExpandedId(isExpanded ? null : pool.id)}
                         aria-expanded={isExpanded}
-                        className="grid w-full grid-cols-[2rem_1fr_1fr_1fr] items-center text-left hover:bg-surface-secondary/50"
+                        className="grid w-full grid-cols-[2rem_1fr_1fr_1fr_1fr] items-center text-left hover:bg-surface-secondary/50"
                       >
                         <span className="flex justify-center px-3 py-2">
                           <ChevronDown
@@ -506,6 +507,20 @@ export function PoolsTable({ pools, isSuperAdmin }: { pools: PoolRow[]; isSuperA
                               isExpanded && "rotate-180",
                             )}
                           />
+                        </span>
+                        <span className="px-3 py-2">
+                          {pool.homeTeamName && pool.awayTeamName ? (
+                            <>
+                              <span className="block text-text-primary">
+                                {pool.homeTeamName} vs {pool.awayTeamName}
+                              </span>
+                              {pool.competitionName && (
+                                <span className="block text-xs text-text-muted">{pool.competitionName}</span>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-text-muted">No linked fixture</span>
+                          )}
                         </span>
                         <span className="px-3 py-2 text-text-primary">{pool.question}</span>
                         <span className="px-3 py-2 text-text-secondary">
@@ -529,7 +544,7 @@ export function PoolsTable({ pools, isSuperAdmin }: { pools: PoolRow[]; isSuperA
                   {isExpanded && (
                     <tr>
                       <td
-                        colSpan={isSuperAdmin ? 6 : 5}
+                        colSpan={isSuperAdmin ? 7 : 6}
                         className="border-t border-border-subtle bg-surface-secondary/30 p-0"
                       >
                         <PoolDetailPanel pool={pool} />
@@ -541,7 +556,7 @@ export function PoolsTable({ pools, isSuperAdmin }: { pools: PoolRow[]; isSuperA
             })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={isSuperAdmin ? 6 : 5} className="px-3 py-8 text-center text-text-muted">
+                <td colSpan={isSuperAdmin ? 7 : 6} className="px-3 py-8 text-center text-text-muted">
                   {pools.length === 0 ? "No pools yet." : "No pools match these filters."}
                 </td>
               </tr>
