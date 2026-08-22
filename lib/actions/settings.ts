@@ -6,6 +6,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAuditLog } from "@/lib/audit/log";
 import { parseDollarsToCents, parsePercentToBps } from "@/lib/utils/money";
 
+const TIER_DEFAULTS_COUNT = 5;
+
 export type SetRegistrationEnabledResult = { success: boolean; error: string | null };
 
 /** Global, super_admin-only switch — flips whether /register creates
@@ -48,11 +50,13 @@ export async function setRegistrationEnabledAction(
 export type SetPoolFeeDefaultsResult = { success: boolean; error: string | null };
 
 /** Org-wide entry fee / platform fee defaults pre-filled into the pool
- * creation form. Same service-role-update + audit-log shape as
- * setRegistrationEnabledAction. */
+ * creation form, plus the five default amounts pre-filled into TierFeeInputs
+ * when an admin picks "Tiered" (see 20260101000123). Same service-role-update
+ * + audit-log shape as setRegistrationEnabledAction. */
 export async function setPoolFeeDefaultsAction(
   entryFeeDollars: string,
   houseFeePercent: string,
+  tierEntryFeesDollars: string[],
 ): Promise<SetPoolFeeDefaultsResult> {
   const admin = await requireSuperAdmin();
 
@@ -62,12 +66,24 @@ export async function setPoolFeeDefaultsAction(
     return { success: false, error: "Enter a valid entry fee and platform fee." };
   }
 
+  if (tierEntryFeesDollars.length !== TIER_DEFAULTS_COUNT) {
+    return { success: false, error: `Enter exactly ${TIER_DEFAULTS_COUNT} default tier amounts.` };
+  }
+  const tierEntryFeesCents = tierEntryFeesDollars.map(parseDollarsToCents);
+  if (tierEntryFeesCents.some((cents) => cents == null)) {
+    return { success: false, error: "Enter a valid amount for every default tier." };
+  }
+  if (new Set(tierEntryFeesCents).size !== tierEntryFeesCents.length) {
+    return { success: false, error: "Default tier amounts must be unique." };
+  }
+
   const adminClient = createAdminClient();
   const { error } = await adminClient
     .from("platform_settings")
     .update({
       default_entry_fee_cents: entryFeeCents,
       default_house_fee_bps: houseFeeBps,
+      default_tier_entry_fees_cents: tierEntryFeesCents,
       updated_at: new Date().toISOString(),
       updated_by: admin.id,
     })
@@ -82,7 +98,7 @@ export async function setPoolFeeDefaultsAction(
     action: "settings.pool_fee_defaults_updated",
     entityType: "platform_settings",
     entityId: null,
-    after: { entryFeeCents, houseFeeBps },
+    after: { entryFeeCents, houseFeeBps, tierEntryFeesCents },
   });
 
   revalidatePath("/admin/settings");

@@ -40,6 +40,7 @@ export default async function AdminSettingsPage() {
           <PoolFeeDefaultsForm
             initialEntryFee={(poolFeeDefaults.entryFeeCents / 100).toFixed(2)}
             initialHouseFeePercent={formatBps(poolFeeDefaults.houseFeeBps).replace("%", "")}
+            initialTierEntryFees={poolFeeDefaults.tierEntryFeesCents.map((cents) => (cents / 100).toFixed(2))}
           />
         </CardContent>
       </Card>

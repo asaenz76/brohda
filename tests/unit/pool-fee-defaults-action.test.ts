@@ -28,32 +28,59 @@ beforeEach(() => {
   adminBuilder.update.mockClear();
 });
 
+const TIER_DEFAULTS = ["5.00", "10.00", "25.00", "50.00", "100.00"];
+
 describe("setPoolFeeDefaultsAction", () => {
   it("rejects an invalid entry fee without writing anything", async () => {
-    const result = await setPoolFeeDefaultsAction("not-a-number", "5");
+    const result = await setPoolFeeDefaultsAction("not-a-number", "5", TIER_DEFAULTS);
 
     expect(result).toEqual({ success: false, error: "Enter a valid entry fee and platform fee." });
     expect(adminBuilder.update).not.toHaveBeenCalled();
   });
 
   it("rejects an out-of-range platform fee (over 100%) without writing anything", async () => {
-    const result = await setPoolFeeDefaultsAction("5.00", "150");
+    const result = await setPoolFeeDefaultsAction("5.00", "150", TIER_DEFAULTS);
 
     expect(result.success).toBe(false);
     expect(adminBuilder.update).not.toHaveBeenCalled();
   });
 
   it("parses valid input into cents/bps and writes them", async () => {
-    const result = await setPoolFeeDefaultsAction("7.50", "6.5");
+    const result = await setPoolFeeDefaultsAction("7.50", "6.5", TIER_DEFAULTS);
 
     expect(result).toEqual({ success: true, error: null });
-    expect(updatePayload).toMatchObject({ default_entry_fee_cents: 750, default_house_fee_bps: 650 });
+    expect(updatePayload).toMatchObject({
+      default_entry_fee_cents: 750,
+      default_house_fee_bps: 650,
+      default_tier_entry_fees_cents: [500, 1000, 2500, 5000, 10000],
+    });
   });
 
   it("surfaces a generic error when the update itself fails", async () => {
     updateError = { message: "db exploded" };
-    const result = await setPoolFeeDefaultsAction("5.00", "5");
+    const result = await setPoolFeeDefaultsAction("5.00", "5", TIER_DEFAULTS);
 
     expect(result).toEqual({ success: false, error: "Could not update these defaults." });
+  });
+
+  it("rejects a tier defaults list that isn't exactly 5 amounts", async () => {
+    const result = await setPoolFeeDefaultsAction("5.00", "5", ["5.00", "10.00"]);
+
+    expect(result).toEqual({ success: false, error: "Enter exactly 5 default tier amounts." });
+    expect(adminBuilder.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid amount within the tier defaults list", async () => {
+    const result = await setPoolFeeDefaultsAction("5.00", "5", ["5.00", "10.00", "not-a-number", "50.00", "100.00"]);
+
+    expect(result).toEqual({ success: false, error: "Enter a valid amount for every default tier." });
+    expect(adminBuilder.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects duplicate amounts within the tier defaults list", async () => {
+    const result = await setPoolFeeDefaultsAction("5.00", "5", ["5.00", "5.00", "25.00", "50.00", "100.00"]);
+
+    expect(result).toEqual({ success: false, error: "Default tier amounts must be unique." });
+    expect(adminBuilder.update).not.toHaveBeenCalled();
   });
 });

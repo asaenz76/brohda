@@ -114,6 +114,7 @@ export function PoolTemplateBuilder({
   competitions = [],
   defaultEntryFee = "5.00",
   defaultHouseFeePercent = "5",
+  defaultTierEntryFees = ["5.00", "10.00", "25.00", "50.00", "100.00"],
   defaultVisibility = "VISIBLE_TO_ALL_MEMBERS",
   defaultParticipationVisibility = "SHOW_BEFORE_ENTRY",
   duplicateTemplate = null,
@@ -123,6 +124,10 @@ export function PoolTemplateBuilder({
   competitions?: CompetitionOption[];
   defaultEntryFee?: string;
   defaultHouseFeePercent?: string;
+  /** Pre-fills TierFeeInputs the moment "Tiered" is picked — see
+   *  20260101000123 / setPoolFeeDefaultsAction. Still freely editable
+   *  per pool group via Add/Remove, same as the single-pool default. */
+  defaultTierEntryFees?: string[];
   defaultVisibility?: string;
   defaultParticipationVisibility?: string;
   duplicateTemplate?: DuplicateTemplate | null;
@@ -142,7 +147,7 @@ export function PoolTemplateBuilder({
   // action vs createPoolTierGroupAction); fixture/template selection
   // (Steps 1-2) are identical either way.
   const [entryMode, setEntryMode] = useState<"single" | "tiered">("single");
-  const [tierFees, setTierFees] = useState<string[]>(["", ""]);
+  const [tierFees, setTierFees] = useState<string[]>(defaultTierEntryFees);
   const [tierResults, setTierResults] = useState<CreatePoolTierGroupResult[] | null>(null);
   const [tierSubmitError, setTierSubmitError] = useState<string | null>(null);
   const [isTierPending, startTierTransition] = useTransition();
@@ -766,7 +771,7 @@ export function PoolTemplateBuilder({
               setFixtureId("");
               setSelectedCardId(null);
               setConfigValues({});
-              setTierFees(["", ""]);
+              setTierFees(defaultTierEntryFees);
               setStep(1);
             }}
           />

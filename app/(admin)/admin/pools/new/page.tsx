@@ -144,6 +144,7 @@ export default async function NewPoolPage({
         defaultHouseFeePercent={
           duplicateHouseFeePercent ?? formatBps(poolFeeDefaults.houseFeeBps).replace("%", "")
         }
+        defaultTierEntryFees={poolFeeDefaults.tierEntryFeesCents.map((cents) => (cents / 100).toFixed(2))}
         defaultVisibility={duplicateVisibility ?? undefined}
         defaultParticipationVisibility={duplicateParticipationVisibility ?? undefined}
         duplicateTemplate={duplicateTemplate}
