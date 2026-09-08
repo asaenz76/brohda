@@ -91,7 +91,7 @@ async function createTestPool(
     .insert({
       fixture_id: fixtureId,
       created_by: adminId,
-      pool_type: "WHO_WILL_ADVANCE",
+      pool_type: "CUSTOM",
       question: "Who will advance?",
       entry_fee: overrides.entryFee ?? 1000,
       house_fee_bps: 1000,

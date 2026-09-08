@@ -88,7 +88,7 @@ async function buildPublicViewModel(
   if (!options || options.length === 0) return null;
 
   const fixtureRow = fixture ?? {
-    sport: "football",
+    sport: "american_football",
     competition_name: null,
     competition_country: null,
     competition_logo_url: null,

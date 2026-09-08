@@ -2,12 +2,14 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 
-// fixtures.sport is the raw provider-facing value (api-football writes
-// "football", api-nfl writes "american_football" — see mapGame in each
-// provider) — naively capitalizing it read as "American_football" in the
-// filter dropdown (underscore intact, only the first letter cased). This
-// is purely a display label; the option's `value` stays the raw sport
-// string so the actual filter/query param is unaffected.
+// fixtures.sport is the raw provider-facing value (api-nfl writes
+// "american_football" — see mapGame; api-football wrote "football" back
+// when Association football was still supported, and historical football
+// pools/fixtures from before that retirement can still surface here) —
+// naively capitalizing it read as "American_football" in the filter
+// dropdown (underscore intact, only the first letter cased). This is
+// purely a display label; the option's `value` stays the raw sport string
+// so the actual filter/query param is unaffected.
 const SPORT_LABELS: Record<string, string> = {
   football: "Football",
   american_football: "NFL Football",

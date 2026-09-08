@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { devig2Way, devig3Way } from "@/lib/pools/templates/odds-devig";
+import { devig2Way } from "@/lib/pools/templates/odds-devig";
 
 describe("devig2Way", () => {
   it("removes the overround using both sides, never 1 - impliedYes", () => {
@@ -30,25 +30,5 @@ describe("devig2Way", () => {
     expect(fair).not.toBeCloseTo(rawImpliedYes, 4);
     expect(fair).toBeGreaterThan(0);
     expect(fair).toBeLessThan(1);
-  });
-});
-
-describe("devig3Way", () => {
-  it("normalizes three raw implied probabilities to sum to exactly 1", () => {
-    // Real sample from the audit: Home 3.20 / Draw 2.86 / Away 2.46.
-    const fair = devig3Way(3.2, 2.86, 2.46)!;
-    expect(fair.home + fair.draw + fair.away).toBeCloseTo(1, 9);
-    expect(fair.away).toBeGreaterThan(fair.home); // away was the raw favorite
-  });
-
-  it("returns null for an unpayable odd (<= 1)", () => {
-    expect(devig3Way(1.0, 2.0, 3.0)).toBeNull();
-  });
-
-  it("splits evenly across three identical odds", () => {
-    const fair = devig3Way(3.0, 3.0, 3.0)!;
-    expect(fair.home).toBeCloseTo(1 / 3, 6);
-    expect(fair.draw).toBeCloseTo(1 / 3, 6);
-    expect(fair.away).toBeCloseTo(1 / 3, 6);
   });
 });

@@ -13,7 +13,7 @@ export interface SendEmailInput {
 }
 
 // No-ops (rather than throwing) whenever RESEND_API_KEY isn't set — mirrors
-// API_FOOTBALL_ENABLED's pattern elsewhere, so local dev/CI need no real
+// API_NFL_ENABLED's pattern elsewhere, so local dev/CI need no real
 // key. Swallows delivery errors too: a failed email must never fail the
 // server action that triggered it (e.g. publishing a pool).
 export async function sendEmail({ to, subject, html }: SendEmailInput): Promise<void> {

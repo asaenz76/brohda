@@ -4,11 +4,10 @@
 // point normal /admin/events browsing calls. queryLocalEventsByDateWindow
 // (lib/fixtures/local-browse.ts) only ever touches the local `fixtures`,
 // `pools`, `fixtures_available_for_pool_creation`, and
-// `league_season_imports` tables — no import of either provider client,
-// directly or transitively. That is what makes spec §6's "zero live
-// sports-provider requests during ordinary Events browsing" true by
-// construction, not by convention, exactly like fixture-browse.ts's
-// existing football-only actions.
+// `league_season_imports` tables — no import of the provider client,
+// directly or transitively. That is what makes "zero live sports-provider
+// requests during ordinary Events browsing" true by construction, not by
+// convention.
 import { requireAdminOrAbove } from "@/lib/auth/session";
 import { DEFAULT_FIXTURES_TIMEZONE, isDateWindowError, resolveFixtureDateWindow, type DateRangePreset, type FixtureDateWindow } from "@/lib/fixtures/date-window";
 import { queryLocalEventsByDateWindow, type EventSport, type LocalFixtureBrowseResult } from "@/lib/fixtures/local-browse";

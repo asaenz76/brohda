@@ -2,14 +2,13 @@
 
 import { requireSuperAdmin } from "@/lib/auth/session";
 import { getSportsProvider } from "@/lib/sports-data/provider-registry";
-import { API_FOOTBALL_PROVIDER, API_NFL_PROVIDER } from "@/lib/sports-data/provider-names";
+import { API_NFL_PROVIDER } from "@/lib/sports-data/provider-names";
 
 // A cheap, known single-item lookup per provider — never the season/
 // fixture-list queries background jobs already use, since this is purely
-// a connectivity check (spec §24: "one request maximum... a cheaper
-// supported endpoint... if one exists" rather than an expensive query).
+// a connectivity check (one request maximum, a cheaper supported endpoint
+// rather than an expensive query).
 const TEST_LEAGUE_ID: Record<string, string> = {
-  [API_FOOTBALL_PROVIDER]: "39", // Premier League — a real, stable SUPPORTED_COMPETITIONS entry
   [API_NFL_PROVIDER]: "1", // NFL's one supported league
 };
 

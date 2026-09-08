@@ -184,7 +184,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("wallet ledger", () => {
       .insert({
         fixture_id: fixture!.id,
         created_by: adminUser!.id,
-        pool_type: "WHO_WILL_ADVANCE",
+        pool_type: "CUSTOM",
         question: "Who will advance?",
         entry_fee: 1000,
         house_fee_bps: 1000,

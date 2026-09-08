@@ -1,6 +1,6 @@
 import type { NflBookmakerOdds, NormalizedNflFixtureOdds } from "@/lib/sports-data/types";
 import { devig2Way } from "./odds-devig";
-import type { TeamSide } from "./match-result";
+import type { TeamSide } from "./shared";
 
 /**
  * Backs the pool-creation wizard's real-line prefill for NFL_SPREAD/
@@ -12,25 +12,15 @@ import type { TeamSide } from "./match-result";
  *    as a confident prefill.
  *  - spread is NOT: API-NFL's Asian Handicap value-pairing convention
  *    could not be confirmed with confidence from live data (see
- *    estimateSpreadMagnitude below for the full analysis) — the exact
- *    same risk class the codebase already flagged and deliberately
- *    avoided for football's WINNING_MARGIN (see odds-mapping.ts's
- *    ODDS_ALLOWLIST_TEMPLATE_IDS comment). Callers MUST present this
- *    value as a best-effort estimate needing manual verification, never
- *    with the same confidence as the other three fields.
+ *    estimateSpreadMagnitude below for the full analysis). Callers MUST
+ *    present this value as a best-effort estimate needing manual
+ *    verification, never with the same confidence as the other three
+ *    fields.
  *
- * Deliberately does NOT reuse odds-consensus.ts's buildConsensus: that
- * helper's REPUTABLE_BOOKMAKER_IDS is a hand-curated allowlist of
- * API-FOOTBALL bookmaker ids/names (id 4 = Pinnacle, id 7 = William
- * Hill, ...). API-NFL is a separate API-Sports product with its own,
- * independently-numbered bookmaker catalog (confirmed live: id 7 there
- * is Pinnacle, id 4 is Bet365 — nothing like football's numbering).
- * Reusing that allowlist as-is would silently filter NFL bookmakers
- * under the wrong identity assumptions. No equivalent curated "reputable
- * NFL bookmakers" list has been researched, so every bookmaker the
+ * No curated "reputable bookmaker" allowlist exists for API-NFL's
+ * independently-numbered bookmaker catalog, so every bookmaker the
  * provider returns is treated as eligible here — median aggregation
- * (same robustness principle as buildConsensus) guards against any one
- * outlier book, without requiring a football-specific allowlist.
+ * guards against any one outlier book without needing one.
  */
 
 const MIN_BOOKS_FOR_ESTIMATE = 2;
@@ -77,10 +67,9 @@ interface LocalConsensus {
   bookmakerCount: number;
 }
 
-// Local stand-in for odds-consensus.ts's buildConsensus, minus the
-// football-specific bookmaker allowlist (see the file header for why) —
-// every bookmaker offering a usable price is included, de-vigged
-// individually, then aggregated by median for robustness to outliers.
+// Every bookmaker offering a usable price is included (no curated
+// allowlist — see the file header for why), de-vigged individually, then
+// aggregated by median for robustness to outliers.
 function localConsensus(pairs: Array<{ yesOdd: number; noOdd: number }>): LocalConsensus | null {
   const fair = pairs.map((p) => devig2Way(p.yesOdd, p.noOdd)).filter((p): p is number => p !== null);
   if (fair.length < MIN_BOOKS_FOR_ESTIMATE) return null;
@@ -111,10 +100,9 @@ const OVER_UNDER_PATTERN = /^(Over|Under)\s+(-?\d+(?:\.\d+)?)$/;
 
 /**
  * Consensus-picked Over/Under line for a plain two-way threshold market
- * (game total, or one team's total) — same "closest to a 50/50 coin flip"
- * heuristic as football's estimateBestThresholdLine in odds-mapping.ts,
- * reimplemented locally since NFL's raw value shape ("Over 37.5") isn't
- * the pre-normalized OddsMarketLine[] that helper expects.
+ * (game total, or one team's total) — picks whichever line comes closest
+ * to a 50/50 coin flip, working directly off NFL's raw value shape
+ * ("Over 37.5") rather than a pre-normalized market-line type.
  */
 function estimateBestOverUnderLine(bookmakers: NflBookmakerOdds[], pick: (bm: NflBookmakerOdds) => NflBookmakerOdds["gameTotal"]): NflLineEstimate | null {
   const byPoint = new Map<number, Array<{ yesOdd: number; noOdd: number }>>();

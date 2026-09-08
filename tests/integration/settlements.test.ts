@@ -117,23 +117,22 @@ async function createTestPool(
   const homeExt = overrides.homeExternalId ?? "home-1";
   const awayExt = overrides.awayExternalId ?? "away-1";
 
+  // WHO_WILL_ADVANCE/REGULATION_RESULT can no longer be created via a plain
+  // insert (trg_reject_new_legacy_soccer_pool, migration 20260101000124) —
+  // this RPC exists specifically to simulate a pre-existing historical row
+  // for exactly this kind of legacy settlement/reversal regression test.
   const { data: pool, error } = await admin
-    .from("pools")
-    .insert({
-      fixture_id: fixtureId,
-      created_by: adminId,
-      pool_type: poolType,
-      question:
-        poolType === "WHO_WILL_ADVANCE" ? "Who will advance?" : "What will the result be after regulation?",
-      entry_fee: overrides.entryFee ?? 1000,
-      house_fee_bps: 1000,
-      min_total_entries: overrides.minTotalEntries ?? 2,
-      open_at: new Date().toISOString(),
-      locks_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-      status: "OPEN",
+    .rpc("seed_legacy_pool_for_tests", {
+      p_fixture_id: fixtureId,
+      p_created_by: adminId,
+      p_pool_type: poolType,
+      p_question: poolType === "WHO_WILL_ADVANCE" ? "Who will advance?" : "What will the result be after regulation?",
+      p_entry_fee: overrides.entryFee ?? 1000,
+      p_house_fee_bps: 1000,
+      p_min_total_entries: overrides.minTotalEntries ?? 2,
+      p_locks_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
     })
-    .select("id")
-    .single();
+    .single<{ id: string }>();
   if (error || !pool) throw error ?? new Error("failed to create test pool");
   createdPoolIds.push(pool.id as string);
 

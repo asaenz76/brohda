@@ -141,13 +141,14 @@ describe("createPoolsForFixturesAction", () => {
     ]);
   });
 
-  // PLAYER_TO_SCORE is retired from creation for launch (activeForCreation:
-  // false, see lib/pools/templates/player-props.ts), so getLatestTemplate
-  // now returns null for it and this request is rejected by the earlier,
-  // generic "Unknown template" guard before ever reaching the
-  // PLAYER_PROPS-not-portable-across-fixtures check that guard code still
-  // exists for (defense-in-depth, in case a player-props template is ever
-  // reactivated without also updating multi-fixture-builder.tsx's filter).
+  // PLAYER_TO_SCORE was an Association-football-only template, fully
+  // removed from the registry when soccer support was retired, so
+  // getLatestTemplate now returns null for it and this request is rejected
+  // by the earlier, generic "Unknown template" guard before ever reaching
+  // the PLAYER_PROPS-not-portable-across-fixtures check that guard code
+  // still exists for (defense-in-depth, in case a player-props template is
+  // ever added for a future sport without also updating
+  // multi-fixture-builder.tsx's filter).
   it("rejects a retired/unknown template id — not writable", async () => {
     fixtureRows = [fixtureRow({ id: "3fa85f64-5717-4562-b3fc-2c963f66afa6" }), fixtureRow({ id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8" })];
 
@@ -177,11 +178,15 @@ describe("createPoolsForFixturesAction", () => {
     expect(poolInserts).toHaveLength(0);
   });
 
-  it("rejects a football-only template (e.g. MATCH_TOTAL_GOALS) for an NFL fixture — not just the client's card list", async () => {
+  it("rejects a template for a fixture of the wrong sport — not just the client's card list", async () => {
     // fixtureIds requires at least 2 (createPoolsForFixturesSchema) — mixes
-    // one NFL fixture (must be rejected per-fixture) with one football
-    // fixture (must still succeed), proving the sport check is scoped to
-    // the individual fixture, not a blanket reject of the whole batch.
+    // one fixture of the template's own sport (must succeed) with one of a
+    // different sport (must be rejected per-fixture), proving the sport
+    // check is scoped to the individual fixture, not a blanket reject of
+    // the whole batch. NFL_GAME_TOTAL is sports: ["american_football"] —
+    // Association football is retired, but a raw "football" sport value on
+    // a fixture row is still possible (no CHECK constraint on that column),
+    // so it remains a real "wrong sport" case to guard against.
     fixtureRows = [
       fixtureRow({ id: "3fa85f64-5717-4562-b3fc-2c963f66afa6", sport: "american_football" }),
       fixtureRow({ id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", sport: "football" }),
@@ -190,33 +195,36 @@ describe("createPoolsForFixturesAction", () => {
     const result = await createPoolsForFixturesAction({
       ...BASE_INPUT,
       poolType: "TEMPLATE_GRADED",
-      templateId: "MATCH_TOTAL_GOALS",
-      templateConfig: { minimumGoals: 3 },
+      templateId: "NFL_GAME_TOTAL",
+      templateConfig: { line: 40.5 },
     });
 
     const nflResult = result.results.find((r) => r.fixtureId === "3fa85f64-5717-4562-b3fc-2c963f66afa6");
-    const footballResult = result.results.find((r) => r.fixtureId === "6ba7b810-9dad-11d1-80b4-00c04fd430c8");
-    expect(nflResult?.poolId).toBeNull();
-    expect(nflResult?.error).toContain("isn't available for this fixture's sport");
-    expect(footballResult?.poolId).toBeTruthy();
+    const wrongSportResult = result.results.find((r) => r.fixtureId === "6ba7b810-9dad-11d1-80b4-00c04fd430c8");
+    expect(nflResult?.poolId).toBeTruthy();
+    expect(wrongSportResult?.poolId).toBeNull();
+    expect(wrongSportResult?.error).toContain("isn't available for this fixture's sport");
     expect(poolInserts).toHaveLength(1);
   });
 
   it("creates a TEMPLATE_GRADED pool per fixture using a fixture-portable template", async () => {
-    fixtureRows = [fixtureRow({ id: "3fa85f64-5717-4562-b3fc-2c963f66afa6" }), fixtureRow({ id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8" })];
+    fixtureRows = [
+      fixtureRow({ id: "3fa85f64-5717-4562-b3fc-2c963f66afa6", sport: "american_football" }),
+      fixtureRow({ id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", sport: "american_football" }),
+    ];
 
     const result = await createPoolsForFixturesAction({
       ...BASE_INPUT,
       poolType: "TEMPLATE_GRADED",
-      templateId: "MATCH_TOTAL_GOALS",
-      templateConfig: { minimumGoals: 3 },
+      templateId: "NFL_GAME_TOTAL",
+      templateConfig: { line: 40.5 },
     });
 
     expect(result.error).toBeNull();
     expect(result.results.every((r) => r.poolId)).toBe(true);
     expect(poolInserts).toHaveLength(2);
-    expect(poolInserts[0].template_id).toBe("MATCH_TOTAL_GOALS");
-    expect(poolInserts[0].question).toBe("Will there be 3 or more goals after regulation?");
+    expect(poolInserts[0].template_id).toBe("NFL_GAME_TOTAL");
+    expect(poolInserts[0].question).toBe("Will there be 41+ total points scored?");
     // Stage 1: newly-created TEMPLATE_GRADED pools stamp the resolved
     // template version and opt into the balanced-participation check.
     expect(poolInserts[0].template_version).toBe(1);

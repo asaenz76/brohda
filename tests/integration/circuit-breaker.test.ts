@@ -95,7 +95,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("circuit breaker — real DB round-trip", () 
     stubProviderFetch(quotaExhaustedFetchResponse);
 
     await expect(
-      fetchWithRetry(FAKE_PROVIDER_URL, {}, { provider: "api_football", requestType: TEST_REQUEST_TYPE }),
+      fetchWithRetry(FAKE_PROVIDER_URL, {}, { provider: "test_provider_b", requestType: TEST_REQUEST_TYPE }),
     ).rejects.toThrow();
 
     const { data: row, error: readError } = await admin
@@ -107,7 +107,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("circuit breaker — real DB round-trip", () 
     // instead of leaving every assertion below to fail confusingly against
     // `undefined`.
     expect(readError).toBeNull();
-    expect(row?.provider).toBe("api_football");
+    expect(row?.provider).toBe("test_provider_b");
     expect(row?.response_status).toBe(200);
     expect(row?.error).toMatch(/request limit/i);
   });
@@ -116,33 +116,33 @@ describe.skipIf(!SERVICE_ROLE_KEY)("circuit breaker — real DB round-trip", () 
     stubProviderFetch(quotaExhaustedFetchResponse);
 
     await expect(
-      fetchWithRetry(FAKE_PROVIDER_URL, {}, { provider: "api_football", requestType: TEST_REQUEST_TYPE }),
+      fetchWithRetry(FAKE_PROVIDER_URL, {}, { provider: "test_provider_b", requestType: TEST_REQUEST_TYPE }),
     ).rejects.toThrow();
 
-    // getProviderStatus reads the most recent 20 rows for the provider —
-    // real production traffic for api_football is continuous (confirmed
-    // elsewhere this session), so this assertion only holds if our write
-    // is recent enough to be in that window, which it always is here
-    // (written moments ago, in this same test).
-    const status = await getProviderStatus(true, "api_football");
+    // getProviderStatus reads the most recent 20 rows for the provider.
+    // test_provider_b is a synthetic identity used only by this test file
+    // (api_football is a retired provider with no more live traffic, so it
+    // no longer serves as a realistic "has other rows too" stand-in), so
+    // the only rows in that window are ones this test itself writes.
+    const status = await getProviderStatus(true, "test_provider_b");
     expect(status.quotaState).toBe("EXHAUSTED");
     expect(status.circuitBreakerOpen).toBe(true);
   });
 
-  it("API-NFL's breaker stays closed when only API-Football hit a quota error — providers never cross-contaminate", async () => {
+  it("API-NFL's breaker stays closed when only the second provider hit a quota error — providers never cross-contaminate", async () => {
     stubProviderFetch(quotaExhaustedFetchResponse);
 
     await expect(
-      fetchWithRetry(FAKE_PROVIDER_URL, {}, { provider: "api_football", requestType: TEST_REQUEST_TYPE }),
+      fetchWithRetry(FAKE_PROVIDER_URL, {}, { provider: "test_provider_b", requestType: TEST_REQUEST_TYPE }),
     ).rejects.toThrow();
 
-    const footballStatus = await getProviderStatus(true, "api_football");
+    const secondProviderStatus = await getProviderStatus(true, "test_provider_b");
     const nflStatus = await getProviderStatus(true, "api_nfl");
-    expect(footballStatus.circuitBreakerOpen).toBe(true);
+    expect(secondProviderStatus.circuitBreakerOpen).toBe(true);
     // api_nfl's own most-recent rows are whatever real production NFL sync
     // traffic last logged (often nothing — a healthy, no-recent-error
     // provider legitimately has a null lastErrorMessage) — asserting it's
-    // specifically NOT this test's api_football error is the actual
+    // specifically NOT this test's test_provider_b error is the actual
     // isolation guarantee under test.
     expect(nflStatus.lastErrorMessage ?? "").not.toMatch(/request limit for the day, upgrade your plan/i);
   });
@@ -150,7 +150,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("circuit breaker — real DB round-trip", () 
   it("a real successful response (no errors populated) still logs as success, not a false-positive breaker trip", async () => {
     stubProviderFetch(cleanJsonFetchResponse);
 
-    const response = await fetchWithRetry(FAKE_PROVIDER_URL, {}, { provider: "api_football", requestType: TEST_REQUEST_TYPE });
+    const response = await fetchWithRetry(FAKE_PROVIDER_URL, {}, { provider: "test_provider_b", requestType: TEST_REQUEST_TYPE });
     expect(response.status).toBe(200);
 
     const { data: row, error: readError } = await admin
@@ -163,9 +163,9 @@ describe.skipIf(!SERVICE_ROLE_KEY)("circuit breaker — real DB round-trip", () 
   });
 
   // Phase 3 §7: the same soft-error detection, breaker-open, and
-  // isolation behavior proven for API-Football above, now proven for
-  // API-NFL too — identical failure scenario, different provider, and the
-  // two must never contaminate each other's state.
+  // isolation behavior proven for the second provider above, now proven
+  // for API-NFL too — identical failure scenario, different provider, and
+  // the two must never contaminate each other's state.
   it("API-NFL soft-error detection writes a real, correctly-shaped error row and opens only its own breaker", async () => {
     stubProviderFetch(quotaExhaustedFetchResponse);
 
@@ -188,10 +188,11 @@ describe.skipIf(!SERVICE_ROLE_KEY)("circuit breaker — real DB round-trip", () 
     expect(nflStatus.quotaState).toBe("EXHAUSTED");
     expect(nflStatus.circuitBreakerOpen).toBe(true);
 
-    // The mirror image of the existing football→NFL isolation test above:
-    // an NFL quota error must never open football's breaker.
-    const footballStatus = await getProviderStatus(true, "api_football");
-    expect(footballStatus.lastErrorMessage ?? "").not.toMatch(/request limit for the day, upgrade your plan/i);
+    // The mirror image of the existing second-provider→NFL isolation test
+    // above: an NFL quota error must never open the second provider's
+    // breaker.
+    const secondProviderStatus = await getProviderStatus(true, "test_provider_b");
+    expect(secondProviderStatus.lastErrorMessage ?? "").not.toMatch(/request limit for the day, upgrade your plan/i);
   });
 
   it("a permanent 4xx is normalized to INVALID_REQUEST (or AUTH_FAILED for 401/403), and is never retried", async () => {
@@ -209,7 +210,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("circuit breaker — real DB round-trip", () 
     );
 
     await expect(
-      fetchWithRetry(FAKE_PROVIDER_URL, {}, { provider: "api_football", requestType: TEST_REQUEST_TYPE }),
+      fetchWithRetry(FAKE_PROVIDER_URL, {}, { provider: "test_provider_b", requestType: TEST_REQUEST_TYPE }),
     ).rejects.toThrow();
     expect(callCount).toBe(1); // never retried
 

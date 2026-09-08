@@ -130,7 +130,7 @@ describe("fetchWithRetry", () => {
       vi.stubGlobal("fetch", fetchMock);
 
       await expect(
-        fetchWithRetry("https://example.com", {}, { provider: "api_football", requestType: "get_season_fixtures" }),
+        fetchWithRetry("https://example.com", {}, { provider: "test_provider", requestType: "get_season_fixtures" }),
       ).rejects.toThrow(ProviderSoftError);
     });
 
@@ -139,7 +139,7 @@ describe("fetchWithRetry", () => {
       vi.stubGlobal("fetch", fetchMock);
 
       await expect(
-        fetchWithRetry("https://example.com", {}, { provider: "api_football", requestType: "get_season_fixtures" }),
+        fetchWithRetry("https://example.com", {}, { provider: "test_provider", requestType: "get_season_fixtures" }),
       ).rejects.toThrow(ProviderSoftError);
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
@@ -149,13 +149,13 @@ describe("fetchWithRetry", () => {
       vi.stubGlobal("fetch", fetchMock);
 
       await expect(
-        fetchWithRetry("https://example.com", {}, { provider: "api_football", requestType: "get_season_fixtures" }),
+        fetchWithRetry("https://example.com", {}, { provider: "test_provider", requestType: "get_season_fixtures" }),
       ).rejects.toThrow();
 
       expect(fromMock).toHaveBeenCalledWith("provider_request_log");
       expect(insertMock).toHaveBeenCalledTimes(1);
       const logged = loggedInsertPayload();
-      expect(logged.provider).toBe("api_football");
+      expect(logged.provider).toBe("test_provider");
       expect(logged.response_status).toBe(200);
       expect(logged.error).not.toBeNull();
       expect(logged.error).toMatch(/request limit/i);
@@ -166,7 +166,7 @@ describe("fetchWithRetry", () => {
       const fetchMock = vi.fn().mockResolvedValue(cleanJsonResponse());
       vi.stubGlobal("fetch", fetchMock);
 
-      const result = await fetchWithRetry("https://example.com", {}, { provider: "api_football", requestType: "get_season_fixtures" });
+      const result = await fetchWithRetry("https://example.com", {}, { provider: "test_provider", requestType: "get_season_fixtures" });
       expect(result.status).toBe(200);
       expect(fetchMock).toHaveBeenCalledTimes(1);
 
@@ -178,7 +178,7 @@ describe("fetchWithRetry", () => {
       const fetchMock = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
       vi.stubGlobal("fetch", fetchMock);
 
-      const result = await fetchWithRetry("https://example.com", {}, { provider: "api_football", requestType: "get_season_fixtures" });
+      const result = await fetchWithRetry("https://example.com", {}, { provider: "test_provider", requestType: "get_season_fixtures" });
       expect(result.status).toBe(200);
       expect(loggedInsertPayload().error).toBeNull();
     });
@@ -198,7 +198,7 @@ describe("fetchWithRetry", () => {
       const fetchMock = vi.fn().mockResolvedValue(cleanJsonResponse());
       vi.stubGlobal("fetch", fetchMock);
 
-      const result = await fetchWithRetry("https://example.com", {}, { provider: "api_football", requestType: "get_season_fixtures" });
+      const result = await fetchWithRetry("https://example.com", {}, { provider: "test_provider", requestType: "get_season_fixtures" });
       const body = await result.json();
       expect(body.response).toHaveLength(2);
     });

@@ -24,7 +24,7 @@ export function LandingHero({ heroPool }: { heroPool: SocialPoolCardViewModel | 
           Make the call. <span className="text-accent-primary">Challenge your friends.</span>
         </h1>
         <p className="max-w-md text-lg text-text-secondary">
-          Predict football and NFL outcomes, join match pools, and prove you know the game
+          Predict NFL outcomes, join match pools, and prove you know the game
           better than your friends.
         </p>
         <div className="flex flex-wrap items-center gap-3">
@@ -47,9 +47,9 @@ export function LandingHero({ heroPool }: { heroPool: SocialPoolCardViewModel | 
           ))}
         </ul>
         <p className="text-xs text-text-muted">
-          <span className="font-medium text-text-secondary">Available now:</span> Football, NFL
+          <span className="font-medium text-text-secondary">Available now:</span> NFL
           {" · "}
-          <span className="font-medium text-text-secondary">Coming soon:</span> NBA, NHL, MMA, and more
+          <span className="font-medium text-text-secondary">Coming soon:</span> NBA, NHL, and MLB
         </p>
       </div>
 

@@ -24,6 +24,22 @@ export type ProviderErrorType =
   | "UNSUPPORTED_OPERATION"
   | "UNKNOWN";
 
+/** A provider's own structured API error response (e.g. a non-empty
+ * `errors` field on an otherwise-200 response) — distinct from a transport-
+ * level failure (network, non-2xx status), which throws through http.ts
+ * instead. Provider-agnostic: any adapter can throw this with whatever
+ * provider-specific error payload it received in `providerErrors`, kept
+ * verbatim for diagnostics rather than pre-formatted into the message. */
+export class ProviderApiError extends Error {
+  constructor(
+    message: string,
+    public readonly providerErrors: unknown,
+  ) {
+    super(message);
+    this.name = "ProviderApiError";
+  }
+}
+
 /** Thrown by a call site that explicitly checked provider-capabilities.ts's
  * `supports()` and found the operation genuinely unavailable — spec §3's
  * "fail explicitly ... do not silently route to football" and §4's "do

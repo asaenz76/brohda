@@ -51,15 +51,15 @@ const CIRCUIT_BREAKER_COOLDOWN_MS = 15 * 60_000;
  * Status panel and can be reused by any caller that wants to check
  * "is it even worth trying" before looping over many competitions.
  *
- * `provider` defaults to "api_football" so every existing call site keeps
- * working unchanged; a second provider (e.g. "api_nfl") gets its own
- * independent circuit-breaker/quota read by passing its own provider key
- * — provider_request_log already has a `provider` column per row, so
- * this is a filter parameter, not a schema or behavior change.
+ * `provider` is required, not defaulted — every real call site already
+ * passes its own provider key explicitly (provider_request_log has a
+ * `provider` column per row, so this is a filter parameter), and a
+ * fallback default here has no honest value to point at now that
+ * Association football/soccer no longer has an active provider.
  */
 export async function getProviderStatus(
   providerEnabled: boolean,
-  provider: string = "api_football",
+  provider: string,
 ): Promise<ProviderStatus> {
   if (!providerEnabled) {
     return {

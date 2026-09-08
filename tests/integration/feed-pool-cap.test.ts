@@ -59,7 +59,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("Feed pool cap (order-before-limit)", () => {
     const rows = Array.from({ length: POOL_COUNT }, (_, i) => ({
       fixture_id: fixtureId,
       created_by: adminId,
-      pool_type: "WHO_WILL_ADVANCE",
+      pool_type: "CUSTOM",
       question: `Feed cap test pool ${i}`,
       entry_fee: 1000,
       house_fee_bps: 1000,

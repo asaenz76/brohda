@@ -137,7 +137,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("Phase 4 Events browsing (browseEventsAction)
   });
   afterAll(cleanupTestData);
 
-  it("football and NFL fixtures coexist in the same date-window result (spec §6/§35)", async () => {
+  it("only NFL fixtures appear in an ordinary browse, even when a football fixture exists in the same window (Association football is retired — never browsable, not even implicitly)", async () => {
     const soon = iso(3_600_000);
     await admin.from("fixtures").insert([footballFixtureRow("tlev-100001", soon), nflFixtureRow("tlev-100002", soon)]);
 
@@ -145,7 +145,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("Phase 4 Events browsing (browseEventsAction)
     expect(result.success).toBe(true);
     if (!result.success) return;
     const ids = result.result.fixtures.map((f) => f.externalFixtureId);
-    expect(ids).toContain("tlev-100001");
+    expect(ids).not.toContain("tlev-100001");
     expect(ids).toContain("tlev-100002");
     const nflFixture = result.result.fixtures.find((f) => f.externalFixtureId === "tlev-100002");
     expect(nflFixture?.sport).toBe("american_football");
@@ -161,7 +161,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("Phase 4 Events browsing (browseEventsAction)
     expect(fixture?.isSupported).toBe(true);
   });
 
-  it("excludes an unsupported football competition by default, includes it with includeUnsupported: true — while a real NFL fixture in the same window is unaffected either way", async () => {
+  it("a football fixture stays excluded even with includeUnsupported: true (retired at the sport level, before isSupported is ever checked) — a real NFL fixture in the same window is unaffected either way", async () => {
     const soon = iso(3_600_000);
     await admin.from("fixtures").insert([
       footballFixtureRow("tlev-100004", soon, { competition_external_id: UNSUPPORTED_FOOTBALL_ID, competition_name: "Unsupported League" }),
@@ -176,26 +176,26 @@ describe.skipIf(!SERVICE_ROLE_KEY)("Phase 4 Events browsing (browseEventsAction)
       expect(ids).toContain("tlev-100005");
     }
 
+    // includeUnsupported only ever relaxes the isSupported post-filter — it
+    // never widens the sport filter itself, so a retired sport's fixture
+    // never leaks back in through this flag.
     const withUnsupported = await browseEventsAction({ preset: "next_7_days", includeUnsupported: true });
     expect(withUnsupported.success).toBe(true);
     if (withUnsupported.success) {
       const ids = withUnsupported.result.fixtures.map((f) => f.externalFixtureId);
-      expect(ids).toContain("tlev-100004");
+      expect(ids).not.toContain("tlev-100004");
       expect(ids).toContain("tlev-100005");
     }
   });
 
   it("sports option scopes the query to only the requested sport(s)", async () => {
     const soon = iso(3_600_000);
+    // footballFixtureRow inserts a raw `sport: "football"` row directly at
+    // the DB layer (Association football is retired — no longer a
+    // browsable EventSport in the app's own type — but the fixtures table
+    // itself has no CHECK constraint on this column) as a "wrong sport,
+    // must be excluded" control alongside a real NFL fixture.
     await admin.from("fixtures").insert([footballFixtureRow("tlev-100006", soon), nflFixtureRow("tlev-100007", soon)]);
-
-    const footballOnly = await browseEventsAction({ preset: "next_7_days", sports: ["football"] });
-    expect(footballOnly.success).toBe(true);
-    if (footballOnly.success) {
-      const ids = footballOnly.result.fixtures.map((f) => f.externalFixtureId);
-      expect(ids).toContain("tlev-100006");
-      expect(ids).not.toContain("tlev-100007");
-    }
 
     const nflOnly = await browseEventsAction({ preset: "next_7_days", sports: ["american_football"] });
     expect(nflOnly.success).toBe(true);
@@ -211,7 +211,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("Phase 4 Events browsing (browseEventsAction)
     todayNoonCR.setHours(12, 0, 0, 0);
     const tomorrowNoonCR = new Date(todayNoonCR.getTime() + 24 * 60 * 60 * 1000);
 
-    await admin.from("fixtures").insert([footballFixtureRow("tlev-100008", todayNoonCR.toISOString()), nflFixtureRow("tlev-100009", tomorrowNoonCR.toISOString())]);
+    await admin.from("fixtures").insert([nflFixtureRow("tlev-100008", todayNoonCR.toISOString()), nflFixtureRow("tlev-100009", tomorrowNoonCR.toISOString())]);
 
     const tomorrowOnly = await browseEventsAction({ preset: "tomorrow" });
     expect(tomorrowOnly.success).toBe(true);
@@ -273,7 +273,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("Phase 4 Events browsing (browseEventsAction)
     await admin.from("pools").insert({
       fixture_id: fixture!.id,
       created_by: FAKE_ADMIN_ID,
-      pool_type: "REGULATION_RESULT",
+      pool_type: "CUSTOM",
       question: "Events test question",
       entry_fee: 100,
       house_fee_bps: 500,

@@ -1,11 +1,5 @@
-// Groups/sorts Events results (Phase 4 spec §8): local date, then sport,
-// then competition, then kickoff time. A sibling to local-grouping.ts's
-// groupAndSortLocalFixtures (Date -> Competition -> Fixtures), not a
-// replacement — that function stays exactly as-is for /admin/fixtures.
-// This one adds the sport layer Events needs and is sport-aware about
-// competition-group ordering (NFL has no GLOBAL/COSTA_RICA concept). No
-// DB/network here, pure and unit-testable.
-import { compareCompetitionGroup, type CompetitionGroup } from "@/lib/sports-data/supported-competitions";
+// Groups/sorts Events results: local date, then sport, then competition,
+// then kickoff time. No DB/network here, pure and unit-testable.
 import { ALL_EVENT_SPORTS } from "./sport-meta";
 import type { EventSport, LocalFixture } from "./local-browse";
 
@@ -15,7 +9,6 @@ export interface LocalEventCompetitionGroup {
   competitionName: string | null;
   competitionCountry: string | null;
   season: string | null;
-  group: CompetitionGroup | null;
   isSupported: boolean;
   hasWorkspace: boolean;
   hasOdds: boolean | null;
@@ -32,16 +25,7 @@ export interface LocalEventDateGroup {
   sports: LocalEventSportGroup[];
 }
 
-const UNSUPPORTED_RANK = 2;
-
-function groupRank(group: CompetitionGroup | null): number {
-  if (!group) return UNSUPPORTED_RANK;
-  return group === "GLOBAL" ? 0 : 1;
-}
-
 function compareCompetitionGroups(a: LocalEventCompetitionGroup, b: LocalEventCompetitionGroup): number {
-  const groupDiff = a.group && b.group ? compareCompetitionGroup(a.group, b.group) : groupRank(a.group) - groupRank(b.group);
-  if (groupDiff !== 0) return groupDiff;
   const workspaceDiff = Number(b.hasWorkspace) - Number(a.hasWorkspace);
   if (workspaceDiff !== 0) return workspaceDiff;
   const oddsDiff = Number(b.hasOdds === true) - Number(a.hasOdds === true);
@@ -58,9 +42,9 @@ function groupBySport(fixtures: LocalFixture[]): LocalEventSportGroup[] {
     bySport.set(sport, list);
   }
 
-  // Fixed sport order (football, then NFL) rather than sorting by volume —
-  // a stable, predictable order matters more here than "busiest sport
-  // first" for an admin scanning the same page every day.
+  // Fixed sport order rather than sorting by volume — a stable, predictable
+  // order matters more here than "busiest sport first" for an admin
+  // scanning the same page every day.
   return ALL_EVENT_SPORTS.filter((s) => bySport.has(s)).map((sport) => {
     const sportFixtures = bySport.get(sport)!;
     const byCompetition = new Map<string, LocalFixture[]>();
@@ -80,7 +64,6 @@ function groupBySport(fixtures: LocalFixture[]): LocalEventSportGroup[] {
           competitionName: first.competitionName,
           competitionCountry: first.competitionCountry,
           season: first.season,
-          group: first.group,
           isSupported: first.isSupported,
           hasWorkspace: first.hasWorkspace,
           hasOdds: first.hasOdds,

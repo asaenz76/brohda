@@ -81,7 +81,7 @@ async function createPool(
     .insert({
       fixture_id: fixtureId,
       created_by: adminId,
-      pool_type: "REGULATION_RESULT",
+      pool_type: "CUSTOM",
       analytics_category: analyticsCategory,
       question: "test question",
       entry_fee: 100,

@@ -1,23 +1,15 @@
-// NFL's equivalent of supported-competitions.ts — deliberately a separate,
-// much smaller file rather than folding into SUPPORTED_COMPETITIONS.
-//
-// Two reasons this isn't just "add a provider field to SupportedCompetition
-// and one more entry": (1) getSupportedCompetitionMap() there keys purely
-// by bare externalLeagueId, with 11 call sites across the codebase — a
-// shared map risks API-Football's and API-NFL's small numeric league IDs
-// silently colliding, and touching all 11 call sites to disambiguate by
-// provider is real surface area against working, production football code
-// for a feature that doesn't need it. (2) football's config exists to
-// curate a many-leagues problem (14 competitions and growing); the NFL is
-// a single competition — the multi-competition discovery/availability-cache
-// machinery football needs has no real analog here.
+// The NFL's curated list of supported competitions — deliberately a small,
+// explicit allowlist rather than trusting every league id a provider
+// returns. The NFL is a single competition, unlike a many-competitions
+// sport (Association football, retired — see docs/ARCHITECTURE.md — used
+// to need a much larger discovery/availability-cache machinery this file
+// has no analog to, and doesn't need one).
 export const NFL_PROVIDER = "api_nfl" as const;
 
 export interface SupportedNflCompetition {
-  // null = intentionally not yet resolved — same convention as
-  // supported-competitions.ts: never fabricate an ID, resolve it with a
-  // live getLeagueById/searchLeagues call once the provider key is
-  // configured and verified.
+  // null = intentionally not yet resolved — never fabricate an ID, resolve
+  // it with a live getLeagueById/searchLeagues call once the provider key
+  // is configured and verified.
   externalLeagueId: string | null;
   name: string;
   enabled: boolean;

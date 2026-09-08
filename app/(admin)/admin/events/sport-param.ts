@@ -6,18 +6,15 @@ import { ALL_EVENT_SPORTS, isEventSport } from "@/lib/fixtures/sport-meta";
 import type { EventSport } from "@/lib/fixtures/local-browse";
 
 const SPORT_PARAM_ALIASES: Record<string, EventSport> = {
-  football: "football",
-  soccer: "football",
   nfl: "american_football",
   american_football: "american_football",
 };
 
 const SPORT_TO_PARAM: Record<EventSport, string> = {
-  football: "football",
   american_football: "nfl",
 };
 
-/** `sport=football,nfl` (or omitted) -> the sports to show. Never throws —
+/** `sport=nfl` (or omitted) -> the sports to show. Never throws —
  * an unrecognized token is dropped rather than treated as an error, so a
  * malformed/stale link degrades to "show every known sport" instead of a
  * broken page. */

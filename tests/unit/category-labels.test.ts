@@ -3,8 +3,7 @@ import { resolveCategoriesFromSearchTerm, resolvePoolCategoryLabel } from "@/lib
 
 describe("resolvePoolCategoryLabel", () => {
   it("maps a TEMPLATE_GRADED row to its registry category label", () => {
-    expect(resolvePoolCategoryLabel("TEMPLATE_GRADED", "WINNING_MARGIN")).toBe("Goals");
-    expect(resolvePoolCategoryLabel("TEMPLATE_GRADED", "HOME_TEAM_TO_WIN")).toBe("Match result");
+    expect(resolvePoolCategoryLabel("TEMPLATE_GRADED", "NFL_SPREAD")).toBe("Goals");
   });
 
   it("maps the 4 legacy pool_type values to their display categories", () => {
@@ -20,12 +19,13 @@ describe("resolvePoolCategoryLabel", () => {
 
   // This function is only ever called at pool-creation time (see its own
   // doc comment), always with a template id that was just validated as
-  // activeForCreation earlier in the same action — a retired template can
+  // activeForCreation earlier in the same action — an unknown template can
   // never actually reach it in production. RED_CARD/PLAYER_TO_SCORE were
-  // retired from creation for launch (template-cards.ts), so they now
-  // resolve the same way an unrecognized id does — this locks that in as
-  // intended behavior rather than a silent regression.
-  it("falls back to Other for a template retired from creation", () => {
+  // Association-football-only templates, fully removed from the registry
+  // when soccer support was retired — this locks in that a since-removed
+  // id resolves the same way any other unrecognized id does, rather than
+  // throwing or silently miscategorizing.
+  it("falls back to Other for a template no longer in the registry", () => {
     expect(resolvePoolCategoryLabel("TEMPLATE_GRADED", "RED_CARD")).toBe("Other");
     expect(resolvePoolCategoryLabel("TEMPLATE_GRADED", "PLAYER_TO_SCORE")).toBe("Other");
   });

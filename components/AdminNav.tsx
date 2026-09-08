@@ -5,28 +5,20 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 // Phase 4 (spec §23): Events replaces Fixtures as the primary operational
-// concept, and Competitions moves out of the everyday top-level nav — its
-// route (/admin/competitions) is unchanged and still directly reachable,
-// just no longer positioned as a prerequisite to pool creation. "Data"
-// is the new home for it (and every other technical/operational
-// concern), reachable by every admin, not just super admins, since
-// competition management and fixture troubleshooting were already
-// available to plain admins before this phase.
-// Phase 4.1: `activePrefixes` lets a tab claim routes beyond its own href —
-// Data conceptually owns /admin/competitions (Football data management,
-// including the Competition Workspace at /admin/competitions/[id]/...)
-// even though that route wasn't physically moved under /admin/data (see
-// Phase 4's report — moving it risked breaking existing deep links for no
-// real benefit). Add a route here, not a one-off pathname check, the next
-// time a route gets conceptually reassigned to a different tab. Every
-// entry here must stay a disjoint prefix — two tabs matching the same
-// pathname would light up both at once.
+// concept. "Data" is the home for technical/operational concerns (fixture
+// troubleshooting, provider health, sync/job status), reachable by every
+// admin, not just super admins.
+// `activePrefixes` lets a tab claim routes beyond its own href — add a
+// route here, not a one-off pathname check, the next time a route gets
+// conceptually reassigned to a different tab. Every entry here must stay a
+// disjoint prefix — two tabs matching the same pathname would light up
+// both at once.
 const TABS: Array<{ href: string; label: string; superAdminOnly?: boolean; activePrefixes?: string[] }> = [
   { href: "/admin/events", label: "Events" },
   { href: "/admin/pools", label: "Pools" },
   { href: "/admin/users", label: "Users" },
   { href: "/admin/invitations", label: "Invitations" },
-  { href: "/admin/data", label: "Data", activePrefixes: ["/admin/data", "/admin/competitions"] },
+  { href: "/admin/data", label: "Data" },
   { href: "/admin/wallet-requests", label: "Ledger Requests", superAdminOnly: true },
   { href: "/admin/reports", label: "Reports", superAdminOnly: true },
   { href: "/admin/analytics", label: "Analytics", superAdminOnly: true },

@@ -1,10 +1,16 @@
 # brohda.
 
 A private, invite-only sports pool platform for small friend groups. Invited
-users pay a fixed entry fee, pick one outcome on a curated soccer fixture,
-and split the prize pool with everyone who picked the winning outcome — no
-odds, no sportsbook, no exposure for the house beyond a transparent
-platform fee.
+users pay a fixed entry fee, pick one outcome on a curated fixture, and split
+the prize pool with everyone who picked the winning outcome — no odds, no
+sportsbook, no exposure for the house beyond a transparent platform fee.
+
+**Current implementation:** NFL.
+**Target supported leagues:** NFL, NBA, NHL, MLB. NBA, NHL, and MLB are the
+product direction but are not yet built — nothing in this repo makes them
+available today. Association football / soccer was supported at launch and
+has since been retired — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+for that history and the retirement decision.
 
 Built with Next.js 16 (App Router), TypeScript, Supabase (Postgres + Auth +
 RLS), and Tailwind CSS v4 + shadcn/ui.

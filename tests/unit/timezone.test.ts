@@ -3,15 +3,15 @@ import { resolveVenueTimezone } from "@/lib/sports-data/timezone";
 
 describe("resolveVenueTimezone", () => {
   it("resolves a known city", () => {
-    expect(resolveVenueTimezone("London", null)).toBe("Europe/London");
+    expect(resolveVenueTimezone("Tokyo", null)).toBe("Asia/Tokyo");
   });
 
   it("is case-insensitive and trims whitespace", () => {
-    expect(resolveVenueTimezone("  MADRID  ", null)).toBe("Europe/Madrid");
+    expect(resolveVenueTimezone("  CHICAGO  ", null)).toBe("America/Chicago");
   });
 
   it("resolves a multi-word city", () => {
-    expect(resolveVenueTimezone("Mexico City", null)).toBe("America/Mexico_City");
+    expect(resolveVenueTimezone("Kansas City", null)).toBe("America/Chicago");
   });
 
   it("falls back to the competition default for an unknown city", () => {

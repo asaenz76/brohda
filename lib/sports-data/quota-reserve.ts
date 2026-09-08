@@ -1,6 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { API_FOOTBALL_PROVIDER, API_NFL_PROVIDER, type FixtureProvider } from "./provider-names";
+import { API_NFL_PROVIDER, type FixtureProvider } from "./provider-names";
 
 // Phase 3 spec §18: protect enough quota for high-value manual operations
 // (pool creation market lookup, troubleshooting, critical sync) by having
@@ -18,7 +18,6 @@ import { API_FOOTBALL_PROVIDER, API_NFL_PROVIDER, type FixtureProvider } from ".
 // that was never confirmed, matching spec §17's "do not fabricate reset
 // times" in spirit.
 const BUDGET_ENV_VAR: Record<FixtureProvider, string> = {
-  [API_FOOTBALL_PROVIDER]: "API_FOOTBALL_DAILY_REQUEST_BUDGET",
   [API_NFL_PROVIDER]: "API_NFL_DAILY_REQUEST_BUDGET",
 };
 

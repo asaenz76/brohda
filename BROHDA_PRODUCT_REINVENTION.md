@@ -1,5 +1,8 @@
 # BROHDA_PRODUCT_REINVENTION.md
 
+> **Status: Superseded September 2026.**
+> This document reflects an earlier Brohda product direction that included Association football. Brohda subsequently retired Association football support. The current product direction is NFL, NBA, NHL, and MLB.
+
 **Chief Product Officer memo. Not a code document. Not a cut list. A redesign.**
 
 The Architecture Review told us what Brohda *is built from*. The Product Simplicity Review told us what Brohda should *stop carrying*. This document answers a different question: once the weight is gone, what makes people *run* toward what's left?

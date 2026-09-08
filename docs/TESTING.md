@@ -187,7 +187,7 @@ Three enforcement layers:
 3. **`webServer.env`** in `playwright.config.ts` explicitly projects the
    already-validated local values onto `NEXT_PUBLIC_SUPABASE_URL` /
    `NEXT_PUBLIC_SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` (plus
-   `API_FOOTBALL_ENABLED=false`, `API_NFL_ENABLED=false`, and safe
+   `API_NFL_ENABLED=false`, and safe
    placeholders for `CRON_SECRET`/`RESEND_API_KEY`/`NEXT_PUBLIC_SENTRY_DSN`)
    before spawning `next dev`. Empirically confirmed in this repo (Next
    16.2.10): a value already present in `process.env` when `next dev`
@@ -262,7 +262,7 @@ each caller remembering to set it up.
   every spec. You only need the guarded client for direct DB setup/teardown
   your spec does itself (seeding an invitation row, asserting on a row
   after a UI action, etc.).
-- If a flow needs API-Football/API-NFL data, don't flip the provider flags
+- If a flow needs API-NFL data, don't flip the provider flag
   on for your spec — seed deterministic local fixtures/pools directly via
   the guarded admin client instead (see `scripts/seed-dev-grading.ts` for
   the same deterministic-fixture-ID pattern applied to dev seeding).

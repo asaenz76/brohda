@@ -6,22 +6,21 @@ function fixture(overrides: Partial<LocalFixture> = {}): LocalFixture {
   return {
     id: "id-1",
     externalFixtureId: "ext-1",
-    provider: "api_football",
-    sport: "football",
-    competitionExternalId: "39",
-    competitionName: "Premier League",
-    competitionCountry: "England",
+    provider: "api_nfl",
+    sport: "american_football",
+    competitionExternalId: "1",
+    competitionName: "NFL",
+    competitionCountry: "USA",
     competitionType: "LEAGUE",
     season: "2026",
-    round: "Round 1",
-    homeTeamName: "Home FC",
-    awayTeamName: "Away FC",
+    round: "Regular Season - 1",
+    homeTeamName: "Home Team",
+    awayTeamName: "Away Team",
     scheduledStartUtc: "2026-08-15T18:00:00.000Z",
     internalStatus: "NOT_STARTED",
     statusBucket: "UPCOMING",
     hiddenFromPoolCreation: false,
     isSupported: true,
-    group: "GLOBAL",
     hasWorkspace: true,
     hasOdds: null,
     poolCount: 0,
@@ -34,30 +33,19 @@ function fixture(overrides: Partial<LocalFixture> = {}): LocalFixture {
 describe("groupAndSortLocalEvents", () => {
   it("groups by date, then sport, then competition", () => {
     const groups = groupAndSortLocalEvents([
-      fixture({ id: "fb-1", sport: "football", localDateKey: "2026-08-15" }),
+      fixture({ id: "a", localDateKey: "2026-08-15" }),
       fixture({
-        id: "nfl-1",
-        sport: "american_football",
-        provider: "api_nfl",
-        competitionExternalId: "1",
-        competitionName: "NFL",
-        competitionCountry: null,
-        group: null,
+        id: "b",
+        competitionExternalId: "2",
+        competitionName: "NFL Preseason",
         localDateKey: "2026-08-15",
       }),
     ]);
 
     expect(groups).toHaveLength(1);
     expect(groups[0].localDateKey).toBe("2026-08-15");
-    expect(groups[0].sports.map((s) => s.sport)).toEqual(["football", "american_football"]);
-  });
-
-  it("football always sorts before NFL within a date, regardless of insertion order", () => {
-    const groups = groupAndSortLocalEvents([
-      fixture({ id: "nfl-1", sport: "american_football", provider: "api_nfl", competitionExternalId: "1", group: null }),
-      fixture({ id: "fb-1", sport: "football" }),
-    ]);
-    expect(groups[0].sports.map((s) => s.sport)).toEqual(["football", "american_football"]);
+    expect(groups[0].sports.map((s) => s.sport)).toEqual(["american_football"]);
+    expect(groups[0].sports[0].competitions).toHaveLength(2);
   });
 
   it("sorts dates ascending and fixtures within a competition by kickoff time", () => {
@@ -72,8 +60,8 @@ describe("groupAndSortLocalEvents", () => {
   });
 
   it("a sport with zero events on a given date contributes no empty group", () => {
-    const groups = groupAndSortLocalEvents([fixture({ id: "fb-1", sport: "football" })]);
+    const groups = groupAndSortLocalEvents([fixture({ id: "a" })]);
     expect(groups[0].sports).toHaveLength(1);
-    expect(groups[0].sports[0].sport).toBe("football");
+    expect(groups[0].sports[0].sport).toBe("american_football");
   });
 });

@@ -1,50 +1,20 @@
-// API-Football reports venue city, not an IANA timezone. Appendix X.7.2's
-// same-calendar-day void rule needs a real timezone, so we resolve one at
-// import time via this curated map, falling back to a competition default
-// and finally the platform default (DEFAULT_TIMEZONE).
+// A provider reports venue city, not an IANA timezone. The same-calendar-
+// day void rule needs a real timezone, so we resolve one at import time via
+// this curated map, falling back to a competition default and finally the
+// platform default (DEFAULT_TIMEZONE).
 //
 // This is necessarily a best-effort list (there's no free, reliable
-// city -> timezone API in scope) — extend it as new venues come up.
+// city -> timezone API in scope) — extend it as new venues come up. Entries
+// below are kept because they serve NFL today or a plausible future NBA/
+// NHL/MLB venue; every city that existed here solely for a retired
+// Association-football/soccer competition (the European domestic leagues,
+// Liga MX/Argentina/Brasileirão/Chile/Colombia/Peru/Costa Rica, and World-
+// Cup/Saudi-league host cities) has been removed.
 const CITY_TIMEZONES: Record<string, string> = {
-  london: "Europe/London",
-  manchester: "Europe/London",
-  liverpool: "Europe/London",
-  birmingham: "Europe/London",
-  madrid: "Europe/Madrid",
-  barcelona: "Europe/Madrid",
-  seville: "Europe/Madrid",
-  paris: "Europe/Paris",
-  marseille: "Europe/Paris",
-  munich: "Europe/Berlin",
-  berlin: "Europe/Berlin",
-  dortmund: "Europe/Berlin",
-  milan: "Europe/Rome",
-  rome: "Europe/Rome",
-  turin: "Europe/Rome",
-  naples: "Europe/Rome",
-  amsterdam: "Europe/Amsterdam",
-  lisbon: "Europe/Lisbon",
-  porto: "Europe/Lisbon",
-  brussels: "Europe/Brussels",
-  zurich: "Europe/Zurich",
-  vienna: "Europe/Vienna",
-  istanbul: "Europe/Istanbul",
-  moscow: "Europe/Moscow",
-  doha: "Asia/Qatar",
-  riyadh: "Asia/Riyadh",
   tokyo: "Asia/Tokyo",
   seoul: "Asia/Seoul",
   shanghai: "Asia/Shanghai",
   beijing: "Asia/Shanghai",
-  "mexico city": "America/Mexico_City",
-  guadalajara: "America/Mexico_City",
-  "buenos aires": "America/Argentina/Buenos_Aires",
-  "rio de janeiro": "America/Sao_Paulo",
-  "sao paulo": "America/Sao_Paulo",
-  santiago: "America/Santiago",
-  bogota: "America/Bogota",
-  lima: "America/Lima",
-  "san jose": "America/Costa_Rica",
   "new york": "America/New_York",
   "los angeles": "America/Los_Angeles",
   miami: "America/New_York",
@@ -56,10 +26,8 @@ const CITY_TIMEZONES: Record<string, string> = {
   lagos: "Africa/Lagos",
   johannesburg: "Africa/Johannesburg",
 
-  // NFL team-city venues (this map was originally built for European
-  // soccer venues only, so every US city below was previously an unmapped
-  // miss falling through to the platform default — confirmed live for
-  // Canton while building the NFL provider).
+  // NFL team-city venues (confirmed live for Canton while building the
+  // NFL provider).
   glendale: "America/Phoenix",
   baltimore: "America/New_York",
   buffalo: "America/New_York",

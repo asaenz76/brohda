@@ -9,7 +9,7 @@ import {
   type CreatePoolFromTemplateState,
   type CreatePoolTierGroupResult,
 } from "@/lib/actions/pools";
-import { getFixtureGoalsLinesAction, getNflFixtureLinesAction } from "@/lib/actions/odds";
+import { getNflFixtureLinesAction } from "@/lib/actions/odds";
 import type { NflFixtureLineEstimates } from "@/lib/pools/templates/nfl-odds";
 import { MINIMUM_POOL_ENTRIES, MINIMUM_LOCK_LEAD_MINUTES, MAX_TIERS_PER_GROUP } from "@/lib/validations/pools";
 import { generatePoolTemplate, getRuleLabel, getTemplateEligibility } from "@/lib/pools/templates";
@@ -27,10 +27,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { PlayerPicker } from "./player-picker";
 import { MultiFixtureBuilder } from "./multi-fixture-builder";
 import { TierFeeInputs, TierCreationResults } from "./tier-fee-inputs";
-import { ImportedCompetitionFilter } from "./imported-competition-filter";
 import {
   ALL_CARDS,
   CATEGORY_LABELS,
@@ -41,7 +39,6 @@ import {
   isLegacyId,
   tabsForSport,
   type CardCategory,
-  type CompetitionOption,
   type FixtureOption,
   type TemplateCard,
 } from "./template-cards";
@@ -66,7 +63,6 @@ export interface DuplicateTemplate {
   legs: string[] | null;
 }
 
-const GOALS_LINE_TEMPLATE_IDS = new Set(["MATCH_TOTAL_GOALS", "FIRST_HALF_TOTAL_GOALS", "TEAM_TOTAL_GOALS"]);
 const NFL_LINE_TEMPLATE_IDS = new Set(["NFL_SPREAD", "NFL_GAME_TOTAL", "NFL_TEAM_TOTAL"]);
 // Only these two carry a TEAM_SIDE field that should auto-select the real
 // moneyline favorite — NFL_GAME_TOTAL has no team field at all.
@@ -111,7 +107,6 @@ function formatOddsAge(providerUpdatedAtIso: string): string {
 
 export function PoolTemplateBuilder({
   fixtures,
-  competitions = [],
   defaultEntryFee = "5.00",
   defaultHouseFeePercent = "5",
   defaultTierEntryFees = ["5.00", "10.00", "25.00", "50.00", "100.00"],
@@ -121,7 +116,6 @@ export function PoolTemplateBuilder({
   initialFixtureId,
 }: {
   fixtures: FixtureOption[];
-  competitions?: CompetitionOption[];
   defaultEntryFee?: string;
   defaultHouseFeePercent?: string;
   /** Pre-fills TierFeeInputs the moment "Tiered" is picked — see
@@ -154,7 +148,6 @@ export function PoolTemplateBuilder({
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [search, setSearch] = useState("");
-  const [competitionKey, setCompetitionKey] = useState("");
   const [fixtureId, setFixtureId] = useState("");
   const [activeTab, setActiveTab] = useState<CardCategory>(TABS[0]);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
@@ -172,14 +165,6 @@ export function PoolTemplateBuilder({
   // older pool created before this simplification preserves its value.
   const [participationVisibility] = useState(defaultParticipationVisibility);
   const [publishImmediately, setPublishImmediately] = useState(false);
-  const [goalsLines, setGoalsLines] = useState<{
-    forFixtureId: string;
-    matchLine: number | null;
-    firstHalfLine: number | null;
-    homeTeamLine: number | null;
-    awayTeamLine: number | null;
-  } | null>(null);
-  const oddsFetchedForFixtureId = useRef<string | null>(null);
   const [nflLines, setNflLines] = useState<({ forFixtureId: string } & NflFixtureLineEstimates) | null>(null);
   const nflOddsFetchedForFixtureId = useRef<string | null>(null);
   // Duplicate-apply is one-shot — only the *first* fixture pick in this
@@ -208,7 +193,6 @@ export function PoolTemplateBuilder({
   const isLegacy = selectedCardId != null && isLegacyId(selectedCardId);
   const registryTemplate = selectedCardId && !isLegacy ? getLatestTemplate(selectedCardId) : null;
   const eligibility = getTemplateEligibility(selectedFixture?.competitionType ?? null, selectedFixture?.sport ?? null);
-  const needsGoalsLine = selectedCardId != null && GOALS_LINE_TEMPLATE_IDS.has(selectedCardId);
   const needsNflLine = selectedCardId != null && NFL_LINE_TEMPLATE_IDS.has(selectedCardId);
   // Football-era registry cards (goals, clean sheets, red cards — anything
   // sport-scoped to ["football"]) never apply to an NFL fixture, so a tab
@@ -223,44 +207,6 @@ export function PoolTemplateBuilder({
   // itself is left untouched so a later fixture pick that brings the
   // original tab back doesn't need any extra state to remember it.
   const displayedTab = availableTabs.includes(activeTab) ? activeTab : (availableTabs[0] ?? TABS[0]);
-
-  // Fetches the fixture's odds-derived goals suggestion at most once per
-  // fixture (not per template switch) — MATCH_TOTAL_GOALS and
-  // FIRST_HALF_TOTAL_GOALS both read off the one fetch's two lines.
-  useEffect(() => {
-    if (!needsGoalsLine || !selectedFixture?.externalFixtureId) return;
-    if (oddsFetchedForFixtureId.current === selectedFixture.id) return;
-    oddsFetchedForFixtureId.current = selectedFixture.id;
-    const fixtureId = selectedFixture.id;
-    getFixtureGoalsLinesAction(selectedFixture.externalFixtureId, selectedFixture.provider).then((lines) => {
-      setGoalsLines({ forFixtureId: fixtureId, ...lines });
-    });
-  }, [needsGoalsLine, selectedFixture]);
-
-  // Which of the fetch's four suggestions applies to the currently active
-  // template (and, for TEAM_TOTAL_GOALS, the currently selected side) —
-  // null while the fetch for this fixture hasn't resolved yet.
-  function currentGoalsSuggestion(): number | null {
-    if (!goalsLines || goalsLines.forFixtureId !== selectedFixture?.id) return null;
-    if (selectedCardId === "FIRST_HALF_TOTAL_GOALS") return goalsLines.firstHalfLine;
-    if (selectedCardId === "TEAM_TOTAL_GOALS") {
-      return configValues.team === "AWAY" ? goalsLines.awayTeamLine : goalsLines.homeTeamLine;
-    }
-    return goalsLines.matchLine;
-  }
-
-  // Pure derived value (no effect/setState) for "minimumGoals" specifically
-  // — read by both the field's displayed value and typedTemplateConfig
-  // below, so what's shown and what's submitted always agree. Only applies
-  // the odds suggestion while the field still holds its untouched default;
-  // once the admin edits it, configValues.minimumGoals itself takes over.
-  function resolveMinimumGoals(field: { min: number }): string {
-    const raw = configValues.minimumGoals ?? String(field.min);
-    if (raw !== String(field.min)) return raw;
-    if (!needsGoalsLine) return raw;
-    const suggested = currentGoalsSuggestion();
-    return suggested != null ? String(suggested) : raw;
-  }
 
   // Fetches the fixture's real Spread/Game Total/Team Total lines at most
   // once per fixture — mirrors the goals-line fetch above. Falls back to
@@ -351,11 +297,10 @@ export function PoolTemplateBuilder({
     : null;
 
   const filteredFixtures = useMemo(() => {
-    const byCompetition = competitionKey ? fixtures.filter((f) => f.competitionKey === competitionKey) : fixtures;
-    if (!search.trim()) return byCompetition;
+    if (!search.trim()) return fixtures;
     const q = search.trim().toLowerCase();
-    return byCompetition.filter((f) => f.label.toLowerCase().includes(q));
-  }, [fixtures, competitionKey, search]);
+    return fixtures.filter((f) => f.label.toLowerCase().includes(q));
+  }, [fixtures, search]);
 
   function selectFixture(fixture: FixtureOption) {
     setFixtureId(fixture.id);
@@ -372,7 +317,7 @@ export function PoolTemplateBuilder({
     setShowOtherQuestions(false);
     setOverridePublishWarnings(false);
     setQuestionContext(null);
-    getFixtureQuestionContextAction(fixture.id, fixture.externalFixtureId, fixture.provider, fixture.sport).then(setQuestionContext);
+    getFixtureQuestionContextAction(fixture.id, fixture.sport).then(setQuestionContext);
 
     if (duplicateTemplate && !duplicateAppliedRef.current) {
       duplicateAppliedRef.current = true;
@@ -436,9 +381,7 @@ export function PoolTemplateBuilder({
   // were ever combined). Never re-fires on a later fixtures-prop change.
   // The call is deferred past a microtask boundary — selectFixture makes
   // several setState calls in sequence, and react-hooks/set-state-in-effect
-  // disallows calling it synchronously in the effect body (see
-  // player-picker.tsx's PlayerPicker for the same convention applied to a
-  // single setState instead).
+  // disallows calling it synchronously in the effect body.
   const initialFixtureAppliedRef = useRef(false);
   useEffect(() => {
     if (initialFixtureAppliedRef.current || !initialFixtureId) return;
@@ -557,13 +500,11 @@ export function PoolTemplateBuilder({
         continue;
       }
       const raw =
-        field.key === "minimumGoals" && field.type === "INTEGER"
-          ? resolveMinimumGoals(field)
-          : field.type === "HALF_POINT_LINE" && needsNflLine
-            ? resolveNflLine(field)
-            : field.type === "TEAM_SIDE" && selectedCardId && NFL_TEAM_AUTO_FAVORITE_TEMPLATE_IDS.has(selectedCardId)
-              ? resolveNflTeamSide(field)
-              : configValues[field.key];
+        field.type === "HALF_POINT_LINE" && needsNflLine
+          ? resolveNflLine(field)
+          : field.type === "TEAM_SIDE" && selectedCardId && NFL_TEAM_AUTO_FAVORITE_TEMPLATE_IDS.has(selectedCardId)
+            ? resolveNflTeamSide(field)
+            : configValues[field.key];
       config[field.key] =
         field.type === "INTEGER" || field.type === "HALF_POINT_LINE"
           ? Number(raw)
@@ -572,8 +513,8 @@ export function PoolTemplateBuilder({
             : raw;
     }
     return config;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- resolveMinimumGoals/resolveNflLine close over these same values, listed explicitly
-  }, [registryTemplate, configValues, goalsLines, nflLines, selectedCardId, selectedFixture?.id, needsGoalsLine, needsNflLine]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- resolveNflLine closes over these same values, listed explicitly
+  }, [registryTemplate, configValues, nflLines, selectedCardId, selectedFixture?.id, needsNflLine]);
 
   const registryQuestion =
     registryTemplate && selectedFixture
@@ -756,7 +697,6 @@ export function PoolTemplateBuilder({
         {mode === "multi" ? (
           <MultiFixtureBuilder
             fixtures={fixtures}
-            competitions={competitions}
             defaultEntryFee={defaultEntryFee}
             defaultHouseFeePercent={defaultHouseFeePercent}
           />
@@ -807,11 +747,6 @@ export function PoolTemplateBuilder({
         <form action={formAction} className="space-y-5">
           {/* Step 1 — Select Fixture */}
           <div className={cn("space-y-3", step !== 1 && "hidden")}>
-            <ImportedCompetitionFilter
-              competitions={competitions}
-              value={competitionKey}
-              onChange={setCompetitionKey}
-            />
             <div className="space-y-1.5">
               <Label htmlFor="fixtureSearch">Search fixtures</Label>
               <Input
@@ -1104,27 +1039,12 @@ export function PoolTemplateBuilder({
                       </label>
                     );
                   }
-                  if (field.type === "PLAYER") {
-                    return (
-                      <PlayerPicker
-                        key={field.key}
-                        homeTeamExternalId={selectedFixture.homeTeamExternalId}
-                        homeTeamName={selectedFixture.homeTeamName}
-                        awayTeamExternalId={selectedFixture.awayTeamExternalId}
-                        awayTeamName={selectedFixture.awayTeamName}
-                        provider={selectedFixture.provider}
-                        selectedPlayerId={configValues.playerId ?? ""}
-                        selectedPlayerName={configValues.playerName ?? ""}
-                        onSelect={(player) =>
-                          setConfigValues((prev) => ({
-                            ...prev,
-                            playerId: player.externalPlayerId,
-                            playerName: player.name,
-                          }))
-                        }
-                      />
-                    );
-                  }
+                  // No registry template currently declares a PLAYER field
+                  // (the sport that needed one, Association football, is
+                  // retired) — kept as a no-op branch rather than deleted so
+                  // ConfigFieldDefinition's PLAYER variant stays exhaustively
+                  // handled if a future sport's template adds one back.
+                  if (field.type === "PLAYER") return null;
                   return (
                     <div key={field.key} className="space-y-1.5">
                       <Label htmlFor={`config-${field.key}`}>{field.label}</Label>
@@ -1135,32 +1055,15 @@ export function PoolTemplateBuilder({
                         max={field.max}
                         step={field.type === "HALF_POINT_LINE" ? 0.5 : undefined}
                         value={
-                          field.key === "minimumGoals"
-                            ? resolveMinimumGoals(field)
-                            : field.type === "HALF_POINT_LINE" && needsNflLine
-                              ? resolveNflLine(field)
-                              : (configValues[field.key] ?? "")
+                          field.type === "HALF_POINT_LINE" && needsNflLine
+                            ? resolveNflLine(field)
+                            : (configValues[field.key] ?? "")
                         }
                         onChange={(e) =>
                           setConfigValues((prev) => ({ ...prev, [field.key]: e.target.value }))
                         }
                         className="w-32"
                       />
-                      {field.key === "minimumGoals" && needsGoalsLine && (() => {
-                        const stillLoading = !goalsLines || goalsLines.forFixtureId !== selectedFixture?.id;
-                        const suggested = stillLoading ? null : currentGoalsSuggestion();
-                        if (stillLoading) {
-                          return <p className="text-xs text-text-muted">Checking today&apos;s odds…</p>;
-                        }
-                        if (suggested != null) {
-                          return (
-                            <p className="text-xs text-text-muted">
-                              Prefilled from today&apos;s odds — feel free to change it.
-                            </p>
-                          );
-                        }
-                        return null;
-                      })()}
                       {field.type === "HALF_POINT_LINE" && needsNflLine && (() => {
                         const lines = currentNflLines();
                         if (!lines) return <p className="text-xs text-text-muted">Checking today&apos;s odds…</p>;

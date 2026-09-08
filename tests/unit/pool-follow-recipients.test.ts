@@ -48,7 +48,7 @@ describe("getPoolPublishFollowRecipients", () => {
   it("returns empty when the fixture has no matching team or league", async () => {
     tableData = {
       fixtures: {
-        provider: "api_football",
+        provider: "test_provider",
         home_team_external_id: "10",
         away_team_external_id: "20",
         competition_external_id: "99",
@@ -66,7 +66,7 @@ describe("getPoolPublishFollowRecipients", () => {
   it("dedupes a user following both the home and away team into one recipient", async () => {
     tableData = {
       fixtures: {
-        provider: "api_football",
+        provider: "test_provider",
         home_team_external_id: "10",
         away_team_external_id: "20",
         competition_external_id: null,
@@ -90,7 +90,7 @@ describe("getPoolPublishFollowRecipients", () => {
   it("ORs email_enabled across matches — team follow with email off + league follow with email on still emails", async () => {
     tableData = {
       fixtures: {
-        provider: "api_football",
+        provider: "test_provider",
         home_team_external_id: "10",
         away_team_external_id: null,
         competition_external_id: "99",
@@ -108,7 +108,7 @@ describe("getPoolPublishFollowRecipients", () => {
   it("returns emailEnabled: false for a user whose only matching follow has email off", async () => {
     tableData = {
       fixtures: {
-        provider: "api_football",
+        provider: "test_provider",
         home_team_external_id: "10",
         away_team_external_id: null,
         competition_external_id: null,

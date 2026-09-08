@@ -2,10 +2,9 @@ import { requireSuperAdmin } from "@/lib/auth/session";
 import { getRegistrationEnabled } from "@/lib/settings/registration";
 import { getPoolFeeDefaults } from "@/lib/settings/pool-defaults";
 import { getPaymentMethods } from "@/lib/payment-methods/fetch";
-import { apiFootballProvider } from "@/lib/sports-data/api-football-provider";
 import { apiNflProvider } from "@/lib/sports-data/api-nfl-provider";
 import { getProviderStatus } from "@/lib/sports-data/provider-gateway";
-import { API_FOOTBALL_PROVIDER, API_NFL_PROVIDER } from "@/lib/sports-data/provider-names";
+import { API_NFL_PROVIDER } from "@/lib/sports-data/provider-names";
 import { formatBps } from "@/lib/utils/money";
 import { Card, CardContent } from "@/components/ui/card";
 import { RegistrationToggle } from "./registration-toggle";
@@ -19,11 +18,10 @@ export default async function AdminSettingsPage() {
   // one provider's status must never reflect or be gated by the other's,
   // and opening this page must never make a live provider request itself
   // (getProviderStatus only ever reads provider_request_log).
-  const [registrationEnabled, poolFeeDefaults, paymentMethods, footballStatus, nflStatus] = await Promise.all([
+  const [registrationEnabled, poolFeeDefaults, paymentMethods, nflStatus] = await Promise.all([
     getRegistrationEnabled(),
     getPoolFeeDefaults(),
     getPaymentMethods(),
-    getProviderStatus(apiFootballProvider.isEnabled(), API_FOOTBALL_PROVIDER),
     getProviderStatus(apiNflProvider.isEnabled(), API_NFL_PROVIDER),
   ]);
 
@@ -49,12 +47,6 @@ export default async function AdminSettingsPage() {
           <PaymentMethodsSettings methods={paymentMethods} />
         </CardContent>
       </Card>
-      <ProviderStatusPanel
-        provider={API_FOOTBALL_PROVIDER}
-        label="API-Football"
-        enabledEnvHint="The sports data provider isn't enabled. Set API_FOOTBALL_ENABLED=true and a valid API_FOOTBALL_KEY to use it."
-        status={footballStatus}
-      />
       <ProviderStatusPanel
         provider={API_NFL_PROVIDER}
         label="API-NFL"

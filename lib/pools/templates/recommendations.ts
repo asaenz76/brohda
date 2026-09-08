@@ -1,11 +1,17 @@
 import { TEMPLATE_REGISTRY, getLatestTemplate } from "./registry";
 import { areMirrors, getQuestionFamily, isExactDuplicate, TEAM_SCOPED_TEMPLATE_IDS, type QuestionCandidate } from "./families";
 import type { PoolTemplate } from "./types";
-import type { NormalizedFixtureMarkets } from "@/lib/sports-data/types";
-import { estimateFromMarkets, ODDS_ALLOWLIST_TEMPLATE_IDS } from "./odds-mapping";
-import type { ProbabilityEstimateSource } from "./odds-consensus";
 
-export type { ProbabilityEstimateSource };
+// Every probability here is a static, sport-domain heuristic prior — no
+// real-odds-driven estimation exists in this file anymore. It used to
+// (see odds-mapping.ts's git history), fed by the retired football
+// provider's market data via a `NormalizedFixtureMarkets` shape that
+// couldn't be honestly generalized across sports (see types.ts's header
+// comment on why odds/markets were removed from SportsDataProvider
+// entirely). A future sport wanting odds-driven recommendations should
+// give this file its own typed `estimate` input following that same
+// per-sport pattern, not resurrect the football-shaped one.
+export type ProbabilityEstimateSource = "STATIC_PRIOR";
 
 /**
  * Publishing guidance only — never settlement logic. Nothing here decides
@@ -41,63 +47,18 @@ export const ACTIVE_CONFLICT_STATUSES = ["DRAFT", "OPEN", "LOCKED", "AWAITING_RE
 // implementation can look up real data without changing any caller.
 // ---------------------------------------------------------------------
 
-function clamp01(value: number): number {
-  return Math.max(0.02, Math.min(0.98, value));
-}
-
-function readNumber(config: Record<string, unknown>, key: string, fallback: number): number {
-  const raw = config[key];
-  return typeof raw === "number" && Number.isFinite(raw) ? raw : fallback;
-}
-
-function isAway(config: Record<string, unknown>): boolean {
-  return config.team === "AWAY";
-}
-
-const STATIC_YES_PROBABILITY: Record<string, number> = {
-  HOME_TEAM_TO_WIN: 0.45,
-  AWAY_TEAM_TO_WIN: 0.29,
-  EITHER_TEAM_TO_WIN: 0.74,
-  BOTH_TEAMS_TO_SCORE: 0.5,
-  PENALTY_AWARDED: 0.28,
-  OWN_GOAL: 0.08,
-  PLAYER_TO_SCORE: 0.28,
-};
-
+// Every template id this used to special-case (HOME_TEAM_TO_WIN,
+// BOTH_TEAMS_TO_SCORE, CLEAN_SHEET, WINNING_MARGIN, ...) was a football-
+// only registry template, now removed from the registry entirely — no
+// remaining template (NFL's or otherwise) matches any of these ids, so
+// every candidate correctly falls through to the flat default below,
+// identical to how NFL templates were already scored before this cleanup.
+// A future sport wanting a real per-template prior should add its own
+// case here keyed on its own template ids.
 /** Returns a probability in [0.02, 0.98] — never exactly 0 or 1, since a
  * template that can never resolve either way wouldn't be offered at all. */
-export function estimateYesProbability(templateId: string, config: Record<string, unknown>): number {
-  const staticValue = STATIC_YES_PROBABILITY[templateId];
-  if (staticValue !== undefined) return staticValue;
-
-  switch (templateId) {
-    case "TEAM_TO_AVOID_DEFEAT":
-      return isAway(config) ? 0.54 : 0.7;
-    case "CLEAN_SHEET":
-      return isAway(config) ? 0.24 : 0.32;
-    case "WIN_TO_NIL":
-      return isAway(config) ? 0.16 : 0.24;
-    case "FIRST_TEAM_TO_SCORE":
-      return isAway(config) ? 0.34 : 0.44;
-    case "RED_CARD":
-      return clamp01(0.3 + (config.includeSecondYellowDismissal ? 0.05 : 0));
-    case "MATCH_TOTAL_GOALS":
-      return clamp01(1.05 - readNumber(config, "minimumGoals", 3) * 0.19);
-    case "FIRST_HALF_TOTAL_GOALS":
-      return clamp01(0.75 - readNumber(config, "minimumGoals", 1) * 0.22);
-    case "TEAM_TOTAL_GOALS": {
-      const base = clamp01(0.62 - readNumber(config, "minimumGoals", 1) * 0.16);
-      return clamp01(isAway(config) ? base - 0.08 : base);
-    }
-    case "WINNING_MARGIN": {
-      const base = clamp01(0.4 - (readNumber(config, "minimumMargin", 1) - 1) * 0.11);
-      return clamp01(isAway(config) ? base - 0.12 : base);
-    }
-    case "GOAL_AFTER_MINUTE":
-      return clamp01(0.95 - readNumber(config, "minute", 45) * 0.006);
-    default:
-      return 0.5;
-  }
+export function estimateYesProbability(_templateId: string, _config: Record<string, unknown>): number {
+  return 0.5;
 }
 
 export interface ProbabilityEstimate {
@@ -106,42 +67,19 @@ export interface ProbabilityEstimate {
   bookmakerCount: number;
   bookmakerIds: number[];
   oddsLine: number | null;
-  // Null for STATIC_PRIOR; otherwise the odds-mapping.ts market key this
-  // estimate came from (e.g. "MATCH_TOTAL_GOALS", "MATCH_WINNER_3WAY").
   marketKey: string | null;
-  // Config overrides a real-odds estimate implies (e.g. a market-chosen
-  // minimumGoals) — merged into the candidate's config by scoreTemplate.
-  // Always null when source is STATIC_PRIOR.
   resolvedConfig: Record<string, unknown> | null;
 }
 
-/**
- * Prefers a real bookmaker-consensus estimate (see odds-mapping.ts) for
- * allowlisted templates when live market data is available and clears the
- * consensus bar; falls back to the static prior above otherwise — never a
- * guess in between. `markets` is null whenever odds weren't fetched (no
- * fixture picked yet, provider disabled, fetch failed), in which case this
- * is exactly equivalent to the old static-only estimateYesProbability.
- */
+/** Always the static heuristic prior now — see the ProbabilityEstimateSource
+ * comment above for why the real-odds-driven path was removed rather than
+ * kept around unused. Signature (id + config in, an estimate with a
+ * `source` out) is unchanged so a future per-sport implementation can slot
+ * back in here without touching any caller. */
 export function estimateYesProbabilityWithSource(
   templateId: string,
   config: Record<string, unknown>,
-  markets: NormalizedFixtureMarkets | null,
 ): ProbabilityEstimate {
-  if (markets && ODDS_ALLOWLIST_TEMPLATE_IDS.has(templateId)) {
-    const estimate = estimateFromMarkets(templateId, config, markets);
-    if (estimate) {
-      return {
-        probability: estimate.probability,
-        source: estimate.source,
-        bookmakerCount: estimate.bookmakerCount,
-        bookmakerIds: estimate.bookmakerIds,
-        oddsLine: estimate.line,
-        marketKey: estimate.marketKey,
-        resolvedConfig: estimate.resolvedConfig,
-      };
-    }
-  }
   return {
     probability: estimateYesProbability(templateId, config),
     source: "STATIC_PRIOR",
@@ -322,18 +260,13 @@ export function defaultConfigFor(template: PoolTemplate<Record<string, unknown>>
 }
 
 /** Scores one template (with the given config, or its own default config
- * if omitted) against a fixture's currently active pools. When `markets`
- * carries real fixture odds and the template is odds-allowlisted, the
- * question's threshold (for line-based templates) and yesProbability come
- * from bookmaker consensus instead of the static prior — see
- * estimateYesProbabilityWithSource. */
+ * if omitted) against a fixture's currently active pools. */
 export function scoreTemplate(
   template: PoolTemplate<Record<string, unknown>>,
   activePools: ActivePoolSummary[],
   config: Record<string, unknown> = defaultConfigFor(template),
-  markets: NormalizedFixtureMarkets | null = null,
 ): TemplateRecommendation {
-  const estimate = estimateYesProbabilityWithSource(template.id, config, markets);
+  const estimate = estimateYesProbabilityWithSource(template.id, config);
   const yesProbability = estimate.probability;
   // The market's own chosen threshold (e.g. minimumGoals) overrides the
   // field-default config so the generated question reflects real odds,
@@ -362,7 +295,7 @@ export function scoreTemplate(
     bookmakerCount: estimate.bookmakerCount,
     oddsLine: estimate.oddsLine,
     marketKey: estimate.marketKey,
-    oddsUpdatedAt: estimate.source === "STATIC_PRIOR" ? null : (markets?.providerUpdatedAt ?? null),
+    oddsUpdatedAt: null,
   };
 }
 
@@ -410,15 +343,13 @@ const RECOMMENDABLE_CATEGORIES = new Set(["MATCH_RESULT", "GOALS", "DISCIPLINE"]
 // number is being invented — "which of the two known teams" or "on/off"
 // aren't guesses the same way a threshold is), so they're unaffected.
 //
-// This is fixture-specific, not template-specific: MATCH_TOTAL_GOALS is
-// odds-allowlisted, so it's a real recommendation whenever this fixture
-// actually has live market data, and correctly withheld otherwise — same
-// template, different fixtures, different outcomes. WINNING_MARGIN and
-// every NFL line template (SPREAD/GAME_TOTAL/TEAM_TOTAL) have no real-odds
-// path at all yet (see odds-mapping.ts's ODDS_ALLOWLIST_TEMPLATE_IDS
-// comment, and lib/pools/templates/nfl.ts respectively), so their
-// probabilitySource is always STATIC_PRIOR and they're always excluded
-// here — still browsable manually, never auto-recommended.
+// No template today has a real-odds path into probabilitySource at all
+// (see this file's own header) — every NFL line template (SPREAD/
+// GAME_TOTAL/TEAM_TOTAL, lib/pools/templates/nfl.ts) names a threshold
+// field, so probabilitySource is always STATIC_PRIOR for all 3 and they're
+// always excluded here — still browsable manually, never auto-recommended.
+// A future sport that gives this file a real per-template estimate could
+// change that for its own threshold templates without touching this logic.
 const THRESHOLD_FIELD_TYPES = new Set(["INTEGER", "HALF_POINT_LINE"]);
 function hasThresholdField(template: PoolTemplate<Record<string, unknown>>): boolean {
   return template.requiredConfigFields.some((f) => THRESHOLD_FIELD_TYPES.has(f.type));
@@ -444,46 +375,36 @@ function betterBalanced(a: TemplateRecommendation, b: TemplateRecommendation): T
 function scoreCandidate(
   template: PoolTemplate<Record<string, unknown>>,
   activePools: ActivePoolSummary[],
-  markets: NormalizedFixtureMarkets | null,
 ): TemplateRecommendation {
   if (!TEAM_SCOPED_TEMPLATE_IDS.has(template.id)) {
-    return scoreTemplate(template, activePools, defaultConfigFor(template), markets);
+    return scoreTemplate(template, activePools, defaultConfigFor(template));
   }
   const homeConfig = { ...defaultConfigFor(template), team: "HOME" };
   const awayConfig = { ...defaultConfigFor(template), team: "AWAY" };
-  const homeRec = scoreTemplate(template, activePools, homeConfig, markets);
-  const awayRec = scoreTemplate(template, activePools, awayConfig, markets);
+  const homeRec = scoreTemplate(template, activePools, homeConfig);
+  const awayRec = scoreTemplate(template, activePools, awayConfig);
   return betterBalanced(homeRec, awayRec);
 }
 
 /** Ranks every eligible registry template for a fixture, split into a
  * short "Recommended" list (highest-scoring, no blocking relationship to
  * an existing pool) and everything else. Legacy pool_types (WHO_WILL_
- * ADVANCE/REGULATION_RESULT) and COMBO never appear here — neither has a
- * single well-defined YES probability, and per the product decision to
- * treat them as traditional markets, they're never part of the
- * recommendation ranking, only ever manually browsable.
+ * ADVANCE/REGULATION_RESULT, retired) and COMBO never appear here —
+ * neither has a single well-defined YES probability, and per the product
+ * decision to treat them as traditional markets, they're never part of
+ * the recommendation ranking, only ever manually browsable.
  *
- * `markets` — real fixture odds, normalized (lib/sports-data/types.ts) and
- * already fetched by the caller (never fetched here; this function stays
- * pure/synchronous). Null when odds aren't available, in which case every
- * candidate falls back to its static prior, identical to this function's
- * behavior before real odds existed.
- *
- * `sport` — every football-era template is written in football-specific
- * language/data assumptions (goals, clean sheets, red cards), so a
- * candidate is only scored/offered when its own `sports` list includes this
- * fixture's sport. Defaults to "football" for every existing caller that
- * predates NFL. */
+ * `sport` — a candidate is only scored/offered when its own `sports` list
+ * includes this fixture's sport; `null` (no fixture/sport known yet)
+ * matches nothing, same as any sport with no registry templates. */
 export function rankRecommendations(
   activePools: ActivePoolSummary[],
-  markets: NormalizedFixtureMarkets | null = null,
-  sport: string = "football",
+  sport: string | null,
 ): RankedRecommendations {
-  const scored = TEMPLATE_REGISTRY.filter((t) => RECOMMENDABLE_CATEGORIES.has(t.category) && t.sports.includes(sport))
+  const scored = TEMPLATE_REGISTRY.filter((t) => RECOMMENDABLE_CATEGORIES.has(t.category) && !!sport && t.sports.includes(sport))
     .map((t) => getLatestTemplate(t.id))
     .filter((t): t is PoolTemplate<Record<string, unknown>> => t !== null)
-    .map((t) => scoreCandidate(t, activePools, markets))
+    .map((t) => scoreCandidate(t, activePools))
     .filter(isDataBackedRecommendation);
 
   scored.sort((a, b) => b.stars - a.stars || b.yesProbability - a.yesProbability);

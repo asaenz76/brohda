@@ -1,25 +1,23 @@
-// Phase 2 (local-first football browsing): the DB-only replacement for the
-// old provider-backed date/competition search pipeline in discovery.ts.
-// Every function here queries only the local `fixtures` table (plus
-// `pools`, `fixtures_available_for_pool_creation`, and
-// `league_season_imports` for enrichment) — never the provider. Normal
-// admin browsing (page load, date/preset/competition/filter changes) must
-// never call the provider (spec §1); this module is the boundary that
-// guarantees that by construction — it has no dependency on
-// SportsDataProvider at all.
+// The DB-only local browse layer backing the Events admin surface. Every
+// function here queries only the local `fixtures` table (plus `pools`,
+// `fixtures_available_for_pool_creation`, and `league_season_imports` for
+// enrichment) — never a live provider call. Normal admin browsing (page
+// load, date/preset/competition/filter changes) must never call the
+// provider; this module is the boundary that guarantees that by
+// construction — it has no dependency on SportsDataProvider at all.
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getSupportedCompetitionGroup, getSupportedCompetitionMap, isSupportedCompetition, type CompetitionGroup } from "@/lib/sports-data/supported-competitions";
 import { isSupportedNflCompetition } from "@/lib/sports-data/supported-nfl-competitions";
 import { isTerminalStatus } from "@/lib/sports-data/status-map";
 import type { FixtureInternalStatus } from "@/lib/sports-data/types";
 import { localDateKeyFor, type FixtureDateWindow } from "./date-window";
+import { ALL_EVENT_SPORTS } from "./sport-meta";
 
-/** The two sports currently backed by real provider data — see
- * lib/sports-data/api-football-provider.ts / api-nfl-provider.ts. Not a
- * generic "every sport" union; adding a third sport means adding a value
- * here deliberately, not something this type accepts implicitly. */
-export type EventSport = "football" | "american_football";
+/** The sports currently backed by real provider data — see
+ * lib/sports-data/api-nfl-provider.ts. Not a generic "every sport" union;
+ * adding another sport means adding a value here deliberately, not
+ * something this type accepts implicitly. */
+export type EventSport = "american_football";
 
 const IN_CLAUSE_CHUNK_SIZE = 300;
 
@@ -30,15 +28,14 @@ function chunk<T>(items: T[], size: number): T[][] {
 }
 
 /**
- * Paginates a PostgREST query past the client's default 1000-row cap — the
- * exact failure mode that already caused one real production incident
- * (get_competition_fixture_aggregates' own comment documents it: 1852 rows
- * silently truncated to 1000, making a whole competition's future fixtures
- * vanish from an aggregate). Every local-browse query here goes through
- * this rather than a single unbounded `.select()`, regardless of how
- * unlikely a given date window or competition-season is to exceed 1000
- * rows today — Phase 2 spec §12 is explicit: "do not assume fewer than
- * 1000 rows forever."
+ * Paginates a PostgREST query past the client's default 1000-row cap — a
+ * real past production incident (get_competition_fixture_aggregates' own
+ * comment documents it: 1852 rows silently truncated to 1000, making a
+ * whole competition's future fixtures vanish from an aggregate). Every
+ * local-browse query here goes through this rather than a single
+ * unbounded `.select()`, regardless of how unlikely a given date window or
+ * competition-season is to exceed 1000 rows today — do not assume fewer
+ * than 1000 rows forever.
  */
 export async function fetchAllRows<T>(
   fetchPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
@@ -66,12 +63,12 @@ export function statusBucketFor(status: FixtureInternalStatus): StatusBucket {
   return "OTHER"; // POSTPONED, SUSPENDED, UNKNOWN
 }
 
-/** Mirrors the four states spec §15 requires the UI to distinguish.
- * Derived, never duplicated: "ELIGIBLE" comes straight from membership in
+/** The four states the UI needs to distinguish. Derived, never duplicated:
+ * "ELIGIBLE" comes straight from membership in
  * fixtures_available_for_pool_creation (the one canonical eligibility
- * view — see lib/pools; no rule from that view's WHERE clause is
- * reimplemented here), "COMPLETED"/"LOCKED" are read directly off columns
- * already on the fixture row. */
+ * view — no rule from that view's WHERE clause is reimplemented here),
+ * "COMPLETED"/"LOCKED" are read directly off columns already on the
+ * fixture row. */
 export type PoolEligibilityStatus = "ELIGIBLE" | "COMPLETED" | "LOCKED" | "INELIGIBLE";
 
 export interface LocalFixture {
@@ -92,7 +89,6 @@ export interface LocalFixture {
   statusBucket: StatusBucket;
   hiddenFromPoolCreation: boolean;
   isSupported: boolean;
-  group: CompetitionGroup | null;
   hasWorkspace: boolean;
   hasOdds: boolean | null;
   poolCount: number;
@@ -148,25 +144,9 @@ function computeCounts(fixtures: LocalFixture[]): LocalFixtureBrowseCounts {
 
 /** Cross-references an already-fetched, bounded batch of local fixture rows
  * against pools/eligibility/workspace state — every lookup here is one
- * batched (chunked) query, never N+1, matching the same discipline
- * enrichFixtures (the old provider-result enricher) already established. */
-/** Sport-aware "is this row's competition one we curate" check — football
- * and NFL each have their own supported-competitions config (see the two
- * files imported above), and neither list's externalLeagueId space is
- * safe to cross-check against the other (small numeric ids can coincide
- * between providers). Every consumer of `isSupported`/`group` must route
- * through this rather than assuming football's map alone. */
+ * batched (chunked) query, never N+1. */
 function isRowSupported(row: Pick<RawFixtureRow, "sport" | "competition_external_id">): boolean {
-  if (row.sport === "american_football") return isSupportedNflCompetition(row.competition_external_id);
-  return isSupportedCompetition(row.competition_external_id);
-}
-
-function rowCompetitionGroup(row: Pick<RawFixtureRow, "sport" | "competition_external_id">): CompetitionGroup | null {
-  // NFL has no GLOBAL/COSTA_RICA concept (a single competition) — see
-  // supported-nfl-competitions.ts's own comment on why it doesn't share
-  // football's config shape.
-  if (row.sport === "american_football") return null;
-  return getSupportedCompetitionGroup(row.competition_external_id);
+  return isSupportedNflCompetition(row.competition_external_id);
 }
 
 async function enrichLocalRows(rows: RawFixtureRow[], timeZone: string): Promise<LocalFixture[]> {
@@ -239,7 +219,6 @@ async function enrichLocalRows(rows: RawFixtureRow[], timeZone: string): Promise
       statusBucket: statusBucketFor(row.internal_status),
       hiddenFromPoolCreation: row.hidden_from_pool_creation,
       isSupported: isRowSupported(row),
-      group: rowCompetitionGroup(row),
       hasWorkspace: matchingWorkspace != null,
       hasOdds,
       poolCount: poolCountById.get(row.id) ?? 0,
@@ -250,90 +229,14 @@ async function enrichLocalRows(rows: RawFixtureRow[], timeZone: string): Promise
 }
 
 /**
- * By-date local browse (spec §2/§3). Scoped to `sport = 'football'` (the
- * `fixtures` table also holds NFL rows — see spec §22) and, by default, to
- * currently enabled SUPPORTED_COMPETITIONS — never a client-side filter
- * over a broader fetch, so the unsupported rows never even leave the
- * database on the default path. `includeUnsupported: true` is an explicit
- * opt-in (still zero provider calls, still local) for inspecting what
- * else exists in the window.
- */
-export async function queryLocalFixturesByDateWindow(
-  window: FixtureDateWindow,
-  options: { competitionExternalId?: string; includeUnsupported?: boolean } = {},
-): Promise<LocalFixtureBrowseResult> {
-  const adminClient = createAdminClient();
-  const supportedIds = [...getSupportedCompetitionMap().keys()];
-
-  const rows = await fetchAllRows<RawFixtureRow>((from, to) => {
-    let query = adminClient
-      .from("fixtures")
-      .select(RAW_FIXTURE_COLUMNS)
-      .eq("sport", "football")
-      .gte("scheduled_start_utc", window.utcWindowStart)
-      .lt("scheduled_start_utc", window.utcWindowEnd)
-      .order("scheduled_start_utc", { ascending: true })
-      .range(from, to);
-    if (options.competitionExternalId) query = query.eq("competition_external_id", options.competitionExternalId);
-    if (!options.includeUnsupported) query = query.in("competition_external_id", supportedIds);
-    return query;
-  });
-
-  const fixtures = await enrichLocalRows(rows, window.timeZone);
-  return { fixtures, counts: computeCounts(fixtures) };
-}
-
-/**
- * By-competition local browse (spec §6/§7). Always scoped to one
- * competition+season chosen from the supported-and-imported selector, so
- * there's no separate supported-competition gate to apply here (the
- * caller can only ever pass an id/season pair the selector already
- * restricted to SUPPORTED_COMPETITIONS ∩ league_season_imports). Returns
- * the full season in one shot (bounded by fetchAllRows's pagination, not
- * PostgREST's 1000-row cap) — every further filter (round/status/team/
- * date/pool status) is then applied client-side, matching spec §20's
- * "no provider loading spinner, local query" performance target: picking
- * a competition/season costs one round trip, every filter change after
- * that costs zero.
- */
-export async function queryLocalFixturesByCompetitionSeason(
-  externalLeagueId: string,
-  season: string,
-  timeZone: string,
-): Promise<LocalFixtureBrowseResult> {
-  const adminClient = createAdminClient();
-
-  const rows = await fetchAllRows<RawFixtureRow>((from, to) =>
-    adminClient
-      .from("fixtures")
-      .select(RAW_FIXTURE_COLUMNS)
-      .eq("sport", "football")
-      .eq("competition_external_id", externalLeagueId)
-      .eq("season", season)
-      .order("scheduled_start_utc", { ascending: true })
-      .range(from, to),
-  );
-
-  const fixtures = await enrichLocalRows(rows, timeZone);
-  return { fixtures, counts: computeCounts(fixtures) };
-}
-
-const ALL_EVENT_SPORTS: EventSport[] = ["football", "american_football"];
-
-/**
- * The Events admin surface's one query (Phase 4 spec §6/§28): by date
- * window, across every currently-implemented sport in one round trip,
- * local-DB-only — same `fetchAllRows` 1000-row-cap protection and the same
- * chunked-lookup `enrichLocalRows` enrichment as the football-only
- * by-date/by-competition queries above, just not hard-scoped to
- * `sport = 'football'`. Deliberately a new function rather than adding a
- * `sports` param to `queryLocalFixturesByDateWindow` — that function's
- * football-only behavior is already proven (Phase 2) and used by the
- * existing /admin/fixtures page; this keeps that path untouched while
- * Events gets its own multi-sport entry point. The supported-competition
- * filter is applied per-row via `isRowSupported` (sport-aware), not a
- * single `.in()` id list, since football's and NFL's supported-id spaces
- * are deliberately never merged (see supported-nfl-competitions.ts).
+ * The Events admin surface's one query: by date window, across every
+ * currently-implemented sport in one round trip, local-DB-only — same
+ * `fetchAllRows` 1000-row-cap protection and the same chunked-lookup
+ * `enrichLocalRows` enrichment used throughout this module. The supported-
+ * competition filter is applied per-row via `isRowSupported`, not a single
+ * `.in()` id list, so a future second sport's supported-id space is never
+ * accidentally merged with another's (small numeric ids can coincide
+ * between providers).
  */
 export async function queryLocalEventsByDateWindow(
   window: FixtureDateWindow,

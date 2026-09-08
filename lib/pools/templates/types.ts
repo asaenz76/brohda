@@ -41,10 +41,10 @@ export type TemplateAvailability =
   | { available: false; reason: string }
   | { available: true; warning: string };
 
-/** TEAM_SIDE/INTEGER from Phase 1; PLAYER (Phase 2) needs the fixture's
- * actual roster at render time, which isn't known statically here — the
- * wizard fetches it via lib/actions/squads.ts once a fixture is picked and
- * renders app/(admin)/admin/pools/new/player-picker.tsx for it. */
+/** PLAYER needs the fixture's actual roster at render time, which isn't
+ * known statically here. No current template (NFL-only today) declares a
+ * PLAYER field — it's kept in this union for a future sport whose provider
+ * exposes a roster, not actively wired to a picker right now. */
 export type ConfigFieldDefinition =
   | { key: string; label: string; type: "TEAM_SIDE" }
   | { key: string; label: string; type: "INTEGER"; min: number; max: number }

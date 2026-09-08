@@ -11,14 +11,11 @@ import { API_NFL_PROVIDER } from "./provider-names";
 import { shouldReserveQuota } from "./quota-reserve";
 import { extractErrorMessage } from "./provider-errors";
 
-// Deliberately much simpler than football's runFixtureSync (lib/sports-
-// data/sync.ts): that job polls each of hundreds of individually-tracked
-// fixtures at an adaptive per-fixture interval, because API-Football
-// charges one request per fixture. API-NFL's getSeasonFixtures returns the
-// ENTIRE season (confirmed live: 328 games for 2026, one request, no
-// pagination) — there's nothing to gain from tracking per-fixture refresh
-// timing here, and real gain (much less code, one code path instead of an
-// adaptive-interval state machine) in not building one. The one thing
+// Deliberately simple: API-NFL's getSeasonFixtures returns the ENTIRE
+// season (confirmed live: 328 games for 2026, one request, no pagination)
+// — there's nothing to gain from tracking per-fixture refresh timing, and
+// real gain (much less code, one code path instead of an adaptive-interval
+// state machine) in not building one. The one thing
 // still worth skipping is re-writing a fixture whose *stored* status is
 // already terminal — a finished/cancelled game's score never changes
 // again, so there's no reason to re-upsert it every tick.
@@ -58,11 +55,10 @@ export async function runNflFixtureSync(): Promise<NflSyncResult> {
 
   if (!apiNflProvider.isEnabled()) return result;
 
-  // Phase 3 fix: this job previously had no circuit-breaker or quota-
-  // reserve check at all — unlike every football job (sync.ts,
-  // discovery-sync.ts, availability-cache.ts), it would keep hitting
-  // API-NFL on every cron tick even after a confirmed quota-exhaustion
-  // error. Same guards, same reasoning, now applied here too.
+  // This job previously had no circuit-breaker or quota-reserve check at
+  // all — it would keep hitting API-NFL on every cron tick even after a
+  // confirmed quota-exhaustion error. Same guards every provider-calling
+  // job in this app applies, now applied here too.
   const status = await getProviderStatus(true, API_NFL_PROVIDER);
   if (status.circuitBreakerOpen) return result;
   if (await shouldReserveQuota(API_NFL_PROVIDER)) return result;

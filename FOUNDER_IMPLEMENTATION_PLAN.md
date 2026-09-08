@@ -1,5 +1,8 @@
 # FOUNDER_IMPLEMENTATION_PLAN.md
 
+> **Status: Superseded September 2026.**
+> This document reflects an earlier Brohda product direction that included Association football. Brohda subsequently retired Association football support. The current product direction is NFL, NBA, NHL, and MLB.
+
 **CPO decision memo. Beta → public launch.**
 
 Four documents got us here: what Brohda is built from, what to cut, what to build in its place, and where it hesitates today. This document doesn't re-litigate any of that. It decides. Everything below is what we are doing, in what order, and why — treated as if Brohda is the only product I will work on for the next ten years, not a launch to hit and move on from.

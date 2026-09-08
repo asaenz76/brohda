@@ -35,19 +35,15 @@ export default async function RulesPage() {
             <h2>Types of pools</h2>
             <ul>
               <li>
-                <strong>Match outcome pools</strong> — built automatically from an imported
-                fixture. &quot;Who will advance?&quot; is for knockout matches and includes extra
-                time and penalties. &quot;Result after regulation&quot; is for league matches and
-                only counts the 90 minutes plus injury time, so a draw is a real outcome.
-              </li>
-              <li>
-                <strong>Prop pools</strong> — auto-graded from the match result: things like total
-                goals, both teams to score, clean sheets, cards, first team to score, a specific
-                player to score, and similar stat-based questions.
+                <strong>Spread and total pools</strong> — built automatically from an imported NFL
+                game and auto-graded from the final score. &quot;Spread&quot; asks whether the
+                favorite wins by more than a set point margin. &quot;Game total&quot; asks whether
+                the combined final score goes over a set number of points. &quot;Team total&quot;
+                asks the same for one team&apos;s own score.
               </li>
               <li>
                 <strong>Custom pools</strong> — a plain yes/no question an admin writes by hand for
-                anything not tied to an official match stat. These are graded manually once the
+                anything not tied to an official game stat. These are graded manually once the
                 outcome is known.
               </li>
               <li>

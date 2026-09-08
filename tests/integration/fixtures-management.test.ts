@@ -40,6 +40,11 @@ async function createTestFixture(internalStatus = "NOT_STARTED"): Promise<string
   const { data, error } = await admin
     .from("fixtures")
     .insert({
+      // fixtures.provider defaults to 'api_football' — must be set explicitly
+      // to match the league_season_imports row below (provider: "api_nfl"),
+      // since fixtures_available_for_pool_creation joins on lsi.provider =
+      // f.provider.
+      provider: "api_nfl",
       external_fixture_id: `fixtures-mgmt-test-${randomUUID()}`,
       home_team_name: "Home Test FC",
       away_team_name: "Away Test FC",
@@ -63,7 +68,7 @@ async function createPool(fixtureId: string, adminId: string, status: string) {
     .insert({
       fixture_id: fixtureId,
       created_by: adminId,
-      pool_type: "WHO_WILL_ADVANCE",
+      pool_type: "CUSTOM",
       question: "fixtures-management test pool",
       entry_fee: 1000,
       house_fee_bps: 1000,
@@ -92,14 +97,14 @@ describe.skipIf(!SERVICE_ROLE_KEY)("fixture management", () => {
   beforeAll(async () => {
     const { data: league, error: leagueError } = await admin
       .from("leagues")
-      .insert({ provider: "api_football", external_id: TEST_EXTERNAL_LEAGUE_ID, name: "Fixtures Mgmt Test League" })
+      .insert({ provider: "api_nfl", external_id: TEST_EXTERNAL_LEAGUE_ID, name: "Fixtures Mgmt Test League" })
       .select("id")
       .single();
     if (leagueError || !league) throw leagueError ?? new Error("failed to create test league");
     testLeagueId = league.id as string;
 
     const { error: importError } = await admin.from("league_season_imports").insert({
-      provider: "api_football",
+      provider: "api_nfl",
       external_league_id: TEST_EXTERNAL_LEAGUE_ID,
       season: TEST_SEASON,
       league_id: testLeagueId,

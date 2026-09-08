@@ -8,15 +8,13 @@ import type {
   NflRawOddsValue,
   NormalizedFixture,
   NormalizedFixtureEvent,
-  NormalizedFixtureMarkets,
-  NormalizedFixtureOdds,
   NormalizedLeague,
   NormalizedNflFixtureOdds,
   NormalizedPlayer,
   NormalizedTeam,
   SportsDataProvider,
 } from "./types";
-import { ProviderApiError } from "./api-football-provider";
+import { ProviderApiError } from "./provider-errors";
 import { API_NFL_PROVIDER } from "./provider-names";
 import { getCachedRawOdds, setCachedRawOdds } from "./odds-raw-cache";
 
@@ -225,9 +223,7 @@ async function callGamesEndpoint(params: Record<string, string>, requestType: st
 // A full NFL season (confirmed live: league=1 season=2026 returned 328
 // games — preseason + 18-week regular season + playoffs — in one
 // response, no pagination). Capped defensively in case of a malformed or
-// oversized response, same principle as api-football-provider.ts's
-// MAX_SEASON_FIXTURES_RESPONSE, just a much smaller number since the NFL
-// has one competition, not dozens.
+// oversized response.
 const MAX_NFL_SEASON_GAMES = 500;
 
 async function callSeasonGamesEndpoint(externalLeagueId: string, season: string): Promise<NormalizedFixture[]> {
@@ -401,11 +397,10 @@ export class ApiNflProvider implements SportsDataProvider {
     return callSeasonGamesEndpoint(externalLeagueId, season);
   }
 
-  // NFL has one competition and ~350 games/season — a bare date filter
-  // (mirroring api-football-provider.ts's per-day approach) is untested
-  // for API-NFL specifically; season-scoped fetches cover the real V1
-  // need (see getSeasonFixtures) so this narrows to that instead of an
-  // unverified per-day loop.
+  // NFL has one competition and ~350 games/season — a bare per-day date
+  // filter is untested for API-NFL specifically; season-scoped fetches
+  // cover the real V1 need (see getSeasonFixtures) so this narrows to that
+  // instead of an unverified per-day loop.
   async searchFixturesByDateRange(params: {
     fromDate: string;
     toDate: string;
@@ -464,26 +459,16 @@ export class ApiNflProvider implements SportsDataProvider {
     return [];
   }
 
-  // NormalizedFixtureOdds/NormalizedFixtureMarkets (the shared
-  // SportsDataProvider shapes) are soccer-specific — goals-line
-  // over/unders and a 3-way match winner, neither of which fits NFL's
-  // markets (moneyline, Asian Handicap spread, team totals). Left stubbed
-  // rather than force-fit; getFixtureRawOdds below is the real NFL odds
-  // fetch, deliberately not part of the shared interface.
-  async getFixtureOdds(externalFixtureId: string): Promise<NormalizedFixtureOdds | null> {
-    void externalFixtureId;
-    return null;
-  }
-
-  async getFixtureMarkets(externalFixtureId: string): Promise<NormalizedFixtureMarkets | null> {
-    void externalFixtureId;
-    return null;
-  }
-
   // Backs the pool-creation wizard's Spread/Game Total/Team Total prefill
   // (lib/pools/templates/nfl-odds.ts via lib/actions/odds.ts's
-  // getNflFixtureLinesAction) — never cached, same reasoning as football's
-  // getFixtureOdds (called at most once per wizard template-selection).
+  // getNflFixtureLinesAction) — never cached, called at most once per
+  // wizard template-selection. Deliberately not part of SportsDataProvider
+  // — odds/market shapes vary too much per sport/bookmaker-numbering to
+  // usefully unify at the interface level (this was tried for the retired
+  // football provider and abandoned); each sport gets its own raw-odds
+  // method here plus its own normalizer (see nfl-odds.ts), a pattern a
+  // future NBA/NHL/MLB provider should follow rather than resurrecting a
+  // shared getFixtureOdds/getFixtureMarkets contract.
   async getFixtureRawOdds(externalFixtureId: string): Promise<NormalizedNflFixtureOdds | null> {
     if (!this.isEnabled()) return null;
     const item = await callNflOddsEndpoint(externalFixtureId);

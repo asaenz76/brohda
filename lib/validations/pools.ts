@@ -92,10 +92,10 @@ export const createPoolFromTemplateSchema = z.discriminatedUnion("poolType", [
     })
     .strict(),
   // templateConfig is validated loosely here (a plain object) — the
-  // specific template's own config schema (e.g. winningMarginConfigSchema
-  // in lib/pools/templates/goals.ts) validates its exact shape once
-  // templateId is known, inside createPoolFromTemplate. Zod discriminated
-  // unions can't do a nested per-value dynamic schema lookup at this level.
+  // specific template's own config schema (e.g. nflSpreadConfigSchema in
+  // lib/pools/templates/nfl.ts) validates its exact shape once templateId
+  // is known, inside createPoolFromTemplate. Zod discriminated unions
+  // can't do a nested per-value dynamic schema lookup at this level.
   z
     .object({
       poolType: z.literal("TEMPLATE_GRADED"),

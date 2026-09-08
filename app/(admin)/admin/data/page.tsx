@@ -41,11 +41,6 @@ export default async function AdminDataPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <DataSection
-          title="Football"
-          description="Supported competitions, imported seasons, discovery/sync health, and per-competition management."
-          links={[{ href: "/admin/competitions", label: "Competitions" }]}
-        />
         <DataSection title="NFL" description="Sync status — NFL sync is fully automatic (cron), no manual import." links={[{ href: "/admin/data/nfl", label: "NFL sync status" }]} />
         <DataSection
           title="Fixture troubleshooting"
@@ -54,10 +49,10 @@ export default async function AdminDataPage() {
         />
         <DataSection
           title="Provider health"
-          description="API-Football and API-NFL connection status, quota, and circuit breakers. Zero calls on load; explicit test-connection action."
+          description="API-NFL connection status, quota, and circuit breakers. Zero calls on load; explicit test-connection action."
           links={[{ href: "/admin/settings", label: "Provider Status (Settings)" }]}
         />
-        <DataSection title="Jobs" description="Scheduled synchronization/import job health." links={[{ href: "/admin/reports", label: "Job health (Reports)" }]} />
+        <DataSection title="Jobs" description="Scheduled synchronization job health." links={[{ href: "/admin/reports", label: "Job health (Reports)" }]} />
       </div>
     </div>
   );

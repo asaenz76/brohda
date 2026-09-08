@@ -1,10 +1,8 @@
 import Link from "next/link";
 import { requireAdminOrAbove } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
-import { apiFootballProvider } from "@/lib/sports-data/api-football-provider";
 import { TERMINAL_STATUSES } from "@/lib/sports-data/status-map";
 import { ImportedFixturesList } from "../../fixtures/imported-fixtures-list";
-import { ProviderLookup } from "./provider-lookup";
 
 // Phase 4 (spec §18/§20/§33): the fixture-troubleshooting home under Data
 // Management. Everyday event browsing lives at /admin/events now — this
@@ -23,8 +21,6 @@ export default async function AdminDataFixturesPage({
   const supabase = await createClient();
   const params = await searchParams;
   const showArchived = params.archived === "1";
-
-  const providerEnabled = apiFootballProvider.isEnabled();
 
   const fixturesQuery = supabase
     .from("fixtures")
@@ -85,8 +81,6 @@ export default async function AdminDataFixturesPage({
           . Normal browsing never needs this page.
         </p>
       </div>
-
-      <ProviderLookup providerDisabled={!providerEnabled} />
 
       <div className="flex justify-end border-t border-border-subtle pt-4">
         <Link href={`?${archivedToggleParams.toString()}`} className="text-xs font-medium text-accent-primary hover:underline">

@@ -208,13 +208,13 @@ describe.skipIf(!SERVICE_ROLE_KEY)("user analytics RPCs", () => {
     const fixtureB = await createFixture("Premier League");
     createdFixtureIds.push(fixtureA, fixtureB);
 
-    // Pool A: legacy REGULATION_RESULT ("Match result" category) — WON.
-    const poolA = await createPool(adminId, fixtureA, "REGULATION_RESULT", null, [1000, 2000], "MATCH_RESULT");
+    // Pool A: CUSTOM pool_type, MATCH_RESULT analytics_category ("Match result" category) — WON.
+    const poolA = await createPool(adminId, fixtureA, "CUSTOM", null, [1000, 2000], "MATCH_RESULT");
     // Pool B: TEMPLATE_GRADED / RED_CARD ("Cards" category) — LOST.
     const poolB = await createPool(adminId, fixtureB, "TEMPLATE_GRADED", "RED_CARD", [500, 1500], "DISCIPLINE");
     // Pool C: a voided entry — should count toward pools_entered/voids but
     // never toward entry_volume/net_result/category or competition rows.
-    const poolC = await createPool(adminId, fixtureA, "REGULATION_RESULT", null, [300, 0], "MATCH_RESULT");
+    const poolC = await createPool(adminId, fixtureA, "CUSTOM", null, [300, 0], "MATCH_RESULT");
     createdPoolIds.push(poolA.poolId, poolB.poolId, poolC.poolId);
 
     const wonEntryId = await createEntry(player.userId, poolA.poolId, poolA.optionAId, 1000, "WON");
@@ -351,7 +351,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("user analytics RPCs", () => {
 
     const fixture = await createFixture("Serie A");
     createdFixtureIds.push(fixture);
-    const pool = await createPool(adminId, fixture, "REGULATION_RESULT", null, [1000, 1000]);
+    const pool = await createPool(adminId, fixture, "CUSTOM", null, [1000, 1000]);
     createdPoolIds.push(pool.poolId);
 
     const wonEntryId = await createEntry(owner.userId, pool.poolId, pool.optionAId, 1000, "WON");
@@ -397,7 +397,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("user analytics RPCs", () => {
 
     const fixture = await createFixture("Reversal League");
     createdFixtureIds.push(fixture);
-    const pool = await createPool(adminId, fixture, "REGULATION_RESULT", null, [1000, 1000]);
+    const pool = await createPool(adminId, fixture, "CUSTOM", null, [1000, 1000]);
     createdPoolIds.push(pool.poolId);
 
     const entryId = await createEntry(player.userId, pool.poolId, pool.optionAId, 1000, "WON");
@@ -441,7 +441,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("user analytics RPCs", () => {
 
     const fixture = await createFixture("Refund League");
     createdFixtureIds.push(fixture);
-    const pool = await createPool(adminId, fixture, "REGULATION_RESULT", null, [1000, 0]);
+    const pool = await createPool(adminId, fixture, "CUSTOM", null, [1000, 0]);
     createdPoolIds.push(pool.poolId);
 
     const entryId = await createEntry(player.userId, pool.poolId, pool.optionAId, 1000, "VOID");
@@ -484,8 +484,8 @@ describe.skipIf(!SERVICE_ROLE_KEY)("user analytics RPCs", () => {
     const fixtureBra = await createFixture("Premier League", "PL-BRA-TEST");
     createdFixtureIds.push(fixtureEng, fixtureBra);
 
-    const poolEng = await createPool(adminId, fixtureEng, "REGULATION_RESULT", null, [1000, 1000]);
-    const poolBra = await createPool(adminId, fixtureBra, "REGULATION_RESULT", null, [1000, 1000]);
+    const poolEng = await createPool(adminId, fixtureEng, "CUSTOM", null, [1000, 1000]);
+    const poolBra = await createPool(adminId, fixtureBra, "CUSTOM", null, [1000, 1000]);
     createdPoolIds.push(poolEng.poolId, poolBra.poolId);
 
     const engEntryId = await createEntry(player.userId, poolEng.poolId, poolEng.optionAId, 1000, "WON");
@@ -549,8 +549,8 @@ describe.skipIf(!SERVICE_ROLE_KEY)("user analytics RPCs", () => {
     const fixtureA = await createFixture("Cumulative League A");
     const fixtureB = await createFixture("Cumulative League B");
     createdFixtureIds.push(fixtureA, fixtureB);
-    const poolA = await createPool(adminId, fixtureA, "REGULATION_RESULT", null, [1000, 1000]);
-    const poolB = await createPool(adminId, fixtureB, "REGULATION_RESULT", null, [1000, 1000]);
+    const poolA = await createPool(adminId, fixtureA, "CUSTOM", null, [1000, 1000]);
+    const poolB = await createPool(adminId, fixtureB, "CUSTOM", null, [1000, 1000]);
     createdPoolIds.push(poolA.poolId, poolB.poolId);
 
     const entryA = await createEntry(player.userId, poolA.poolId, poolA.optionAId, 1000, "WON");
@@ -583,14 +583,14 @@ describe.skipIf(!SERVICE_ROLE_KEY)("user analytics RPCs", () => {
 
       // Scenario 1: entered and settled in the same period (July).
       const fixture1 = await createFixture("ROI League 1");
-      const pool1 = await createPool(adminId, fixture1, "REGULATION_RESULT", null, [1000, 1000], "MATCH_RESULT");
+      const pool1 = await createPool(adminId, fixture1, "CUSTOM", null, [1000, 1000], "MATCH_RESULT");
       const entry1 = await createEntry(player.userId, pool1.poolId, pool1.optionAId, 1000, "WON");
       await admin.from("settlements").update({ created_at: julyInstant }).eq("id", pool1.settlementId);
       await createPayout(pool1.settlementId, entry1, 1600, player.userId, pool1.poolId, julyInstant);
 
       // Scenario 2: entered June, settled July — must realize in July, not June.
       const fixture2 = await createFixture("ROI League 2");
-      const pool2 = await createPool(adminId, fixture2, "REGULATION_RESULT", null, [1000, 1000], "MATCH_RESULT");
+      const pool2 = await createPool(adminId, fixture2, "CUSTOM", null, [1000, 1000], "MATCH_RESULT");
       const entry2Id = await createEntry(player.userId, pool2.poolId, pool2.optionAId, 1000, "LOST");
       await admin.from("entries").update({ created_at: juneInstant }).eq("id", entry2Id);
       await admin.from("settlements").update({ created_at: julyInstant }).eq("id", pool2.settlementId);
@@ -598,7 +598,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("user analytics RPCs", () => {
 
       // Scenario 3: full refund in July — excluded from ROI's stake basis entirely.
       const fixture3 = await createFixture("ROI League 3");
-      const pool3 = await createPool(adminId, fixture3, "REGULATION_RESULT", null, [1000, 0], "MATCH_RESULT");
+      const pool3 = await createPool(adminId, fixture3, "CUSTOM", null, [1000, 0], "MATCH_RESULT");
       const entry3Id = await createEntry(player.userId, pool3.poolId, pool3.optionAId, 1000, "REFUNDED");
       await admin.from("wallet_transactions").insert({
         account_type: "user",
@@ -616,7 +616,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("user analytics RPCs", () => {
 
       // Scenario 4: fee-retained partial refund in July — also excluded from ROI's stake basis.
       const fixture4 = await createFixture("ROI League 4");
-      const pool4 = await createPool(adminId, fixture4, "REGULATION_RESULT", null, [1000, 0], "MATCH_RESULT");
+      const pool4 = await createPool(adminId, fixture4, "CUSTOM", null, [1000, 0], "MATCH_RESULT");
       const entry4Id = await createEntry(player.userId, pool4.poolId, pool4.optionAId, 1000, "VOID");
       await admin.from("wallet_transactions").insert({
         account_type: "user",
@@ -636,7 +636,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("user analytics RPCs", () => {
       // settlement (grading_version 2, July) counts; the original
       // (grading_version 1) is superseded and must not double-count.
       const fixture5 = await createFixture("ROI League 5");
-      const pool5 = await createPool(adminId, fixture5, "REGULATION_RESULT", null, [1000, 1000], "MATCH_RESULT");
+      const pool5 = await createPool(adminId, fixture5, "CUSTOM", null, [1000, 1000], "MATCH_RESULT");
       const entry5Id = await createEntry(player.userId, pool5.poolId, pool5.optionAId, 1000, "WON");
       await admin.from("settlements").update({ created_at: juneInstant }).eq("id", pool5.settlementId);
       await createPayout(pool5.settlementId, entry5Id, 1900, player.userId, pool5.poolId, juneInstant);

@@ -1,25 +1,20 @@
-import { API_FOOTBALL_PROVIDER, API_NFL_PROVIDER, type FixtureProvider } from "./provider-names";
+import { API_NFL_PROVIDER, type FixtureProvider } from "./provider-names";
 
-// Both ApiFootballProvider and ApiNflProvider type-check against
-// SportsDataProvider — every method exists on both — but several of
-// NFL's are silent no-op stubs (return [] / null, never throw), each with
-// its own "not implemented for V1" comment in api-nfl-provider.ts. That
-// makes "the interface has this method" and "this provider genuinely
-// does something useful here" two different questions, and nothing in
-// the type system distinguishes them. This is the second one, kept
-// deliberately small — only the capabilities that are actually stubbed
-// on one provider today (Phase 3 spec §4: "keep this small and grounded
-// in actual current needs"), not a speculative full capability grid for
-// providers/operations that don't exist yet.
-export type ProviderCapability = "markets" | "team_search" | "league_type" | "fixture_events" | "squad_data";
+// Both current providers type-check against SportsDataProvider — every
+// method exists on all of them — but some of NFL's are silent no-op stubs
+// (return [] / null, never throw), each with its own "not implemented for
+// V1" comment in api-nfl-provider.ts. That makes "the interface has this
+// method" and "this provider genuinely does something useful here" two
+// different questions, and nothing in the type system distinguishes them.
+// This is the second one, kept deliberately small — only the capabilities
+// that are actually stubbed on one provider today, not a speculative full
+// capability grid for providers/operations that don't exist yet. (No
+// "markets" entry: odds/markets were removed from SportsDataProvider
+// entirely — see types.ts's header comment on that decision — so there's
+// no shared capability left to gate.)
+export type ProviderCapability = "team_search" | "league_type" | "fixture_events" | "squad_data";
 
 const CAPABILITY_MATRIX: Record<FixtureProvider, ReadonlySet<ProviderCapability>> = {
-  [API_FOOTBALL_PROVIDER]: new Set<ProviderCapability>(["markets", "team_search", "league_type", "fixture_events", "squad_data"]),
-  // NFL's markets-equivalent data comes from apiNflProvider.getFixtureRawOdds
-  // — a distinct, NFL-only method (not part of SportsDataProvider) with its
-  // own already-provider-checked call site (lib/actions/odds.ts's
-  // getNflFixtureLinesAction). "markets" here means specifically
-  // getFixtureOdds/getFixtureMarkets, which NFL does not implement.
   [API_NFL_PROVIDER]: new Set<ProviderCapability>([]),
 };
 

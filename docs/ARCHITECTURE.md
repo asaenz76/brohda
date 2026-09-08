@@ -1942,3 +1942,78 @@ mocks `fetch` and runs in the default unit suite — no API key needed to
 verify request construction / response mapping. Live import and sync
 (`API_FOOTBALL_ENABLED=true` + a real `API_FOOTBALL_KEY` in `.env.local`) is
 a separate, manual verification step against the real API-Football service.
+
+## ADR: Association football / soccer retired (2026-09-08)
+
+**Status:** Decided and implemented.
+
+**Decision.** Brohda no longer supports Association football / soccer.
+The long-term supported-sports direction is NFL, NBA, NHL, and MLB; of
+those four, only NFL is actually implemented as of this writing — NBA,
+NHL, and MLB do not exist yet and must not be represented as available.
+Everything above this section describes the platform's build history,
+including the football-first launch and the football+NFL dual-provider
+period — that history is preserved unedited as the accurate record of how
+the system was actually built. This section documents the decision to
+retire football and, at a high level, what that retirement pass changed.
+
+**Why.** Product direction moved to a fixed slate of North American major
+sports leagues. Maintaining Association football alongside that slate —
+two parallel provider integrations, a many-competition discovery/import
+subsystem football needed that no other planned sport does, and a
+hardcoded SQL-graded pool-type pair (`WHO_WILL_ADVANCE`/`REGULATION_RESULT`)
+built entirely around soccer semantics (penalty shootouts, extra time, a
+3-way regulation-time draw) — was ongoing cost with no product payoff once
+football itself was no longer part of the plan.
+
+**What changed, at a glance:**
+
+- **Provider and competition-import subsystem removed.** `api-football-provider.ts`,
+  its competition discovery/sync/import-chunking machinery, and the
+  football-only cron routes (`sync-fixtures`, `discover-competitions`,
+  `process-competition-imports`, `refresh-recommendation-cache`) are
+  deleted outright. `league_season_imports` rows for `provider = 'api_football'`
+  are flipped to `pool_creation_enabled = false, is_active = false` rather
+  than deleted (migration `20260101000125`) — the underlying synced data
+  stays intact, but nothing can create a new pool against it.
+- **New pool creation of the two legacy pool types is blocked at the DB
+  layer.** Migration `20260101000124` adds a `BEFORE INSERT` trigger on
+  `public.pools` that rejects any new `WHO_WILL_ADVANCE`/`REGULATION_RESULT`
+  row — deliberately a trigger, not a `CHECK` constraint, so it has zero
+  effect on `UPDATE` and therefore zero effect on grading, settling,
+  reversing, or otherwise recovering any pool of either type that already
+  existed. That historical settlement logic (`prepare_pool_settlement`'s
+  penalty-shootout/regulation-only branches, `determineWinningSide`,
+  the reversal RPCs) is untouched and still fully callable forever. A
+  companion function, `seed_legacy_pool_for_tests` (service_role-only,
+  `SECURITY DEFINER`), exists purely so integration tests can keep
+  simulating a pre-existing historical row for that regression coverage —
+  no real product code path may ever call it.
+- **Football-only template/admin code deleted.** The 17 football-flavored
+  registry templates (`match-result.ts`, `goals.ts`, `player-props.ts`,
+  their odds-mapping/consensus helpers), the Competition Manager admin
+  subsystem (`/admin/competitions`), and the old Phase-2 local-browse stack
+  (superseded by the Phase-4 multi-sport one) are gone. The pool-template
+  registry (`lib/pools/templates/registry.ts`) now holds exactly the NFL
+  templates (Spread, Game Total, Team Total) — a future sport adds its own
+  templates to that same registry rather than reusing football's.
+  `WHO_WILL_ADVANCE`/`REGULATION_RESULT` still appear in the wizard's
+  underlying types and family/category classification purely so a
+  historical pool of either type still displays and analytics-categorizes
+  correctly; neither is ever offered as a choice when creating a new pool.
+- **Shared abstractions generalized, not deleted.** Where a piece of the
+  provider/template abstraction was genuinely sport-agnostic but happened
+  to be shaped by football's data first (e.g. `TeamSide`/`teamSideSchema`,
+  the raw-odds cache, `FixtureInternalStatus`'s live/halftime/extra-time
+  states — NFL's own status map reuses those same values for its own
+  overtime/halftime), it was kept and generalized rather than deleted.
+  Where a capability was genuinely soccer-shaped with no honest
+  generalization (the shared `getFixtureOdds`/`getFixtureMarkets` methods
+  on `SportsDataProvider`), it was removed from the interface entirely —
+  NFL's own `getFixtureRawOdds`, normalized locally by `nfl-odds.ts`, is
+  the pattern a future sport's own odds integration should follow instead.
+
+**What did not change.** NFL's own architecture, templates, grading, and
+data flow are untouched by this pass. Every historical football pool,
+entry, wallet transaction, settlement, and audit-log row is intact and
+queryable exactly as before.

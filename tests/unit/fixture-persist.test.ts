@@ -3,7 +3,9 @@ import { toFixtureRow } from "@/lib/sports-data/persist";
 import type { NormalizedFixture } from "@/lib/sports-data/types";
 
 const BASE_FIXTURE: NormalizedFixture = {
-  provider: "api_football",
+  // toFixtureRow is provider-agnostic — provider is a generic placeholder
+  // here, not the behavior under test (that's competition_type handling).
+  provider: "test_provider",
   externalFixtureId: "215662",
   sport: "football",
   competitionExternalId: "39",

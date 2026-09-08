@@ -38,9 +38,9 @@ sourced from `.env.example`):
 | `NEXT_PUBLIC_SUPABASE_URL` | Hosted project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public, RLS-scoped |
 | `SUPABASE_SERVICE_ROLE_KEY` | **Server-only.** Bypasses RLS — never expose to the client, never commit it |
-| `API_FOOTBALL_BASE_URL` | `https://v3.football.api-sports.io` |
-| `API_FOOTBALL_KEY` | From API-Sports; request it, don't paste it into chat — put it directly in the env file |
-| `API_FOOTBALL_ENABLED` | `true` in production once a real key is set |
+| `API_NFL_BASE_URL` | `https://v1.american-football.api-sports.io` |
+| `API_NFL_KEY` | From API-Sports; request it, don't paste it into chat — put it directly in the env file |
+| `API_NFL_ENABLED` | `true` in production once a real key is set |
 | `DEFAULT_TIMEZONE` | `America/Costa_Rica` — used for the same-calendar-day anomaly-void grace window (X.7.2) |
 | `APP_URL` | The deployed app's public URL |
 | `CRON_SECRET` | Random secret; see below |
@@ -58,7 +58,7 @@ above is needed for both that SMTP relay (Supabase Auth's own settings) and
 directly by the app's Next.js code (`lib/email/resend.ts`), which calls
 Resend's HTTP API to email every opted-in player when a coordinator publishes
 a new pool (`lib/email/notify-pool-published.ts`). Without a key set,
-`sendEmail` no-ops silently (same pattern as `API_FOOTBALL_ENABLED`) — no
+`sendEmail` no-ops silently (same pattern as `API_NFL_ENABLED`) — no
 key is needed for local dev/CI.
 
 1. **Sign up at [resend.com](https://resend.com)** (do this yourself — I
@@ -116,11 +116,14 @@ local dev and CI both work today with no Sentry account at all.
 
 ## 5. Cron jobs (cron-job.org, not Vercel Cron)
 
-The app exposes **8** cron-secret-gated routes under `app/api/cron/*`.
-**7 are meant to be scheduled** (per the operational phase that followed
-Phase 3 of the universal-sports-architecture work, plus the later
-`provider_request_log` retention addition below); one
-(`refresh-recommendation-cache`) is deliberately left unscheduled for now.
+The app exposes **4** cron-secret-gated routes under `app/api/cron/*`, all
+meant to be scheduled. Association football / soccer has been retired —
+the football-only cron routes that used to live here (`sync-fixtures`,
+`discover-competitions`, `process-competition-imports`,
+`refresh-recommendation-cache`) were deleted along with the rest of the
+soccer provider/competition-import subsystem; nothing calls API-Football
+anymore, scheduled or otherwise.
+
 Vercel's Hobby plan only allows daily cron invocations (Pro is required for
 per-minute native Vercel Cron), so this project uses
 [cron-job.org](https://cron-job.org) — a free external scheduler that calls
@@ -141,32 +144,22 @@ acquires a named Postgres advisory lock (`try_acquire_cron_lock`) scoped to
 that job's own name before running, and skips the tick entirely (no
 provider call, no `background_jobs` row) if a previous invocation of the
 *same* job is still holding it — so two overlapping runs of the same job
-can never stack, and one job's lock never affects another job's. This
-guard already exists for every route below; nothing needed to change for
-this operational phase, only the scheduling itself.
+can never stack, and one job's lock never affects another job's.
 
-**Full inventory and target schedule:**
+**Full inventory:**
 
-| Endpoint | Provider | Consumes quota? | Function | Target cadence | Scheduled today? |
-| --- | --- | --- | --- | --- | --- |
-| `/api/cron/sync-fixtures` | api_football | Yes | `runFixtureSync` | Every 1 minute (unchanged) | **Yes** |
-| `/api/cron/lock-pools` | none (DB-only) | No | `lockDuePools` | Every 1 minute (unchanged) | **Yes** |
-| `/api/cron/process-results` | none (DB-only) | No | `processAwaitingResults` | Every 1 minute (unchanged) | **Yes** |
-| `/api/cron/sync-fixtures-nfl` | api_nfl | Yes — one request per tick regardless of season size | `runNflFixtureSync` | **Every 5 minutes** | Add to cron-job.org (see below) |
-| `/api/cron/discover-competitions` | api_football | Yes — up to `DISCOVERY_COMPETITIONS_PER_CRON_TICK` (10) requests per tick, only for competitions actually due (6h staleness) | `runCompetitionDiscoverySync` | **Every 6 hours** | Add to cron-job.org (see below) |
-| `/api/cron/process-competition-imports` | none — DB-only, processes already-staged import chunks; makes zero provider calls even when API-Football quota is exhausted | `runCompetitionImportProcessing` | **Every 5 minutes** | Add to cron-job.org (see below) |
-| `/api/cron/refresh-recommendation-cache` | api_football | Yes | `refreshRecommendationAvailabilityCache` | **Intentionally not scheduled** — the architecture is moving away from recommendation/provider-discovery as a primary workflow now that browsing is local-first (see the Phase 2 local-first browsing work). Endpoint stays live; whether to schedule it is deferred to the later Competition Management cleanup phase. | **No** — deliberate, not an oversight |
-| `/api/cron/prune-provider-request-log` | none (DB-only) | No | `runProviderRequestLogRetention` | **Every 5 minutes** | Add to cron-job.org (see below) |
+| Endpoint | Provider | Consumes quota? | Function | Cadence |
+| --- | --- | --- | --- | --- |
+| `/api/cron/lock-pools` | none (DB-only) | No | `lockDuePools` | Every 1 minute |
+| `/api/cron/process-results` | none (DB-only) | No | `processAwaitingResults` | Every 1 minute |
+| `/api/cron/sync-fixtures-nfl` | api_nfl | Yes — one request per tick regardless of season size | `runNflFixtureSync` | Every 5 minutes |
+| `/api/cron/prune-provider-request-log` | none (DB-only) | No | `runProviderRequestLogRetention` | Every 5 minutes |
 
 Expected max duration for every job is well under cron-job.org's timeout —
-observed production durations are sub-second to a few seconds
-(`sync-fixtures`) and low seconds (`discover-competitions`,
-`sync-fixtures-nfl`, both bounded by their per-tick limits above).
-`process-competition-imports` is bounded by `IMPORT_CHUNKS_PER_CRON_TICK`
-(10 chunks) and is DB-only, so its duration is dominated by database round
-trips, not network latency to a provider. `prune-provider-request-log` is
-similarly bounded — up to `PROVIDER_REQUEST_LOG_BATCHES_PER_CRON_TICK` (20)
-batches of `PROVIDER_REQUEST_LOG_DELETE_BATCH_SIZE` (1,000) rows per tick
+observed production durations are sub-second to a few seconds.
+`prune-provider-request-log` is bounded — up to
+`PROVIDER_REQUEST_LOG_BATCHES_PER_CRON_TICK` (20) batches of
+`PROVIDER_REQUEST_LOG_DELETE_BATCH_SIZE` (1,000) rows per tick
 (`lib/sports-data/provider-request-log-retention.ts`), stopping early once
 a batch comes back smaller than the batch size (caught up to the retention
 window). The batch size is deliberately small: every PostgREST/RPC call —
@@ -185,45 +178,20 @@ project was created 2026-07-23, so a 30-day window wouldn't have pruned
 anything until 2026-08-22. Safe to raise back toward 30 once the backlog
 has drained and the project is back under quota.
 
-**Adding the 3 new jobs to cron-job.org** (same pattern as the 3 existing
-ones — request method `GET`, `Authorization` header under that job's
-"Request headers" section, using the real `CRON_SECRET` value from Vercel;
-never paste that value anywhere outside cron-job.org's own settings and
-the Vercel env var):
+**cron-job.org configuration** (request method `GET`, `Authorization`
+header under that job's "Request headers" section, using the real
+`CRON_SECRET` value from Vercel; never paste that value anywhere outside
+cron-job.org's own settings and the Vercel env var):
 
 | Job | URL | Schedule | Header |
 | --- | --- | --- | --- |
-| Sync NFL fixtures | `https://brohda.com/api/cron/sync-fixtures-nfl` | Every 5 minutes | `Authorization: Bearer <CRON_SECRET>` |
-| Discover competitions | `https://brohda.com/api/cron/discover-competitions` | Every 6 hours | `Authorization: Bearer <CRON_SECRET>` |
-| Process competition imports | `https://brohda.com/api/cron/process-competition-imports` | Every 5 minutes | `Authorization: Bearer <CRON_SECRET>` |
-
-**The 3 existing jobs**, unchanged:
-
-| Job | URL | Schedule | Header |
-| --- | --- | --- | --- |
-| Sync fixtures | `https://brohda.com/api/cron/sync-fixtures` | Every 1 minute | `Authorization: Bearer <CRON_SECRET>` |
 | Lock pools | `https://brohda.com/api/cron/lock-pools` | Every 1 minute | `Authorization: Bearer <CRON_SECRET>` |
 | Process results | `https://brohda.com/api/cron/process-results` | Every 1 minute | `Authorization: Bearer <CRON_SECRET>` |
-
-**Adding `prune-provider-request-log` to cron-job.org** (same pattern as
-above — not yet added as of this writing):
-
-| Job | URL | Schedule | Header |
-| --- | --- | --- | --- |
+| Sync NFL fixtures | `https://brohda.com/api/cron/sync-fixtures-nfl` | Every 5 minutes | `Authorization: Bearer <CRON_SECRET>` |
 | Prune provider request log | `https://brohda.com/api/cron/prune-provider-request-log` | Every 5 minutes | `Authorization: Bearer <CRON_SECRET>` |
 
 Leaving cron off Vercel entirely also means Vercel's Hobby (free) plan is
 sufficient for hosting — no Pro upgrade is required purely for this.
-
-**Practical effect of the 3 newly-scheduled jobs, once added:** NFL
-fixtures now refresh (status/scores/newly-resolved playoff matchups) every
-5 minutes instead of only at initial season import — this is what makes
-NFL genuinely self-maintaining rather than a one-time import. Already-
-imported football competitions now pick up newly-added, postponed/
-rescheduled, and newly-resolved-participant fixtures every 6 hours instead
-of never. A multi-chunk competition import now finishes automatically
-within minutes of being started, instead of depending on some *other*
-cron tick's reconciliation pass to notice it's stuck.
 
 **Live verification, not scheduling.** Nothing in this repo — or in a
 single successful `curl` — can prove a cron-job.org schedule is actually
@@ -270,7 +238,7 @@ the same project serving production traffic.
 
 `pnpm seed:dev-grading` (`scripts/seed-dev-grading.ts`) is a separate,
 narrower seed for exercising the pool lifecycle and automatic-grading
-pipeline locally, without live API-Football imports. Unlike `pnpm seed`, it:
+pipeline locally, without live provider imports. Unlike `pnpm seed`, it:
 
 - **refuses to run against anything but a local Supabase instance** (checks
   `NEXT_PUBLIC_SUPABASE_URL` is `127.0.0.1`/`localhost` and exits otherwise)

@@ -17,8 +17,6 @@ import {
   toSerializableRecommendation,
   type PublishWarning,
 } from "@/lib/pools/templates/recommendations";
-import { API_FOOTBALL_PROVIDER } from "@/lib/sports-data/provider-names";
-import { getMarketsForFixture } from "@/lib/sports-data/market-routing";
 import { getPoolLiveStats, type PoolLiveStats } from "@/lib/pools/fetch";
 import { notifyFollowedPoolPublished } from "@/lib/email/notify-followed-pool-published";
 import { getPoolPublishFollowRecipients } from "@/lib/pools/follow-recipients";
@@ -84,28 +82,11 @@ async function notifyFollowersOfPublish(pool: { id: string; question: string; fi
  * live-preview publish warnings as an admin picks/configures a template —
  * called once a fixture is selected. Read-only; never touches pools.
  */
-export async function getFixtureQuestionContextAction(
-  fixtureId: string,
-  externalFixtureId: string | null = null,
-  provider: string = API_FOOTBALL_PROVIDER,
-  sport: string = "football",
-) {
+export async function getFixtureQuestionContextAction(fixtureId: string, sport: string | null = null) {
   await requireAdminOrAbove();
   const adminClient = createAdminClient();
-  const [activePools, markets] = await Promise.all([
-    getActivePoolSummariesForFixture(adminClient, fixtureId),
-    // Real odds are optional, best-effort — a fixture with the provider
-    // disabled, no odds posted yet, or a fetch failure still gets a full
-    // recommendation list, just on the static prior (rankRecommendations
-    // treats null exactly like "no markets fetched"). Routed by
-    // getMarketsForFixture (lib/sports-data/market-routing.ts) rather than
-    // this call site comparing provider === API_FOOTBALL_PROVIDER itself —
-    // a fixture whose provider doesn't support markets (NFL today) simply
-    // skips the fetch, never reaching a football-only action with the
-    // wrong provider's fixture ID (the incident this guards against).
-    getMarketsForFixture({ externalFixtureId, provider }),
-  ]);
-  const recommendations = rankRecommendations(activePools, markets, sport);
+  const activePools = await getActivePoolSummariesForFixture(adminClient, fixtureId);
+  const recommendations = rankRecommendations(activePools, sport);
   return {
     activePools,
     recommendations: {
@@ -255,22 +236,6 @@ async function createPoolForFixture(
     }
   }
 
-  // Real fixture odds, fetched once (through the 5-minute cache — see
-  // lib/actions/odds.ts) and reused for both the publishing-guidance
-  // probability below and the recommendation_evidence snapshot stamped on
-  // the pool at insert time, so the two always agree with each other.
-  // Never fetched for non-TEMPLATE_GRADED pools (WHO_WILL_ADVANCE/
-  // REGULATION_RESULT/COMBO have no single well-defined YES probability).
-  // Routed by getMarketsForFixture, not an inline provider comparison —
-  // this is the other half of the fixed incident: an NFL TEMPLATE_GRADED
-  // submission (NFL_SPREAD/NFL_GAME_TOTAL/NFL_TEAM_TOTAL are all
-  // TEMPLATE_GRADED) used to reach this same football-only call with the
-  // NFL fixture's own external ID.
-  const markets =
-    input.poolType === "TEMPLATE_GRADED"
-      ? await getMarketsForFixture({ externalFixtureId: fixture.external_fixture_id, provider: fixture.provider })
-      : null;
-
   // Publishing guidance (Question Family/mirror/duplicate detection) — never
   // a hard block. COMBO is exempt: its identity is its legs (pool_combo_legs),
   // not template_id/template_config, so comparing empty configs between two
@@ -284,9 +249,7 @@ async function createPoolForFixture(
     const candidateConfig = input.poolType === "TEMPLATE_GRADED" ? input.templateConfig : {};
     const activePools = await getActivePoolSummariesForFixture(adminClient, fixture.id, undefined, tierGroupId);
     probabilityEstimate =
-      input.poolType === "TEMPLATE_GRADED"
-        ? estimateYesProbabilityWithSource(candidateId, candidateConfig, markets)
-        : null;
+      input.poolType === "TEMPLATE_GRADED" ? estimateYesProbabilityWithSource(candidateId, candidateConfig) : null;
     const yesProbability = probabilityEstimate?.probability ?? 0.5;
     const warnings = detectConflicts({ templateId: candidateId, config: candidateConfig }, activePools, yesProbability);
 
@@ -380,7 +343,9 @@ async function createPoolForFixture(
             bookmakerIds: probabilityEstimate.bookmakerIds,
             marketKey: probabilityEstimate.marketKey,
             oddsLine: probabilityEstimate.oddsLine,
-            oddsUpdatedAt: probabilityEstimate.source === "STATIC_PRIOR" ? null : (markets?.providerUpdatedAt ?? null),
+            // Always null: probabilityEstimate.source is always STATIC_PRIOR
+            // now (see estimateYesProbabilityWithSource's own comment).
+            oddsUpdatedAt: null,
           }
         : null,
       analytics_category: resolvePoolAnalyticsCategory(

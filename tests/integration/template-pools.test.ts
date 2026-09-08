@@ -223,16 +223,17 @@ describe.skipIf(!SERVICE_ROLE_KEY)("TEMPLATE_GRADED pools — gradeTemplatePool"
     }
   });
 
-  it("grades a WINNING_MARGIN pool YES, stamps the winner, and records evidence", async () => {
+  it("grades an NFL_SPREAD pool YES, stamps the winner, and records evidence", async () => {
     const fixture = await createTestFixture({ regulationHomeScore: 3, regulationAwayScore: 1 });
     createdFixtureIds.push(fixture.id);
-    const { poolId, yesOptionId } = await createTemplatePool(adminId, fixture.id, "WINNING_MARGIN", {
+    // Home margin is 2 — clears a 1.5-point spread, so home covers -> YES.
+    const { poolId, yesOptionId } = await createTemplatePool(adminId, fixture.id, "NFL_SPREAD", {
       team: "HOME",
-      minimumMargin: 2,
+      line: 1.5,
     });
 
     const outcome = await gradeTemplatePool(
-      { id: poolId, template_id: "WINNING_MARGIN", template_config: { team: "HOME", minimumMargin: 2 } },
+      { id: poolId, template_id: "NFL_SPREAD", template_config: { team: "HOME", line: 1.5 } },
       fixture,
     );
     expect(outcome).toBe("readyForReview");
@@ -255,7 +256,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("TEMPLATE_GRADED pools — gradeTemplatePool"
       .eq("settlement_id", settlement!.id);
     expect(evidenceRows).toHaveLength(1);
     expect(evidenceRows![0].result).toBe("YES");
-    expect(evidenceRows![0].template_id).toBe("WINNING_MARGIN");
+    expect(evidenceRows![0].template_id).toBe("NFL_SPREAD");
 
     const { data: yesOption } = await admin
       .from("pool_options")
@@ -268,9 +269,9 @@ describe.skipIf(!SERVICE_ROLE_KEY)("TEMPLATE_GRADED pools — gradeTemplatePool"
   it("is idempotent — grading the same pool twice does not duplicate the settlement or evidence", async () => {
     const fixture = await createTestFixture({ regulationHomeScore: 2, regulationAwayScore: 0 });
     createdFixtureIds.push(fixture.id);
-    const { poolId } = await createTemplatePool(adminId, fixture.id, "BOTH_TEAMS_TO_SCORE", {});
+    const { poolId } = await createTemplatePool(adminId, fixture.id, "NFL_GAME_TOTAL", { line: 1.5 });
 
-    const pool = { id: poolId, template_id: "BOTH_TEAMS_TO_SCORE", template_config: {} };
+    const pool = { id: poolId, template_id: "NFL_GAME_TOTAL", template_config: { line: 1.5 } };
     const first = await gradeTemplatePool(pool, fixture);
     const second = await gradeTemplatePool(pool, fixture);
     expect(first).toBe("readyForReview");
@@ -289,12 +290,12 @@ describe.skipIf(!SERVICE_ROLE_KEY)("TEMPLATE_GRADED pools — gradeTemplatePool"
   it("stays PENDING (not VOID, not assumed zero) when regulation score is missing on a COMPLETED fixture", async () => {
     const fixture = await createTestFixture({ regulationHomeScore: null, regulationAwayScore: null });
     createdFixtureIds.push(fixture.id);
-    const { poolId } = await createTemplatePool(adminId, fixture.id, "MATCH_TOTAL_GOALS", {
-      minimumGoals: 2,
+    const { poolId } = await createTemplatePool(adminId, fixture.id, "NFL_GAME_TOTAL", {
+      line: 1.5,
     });
 
     const outcome = await gradeTemplatePool(
-      { id: poolId, template_id: "MATCH_TOTAL_GOALS", template_config: { minimumGoals: 2 } },
+      { id: poolId, template_id: "NFL_GAME_TOTAL", template_config: { line: 1.5 } },
       fixture,
     );
     expect(outcome).toBe("pending");
@@ -313,10 +314,10 @@ describe.skipIf(!SERVICE_ROLE_KEY)("TEMPLATE_GRADED pools — gradeTemplatePool"
       regulationAwayScore: 0,
     });
     createdFixtureIds.push(fixture.id);
-    const { poolId } = await createTemplatePool(adminId, fixture.id, "HOME_TEAM_TO_WIN", {});
+    const { poolId } = await createTemplatePool(adminId, fixture.id, "NFL_SPREAD", { team: "HOME", line: 0.5 });
 
     const outcome = await gradeTemplatePool(
-      { id: poolId, template_id: "HOME_TEAM_TO_WIN", template_config: {} },
+      { id: poolId, template_id: "NFL_SPREAD", template_config: { team: "HOME", line: 0.5 } },
       fixture,
     );
     expect(outcome).toBe("pending");
@@ -337,8 +338,8 @@ describe.skipIf(!SERVICE_ROLE_KEY)("TEMPLATE_GRADED pools — gradeTemplatePool"
     const { poolId, yesOptionId, noOptionId } = await createTemplatePool(
       adminId,
       fixture.id,
-      "HOME_TEAM_TO_WIN",
-      {},
+      "NFL_SPREAD",
+      { team: "HOME", line: 0.5 },
       "OPEN",
     );
 
@@ -355,7 +356,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("TEMPLATE_GRADED pools — gradeTemplatePool"
     // test, unlike before Phase 1.5. An unambiguous outcome with real
     // entries on both sides settles fully automatically.
     const outcome = await gradeTemplatePool(
-      { id: poolId, template_id: "HOME_TEAM_TO_WIN", template_config: {} },
+      { id: poolId, template_id: "NFL_SPREAD", template_config: { team: "HOME", line: 0.5 } },
       fixture,
     );
     expect(outcome).toBe("settled");
@@ -405,8 +406,8 @@ describe.skipIf(!SERVICE_ROLE_KEY)("TEMPLATE_GRADED pools — gradeTemplatePool"
     const { poolId, yesOptionId, noOptionId } = await createTemplatePool(
       adminId,
       fixture.id,
-      "HOME_TEAM_TO_WIN",
-      {},
+      "NFL_SPREAD",
+      { team: "HOME", line: 0.5 },
       "OPEN",
     );
 
@@ -455,10 +456,10 @@ describe.skipIf(!SERVICE_ROLE_KEY)("TEMPLATE_GRADED pools — gradeTemplatePool"
     // every other zero-entry test in this file.
     const fixture = await createTestFixture({ regulationHomeScore: 2, regulationAwayScore: 0 });
     createdFixtureIds.push(fixture.id);
-    const { poolId } = await createTemplatePool(adminId, fixture.id, "HOME_TEAM_TO_WIN", {});
+    const { poolId } = await createTemplatePool(adminId, fixture.id, "NFL_SPREAD", { team: "HOME", line: 0.5 });
 
     const outcome = await gradeTemplatePool(
-      { id: poolId, template_id: "HOME_TEAM_TO_WIN", template_config: {} },
+      { id: poolId, template_id: "NFL_SPREAD", template_config: { team: "HOME", line: 0.5 } },
       fixture,
     );
     expect(outcome).toBe("readyForReview");
@@ -478,13 +479,20 @@ describe.skipIf(!SERVICE_ROLE_KEY)("TEMPLATE_GRADED pools — gradeTemplatePool"
     expect(settlement?.confirmed_at).toBeNull();
   });
 
-  it("a retired (activeForCreation: false) template still grades an existing historical pool via exact-version resolution", async () => {
-    // CLEAN_SHEET was retired from new-pool creation in the launch
-    // simplification (activeForCreation: false in
-    // lib/pools/templates/goals.ts) but remains fully gradeable for any
-    // pool created against it before the retirement — getTemplate(id,
-    // version) never filters on activeForCreation, only getLatestTemplate
-    // (creation-time only) does.
+  // No currently registered template is inactive while remaining
+  // historically gradable (all 3 NFL templates have activeForCreation:
+  // true). Association football's retired-but-still-gradable templates
+  // (CLEAN_SHEET, etc.) that used to exercise this are gone entirely, not
+  // just deactivated. This regression — getTemplate(id, version) must
+  // still resolve a retired template for historical grading, ignoring
+  // activeForCreation, unlike getLatestTemplate — has no live template to
+  // exercise it against right now. Skipped rather than deleted so the gap
+  // stays visible; re-enable this test when the first template is retired
+  // but still preserved for historical grading (the mechanism itself,
+  // registry.ts's getTemplate vs getLatestTemplate, is untouched by the
+  // soccer decommission — do not fabricate an inactive template just to
+  // make this run, and do not change registry behavior to satisfy it).
+  it.skip("a retired (activeForCreation: false) template still grades an existing historical pool via exact-version resolution", async () => {
     const fixture = await createTestFixture({ regulationHomeScore: 2, regulationAwayScore: 0 });
     createdFixtureIds.push(fixture.id);
     const { poolId, yesOptionId } = await createTemplatePool(adminId, fixture.id, "CLEAN_SHEET", { team: "HOME" });
@@ -512,7 +520,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("TEMPLATE_GRADED pools — gradeTemplatePool"
   it("resolves the winner via binary_outcome even when labels are swapped from the usual Yes/No", async () => {
     const fixture = await createTestFixture({ regulationHomeScore: 2, regulationAwayScore: 0 });
     createdFixtureIds.push(fixture.id);
-    const { poolId } = await createTemplatePool(adminId, fixture.id, "BOTH_TEAMS_TO_SCORE", {});
+    const { poolId } = await createTemplatePool(adminId, fixture.id, "NFL_GAME_TOTAL", { line: 2.5 });
 
     // Swap the labels so a label-based lookup would pick the wrong option —
     // binary_outcome is the primary lookup now, so this must still resolve
@@ -533,7 +541,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("TEMPLATE_GRADED pools — gradeTemplatePool"
     expect(step3.error).toBeNull();
 
     const outcome = await gradeTemplatePool(
-      { id: poolId, template_id: "BOTH_TEAMS_TO_SCORE", template_config: {}, template_version: 1 },
+      { id: poolId, template_id: "NFL_GAME_TOTAL", template_config: { line: 2.5 }, template_version: 1 },
       fixture,
     );
     expect(outcome).toBe("readyForReview");
@@ -545,8 +553,9 @@ describe.skipIf(!SERVICE_ROLE_KEY)("TEMPLATE_GRADED pools — gradeTemplatePool"
       .eq("pool_id", poolId)
       .eq("grading_version", pool!.snapshot_version)
       .single();
-    // 2-0 is not "both teams to score" -> NO -> the option now labeled
-    // "Swapped A" (binary_outcome NO), NOT the one still literally labeled "No".
+    // Combined score of 2 doesn't clear the 2.5 line -> NO -> the option now
+    // labeled "Swapped A" (binary_outcome NO), NOT the one still literally
+    // labeled "No".
     expect(settlement?.winning_option_id).toBe(yesRow.id);
   });
 
@@ -556,13 +565,13 @@ describe.skipIf(!SERVICE_ROLE_KEY)("TEMPLATE_GRADED pools — gradeTemplatePool"
     const { poolId } = await createTemplatePool(
       adminId,
       fixture.id,
-      "HOME_TEAM_TO_WIN",
-      {},
+      "NFL_SPREAD",
+      { team: "HOME", line: 0.5 },
       "AWAITING_RESULT",
     );
 
     const outcome = await gradeTemplatePool(
-      { id: poolId, template_id: "HOME_TEAM_TO_WIN", template_config: {}, template_version: 999 },
+      { id: poolId, template_id: "NFL_SPREAD", template_config: { team: "HOME", line: 0.5 }, template_version: 999 },
       fixture,
     );
     expect(outcome).toBe("manualReview");
@@ -578,15 +587,15 @@ describe.skipIf(!SERVICE_ROLE_KEY)("TEMPLATE_GRADED pools — gradeTemplatePool"
     const { poolId } = await createTemplatePool(
       adminId,
       fixture.id,
-      "WINNING_MARGIN",
-      { team: "HOME", minimumMargin: 2 },
+      "NFL_SPREAD",
+      { team: "HOME", line: 1.5 },
       "AWAITING_RESULT",
     );
 
-    // WINNING_MARGIN's schema is strict and requires team/minimumMargin —
-    // an empty config no longer validates against it.
+    // NFL_SPREAD's schema is strict and requires team/line — an empty
+    // config no longer validates against it.
     const outcome = await gradeTemplatePool(
-      { id: poolId, template_id: "WINNING_MARGIN", template_config: {}, template_version: 1 },
+      { id: poolId, template_id: "NFL_SPREAD", template_config: {}, template_version: 1 },
       fixture,
     );
     expect(outcome).toBe("manualReview");
@@ -602,8 +611,8 @@ describe.skipIf(!SERVICE_ROLE_KEY)("TEMPLATE_GRADED pools — gradeTemplatePool"
     const { poolId } = await createTemplatePool(
       adminId,
       fixture.id,
-      "HOME_TEAM_TO_WIN",
-      {},
+      "NFL_SPREAD",
+      { team: "HOME", line: 0.5 },
       "AWAITING_RESULT",
     );
     // Corrupt the options: both end up labeled/outcome "Yes"/YES.
@@ -612,7 +621,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("TEMPLATE_GRADED pools — gradeTemplatePool"
     await admin.from("pool_options").update({ label: "Yes", binary_outcome: "YES" }).eq("id", noRow.id);
 
     const outcome = await gradeTemplatePool(
-      { id: poolId, template_id: "HOME_TEAM_TO_WIN", template_config: {}, template_version: 1 },
+      { id: poolId, template_id: "NFL_SPREAD", template_config: { team: "HOME", line: 0.5 }, template_version: 1 },
       fixture,
     );
     expect(outcome).toBe("manualReview");
@@ -680,11 +689,11 @@ describe.skipIf(!SERVICE_ROLE_KEY)("recommendation_evidence — informational, f
       probability: 0.52,
       bookmakerCount: 4,
       bookmakerIds: [1, 4, 8, 16],
-      marketKey: "MATCH_TOTAL_GOALS",
+      marketKey: "NFL_GAME_TOTAL",
       oddsLine: 2.5,
       oddsUpdatedAt: new Date().toISOString(),
     };
-    const { poolId } = await createTemplatePool(adminId, fixture.id, "MATCH_TOTAL_GOALS", { minimumGoals: 3 }, "OPEN", evidence);
+    const { poolId } = await createTemplatePool(adminId, fixture.id, "NFL_GAME_TOTAL", { line: 2.5 }, "OPEN", evidence);
 
     const { data: pool } = await admin.from("pools").select("recommendation_evidence").eq("id", poolId).single();
     expect(pool?.recommendation_evidence).toEqual(evidence);
@@ -694,9 +703,9 @@ describe.skipIf(!SERVICE_ROLE_KEY)("recommendation_evidence — informational, f
     const fixture = await createTestFixture();
     createdFixtureIds.push(fixture.id);
     const evidence = { source: "STATIC_PRIOR", probability: 0.5, bookmakerCount: 0, bookmakerIds: [], marketKey: null, oddsLine: null, oddsUpdatedAt: null };
-    const { poolId } = await createTemplatePool(adminId, fixture.id, "BOTH_TEAMS_TO_SCORE", {}, "AWAITING_RESULT", evidence);
+    const { poolId } = await createTemplatePool(adminId, fixture.id, "NFL_GAME_TOTAL", { line: 1.5 }, "AWAITING_RESULT", evidence);
 
-    await gradeTemplatePool({ id: poolId, template_id: "BOTH_TEAMS_TO_SCORE", template_config: {}, template_version: 1 }, fixture);
+    await gradeTemplatePool({ id: poolId, template_id: "NFL_GAME_TOTAL", template_config: { line: 1.5 }, template_version: 1 }, fixture);
 
     const { data: pool } = await admin.from("pools").select("recommendation_evidence").eq("id", poolId).single();
     expect(pool?.recommendation_evidence).toEqual(evidence); // untouched by grading
@@ -709,8 +718,8 @@ describe.skipIf(!SERVICE_ROLE_KEY)("recommendation_evidence — informational, f
     const { poolId, yesOptionId } = await createTemplatePool(
       adminId,
       fixture.id,
-      "BOTH_TEAMS_TO_SCORE",
-      {},
+      "NFL_GAME_TOTAL",
+      { line: 1.5 },
       "OPEN",
       { source: "STATIC_PRIOR", probability: 0.5, bookmakerCount: 0, bookmakerIds: [], marketKey: null, oddsLine: null, oddsUpdatedAt: null },
     );

@@ -1,6 +1,5 @@
 import { listByCategory } from "@/lib/pools/templates/registry";
 import { getQuestionFamily, type QuestionFamily } from "@/lib/pools/templates/families";
-import { getSupportedCompetitionGroup, type CompetitionGroup } from "@/lib/sports-data/supported-competitions";
 
 export interface FixtureOption {
   id: string;
@@ -13,83 +12,31 @@ export interface FixtureOption {
   awayTeamLogoUrl: string | null;
   competitionType: string | null;
   sport: string;
-  // The sports-data provider this fixture came from (e.g. "api_football",
-  // "api_nfl") — threaded through so odds/markets calls can be routed to
-  // the correct provider instead of assumed, see lib/actions/odds.ts's
-  // assertProvider.
+  // The sports-data provider this fixture came from (e.g. "api_nfl") —
+  // threaded through so odds calls can be routed to the correct provider
+  // instead of assumed, see lib/actions/odds.ts's assertProvider.
   provider: string;
   league: string | null;
   label: string;
   scheduledStartUtc: string;
-  // Groups this fixture under one entry in the imported-competition filter
-  // (`${provider}:${competitionExternalId}:${season}`) — null only for a
-  // fixture missing competition linkage, which then can't be filtered by
-  // competition (still shows up under "All competitions").
-  competitionKey: string | null;
 }
 
-// One row in the pool-creation "Imported competition" filter — built
-// directly from the already-gated fixtures list (fixtures_available_for_pool_creation
-// already excludes anything not IMPORTED/archived/pool_creation_enabled=false,
-// see the migration for that view), so a competition only ever appears here
-// once it truly has at least one fixture eligible for pool creation right
-// now. Deliberately not a second query against league_season_imports — that
-// would risk drifting from what's actually in the fixtures list below it.
-export interface CompetitionOption {
-  key: string;
-  label: string;
-  group: CompetitionGroup | null;
-  fixtureCount: number;
-}
-
-export function buildCompetitionOptions(fixtures: FixtureOption[]): CompetitionOption[] {
-  const byKey = new Map<string, CompetitionOption>();
-  for (const f of fixtures) {
-    if (!f.competitionKey) continue;
-    const existing = byKey.get(f.competitionKey);
-    if (existing) {
-      existing.fixtureCount += 1;
-      continue;
-    }
-    // externalLeagueId is the middle segment of competitionKey
-    // (`${provider}:${externalLeagueId}:${season}`).
-    const externalLeagueId = f.competitionKey.split(":")[1] ?? "";
-    byKey.set(f.competitionKey, {
-      key: f.competitionKey,
-      label: f.league ?? "Unknown competition",
-      group: getSupportedCompetitionGroup(externalLeagueId),
-      fixtureCount: 1,
-    });
-  }
-  return [...byKey.values()].sort((a, b) => a.label.localeCompare(b.label));
-}
-
-// Cards from the registry (17 TEMPLATE_GRADED templates) plus the 3 legacy
-// pool_types, unified into one tabbed picker. Legacy cards keep their exact
-// existing creation behavior (server derives question, hardcoded eligibility
-// check) — they're catalog metadata only here, not registry entries, since
-// their grading lives in SQL, not a gradingRule. Shared by both the
-// single-fixture wizard (pool-template-builder.tsx) and the multi-fixture
-// mode (multi-fixture-builder.tsx) so the two pickers stay in sync
-// automatically as templates are added.
+// Cards from the registry (TEMPLATE_GRADED templates), unified into one
+// tabbed picker. Shared by both the single-fixture wizard
+// (pool-template-builder.tsx) and the multi-fixture mode
+// (multi-fixture-builder.tsx) so the two pickers stay in sync automatically
+// as templates are added.
 //
-// Stage 4: TEMPLATE_GRADED is now the suggested/default path — registry
-// cards are concatenated before legacy cards (see ALL_CARDS below).
-//
-// Question Family evolution: WHO_WILL_ADVANCE/REGULATION_RESULT no longer
-// share the MATCH_RESULT category with the 4 registry match-result
-// templates — they're genuinely traditional 1X2/knockout markets, not
-// binary prediction questions, and both still stamp Question Family
-// MATCH_RESULT (lib/pools/templates/families.ts) so duplicate/mirror
-// detection still catches the overlap between "Who will advance?" and
-// "Will Team X win?" even though they now live in separate tabs.
-export type CardCategory = "MATCH_RESULT" | "GOALS" | "DISCIPLINE" | "PLAYER_PROPS" | "TRADITIONAL";
+// The legacy WHO_WILL_ADVANCE/REGULATION_RESULT pool_types are retired —
+// they're never offered for new pool creation (see isLegacyId below, kept
+// only so existing code paths can still recognize a historical pool of
+// either type).
+export type CardCategory = "MATCH_RESULT" | "GOALS" | "DISCIPLINE" | "PLAYER_PROPS";
 export const CATEGORY_LABELS: Record<CardCategory, string> = {
   MATCH_RESULT: "Prediction questions",
   GOALS: "Goals",
   DISCIPLINE: "Cards",
   PLAYER_PROPS: "Players",
-  TRADITIONAL: "Traditional markets",
 };
 
 const DATA_SOURCE_LABELS: Record<string, string> = {
@@ -128,17 +75,7 @@ export interface TemplateCard {
   dataSource: string;
   family: QuestionFamily | null;
   // Which fixture.sport value(s) this card applies to. Registry cards get a
-  // real array from PoolTemplate.sports (see registry.ts/types.ts) — every
-  // football-era template is written in football-specific language
-  // ("goals", "clean sheet") and most need FIXTURE_EVENTS data the NFL
-  // provider never populates, so none of them are offered for NFL fixtures.
-  // The 2 legacy cards are also always football-only now — their real
-  // eligibility still depends on competition type (Cup vs League), checked
-  // separately via getTemplateEligibility, but getTemplateEligibility
-  // unconditionally disables both for any non-football sport regardless of
-  // competition type, so `["football"]` here is behaviorally lossless and
-  // lets tabsForSport correctly drop the whole "Traditional markets" tab
-  // for NFL instead of showing it with both cards greyed out.
+  // real array from PoolTemplate.sports (see registry.ts/types.ts).
   sports: string[] | null;
 }
 
@@ -149,29 +86,6 @@ export interface TemplateCard {
 export function cardMatchesSport(card: TemplateCard, sport: string): boolean {
   return card.sports === null || card.sports.includes(sport);
 }
-
-const LEGACY_CARDS: TemplateCard[] = [
-  {
-    id: "WHO_WILL_ADVANCE",
-    category: "TRADITIONAL",
-    name: "Who will advance?",
-    description: "Knockout matches only — winner counts extra time and penalties.",
-    gradingReliability: "AUTO",
-    dataSource: "Fixture score",
-    family: getQuestionFamily("WHO_WILL_ADVANCE"),
-    sports: ["football"],
-  },
-  {
-    id: "REGULATION_RESULT",
-    category: "TRADITIONAL",
-    name: "Result after regulation",
-    description: "1X2 — home win, draw, or away win. 90 minutes + injury time only.",
-    gradingReliability: "AUTO",
-    dataSource: "Fixture score",
-    family: getQuestionFamily("REGULATION_RESULT"),
-    sports: ["football"],
-  },
-];
 
 const REGISTRY_BY_CATEGORY = listByCategory();
 // Only activeForCreation templates are offered as cards — a retired
@@ -199,19 +113,19 @@ const REGISTRY_CARDS: TemplateCard[] = [
   sports: t.sports,
 }));
 
-export const ALL_CARDS = [...REGISTRY_CARDS, ...LEGACY_CARDS].sort(
+export const ALL_CARDS = [...REGISTRY_CARDS].sort(
   (a, b) => GRADING_RANK[a.gradingReliability] - GRADING_RANK[b.gradingReliability],
 );
 
 export const TABS = (
-  ["MATCH_RESULT", "GOALS", "DISCIPLINE", "PLAYER_PROPS", "TRADITIONAL"] as CardCategory[]
+  ["MATCH_RESULT", "GOALS", "DISCIPLINE", "PLAYER_PROPS"] as CardCategory[]
 ).filter((cat) => ALL_CARDS.some((c) => c.category === cat));
 
-// Same as TABS, but for one specific sport — a tab with cards for football
-// only (e.g. "Cards"/DISCIPLINE, entirely red-card templates) has nothing
-// to show for an NFL fixture and shouldn't render as a clickable-but-empty
-// tab. Both wizards use this instead of the static TABS once a fixture (or,
-// in multi-fixture mode, at least one fixture) is selected.
+// Same as TABS, but for one specific sport — a tab with cards that don't
+// apply to a given fixture's sport has nothing to show and shouldn't render
+// as a clickable-but-empty tab. Both wizards use this instead of the static
+// TABS once a fixture (or, in multi-fixture mode, at least one fixture) is
+// selected.
 export function tabsForSport(sport: string): CardCategory[] {
   return TABS.filter((tab) => ALL_CARDS.some((c) => c.category === tab && cardMatchesSport(c, sport)));
 }

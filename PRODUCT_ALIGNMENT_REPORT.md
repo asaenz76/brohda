@@ -1,5 +1,8 @@
 # PRODUCT_SIMPLICITY_REVIEW.md
 
+> **Status: Superseded September 2026.**
+> This document reflects an earlier Brohda product direction that included Association football. Brohda subsequently retired Association football support. The current product direction is NFL, NBA, NHL, and MLB.
+
 **A brutal product review of Brohda, conducted as if by Steve Jobs, Brian Chesky, Kevin Systrom, and Mike Krieger.**
 
 This is not a code review. Nothing here concerns engineering quality, test coverage, or architecture. The only question this document asks, over and over, from sixteen different angles, is: **does this make Brohda simpler, clearer, faster, more social, and easier to love — or not?** If a feature can't answer yes, it's on the chopping block, regardless of how well it was built or how good the idea sounded in a planning session.

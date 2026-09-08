@@ -18,21 +18,3 @@ export function devig2Way(yesOdd: number, noOdd: number): number | null {
   if (!(total > 0)) return null;
   return yesImplied / total;
 }
-
-export interface ThreeWayFairProbabilities {
-  home: number;
-  draw: number;
-  away: number;
-}
-
-/** Fair Home/Draw/Away probabilities from a 3-way market's raw decimal
- * odds, or null if any price is unusable. */
-export function devig3Way(homeOdd: number, drawOdd: number, awayOdd: number): ThreeWayFairProbabilities | null {
-  if (!(homeOdd > 1) || !(drawOdd > 1) || !(awayOdd > 1)) return null;
-  const homeImplied = 1 / homeOdd;
-  const drawImplied = 1 / drawOdd;
-  const awayImplied = 1 / awayOdd;
-  const total = homeImplied + drawImplied + awayImplied;
-  if (!(total > 0)) return null;
-  return { home: homeImplied / total, draw: drawImplied / total, away: awayImplied / total };
-}

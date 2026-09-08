@@ -1,5 +1,8 @@
 # BROHDA_MANIFESTO.md
 
+> **Status: Superseded September 2026.**
+> This document reflects an earlier Brohda product direction that included Association football. Brohda subsequently retired Association football support. The current product direction is NFL, NBA, NHL, and MLB.
+
 **This is not a specification. Not a roadmap. Not a design document.**
 
 This is the constitution. Every future feature, screen, sentence, hire, and business decision gets held up against this document before anything else. If it survives, it ships. If it doesn't, it doesn't — no matter how good the meeting felt, no matter who's asking, no matter how easy it would be to build.

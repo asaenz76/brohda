@@ -7,8 +7,6 @@ import {
   voidEntrySchema,
   MINIMUM_LOCK_LEAD_MINUTES,
 } from "@/lib/validations/pools";
-import { winningMarginConfigSchema, teamSideOnlyConfigSchema } from "@/lib/pools/templates/goals";
-import { teamSideConfigSchema } from "@/lib/pools/templates/match-result";
 
 const validCreate = {
   fixtureId: "3fa85f64-5717-4562-b3fc-2c963f66afa6",
@@ -286,38 +284,6 @@ describe("createPoolsForFixturesSchema", () => {
     expect(
       createPoolsForFixturesSchema.safeParse({ ...validLegacy, locksAt: new Date().toISOString() }).success,
     ).toBe(false);
-  });
-});
-
-describe("per-template config schemas", () => {
-  it("winningMarginConfigSchema accepts a valid team+margin payload", () => {
-    expect(winningMarginConfigSchema.safeParse({ team: "HOME", minimumMargin: 2 }).success).toBe(
-      true,
-    );
-  });
-
-  it("winningMarginConfigSchema rejects an invalid team side", () => {
-    expect(
-      winningMarginConfigSchema.safeParse({ team: "MIDDLE", minimumMargin: 2 }).success,
-    ).toBe(false);
-  });
-
-  it("winningMarginConfigSchema rejects a margin outside its bounds", () => {
-    expect(winningMarginConfigSchema.safeParse({ team: "HOME", minimumMargin: 0 }).success).toBe(
-      false,
-    );
-    expect(winningMarginConfigSchema.safeParse({ team: "HOME", minimumMargin: 11 }).success).toBe(
-      false,
-    );
-  });
-
-  it("teamSideOnlyConfigSchema (clean sheet / win to nil) accepts just a team", () => {
-    expect(teamSideOnlyConfigSchema.safeParse({ team: "AWAY" }).success).toBe(true);
-    expect(teamSideOnlyConfigSchema.safeParse({ team: "AWAY", extra: 1 }).success).toBe(false);
-  });
-
-  it("teamSideConfigSchema (team to avoid defeat) matches the same shape", () => {
-    expect(teamSideConfigSchema.safeParse({ team: "HOME" }).success).toBe(true);
   });
 });
 

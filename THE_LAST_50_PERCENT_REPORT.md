@@ -1,5 +1,8 @@
 # THE_LAST_50_PERCENT_REPORT.md
 
+> **Status: Superseded September 2026.**
+> This document reflects an earlier Brohda product direction that included Association football. Brohda subsequently retired Association football support. The current product direction is NFL, NBA, NHL, and MLB.
+
 **Founder's memo. 30 days to launch. No more engineers, no more budget, no more time. Cut the product in half.**
 
 Four reports got us to understanding. This one is the cut. No summaries, no re-litigating — every feature is guilty until it proves it belongs, and the burden of proof is on the feature, not on me.

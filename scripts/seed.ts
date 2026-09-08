@@ -15,7 +15,7 @@
  * just documented) as of Phase 3 — see assertProductionWriteConfirmed.
  */
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
-import { generatePoolTemplate, type PoolType } from "../lib/pools/templates";
+import { getLatestTemplate } from "../lib/pools/templates/registry";
 import { buildNoticeCopy } from "../lib/pools/notices";
 import type { PoolVoidReason } from "../lib/pools/anomaly";
 import { assertProductionWriteConfirmed } from "./lib/production-guard";
@@ -114,7 +114,7 @@ async function createFixture(config: FixtureConfig): Promise<string> {
     .insert({
       provider: "seed",
       external_fixture_id: externalId,
-      sport: "football",
+      sport: "american_football",
       competition_name: config.competitionName,
       home_team_external_id: `${externalId}-home`,
       home_team_name: config.homeTeamName,
@@ -137,7 +137,8 @@ async function createFixture(config: FixtureConfig): Promise<string> {
 interface PoolConfig {
   fixtureId: string;
   adminId: string;
-  poolType: PoolType;
+  templateId: string;
+  templateConfig: Record<string, unknown>;
   entryFeeCents: number;
   houseFeeBps: number;
   minTotalEntries: number;
@@ -145,33 +146,54 @@ interface PoolConfig {
   locksAt: string;
 }
 
+// Every demo pool is TEMPLATE_GRADED against one of the registry's NFL
+// templates (Association football's WHO_WILL_ADVANCE/REGULATION_RESULT are
+// retired from new creation — see supabase/migrations/20260101000124_*.sql
+// — a raw insert of either would be rejected by that migration's trigger,
+// same as a real pool-creation request). Options are a fixed Yes/No pair
+// with binary_outcome set, mirroring createPoolForFixture's own TEMPLATE_
+// GRADED branch (lib/actions/pools.ts) exactly, since this script writes
+// directly to the tables rather than calling that Server Action.
 async function createPool(config: PoolConfig): Promise<{ poolId: string; optionIds: string[] }> {
   const { data: fixture } = await admin
     .from("fixtures")
-    .select(
-      "home_team_external_id, home_team_name, home_team_logo_url, away_team_external_id, away_team_name, away_team_logo_url",
-    )
+    .select("home_team_name, away_team_name, home_team_external_id, away_team_external_id")
     .eq("id", config.fixtureId)
     .single();
 
   if (!fixture) throw new Error("Fixture not found for pool creation");
 
-  const template = generatePoolTemplate(config.poolType, {
-    homeTeamExternalId: fixture.home_team_external_id,
-    homeTeamName: fixture.home_team_name,
-    homeTeamLogoUrl: fixture.home_team_logo_url,
-    awayTeamExternalId: fixture.away_team_external_id,
-    awayTeamName: fixture.away_team_name,
-    awayTeamLogoUrl: fixture.away_team_logo_url,
-  });
+  const template = getLatestTemplate(config.templateId);
+  if (!template) throw new Error(`Unknown template: ${config.templateId}`);
+
+  const question = template.questionBuilder(
+    {
+      homeTeamName: fixture.home_team_name,
+      awayTeamName: fixture.away_team_name,
+      homeTeamExternalId: fixture.home_team_external_id,
+      awayTeamExternalId: fixture.away_team_external_id,
+      regulationHomeScore: null,
+      regulationAwayScore: null,
+      halftimeHomeScore: null,
+      halftimeAwayScore: null,
+    },
+    config.templateConfig,
+  );
 
   const { data: pool, error: poolError } = await admin
     .from("pools")
     .insert({
       fixture_id: config.fixtureId,
       created_by: config.adminId,
-      pool_type: config.poolType,
-      question: template.question,
+      pool_type: "TEMPLATE_GRADED",
+      template_id: config.templateId,
+      template_config: config.templateConfig,
+      template_version: template.version,
+      // 2 = the balanced-participation check at lock time — every newly-
+      // created TEMPLATE_GRADED pool stamps this (see advance_or_cancel_
+      // locked_pool and createPoolForFixture's own comment).
+      participation_rule_version: 2,
+      question,
       entry_fee: config.entryFeeCents,
       house_fee_bps: config.houseFeeBps,
       min_total_entries: config.minTotalEntries,
@@ -188,16 +210,10 @@ async function createPool(config: PoolConfig): Promise<{ poolId: string; optionI
 
   const { data: options, error: optionsError } = await admin
     .from("pool_options")
-    .insert(
-      template.options.map((option) => ({
-        pool_id: pool.id,
-        label: option.label,
-        external_team_id: option.externalTeamId,
-        team_name: option.teamName,
-        logo_url: option.logoUrl,
-        sort_order: option.sortOrder,
-      })),
-    )
+    .insert([
+      { pool_id: pool.id, label: "Yes", external_team_id: null, team_name: null, logo_url: null, sort_order: 0, binary_outcome: "YES" },
+      { pool_id: pool.id, label: "No", external_team_id: null, team_name: null, logo_url: null, sort_order: 1, binary_outcome: "NO" },
+    ])
     .select("id, sort_order");
 
   if (optionsError || !options) throw new Error(`Failed to create pool options: ${optionsError?.message}`);
@@ -330,16 +346,17 @@ async function main() {
 
   // P1: OPEN, no entries yet — fresh pool in the feed.
   const fixture1 = await createFixture({
-    homeTeamName: "Costa Rica",
-    awayTeamName: "Panama",
-    competitionName: "CONCACAF Qualifiers",
+    homeTeamName: "Chiefs",
+    awayTeamName: "Ravens",
+    competitionName: "NFL",
     scheduledStartUtc: hours(48),
     internalStatus: "NOT_STARTED",
   });
   await createPool({
     fixtureId: fixture1,
     adminId,
-    poolType: "WHO_WILL_ADVANCE",
+    templateId: "NFL_GAME_TOTAL",
+    templateConfig: { line: 44.5 },
     entryFeeCents: 1000,
     houseFeeBps: 1000,
     minTotalEntries: 2,
@@ -350,16 +367,17 @@ async function main() {
 
   // P2: OPEN with entries, HIDDEN visibility — exercises SharePoolButton.
   const fixture2 = await createFixture({
-    homeTeamName: "Barcelona",
-    awayTeamName: "Real Madrid",
-    competitionName: "La Liga",
+    homeTeamName: "Eagles",
+    awayTeamName: "Cowboys",
+    competitionName: "NFL",
     scheduledStartUtc: hours(24),
     internalStatus: "NOT_STARTED",
   });
   const p2 = await createPool({
     fixtureId: fixture2,
     adminId,
-    poolType: "REGULATION_RESULT",
+    templateId: "NFL_SPREAD",
+    templateConfig: { team: "HOME", line: 3.5 },
     entryFeeCents: 1000,
     houseFeeBps: 1000,
     minTotalEntries: 2,
@@ -367,21 +385,22 @@ async function main() {
     locksAt: hours(23.9),
   });
   await enterPool(p2.poolId, bob, p2.optionIds[0], 1000);
-  await enterPool(p2.poolId, carol, p2.optionIds[2], 1000);
+  await enterPool(p2.poolId, carol, p2.optionIds[1], 1000);
   console.log("  P2 OPEN (hidden, with entries) done");
 
   // P3: LOCKED, past lock time, entries already placed.
   const fixture3 = await createFixture({
-    homeTeamName: "Yankees",
-    awayTeamName: "Red Sox",
-    competitionName: "MLB",
+    homeTeamName: "49ers",
+    awayTeamName: "Seahawks",
+    competitionName: "NFL",
     scheduledStartUtc: hours(-1),
     internalStatus: "NOT_STARTED",
   });
   const p3 = await createPool({
     fixtureId: fixture3,
     adminId,
-    poolType: "WHO_WILL_ADVANCE",
+    templateId: "NFL_GAME_TOTAL",
+    templateConfig: { line: 41.5 },
     entryFeeCents: 1000,
     houseFeeBps: 1000,
     minTotalEntries: 2,
@@ -395,17 +414,18 @@ async function main() {
 
   // P4: AWAITING_RESULT, fixture LIVE — exercises the LIVE card state.
   const fixture4 = await createFixture({
-    homeTeamName: "Lakers",
-    awayTeamName: "Celtics",
-    competitionName: "NBA",
+    homeTeamName: "Bills",
+    awayTeamName: "Dolphins",
+    competitionName: "NFL",
     scheduledStartUtc: hours(-1),
     internalStatus: "LIVE",
   });
-  await admin.from("fixtures").update({ elapsed_minutes: 58, home_score: 2, away_score: 1 }).eq("id", fixture4);
+  await admin.from("fixtures").update({ elapsed_minutes: 58, home_score: 20, away_score: 17 }).eq("id", fixture4);
   const p4 = await createPool({
     fixtureId: fixture4,
     adminId,
-    poolType: "REGULATION_RESULT",
+    templateId: "NFL_SPREAD",
+    templateConfig: { team: "AWAY", line: 6.5 },
     entryFeeCents: 1000,
     houseFeeBps: 1000,
     minTotalEntries: 2,
@@ -413,25 +433,26 @@ async function main() {
     locksAt: hours(0.02),
   });
   await enterPool(p4.poolId, carol, p4.optionIds[0], 1000);
-  await enterPool(p4.poolId, dave, p4.optionIds[2], 1000);
+  await enterPool(p4.poolId, dave, p4.optionIds[1], 1000);
   await setPoolStatus(p4.poolId, "LOCKED");
   await setPoolStatus(p4.poolId, "AWAITING_RESULT");
   console.log("  P4 AWAITING_RESULT (live) done");
 
   // P5: READY_FOR_REVIEW — admin still needs to confirm in the UI.
   const fixture5 = await createFixture({
-    homeTeamName: "Arsenal",
-    awayTeamName: "Chelsea",
-    competitionName: "Premier League",
+    homeTeamName: "Packers",
+    awayTeamName: "Bears",
+    competitionName: "NFL",
     scheduledStartUtc: hours(-3),
     internalStatus: "COMPLETED",
-    regulationHomeScore: 2,
-    regulationAwayScore: 1,
+    regulationHomeScore: 24,
+    regulationAwayScore: 17,
   });
   const p5 = await createPool({
     fixtureId: fixture5,
     adminId,
-    poolType: "REGULATION_RESULT",
+    templateId: "NFL_GAME_TOTAL",
+    templateConfig: { line: 45.5 },
     entryFeeCents: 1000,
     houseFeeBps: 1000,
     minTotalEntries: 2,
@@ -439,26 +460,29 @@ async function main() {
     locksAt: hours(0.02),
   });
   await enterPool(p5.poolId, alice, p5.optionIds[0], 1000);
-  await enterPool(p5.poolId, erin, p5.optionIds[2], 1000);
+  await enterPool(p5.poolId, erin, p5.optionIds[1], 1000);
   await setPoolStatus(p5.poolId, "LOCKED");
   await setPoolStatus(p5.poolId, "AWAITING_RESULT");
   await admin.rpc("prepare_pool_settlement", { p_pool_id: p5.poolId });
   console.log("  P5 READY_FOR_REVIEW done");
 
-  // P6: SETTLED, clean payout (no rounding remainder).
+  // P6: SETTLED, clean payout (no rounding remainder). Home wins by 17 —
+  // clears the 10.5-point spread, so the 2 entries on Yes ("home covers")
+  // split the net pool evenly.
   const fixture6 = await createFixture({
-    homeTeamName: "Golden State Warriors",
-    awayTeamName: "Miami Heat",
-    competitionName: "NBA",
+    homeTeamName: "Steelers",
+    awayTeamName: "Browns",
+    competitionName: "NFL",
     scheduledStartUtc: hours(-6),
     internalStatus: "COMPLETED",
-    regulationHomeScore: 3,
-    regulationAwayScore: 0,
+    regulationHomeScore: 27,
+    regulationAwayScore: 10,
   });
   const p6 = await createPool({
     fixtureId: fixture6,
     adminId,
-    poolType: "REGULATION_RESULT",
+    templateId: "NFL_SPREAD",
+    templateConfig: { team: "HOME", line: 10.5 },
     entryFeeCents: 1000,
     houseFeeBps: 1000,
     minTotalEntries: 2,
@@ -467,7 +491,7 @@ async function main() {
   });
   await enterPool(p6.poolId, bob, p6.optionIds[0], 1000);
   await enterPool(p6.poolId, carol, p6.optionIds[0], 1000);
-  await enterPool(p6.poolId, dave, p6.optionIds[2], 1000);
+  await enterPool(p6.poolId, dave, p6.optionIds[1], 1000);
   await setPoolStatus(p6.poolId, "LOCKED");
   await setPoolStatus(p6.poolId, "AWAITING_RESULT");
   await admin.rpc("prepare_pool_settlement", { p_pool_id: p6.poolId });
@@ -483,19 +507,21 @@ async function main() {
   // P7: SETTLED with a rounding remainder — exercises the payout accordion's
   // rounding-disclosure line. 10.5% fee on 3x$10 entries, 2 winners:
   // gross 3000, fee 315, net 2685, payout 1342 each, remainder 1 cent.
+  // Combined score 41 clears the 38.5 game total, so Yes wins.
   const fixture7 = await createFixture({
-    homeTeamName: "PSG",
-    awayTeamName: "Marseille",
-    competitionName: "Ligue 1",
+    homeTeamName: "Vikings",
+    awayTeamName: "Lions",
+    competitionName: "NFL",
     scheduledStartUtc: hours(-8),
     internalStatus: "COMPLETED",
-    regulationHomeScore: 1,
-    regulationAwayScore: 0,
+    regulationHomeScore: 24,
+    regulationAwayScore: 17,
   });
   const p7 = await createPool({
     fixtureId: fixture7,
     adminId,
-    poolType: "REGULATION_RESULT",
+    templateId: "NFL_GAME_TOTAL",
+    templateConfig: { line: 38.5 },
     entryFeeCents: 1000,
     houseFeeBps: 1050,
     minTotalEntries: 2,
@@ -504,7 +530,7 @@ async function main() {
   });
   await enterPool(p7.poolId, alice, p7.optionIds[0], 1000);
   await enterPool(p7.poolId, erin, p7.optionIds[0], 1000);
-  await enterPool(p7.poolId, dave, p7.optionIds[2], 1000);
+  await enterPool(p7.poolId, dave, p7.optionIds[1], 1000);
   await setPoolStatus(p7.poolId, "LOCKED");
   await setPoolStatus(p7.poolId, "AWAITING_RESULT");
   await admin.rpc("prepare_pool_settlement", { p_pool_id: p7.poolId });
@@ -522,18 +548,19 @@ async function main() {
   // READY_FOR_REVIEW (grading_version 2) with the original settlement's
   // history (confirmed + reversed) visible in the admin pool detail page.
   const fixture8 = await createFixture({
-    homeTeamName: "Bayern Munich",
-    awayTeamName: "Dortmund",
-    competitionName: "Bundesliga",
+    homeTeamName: "Broncos",
+    awayTeamName: "Raiders",
+    competitionName: "NFL",
     scheduledStartUtc: hours(-10),
     internalStatus: "COMPLETED",
-    regulationHomeScore: 4,
-    regulationAwayScore: 2,
+    regulationHomeScore: 28,
+    regulationAwayScore: 24,
   });
   const p8 = await createPool({
     fixtureId: fixture8,
     adminId,
-    poolType: "REGULATION_RESULT",
+    templateId: "NFL_SPREAD",
+    templateConfig: { team: "HOME", line: 3.5 },
     entryFeeCents: 1000,
     houseFeeBps: 1000,
     minTotalEntries: 2,
@@ -541,7 +568,7 @@ async function main() {
     locksAt: hours(0.02),
   });
   await enterPool(p8.poolId, bob, p8.optionIds[0], 1000);
-  await enterPool(p8.poolId, dave, p8.optionIds[2], 1000);
+  await enterPool(p8.poolId, dave, p8.optionIds[1], 1000);
   await setPoolStatus(p8.poolId, "LOCKED");
   await setPoolStatus(p8.poolId, "AWAITING_RESULT");
   await admin.rpc("prepare_pool_settlement", { p_pool_id: p8.poolId });
@@ -560,18 +587,19 @@ async function main() {
   });
   console.log("  P8 reversed (back to READY_FOR_REVIEW, grading_version 2) done");
 
-  // P9: VOIDED — match postponed, anomaly refund.
+  // P9: VOIDED — game postponed, anomaly refund.
   const fixture9 = await createFixture({
-    homeTeamName: "Juventus",
-    awayTeamName: "AC Milan",
-    competitionName: "Serie A",
+    homeTeamName: "Saints",
+    awayTeamName: "Falcons",
+    competitionName: "NFL",
     scheduledStartUtc: hours(-4),
     internalStatus: "POSTPONED",
   });
   const p9 = await createPool({
     fixtureId: fixture9,
     adminId,
-    poolType: "REGULATION_RESULT",
+    templateId: "NFL_GAME_TOTAL",
+    templateConfig: { line: 42.5 },
     entryFeeCents: 1000,
     houseFeeBps: 1000,
     minTotalEntries: 2,
@@ -579,7 +607,7 @@ async function main() {
     locksAt: hours(0.02),
   });
   await enterPool(p9.poolId, carol, p9.optionIds[0], 1000);
-  await enterPool(p9.poolId, erin, p9.optionIds[2], 1000);
+  await enterPool(p9.poolId, erin, p9.optionIds[1], 1000);
   await setPoolStatus(p9.poolId, "LOCKED");
   await setPoolStatus(p9.poolId, "AWAITING_RESULT");
   await admin.rpc("confirm_pool_refund", {
@@ -592,16 +620,17 @@ async function main() {
 
   // P10: CANCELLED — below minimum entries at lock time.
   const fixture10 = await createFixture({
-    homeTeamName: "Boca Juniors",
-    awayTeamName: "River Plate",
-    competitionName: "Copa Argentina",
+    homeTeamName: "Bengals",
+    awayTeamName: "Titans",
+    competitionName: "NFL",
     scheduledStartUtc: hours(-2),
     internalStatus: "NOT_STARTED",
   });
   const p10 = await createPool({
     fixtureId: fixture10,
     adminId,
-    poolType: "WHO_WILL_ADVANCE",
+    templateId: "NFL_SPREAD",
+    templateConfig: { team: "AWAY", line: 3.5 },
     entryFeeCents: 1000,
     houseFeeBps: 1000,
     minTotalEntries: 3,

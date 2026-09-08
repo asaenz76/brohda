@@ -14,11 +14,19 @@ brohda. is a **private, invite-only social prediction app** for small
 friend groups, styled like a social feed (Instagram/Threads-ish) rather than
 a sportsbook. There is no public sign-up — someone has to be invited.
 
+**Current implementation: NFL.** **Target supported leagues: NFL, NBA, NHL,
+MLB.** NBA, NHL, and MLB are the product direction, not something already
+built or available in this app today — nothing below should be read as
+claiming otherwise. Association football / soccer was supported at launch
+and has since been retired (see §4 and [ARCHITECTURE.md](ARCHITECTURE.md)'s
+retirement ADR).
+
 The core loop:
 
 1. A **super admin** (the pool "coordinator") creates a **pool** — a
-   yes/no or multiple-choice question, usually tied to a real soccer
-   fixture, with a fixed entry fee.
+   yes/no or multiple-choice question, usually tied to a real sports
+   fixture, with a fixed entry fee (see §5 and §15 for the current-vs-target
+   sport breakdown again in context).
 2. Players **pick one option** and pay the entry fee from their in-app
    wallet.
 3. Once the pool locks (kickoff, or a scheduled time), no more picks are
@@ -128,19 +136,25 @@ rounding remainder, reversal debits).
 
 ### Fixtures
 
-Real match data is synced from an external provider (API-Football) behind a
-`SportsDataProvider` abstraction, so no application code ever touches the
-provider's raw JSON shape directly. A cron job (`sync-fixtures`, runs every
-minute) refreshes every non-terminal fixture at a cadence proportional to how
-close it is to kickoff (live matches sync every run; matches days out sync
-every 30 minutes). Admins import fixtures for pool creation from
-`/admin/fixtures` by searching a league (a real, human-readable dropdown, not
-a raw numeric league ID) + season + optional date, with bulk select/import.
+Real fixture data is synced from an external provider (currently API-NFL)
+behind a `SportsDataProvider` abstraction, so no application code ever
+touches the provider's raw JSON shape directly. A cron job
+(`sync-fixtures-nfl`, runs every minute) refreshes every non-terminal
+fixture at a cadence proportional to how close it is to kickoff. Admins
+browse and start pool creation from `/admin/events` (date/sport/status/
+search filters over already-synced fixtures, local-DB-only — never a live
+provider call on page load) and manage the underlying synced data —
+importing a season, hiding/unhiding, deleting — from `/admin/data`.
 Imported fixtures can be individually or bulk **hidden** from the
 pool-creation picker (`hidden_from_pool_creation`) without being deleted —
-useful for curating which matches admins are offered without losing the
-underlying synced data — and can now be **deleted outright** once no pool
+useful for curating which fixtures admins are offered without losing the
+underlying synced data — and can be **deleted outright** once no pool
 references them (see §8).
+
+Association football / soccer (API-Football) was supported at launch and
+has since been retired — no soccer provider calls, cron jobs, or admin
+tooling remain active. See [ARCHITECTURE.md](ARCHITECTURE.md) for that
+history.
 
 ### Pools and entries
 
@@ -171,14 +185,25 @@ is the currently-active one (`pools.snapshot_version` points to it).
 
 ---
 
-## 5. The four pool types
+## 5. The pool types
 
-- **`WHO_WILL_ADVANCE`** and **`REGULATION_RESULT`** — the original,
-  fixture-backed types. Options are tied to real teams pulled from the
-  fixture. The winning side is computed automatically from the fixture's
-  score: `WHO_WILL_ADVANCE` prefers the penalty-shootout score if one
-  exists, falling back to the final score; `REGULATION_RESULT` always uses
-  the 90-minute score only, even if extra time/penalties were played.
+- **`TEMPLATE_GRADED`** — the current, actively-created fixture-backed type.
+  A pool is created from a registry template (`lib/pools/templates/registry.ts`)
+  that owns its own `questionBuilder`/`gradingRule`/config-field shape; the
+  registry today has 3 NFL templates (Spread, Game Total, Team Total),
+  modeled on real sportsbook lines rather than a generic match-result
+  question. A new sport adds its own templates to the same registry rather
+  than reusing another sport's shape.
+- **`WHO_WILL_ADVANCE`** and **`REGULATION_RESULT`** — **legacy, retired
+  from new creation.** These were the original, hardcoded (non-registry)
+  Association-football pool types: options tied to real teams pulled from
+  the fixture, winner computed automatically from the fixture's score
+  (`WHO_WILL_ADVANCE` preferring the penalty-shootout score if one exists,
+  falling back to the final score; `REGULATION_RESULT` always using the
+  90-minute score only). A database trigger now rejects creating a new pool
+  of either type. Every already-existing pool of these types keeps grading,
+  settling, and — where needed — reversing exactly as before; nothing about
+  historical creation, grading, or settlement logic was changed or removed.
 - **`CUSTOM`** — a free-text question with free-text options and **no
   fixture at all** (`fixture_id` is nullable specifically to support this).
   Since there's no automatic score to check, a `CUSTOM` pool is always
@@ -187,21 +212,22 @@ is the currently-active one (`pools.snapshot_version` points to it).
   override on a fixture-backed pool, if an admin doesn't want to wait on or
   trust the automatic score check.
 - **`COMBO`** — a fixed **Yes/No** pair whose winner is derived from N
-  independently-graded **legs** (conditions), e.g. "Will Mbappé, Bellingham,
-  and Dembélé each score at least 1 goal?" as three separate legs. An admin
-  checks each leg met/not-met after the match; **"Yes" wins only if every
-  leg is met**, otherwise "No" wins automatically. Each leg also carries an
-  independent **Did Not Play (DNP)** flag: if a named player never actually
-  took the pitch, that invalidates the entire premise of the bet regardless
-  of how the other legs graded or which side anyone picked — DNP is an
-  absolute override that voids and fully refunds the whole pool
+  independently-graded **legs** (conditions), e.g. "Will Player A rush for
+  100+ yards, Player B catch a touchdown, and the team win?" as three
+  separate legs. An admin checks each leg met/not-met after the game;
+  **"Yes" wins only if every leg is met**, otherwise "No" wins
+  automatically. Each leg also carries an independent **Did Not Play
+  (DNP)** flag: if a named player never actually took the field, that
+  invalidates the entire premise of the bet regardless of how the other
+  legs graded or which side anyone picked — DNP is an absolute override
+  that voids and fully refunds the whole pool
   (`void_reason = COMBO_PLAYER_DID_NOT_PLAY`), distinct from grading that
   leg as simply "not met."
 
-Every pool also has an optional `title` (a short context line, e.g. "2026
-World Cup Semifinal, France – England") separate from `question` (the actual
-bet), usable by both `CUSTOM` and `COMBO` pools where there's no fixture
-header to display it under.
+Every pool also has an optional `title` (a short context line, e.g. "Week 1
+Sunday Night Football") separate from `question` (the actual bet), usable by
+both `CUSTOM` and `COMBO` pools where there's no fixture header to display
+it under.
 
 ---
 
@@ -525,6 +551,10 @@ this helper rather than calling `.in()` directly.
 
 ## 15. Intentionally out of scope / stubbed
 
+- **NBA, NHL, and MLB are not implemented.** They are the long-term target
+  supported leagues (alongside NFL, which is implemented), not a current
+  capability — no provider integration, templates, or admin tooling exist
+  for any of the three yet. Do not represent them as available.
 - No public sign-up — invite-only by design.
 - No pool content moderation beyond comments (predictions are always
   staff-authored).

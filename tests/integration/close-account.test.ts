@@ -141,7 +141,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("close_own_account", () => {
       .insert({
         fixture_id: fixtureId,
         created_by: creatorId,
-        pool_type: "WHO_WILL_ADVANCE",
+        pool_type: "CUSTOM",
         question: "Who will advance?",
         entry_fee: 1000,
         house_fee_bps: 1000,

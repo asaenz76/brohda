@@ -71,7 +71,6 @@ export default defineConfig({
       NEXT_PUBLIC_SUPABASE_URL: testSupabase.url,
       NEXT_PUBLIC_SUPABASE_ANON_KEY: testSupabase.anonKey,
       SUPABASE_SERVICE_ROLE_KEY: testSupabase.serviceRoleKey,
-      API_FOOTBALL_ENABLED: "false",
       API_NFL_ENABLED: "false",
       CRON_SECRET: "e2e-placeholder",
       RESEND_API_KEY: "",

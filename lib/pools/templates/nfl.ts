@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { PoolTemplate, TemplateFixtureScore } from "./types";
-import { teamName, teamSideSchema, type TeamSide } from "./match-result";
+import { teamName, teamSideSchema, type TeamSide } from "./shared";
 
 // NFL fixtures write their final score (including any overtime — the NFL
 // has no separate "extra time" phase the way soccer does) into the same

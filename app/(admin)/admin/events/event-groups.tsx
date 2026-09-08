@@ -13,7 +13,6 @@ import type { PoolEligibilityStatus } from "@/lib/fixtures/local-browse";
 import { canCreatePool } from "@/lib/fixtures/event-filters";
 import { EVENT_STATUS_LABEL, isLiveStatus } from "@/lib/fixtures/status-labels";
 import { SPORT_META } from "@/lib/fixtures/sport-meta";
-import { COMPETITION_GROUP_LABEL } from "@/lib/sports-data/supported-competitions";
 import { cn } from "@/lib/utils";
 import type { FixtureInternalStatus } from "@/lib/sports-data/types";
 
@@ -79,7 +78,6 @@ export function EventDateGroups({ dateGroups, timeZone }: { dateGroups: LocalEve
                           <div className="min-w-0">
                             <p className="truncate text-sm font-medium text-text-primary">
                               {group.competitionName ?? "Unknown competition"}
-                              {group.group && <span className="ml-1.5 text-xs font-normal text-text-muted">{COMPETITION_GROUP_LABEL[group.group]}</span>}
                             </p>
                             {group.competitionCountry && <p className="truncate text-xs text-text-muted">{group.competitionCountry}</p>}
                           </div>

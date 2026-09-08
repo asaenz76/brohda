@@ -98,7 +98,7 @@ async function createTestPool(fixtureId: string, adminId: string) {
     .insert({
       fixture_id: fixtureId,
       created_by: adminId,
-      pool_type: "REGULATION_RESULT",
+      pool_type: "CUSTOM",
       question: "What will the result be after regulation?",
       entry_fee: 1000,
       house_fee_bps: 1000,

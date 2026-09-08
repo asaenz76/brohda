@@ -393,7 +393,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("CUSTOM pools + manual grading", () => {
       .insert({
         fixture_id: fixtureId,
         created_by: adminId,
-        pool_type: "WHO_WILL_ADVANCE",
+        pool_type: "CUSTOM",
         question: "Who will advance?",
         entry_fee: 1000,
         house_fee_bps: 1000,
@@ -515,7 +515,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)("CUSTOM pools + manual grading", () => {
       .insert({
         fixture_id: fixtureId,
         created_by: adminId,
-        pool_type: "WHO_WILL_ADVANCE",
+        pool_type: "CUSTOM",
         question: "Who will advance? (reversal test)",
         entry_fee: 1000,
         house_fee_bps: 1000,
