@@ -12,12 +12,16 @@ function Card({
       data-slot="card"
       data-size={size}
       className={cn(
-        // Border + subtle shadow (light mode only) rather than a colored
-        // ring — dark mode relies on the border alone for separation.
-        // --card-spacing values are ~15% more generous than the previous
-        // 12px/16px (design-system refactor: more generous card/feed
-        // spacing), still compact enough not to inflate mobile height.
-        "group/card flex flex-col gap-(--card-spacing) overflow-hidden rounded-xl border border-border-subtle bg-card py-(--card-spacing) text-sm text-card-foreground shadow-[0_1px_2px_rgba(0,0,0,0.04)] [--card-spacing:1.125rem] has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:0.875rem] data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl dark:shadow-none",
+        // Bold 2px border + hard offset shadow — site-wide version of the
+        // pool-card redesign's graphic treatment, drawn from text-primary
+        // (near-black in light mode, near-white in dark) rather than a
+        // literal black/subtle shadow, so it stays high-contrast and
+        // consistent in both themes instead of relying on the border
+        // alone in dark mode. --card-spacing values are ~15% more
+        // generous than the previous 12px/16px (design-system refactor:
+        // more generous card/feed spacing), still compact enough not to
+        // inflate mobile height.
+        "group/card flex flex-col gap-(--card-spacing) overflow-hidden rounded-xl border-2 border-text-primary bg-card py-(--card-spacing) text-sm text-card-foreground shadow-[4px_4px_0_0_var(--text-primary)] [--card-spacing:1.125rem] has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:0.875rem] data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
         className
       )}
       {...props}

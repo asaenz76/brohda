@@ -42,9 +42,19 @@ export function CommunitySplit({ options }: { options: CommunitySplitOption[] })
         className="flex items-center gap-4"
         aria-label={`Community split: ${visible.map((o) => `${o.label} ${o.percentage}%`).join(", ")}`}
       >
-        <span className={`shrink-0 text-2xl font-bold sm:text-3xl ${NUMBER_COLORS[0]}`}>{visible[0].percentage}%</span>
+        <span className="flex shrink-0 items-center gap-1.5">
+          {/* A small color dot next to each percentage — same segment
+              color as the bar below it — is what actually reads as "a
+              real split" at a glance, not just two gray numbers either
+              side of a bar. */}
+          <span className={`size-2.5 shrink-0 rounded-full ${SEGMENT_COLORS[0]}`} aria-hidden="true" />
+          <span className={`text-2xl font-bold sm:text-3xl ${NUMBER_COLORS[0]}`}>{visible[0].percentage}%</span>
+        </span>
         {bar}
-        <span className={`shrink-0 text-2xl font-bold sm:text-3xl ${NUMBER_COLORS[1]}`}>{visible[1].percentage}%</span>
+        <span className="flex shrink-0 items-center gap-1.5">
+          <span className={`text-2xl font-bold sm:text-3xl ${NUMBER_COLORS[1]}`}>{visible[1].percentage}%</span>
+          <span className={`size-2.5 shrink-0 rounded-full ${SEGMENT_COLORS[1]}`} aria-hidden="true" />
+        </span>
       </div>
     );
   }

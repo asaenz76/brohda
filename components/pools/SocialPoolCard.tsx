@@ -158,8 +158,12 @@ export function SocialPoolCard({
         // Generous geometry, matching the approved mockup — this card is
         // deliberately larger and more spacious than the old dense
         // dashboard-style card. The prediction is the point; whitespace
-        // around it is not wasted space.
-        "space-y-6 rounded-[24px] border border-border-subtle bg-surface-primary p-7 sm:p-8",
+        // around it is not wasted space. Bolder border + a hard offset
+        // shadow for the graphic "pop" of the Common Ninja reference —
+        // drawn from text-primary (near-black in light mode, near-white
+        // in dark) rather than literal black, so it stays high-contrast
+        // in both themes instead of vanishing against the dark one.
+        "space-y-6 rounded-[24px] border-2 border-text-primary bg-surface-primary p-7 shadow-[6px_6px_0_0_var(--text-primary)] sm:p-8",
         // A pool that's just locked (not yet live/settled/voided — those
         // have their own status notices) reads as "no longer available"
         // rather than looking identical to an actively OPEN pool.
@@ -256,12 +260,13 @@ export function SocialPoolCard({
                       always stacks — three 56px+ buttons side by side
                       would be cramped, not a poll. */}
                   <div className={cn("grid gap-3", mergedOptions.length === 2 && "sm:grid-cols-2")}>
-                    {mergedOptions.map((option) => (
+                    {mergedOptions.map((option, i) => (
                       <PoolChoiceButton
                         key={option.optionId}
                         label={option.label}
                         logoUrl={option.teamLogoUrl}
                         isCurrentUserChoice={option.isCurrentUserChoice}
+                        isFirst={i === 0}
                         // Admins/super_admins coordinate pools, they don't
                         // play in them — create_pool_entry rejects this
                         // server-side too, but hiding the affordance here

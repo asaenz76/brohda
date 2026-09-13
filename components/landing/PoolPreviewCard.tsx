@@ -25,7 +25,7 @@ export function PoolPreviewCard({ viewModel }: { viewModel: SocialPoolCardViewMo
   const showDistribution = isPreVote || isPostVote;
 
   return (
-    <article className="space-y-6 rounded-[24px] border border-border-subtle bg-surface-primary p-7 sm:p-8">
+    <article className="space-y-6 rounded-[24px] border-2 border-text-primary bg-surface-primary p-7 shadow-[6px_6px_0_0_var(--text-primary)] sm:p-8">
       <div className="flex items-start justify-between gap-2">
         <LeagueIdentity
           competitionName={viewModel.fixture.competitionName}
@@ -49,12 +49,13 @@ export function PoolPreviewCard({ viewModel }: { viewModel: SocialPoolCardViewMo
       {showDistribution && <CommunitySplit options={viewModel.options} />}
 
       <div className={cn("grid gap-3", viewModel.options.length === 2 && "sm:grid-cols-2")}>
-        {viewModel.options.map((option) => (
+        {viewModel.options.map((option, i) => (
           <PoolChoiceButton
             key={option.optionId}
             label={option.label}
             logoUrl={option.teamLogoUrl}
             isCurrentUserChoice={false}
+            isFirst={i === 0}
             disabled
             onSelect={() => {}}
           />
