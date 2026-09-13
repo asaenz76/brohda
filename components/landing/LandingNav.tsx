@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { InstallAppButton } from "@/components/InstallAppButton";
 
 // Deliberately just logo + how-it-works anchor + the two auth CTAs — no
@@ -19,7 +18,6 @@ export function LandingNav() {
         </nav>
         <div className="flex items-center gap-2">
           <InstallAppButton />
-          <ThemeToggle />
           <Link href="/login" className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}>
             Sign in
           </Link>

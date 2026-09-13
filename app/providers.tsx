@@ -26,7 +26,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
+    // Dark mode disabled site-wide: forcedTheme pins every visitor to
+    // light regardless of system preference or whatever a returning
+    // visitor's browser still has stored from before the switcher was
+    // removed — enableSystem={false}/defaultTheme are moot once
+    // forcedTheme is set, but left as the explicit light default in case
+    // forcedTheme is ever lifted again.
+    <ThemeProvider attribute="class" defaultTheme="light" forcedTheme="light" enableSystem={false}>
       {children}
     </ThemeProvider>
   );
