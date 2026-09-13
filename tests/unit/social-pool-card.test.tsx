@@ -1,10 +1,23 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SocialPoolCardViewModel } from "@/lib/pools/view-model";
 import type { PoolLiveStats } from "@/lib/pools/fetch";
 
 afterEach(() => cleanup());
+
+// jsdom doesn't implement ResizeObserver — EntryConfirmationSheet's
+// SlideToConfirm only uses it to measure the track's pixel width,
+// irrelevant to the behavior under test here (see slide-to-confirm.test.tsx).
+beforeEach(() => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+});
 
 // Captures the broadcast callback the component registers, so the test can
 // simulate a realtime event arriving without a real websocket connection.
@@ -93,7 +106,7 @@ function buildViewModel(overrides: Partial<SocialPoolCardViewModel> = {}): Socia
 }
 
 describe("SocialPoolCard live payout updates", () => {
-  it("applies a live broadcast update, then a fresh SSR viewModel supersedes it (no stale override)", async () => {
+  it("applies a live broadcast update to CommunitySplit, then a fresh SSR viewModel supersedes it (no stale override)", async () => {
     broadcastCallback = null;
     getPoolLiveStatsAction.mockResolvedValue({
       totalEntries: 3,
@@ -108,14 +121,13 @@ describe("SocialPoolCard live payout updates", () => {
       <SocialPoolCard viewModel={buildViewModel()} balanceCents={5000} paymentMethods={[]} viewer={{ id: "u1", isModerator: false }} />,
     );
 
-    expect(screen.getAllByText("Picked by 50%").length).toBeGreaterThan(0);
+    expect(screen.getByLabelText(/Alpha 50%/)).toBeInTheDocument();
 
     // Simulate a realtime broadcast arriving.
     expect(broadcastCallback).not.toBeNull();
     broadcastCallback!();
 
-    await waitFor(() => expect(screen.getAllByText("Picked by 33%").length).toBeGreaterThan(0));
-    expect(screen.getByText("Est. payout $9.00")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText(/Alpha 33%/)).toBeInTheDocument());
 
     // A fresh SSR render (different totalEntries/grossPool) must win over
     // the stale live-broadcast override, not be masked by it.
@@ -132,8 +144,47 @@ describe("SocialPoolCard live payout updates", () => {
       <SocialPoolCard viewModel={freshViewModel} balanceCents={5000} paymentMethods={[]} viewer={{ id: "u1", isModerator: false }} />,
     );
 
-    expect(screen.getAllByText("Picked by 25%").length).toBeGreaterThan(0);
-    expect(screen.queryByText("Picked by 33%")).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/Alpha 25%/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Alpha 33%/)).not.toBeInTheDocument();
+  });
+
+  it("carries a live-updated estimated payout into the post-selection entry flow", async () => {
+    broadcastCallback = null;
+    getPoolLiveStatsAction.mockResolvedValue({
+      totalEntries: 3,
+      grossPool: 3000,
+      options: {
+        a: { percentage: 33, estimatedPayout: 900 },
+        b: { percentage: 67, estimatedPayout: 447 },
+      },
+    });
+
+    const viewModel = buildViewModel({
+      status: "OPEN_PRE_VOTE",
+      currentUser: {
+        hasEntered: false,
+        selectedOptionId: null,
+        entryCount: 0,
+        entryAmount: 0,
+        estimatedPayout: null,
+        finalPayout: null,
+        refundedAmount: null,
+      },
+      options: [
+        { optionId: "a", label: "Alpha", teamLogoUrl: null, percentage: 50, estimatedPayout: 1800, isCurrentUserChoice: false },
+        { optionId: "b", label: "Beta", teamLogoUrl: null, percentage: 50, estimatedPayout: 1800, isCurrentUserChoice: false },
+      ],
+    });
+
+    render(<SocialPoolCard viewModel={viewModel} balanceCents={5000} paymentMethods={[]} viewer={{ id: "u1", isModerator: false }} />);
+
+    broadcastCallback!();
+    await waitFor(() => expect(screen.getByLabelText(/Alpha 33%/)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Alpha" }));
+
+    expect(await screen.findByText("Current estimated return")).toBeInTheDocument();
+    expect(screen.getByText("$9.00")).toBeInTheDocument();
   });
 });
 
@@ -173,7 +224,7 @@ describe("SocialPoolCard volume display", () => {
 
     render(<SocialPoolCard viewModel={viewModel} balanceCents={5000} paymentMethods={[]} viewer={{ id: "u1", isModerator: false }} />);
 
-    expect(screen.getByText("$20.00 volume")).toBeInTheDocument();
+    expect(screen.getByText("$20.00 pot")).toBeInTheDocument();
     expect(screen.queryByText(/^\d+%$/)).not.toBeInTheDocument();
 
     // Pre-entry viewers must still subscribe so volume stays live, even
@@ -181,7 +232,7 @@ describe("SocialPoolCard volume display", () => {
     expect(broadcastCallback).not.toBeNull();
     broadcastCallback!();
 
-    await waitFor(() => expect(screen.getByText("$50.00 volume")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("$50.00 pot")).toBeInTheDocument());
     expect(screen.queryByText(/^\d+%$/)).not.toBeInTheDocument();
   });
 });
@@ -208,7 +259,7 @@ describe("SocialPoolCard combo conditions", () => {
     // Conditions are plain list text — no button/checkbox role, unlike the
     // Yes/No options right below them.
     expect(screen.queryByRole("button", { name: /Mbappé/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Yes/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Yes" })).toBeInTheDocument();
   });
 
   it("renders nothing extra for a non-COMBO pool (comboLegs null)", () => {
@@ -221,7 +272,7 @@ describe("SocialPoolCard combo conditions", () => {
 });
 
 describe("SocialPoolCard pre-entry distribution (default SHOW_BEFORE_ENTRY)", () => {
-  it("shows per-option percentage, payout, and the distribution bar before the viewer has entered", () => {
+  it("shows the CommunitySplit percentages and the estimated return once an option is selected, before the viewer has entered", () => {
     const viewModel = buildViewModel({
       status: "OPEN_PRE_VOTE",
       totalEntries: 2,
@@ -243,10 +294,13 @@ describe("SocialPoolCard pre-entry distribution (default SHOW_BEFORE_ENTRY)", ()
 
     render(<SocialPoolCard viewModel={viewModel} balanceCents={5000} paymentMethods={[]} viewer={{ id: "u1", isModerator: false }} />);
 
-    expect(screen.getAllByText("Picked by 50%").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Est. payout $9.00").length).toBeGreaterThan(0);
-    // PoolDistributionBar's combined "Community sentiment: Alpha 50%  |  Beta 50%" summary line.
-    expect(screen.getByText(/Alpha 50%/)).toBeInTheDocument();
+    // CommunitySplit's combined "Community split: Alpha 50%  |  Beta 50%" summary line.
+    expect(screen.getByLabelText(/Alpha 50%/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Alpha" }));
+
+    expect(screen.getByText("Current estimated return")).toBeInTheDocument();
+    expect(screen.getByText("$9.00")).toBeInTheDocument();
   });
 });
 
@@ -277,5 +331,29 @@ describe("SocialPoolCard collapsible mode", () => {
 
     expect(screen.getByText("Who wins?")).toBeInTheDocument();
     expect(screen.getByLabelText("Hide pick details")).toBeInTheDocument();
+  });
+});
+
+describe("SocialPoolCard pool details disclosure", () => {
+  it("links to the pool's own detail page", () => {
+    render(
+      <SocialPoolCard viewModel={buildViewModel()} balanceCents={5000} paymentMethods={[]} viewer={{ id: "u1", isModerator: false }} />,
+    );
+
+    expect(screen.getByRole("link", { name: /Pool details/ })).toHaveAttribute("href", "/pool/pool-1");
+  });
+
+  it("is suppressed on the pool's own detail page", () => {
+    render(
+      <SocialPoolCard
+        viewModel={buildViewModel()}
+        balanceCents={5000}
+        paymentMethods={[]}
+        viewer={{ id: "u1", isModerator: false }}
+        isDetailPage
+      />,
+    );
+
+    expect(screen.queryByRole("link", { name: /Pool details/ })).not.toBeInTheDocument();
   });
 });

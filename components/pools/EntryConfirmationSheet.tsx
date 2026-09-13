@@ -25,6 +25,13 @@ interface EntryConfirmationSheetProps {
    *  pool with its own option rows (see 20260101000122). Omit for an
    *  ordinary, non-tiered pool. */
   tiers?: Array<{ poolId: string; entryFee: number; options: Array<{ optionId: string; label: string }> }>;
+  /** Pari-mutuel "if this option wins" live estimate for the option this
+   *  sheet was opened for (already computed upstream, same figure that used
+   *  to render inline on the choice button). Only shown while the sheet is
+   *  still pointed at that original pool — switching to a sibling fee tier
+   *  has its own, different entrants/payout math that isn't available here,
+   *  so the estimate is hidden rather than shown stale. */
+  estimatedPayout?: number | null;
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -44,6 +51,7 @@ export function EntryConfirmationSheet({
   balanceCents,
   locksAt,
   tiers,
+  estimatedPayout,
   onClose,
   onSuccess,
 }: EntryConfirmationSheetProps) {
@@ -69,6 +77,7 @@ export function EntryConfirmationSheet({
   const insufficientBalance = effectiveEntryFee > balanceCents;
 
   const balanceAfter = balanceCents - effectiveEntryFee;
+  const showEstimatedReturn = estimatedPayout != null && effectivePoolId === poolId;
 
   return (
     <div
@@ -126,6 +135,18 @@ export function EntryConfirmationSheet({
             <dd className="text-text-primary">{formatCents(balanceAfter)}</dd>
           </div>
         </dl>
+
+        {showEstimatedReturn && (
+          <div className="rounded-xl bg-accent-primary-subtle px-3 py-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-medium text-text-secondary">Current estimated return</span>
+              <span className="font-semibold text-accent-primary">{formatCents(estimatedPayout!)}</span>
+            </div>
+            <p className="mt-0.5 text-xs text-text-muted">
+              Estimate only. Your final share depends on the pool at lock time.
+            </p>
+          </div>
+        )}
 
         {/* Restated right at the moment of commitment, not just on the feed
             card's small footer text — silence about money is the product's

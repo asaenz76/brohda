@@ -24,7 +24,7 @@ export interface ImportedFixture {
 // Several countries have leagues that share the exact same name (e.g.
 // "Primera División" — Costa Rica, Peru, Chile, Uruguay all use it) —
 // same disambiguation convention already used by the Feed page's league
-// filter and PoolLeagueHeader.
+// filter and LeagueIdentity.
 function leagueKey(name: string, country: string | null): string {
   return country ? `${country}|${name}` : name;
 }

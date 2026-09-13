@@ -83,7 +83,7 @@ const nextConfig: NextConfig = {
               // real CSS-exfiltration vector) while still allowing the
               // handful of legitimate, hardcoded dynamic style={{}} usages
               // in this codebase (drag-slider position in SlideToConfirm,
-              // percentage bar width in PoolDistributionBar) — there's no
+              // percentage bar width in CommunitySplit) — there's no
               // nonce mechanism for inline style *attributes* driven by
               // continuously-variable values, so removing unsafe-inline
               // there entirely would require rewriting those to a CSSOM/

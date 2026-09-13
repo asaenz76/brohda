@@ -32,6 +32,7 @@ export default async function PoolDetailPage({ params }: { params: Promise<{ id:
         balanceCents={wallet?.balance ?? 0}
         paymentMethods={paymentMethods.filter((m) => m.enabled)}
         viewer={{ id: user.id, isModerator: isAdminOrAbove(user) }}
+        isDetailPage
       />
     </>
   );

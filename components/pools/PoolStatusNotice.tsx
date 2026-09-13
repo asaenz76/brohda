@@ -1,3 +1,4 @@
+import { Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Notice } from "@/lib/pools/notices";
 
@@ -21,10 +22,16 @@ export function PoolStatusNotice({ notice }: { notice: Notice | null }) {
         // the same concept as "money was added to your wallet", even though
         // one causes the other. Only the win gets the celebratory pop; a
         // loss should read as neutral-negative, not draw extra attention.
-        isWon && "bg-pool-win/10 text-pool-win font-medium animate-[celebrate-pop_0.4s_ease-out]",
-        isLost && "bg-pool-loss/10 text-pool-loss font-medium",
+        // Both settled cases get more visual weight than an ordinary
+        // notice (bigger text/padding, matching the mockup's result
+        // banner) — this is the headline fact for a settled card, not a
+        // footnote.
+        (isWon || isLost) && "flex items-center gap-2 px-4 py-3 text-base font-semibold",
+        isWon && "bg-pool-win/10 text-pool-win animate-[celebrate-pop_0.4s_ease-out]",
+        isLost && "bg-pool-loss/10 text-pool-loss",
       )}
     >
+      {isWon && <Trophy className="size-5 shrink-0" aria-hidden="true" />}
       {notice.message}
     </p>
   );

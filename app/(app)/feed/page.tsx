@@ -21,7 +21,7 @@ function unwrapEmbed<T>(raw: unknown): T | null {
 // league filter needs country baked into both the option's value (to
 // actually disambiguate what gets filtered) and its label (so the admin can
 // tell them apart in the dropdown). Mirrors the "{country} | {name}"
-// convention already used by PoolLeagueHeader and the admin pool-creation
+// convention already used by LeagueIdentity and the admin pool-creation
 // fixture picker.
 function leagueKey(name: string, country: string | null): string {
   return country ? `${country}|${name}` : name;

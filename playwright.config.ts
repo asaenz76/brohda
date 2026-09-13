@@ -21,6 +21,11 @@ import { getTestSupabaseConfig } from "./tests/e2e/helpers/test-env";
 // `.env.local` be the source nothing else already provided.
 const testSupabase = getTestSupabaseConfig();
 
+// Configurable so a local run can avoid a port already held by something
+// else on the machine; defaults to 3000, unchanged from before.
+const e2ePort = process.env.E2E_PORT ?? "3000";
+const e2eBaseUrl = `http://localhost:${e2ePort}`;
+
 export default defineConfig({
   testDir: "./tests/e2e",
   // Defense-in-depth layer 2 (layer 1 is the top-level guard call above) —
@@ -39,12 +44,12 @@ export default defineConfig({
   // longer than that on a cold Turbopack route.
   expect: { timeout: 15_000 },
   use: {
-    baseURL: process.env.APP_URL ?? "http://localhost:3000",
+    baseURL: process.env.APP_URL ?? e2eBaseUrl,
     trace: "on-first-retry",
   },
   webServer: {
-    command: "pnpm dev",
-    url: "http://localhost:3000",
+    command: process.env.E2E_PORT ? `pnpm dev --port ${e2ePort}` : "pnpm dev",
+    url: e2eBaseUrl,
     // Deliberately NOT `!process.env.CI` (Playwright's usual local-dev
     // convenience default). Reusing an already-running server means
     // webServer.env below — the whole mechanism that keeps this process

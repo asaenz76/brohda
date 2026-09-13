@@ -249,7 +249,7 @@ export async function getPoolCardViewModels(
           away_score: null,
         };
     // Not read by buildPoolCardViewModel anymore (the card shows the league,
-    // not the creator — see PoolLeagueHeader), but this lookup stays: it's
+    // not the creator — see LeagueIdentity), but this lookup stays: it's
     // what catches a pool whose creator account no longer resolves and
     // skips it, same as the fixture-missing check right next to it.
     const creator = creators.find((c) => c.id === pool.created_by);
