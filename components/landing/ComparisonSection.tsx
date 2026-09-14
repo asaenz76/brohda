@@ -16,7 +16,7 @@ export function ComparisonSection() {
         Brohda brings predictions into a community feed. Make your call, see where your friends
         stand, compete in pools, and build a track record over time.
       </p>
-      <div className="mt-8 overflow-x-auto rounded-2xl border border-border-subtle">
+      <div className="mt-8 overflow-x-auto rounded-2xl border-2 border-text-primary shadow-[4px_4px_0_0_var(--text-primary)]">
         <table className="w-full min-w-[420px] text-left text-sm">
           <thead>
             <tr className="border-b border-border-subtle bg-surface-secondary text-text-muted">
