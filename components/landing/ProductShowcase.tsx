@@ -32,7 +32,7 @@ function ShowcasePanel({
         </span>
         {title}
       </div>
-      <p className="text-sm text-inverted-surface-foreground/70">{description}</p>
+      <p className="text-sm text-text-secondary">{description}</p>
       <PhoneFrame>{children}</PhoneFrame>
     </div>
   );
@@ -56,7 +56,7 @@ export function ProductShowcase({
   let panelIndex = 0;
 
   return (
-    <section className="border-y border-border-subtle bg-inverted-surface py-16 text-inverted-surface-foreground">
+    <section className="border-y border-border-subtle bg-surface-secondary py-16 text-text-primary">
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
         <h2 className="text-balance text-center text-2xl font-bold sm:text-3xl">
           Built for <span className="text-accent-primary-label">competition</span>. Made for{" "}
