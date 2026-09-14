@@ -8,7 +8,6 @@ import { Podium } from "@/components/leaderboard/Podium";
 import { RankedList } from "@/components/leaderboard/RankedList";
 import { LineChartCard } from "@/components/analytics/LineChartCard";
 import { MetricCard } from "@/components/analytics/MetricCard";
-import { PhoneFrame } from "./PhoneFrame";
 import { PoolPreviewCard } from "./PoolPreviewCard";
 
 const NIL_USER_ID = "00000000-0000-0000-0000-000000000000";
@@ -33,7 +32,12 @@ function ShowcasePanel({
         {title}
       </div>
       <p className="text-sm text-text-secondary">{description}</p>
-      <PhoneFrame>{children}</PhoneFrame>
+      {/* No device-frame illustration — the real components (PoolPreviewCard,
+          MetricCard, ...) already carry the site's own bold-border card
+          language, so a plain mobile-width column lets them speak for
+          themselves instead of sitting inside a second, different-styled
+          "phone" shape. */}
+      <div className="mx-auto max-w-[300px]">{children}</div>
     </div>
   );
 }
