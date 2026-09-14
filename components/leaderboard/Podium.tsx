@@ -66,7 +66,7 @@ export function Podium({
   const podiumOrder = [entries[1], entries[0], entries[2]];
 
   return (
-    <div className="rounded-2xl border border-border-subtle bg-surface-primary p-4">
+    <div className="rounded-2xl border-2 border-text-primary bg-surface-primary p-4 shadow-[4px_4px_0_0_var(--text-primary)]">
       <div className="flex items-end justify-center gap-3">
         {podiumOrder.map((entry, i) => {
           if (!entry) return <div key={`empty-${i}`} className="w-20" />;

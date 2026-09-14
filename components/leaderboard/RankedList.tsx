@@ -19,7 +19,7 @@ export function RankedList({
   if (entries.length === 0) return null;
 
   return (
-    <div className="rounded-2xl border border-border-subtle bg-surface-primary">
+    <div className="rounded-2xl border-2 border-text-primary bg-surface-primary shadow-[4px_4px_0_0_var(--text-primary)]">
       <div className="flex items-center justify-between px-3 pt-3 text-xs font-semibold uppercase tracking-wide text-text-muted">
         <span>Player</span>
         <span>Correct picks</span>
