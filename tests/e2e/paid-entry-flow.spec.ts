@@ -45,15 +45,27 @@ async function createPlayer(email: string, balanceCents: number) {
   return data.user.id as string;
 }
 
+// CI's E2E job (.github/workflows/ci.yml) never bootstraps a super_admin —
+// only invite-flow.spec.ts's own admin/invitee are created inline, the same
+// pattern this mirrors — so this must create its own rather than assume one
+// exists.
 async function getAdminId(): Promise<string> {
-  const { data } = await admin
-    .from("user_profiles")
-    .select("id")
-    .eq("role", "super_admin")
-    .eq("is_active", true)
-    .limit(1)
-    .single();
-  return data!.id as string;
+  const { data, error } = await admin.auth.admin.createUser({
+    email: `e2e-paid-admin-${randomUUID()}@example.com`,
+    password: "e2e-admin-password-123",
+    email_confirm: true,
+  });
+  if (error || !data.user) throw error ?? new Error("failed to create admin user");
+
+  const { error: profileError } = await admin.from("user_profiles").insert({
+    id: data.user.id,
+    display_name: "E2E Admin",
+    role: "super_admin",
+    is_active: true,
+  });
+  if (profileError) throw profileError;
+
+  return data.user.id as string;
 }
 
 async function createFixture(): Promise<string> {
