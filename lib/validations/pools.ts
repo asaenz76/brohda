@@ -37,8 +37,19 @@ const participationVisibilityEnum = z.enum([
 // platform-wide MINIMUM_POOL_ENTRIES floor (lib/actions/pools.ts), not an
 // admin-chosen value, so it's no longer client-submitted input.
 const sharedPoolFinancialFields = {
-  entryFeeCents: z.number().int().positive(),
-  houseFeeBps: z.number().int().min(0).max(10000),
+  // Optional, defaulting to PAID — every existing caller (duplicate-pool,
+  // multi-fixture bulk creation) that never sends this field keeps
+  // creating PAID pools exactly as before.
+  entryMode: z.enum(["PAID", "FREE"]).optional().default("PAID"),
+  // Optional here (not required per-branch): a FREE submission omits both;
+  // the cross-field refine below is what actually enforces "PAID needs
+  // both, FREE needs neither" — the DB's own pools_entry_mode_financial_check
+  // constraint is the true, un-bypassable backstop either way.
+  // .nullish() (not just .optional()): readPoolConfigFromForm sends an
+  // explicit `null` for a FREE submission, not `undefined` — Zod's
+  // .optional() alone rejects a literal null.
+  entryFeeCents: z.number().int().positive().nullish(),
+  houseFeeBps: z.number().int().min(0).max(10000).nullish(),
   visibility: visibilityEnum,
   // No longer an admin-facing choice in either creation wizard (launch
   // simplification — always shows community sentiment before entry) — both
@@ -105,7 +116,16 @@ export const createPoolFromTemplateSchema = z.discriminatedUnion("poolType", [
       ...sharedPoolFields,
     })
     .strict(),
-]);
+]).refine(
+  (data) =>
+    data.entryMode === "FREE"
+      ? data.entryFeeCents == null && data.houseFeeBps == null
+      : data.entryFeeCents != null && data.houseFeeBps != null,
+  {
+    message: "A paid pool needs an entry fee and a platform fee; a free pool must not set either.",
+    path: ["entryFeeCents"],
+  },
+);
 
 export type CreatePoolFromTemplateInput = z.infer<typeof createPoolFromTemplateSchema>;
 
@@ -123,7 +143,15 @@ const entryFeeCentsList = z
   .max(MAX_TIERS_PER_GROUP)
   .refine((arr) => new Set(arr).size === arr.length, "Entry fees must be unique");
 
-const { entryFeeCents: _tierGroupOmittedEntryFeeCents, ...sharedPoolFieldsWithoutEntryFee } = sharedPoolFields;
+// Fee tiers are exclusively a PAID concept (a FREE pool's tier_group_id is
+// constraint-enforced null at the DB level — Decision 4) — entryMode is
+// omitted here entirely, not just left unset, so a tier-group submission
+// has no way to even attempt "FREE" in the first place.
+const {
+  entryFeeCents: _tierGroupOmittedEntryFeeCents,
+  entryMode: _tierGroupOmittedEntryMode,
+  ...sharedPoolFieldsWithoutEntryFee
+} = sharedPoolFields;
 const sharedTierGroupFields = {
   ...sharedPoolFieldsWithoutEntryFee,
   entryFeeCentsList,
@@ -217,7 +245,11 @@ export const enterPoolSchema = z
   .object({
     poolId: z.string().uuid(),
     optionId: z.string().uuid(),
-    amountCents: z.number().int().positive(),
+    // Nullable, not just optional-with-a-default: a FREE entry's canonical
+    // request supplies amountCents = null explicitly (Decision 3, §7). The
+    // server never infers "no amount sent" as "amount is 0" — create_pool_entry
+    // rejects any non-null amount against a FREE pool outright.
+    amountCents: z.number().int().positive().nullable(),
     idempotencyKey: z.string().uuid(),
   })
   .strict();

@@ -58,6 +58,7 @@ function buildInput(overrides: Partial<BuildViewModelInput> = {}): BuildViewMode
       question: "Will they all score?",
       title: "2026 FIFA World Cup Final",
       pool_type: "COMBO",
+      entry_mode: "PAID",
       entry_fee: 1000,
       house_fee_bps: 1000,
       min_total_entries: 10,

@@ -16,8 +16,18 @@ export interface NoticeInput {
   fixtureInternalStatus: FixtureInternalStatus;
   voidReason: PoolVoidReason | null;
   entryStatus: EntryStatusForCard;
-  /** The entry's original amount in cents (0 if the user never entered). */
-  entryAmount: number;
+  /** The entry's original amount in cents. Null for a FREE entry (never had
+   *  a cost) or when the user never entered — formatCents is never called
+   *  on a null value; the FREE branch of buildVoidNotice never mentions an
+   *  amount at all. */
+  entryAmount: number | null;
+  /** "PAID" (default, for every existing caller) or "FREE" — selects
+   *  between dollar-denominated void/settlement copy and its
+   *  money-free equivalent (§10). The WON branch needs no entryMode
+   *  branch: a FREE entry's finalPayout is always null (no
+   *  settlement_payouts row is ever written for FREE), so it already
+   *  falls through to the mode-neutral "You won!" wording. */
+  entryMode?: "PAID" | "FREE";
   /** From settlement_payouts, only present once WON. */
   finalPayout: number | null;
   /** Label of the settled winning option, for the SETTLED_LOST copy. */
@@ -91,6 +101,7 @@ export function buildNoticeCopy(input: NoticeInput): Notice | null {
     voidReason,
     entryStatus,
     entryAmount,
+    entryMode = "PAID",
     finalPayout,
     winningOptionLabel,
     selectedOptionLabel,
@@ -114,7 +125,7 @@ export function buildNoticeCopy(input: NoticeInput): Notice | null {
   }
 
   if (poolStatus === "VOIDED" || poolStatus === "CANCELLED") {
-    return buildVoidNotice(voidReason, entryStatus, entryAmount, houseFeeBasisPoints);
+    return buildVoidNotice(voidReason, entryStatus, entryAmount, entryMode, houseFeeBasisPoints);
   }
 
   if (
@@ -181,7 +192,8 @@ function buildPendingAnomalyNotice(status: FixtureInternalStatus): Notice {
 function buildVoidNotice(
   voidReason: PoolVoidReason | null,
   entryStatus: EntryStatusForCard,
-  entryAmount: number,
+  entryAmount: number | null,
+  entryMode: "PAID" | "FREE",
   houseFeeBasisPoints?: number,
 ): Notice {
   const hasEntry = entryStatus === "REFUNDED" || entryStatus === "VOID";
@@ -191,16 +203,23 @@ function buildVoidNotice(
   if (!hasEntry) {
     return {
       type: voidReason ?? "VOIDED",
-      message: "This pool has been voided and all entries have been refunded.",
+      message:
+        entryMode === "FREE"
+          ? "This pool has been voided."
+          : "This pool has been voided and all entries have been refunded.",
     };
   }
 
-  const amount = formatCents(entryAmount);
+  if (entryMode === "FREE") {
+    return buildFreeVoidNotice(voidReason);
+  }
+
+  const amount = formatCents(entryAmount ?? 0);
   // Only this one void reason ever refunds less than entryAmount — the
   // platform fee is retained instead of refunded, unlike every other
   // reason. Mirrors confirm_combo_refund_fee_retained's per-entry SQL exactly.
   const netAmount = formatCents(
-    computeFeeRetainedRefund(entryAmount, houseFeeBasisPoints ?? 0).netRefund,
+    computeFeeRetainedRefund(entryAmount ?? 0, houseFeeBasisPoints ?? 0).netRefund,
   );
 
   switch (voidReason) {
@@ -276,5 +295,57 @@ function buildVoidNotice(
         type: "VOIDED",
         message: `This pool has been voided. Your ${amount} entry fee has been credited back to your balance.`,
       };
+  }
+}
+
+// FREE-mode counterpart to buildVoidNotice's dollar-denominated switch —
+// same reasons, same tone, but never claims a refund/credit occurred,
+// since a FREE entry never had a cost (§8, §10). NO_WINNING_ENTRIES_FEE_
+// RETAINED is inherently a PAID/fee concept (a FREE pool's house_fee_bps
+// is always 0) and falls through to the generic message defensively
+// rather than being a reachable case in practice.
+function buildFreeVoidNotice(voidReason: PoolVoidReason | null): Notice {
+  switch (voidReason) {
+    case "MATCH_POSTPONED_NOT_COMPLETED_SAME_DAY":
+      return { type: voidReason, message: "Match Postponed. This pool has been voided." };
+    case "MATCH_CANCELLED":
+      return { type: voidReason, message: "Match Cancelled. This pool has been voided." };
+    case "MATCH_ABANDONED":
+      return { type: voidReason, message: "Match Abandoned. This pool has been voided." };
+    case "MATCH_SUSPENDED_NOT_COMPLETED_SAME_DAY":
+      return {
+        type: voidReason,
+        message: "Match Suspended. The match was not completed today, so this pool has been voided.",
+      };
+    case "MINIMUM_ENTRIES_NOT_REACHED":
+      return { type: voidReason, message: "Not enough players joined. This pool has been cancelled." };
+    case "ADMIN_MANUAL_CANCEL":
+      return { type: voidReason, message: "This pool has been cancelled by an admin." };
+    case "NO_WINNING_ENTRIES":
+      return {
+        type: voidReason,
+        message: "Nobody picked the winning outcome, so this pool has been cancelled.",
+      };
+    case "ALL_ENTRIES_WINNING":
+      return { type: voidReason, message: "Everyone picked the winner! This pool has been cancelled." };
+    case "COMBO_PLAYER_DID_NOT_PLAY":
+      return {
+        type: voidReason,
+        message: "A featured player did not take the pitch, so this pool has been voided.",
+      };
+    case "ONE_SIDED_POOL":
+      return {
+        type: voidReason,
+        message: "Everyone picked the same side, so this pool has been cancelled.",
+      };
+    case "MATCH_AWARDED":
+      return { type: voidReason, message: "Match Awarded. This pool has been voided." };
+    case "MATCH_STATUS_UNKNOWN":
+      return {
+        type: voidReason,
+        message: "This match's status could not be confirmed, so this pool has been voided.",
+      };
+    default:
+      return { type: "VOIDED", message: "This pool has been voided." };
   }
 }

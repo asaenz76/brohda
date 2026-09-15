@@ -33,7 +33,7 @@ caused the incidents above.
 |---|---|---|---|
 | Production / prod-facing dev | `.env.local` | `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, ... | Whatever hosted project `.env.local` points at (real production on most machines) |
 | Local dev seeding | `.env.development.local` | same var names, different values | Local Supabase (`http://127.0.0.1:54321`) |
-| **Integration tests** | `.env.test.local` | `TEST_SUPABASE_URL`, `TEST_SUPABASE_ANON_KEY`, `TEST_SUPABASE_SERVICE_ROLE_KEY` | Local Supabase, and **only** local Supabase — enforced, not just configured |
+| **Integration tests** | `.env.test.local` | `TEST_SUPABASE_URL`, `TEST_SUPABASE_ANON_KEY`, `TEST_SUPABASE_SERVICE_ROLE_KEY`, `TEST_DATABASE_URL` | Local Supabase, and **only** local Supabase — enforced, not just configured |
 
 The test config uses a namespace nothing else reads. This is deliberate: if
 integration tests read `NEXT_PUBLIC_SUPABASE_URL` like production code
@@ -125,6 +125,11 @@ independently:
    `http://localhost:54321`) — nothing else. Not a "trusted" remote test
    project, not staging, nothing. Any other value throws
    `UnsafeTestSupabaseTargetError` before a client is ever constructed.
+   `getTestDatabaseUrl()`/`assertSafeTestDatabaseUrl()` apply the identical
+   pattern to `TEST_DATABASE_URL` (the CLI's fixed direct-Postgres address,
+   `127.0.0.1:54322`/`localhost:54322`) for the one test suite
+   (`tests/integration/free-mode.test.ts`'s toggle/entry linearization
+   proof) that needs a raw connection instead of going through PostgREST.
 
 This is checked in two places, deliberately redundant:
 

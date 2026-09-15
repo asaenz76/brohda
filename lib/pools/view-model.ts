@@ -7,6 +7,7 @@ import {
 } from "./card-state";
 import { getRuleLabel, type PoolType } from "./templates";
 import { buildNoticeCopy, type Notice } from "./notices";
+import { hasPrizePool, type EntryMode } from "./capabilities";
 import type { PoolVoidReason } from "./anomaly";
 import type { FixtureInternalStatus } from "@/lib/sports-data/types";
 
@@ -61,13 +62,16 @@ export interface SocialPoolCardViewModel {
    *  (only the fixed Yes/No pool_options are entries). Null for every other
    *  pool type. */
   comboLegs: Array<{ id: string; label: string }> | null;
-  entryFee: number;
+  entryMode: EntryMode;
+  /** Null for a FREE pool — never a $0 sentinel (FREE_MODE_ARCHITECTURE_PROPOSAL.md §3). */
+  entryFee: number | null;
   houseFeeBasisPoints: number;
   minTotalEntries: number;
   locksAt: string;
   totalEntries: number;
-  grossPool: number;
-  estimatedNetPrizePool: number;
+  /** Null for a FREE pool — there is no prize pool concept, not a $0 one. */
+  grossPool: number | null;
+  estimatedNetPrizePool: number | null;
   options: Array<{
     optionId: string;
     label: string;
@@ -84,7 +88,8 @@ export interface SocialPoolCardViewModel {
     hasEntered: boolean;
     selectedOptionId: string | null;
     entryCount: number;
-    entryAmount: number;
+    /** Null for a FREE entry — never had a cost. */
+    entryAmount: number | null;
     estimatedPayout: number | null;
     finalPayout: number | null;
     refundedAmount: number | null;
@@ -105,7 +110,8 @@ export interface BuildViewModelInput {
     question: string;
     title: string | null;
     pool_type: PoolType;
-    entry_fee: number;
+    entry_mode: EntryMode;
+    entry_fee: number | null;
     house_fee_bps: number;
     min_total_entries: number;
     locks_at: string;
@@ -145,7 +151,7 @@ export interface BuildViewModelInput {
     total_entry_amount: number | null;
     is_winning_option: boolean;
   }>;
-  currentUserEntry: { option_id: string; amount: number; status: EntryStatusForCard } | null;
+  currentUserEntry: { option_id: string; amount: number | null; status: EntryStatusForCard } | null;
   totals: { total_entries: number; gross_pool: number };
   participants: Array<{ display_name: string; avatar_url: string | null }>;
   participantCount: number;
@@ -207,14 +213,23 @@ export function buildPoolCardViewModel(input: BuildViewModelInput): SocialPoolCa
     currentUserEntry?.status ?? null,
   );
 
-  const houseFeeMultiplier = (10000 - pool.house_fee_bps) / 10000;
-  const estimatedNetPrizePool = Math.floor(totals.gross_pool * houseFeeMultiplier);
+  // Parimutuel math only applies when the pool actually has a prize pool
+  // (§4.3's hasPrizePool predicate — today, exactly the PAID pools). A
+  // FREE pool skips this block entirely rather than computing a
+  // meaningless "prize pool" of 0 — estimatedNetPrizePool/estimatedPayout
+  // stay null, matching the "never a $0 sentinel" principle applied to the
+  // view model too.
+  const isPrizePool = hasPrizePool({ entryMode: pool.entry_mode });
+
+  const estimatedNetPrizePool = isPrizePool
+    ? Math.floor(totals.gross_pool * ((10000 - pool.house_fee_bps) / 10000))
+    : null;
 
   const optionStatsById = new Map(
-    computeOptionStats(options, totals.total_entries, estimatedNetPrizePool).map((s) => [
-      s.optionId,
-      s,
-    ]),
+    (isPrizePool
+      ? computeOptionStats(options, totals.total_entries, estimatedNetPrizePool!)
+      : options.map((o) => ({ optionId: o.id, percentage: null, estimatedPayout: null }))
+    ).map((s) => [s.optionId, s]),
   );
 
   const hasEntered =
@@ -228,8 +243,8 @@ export function buildPoolCardViewModel(input: BuildViewModelInput): SocialPoolCa
     : undefined;
 
   const estimatedPayout =
-    hasEntered && selectedOption?.entry_count && selectedOption.entry_count > 0
-      ? Math.floor(estimatedNetPrizePool / selectedOption.entry_count)
+    isPrizePool && hasEntered && selectedOption?.entry_count && selectedOption.entry_count > 0
+      ? Math.floor(estimatedNetPrizePool! / selectedOption.entry_count)
       : null;
 
   const refundedAmount =
@@ -242,7 +257,8 @@ export function buildPoolCardViewModel(input: BuildViewModelInput): SocialPoolCa
     fixtureInternalStatus: fixture.internal_status,
     voidReason: pool.void_reason,
     entryStatus: currentUserEntry?.status ?? null,
-    entryAmount: currentUserEntry?.amount ?? 0,
+    entryAmount: currentUserEntry?.amount ?? null,
+    entryMode: pool.entry_mode,
     finalPayout,
     winningOptionLabel: winningOption?.label ?? null,
     selectedOptionLabel: selectedOption?.label ?? null,
@@ -283,12 +299,13 @@ export function buildPoolCardViewModel(input: BuildViewModelInput): SocialPoolCa
       pool.pool_type === "COMBO"
         ? (comboLegs ?? []).map((leg) => ({ id: leg.id, label: leg.label }))
         : null,
+    entryMode: pool.entry_mode,
     entryFee: pool.entry_fee,
     houseFeeBasisPoints: pool.house_fee_bps,
     minTotalEntries: pool.min_total_entries,
     locksAt: pool.locks_at,
     totalEntries: totals.total_entries,
-    grossPool: totals.gross_pool,
+    grossPool: isPrizePool ? totals.gross_pool : null,
     estimatedNetPrizePool,
     options: options.map((option) => {
       const stats = optionStatsById.get(option.id);
@@ -305,7 +322,7 @@ export function buildPoolCardViewModel(input: BuildViewModelInput): SocialPoolCa
       hasEntered,
       selectedOptionId: hasEntered ? currentUserEntry!.option_id : null,
       entryCount: hasEntered ? 1 : 0,
-      entryAmount: hasEntered ? currentUserEntry!.amount : 0,
+      entryAmount: hasEntered ? currentUserEntry!.amount : null,
       estimatedPayout,
       finalPayout,
       refundedAmount,

@@ -23,7 +23,9 @@ import { PoolSummary } from "./PoolSummary";
 import { LiveMatchStatus } from "./LiveMatchStatus";
 import { PoolStatusNotice } from "./PoolStatusNotice";
 import { EntryConfirmationSheet } from "./EntryConfirmationSheet";
+import { FreeEntryConfirmationSheet } from "./FreeEntryConfirmationSheet";
 import { TopUpAndJoinModal } from "./TopUpAndJoinModal";
+import { requiresPayment } from "@/lib/pools/capabilities";
 import { SharePoolButton } from "./SharePoolButton";
 import { LikeButton } from "./LikeButton";
 import { CommentSheet } from "./CommentSheet";
@@ -325,12 +327,22 @@ export function SocialPoolCard({
       )}
 
       {selectedOption &&
-        (balanceCents < viewModel.entryFee ? (
+        (!requiresPayment(viewModel) ? (
+          <FreeEntryConfirmationSheet
+            poolId={viewModel.poolId}
+            optionId={selectedOption.optionId}
+            optionLabel={selectedOption.label}
+            ruleLabel={viewModel.ruleLabel}
+            locksAt={viewModel.locksAt}
+            onClose={() => setSelectedOptionId(null)}
+            onSuccess={() => setSelectedOptionId(null)}
+          />
+        ) : balanceCents < viewModel.entryFee! ? (
           <TopUpAndJoinModal
             poolId={viewModel.poolId}
             optionId={selectedOption.optionId}
             optionLabel={selectedOption.label}
-            entryFee={viewModel.entryFee}
+            entryFee={viewModel.entryFee!}
             balanceCents={balanceCents}
             paymentMethods={paymentMethods}
             onClose={() => setSelectedOptionId(null)}
@@ -341,14 +353,14 @@ export function SocialPoolCard({
             optionId={selectedOption.optionId}
             optionLabel={selectedOption.label}
             ruleLabel={viewModel.ruleLabel}
-            entryFee={viewModel.entryFee}
+            entryFee={viewModel.entryFee!}
             houseFeeBasisPoints={viewModel.houseFeeBasisPoints}
             balanceCents={balanceCents}
             locksAt={viewModel.locksAt}
             estimatedPayout={showDistribution ? selectedOption.estimatedPayout : null}
             tiers={siblingTiers?.map((tier) => ({
               poolId: tier.poolId,
-              entryFee: tier.entryFee,
+              entryFee: tier.entryFee!,
               options: tier.options.map((o) => ({ optionId: o.optionId, label: o.label })),
             }))}
             onClose={() => setSelectedOptionId(null)}

@@ -83,7 +83,10 @@ export function TieredPoolCard({
                 : "text-text-muted hover:text-text-secondary",
             )}
           >
-            {formatCents(tier.entryFee)}
+            {/* Tier groups are exclusively a PAID concept — a FREE pool's
+                tier_group_id is constraint-enforced null, so tier.entryFee
+                is always present here. */}
+            {formatCents(tier.entryFee!)}
           </button>
         ))}
       </div>

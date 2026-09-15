@@ -1,6 +1,7 @@
 import { requireSuperAdmin } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getPoolFeeDefaults } from "@/lib/settings/pool-defaults";
+import { getPlatformPoolCapabilities } from "@/lib/settings/pool-capabilities";
 import { formatBps } from "@/lib/utils/money";
 import { getLatestTemplate } from "@/lib/pools/templates/registry";
 import { PoolTemplateBuilder, type DuplicateTemplate } from "./pool-template-builder";
@@ -36,6 +37,7 @@ export default async function NewPoolPage({
   await requireSuperAdmin();
   const supabase = await createClient();
   const poolFeeDefaults = await getPoolFeeDefaults();
+  const platformCapabilities = await getPlatformPoolCapabilities();
   const { duplicateFrom, fixtureId } = await searchParams;
 
   // "Duplicate this pool" — pre-fills the wizard's template/financial
@@ -140,6 +142,7 @@ export default async function NewPoolPage({
           duplicateHouseFeePercent ?? formatBps(poolFeeDefaults.houseFeeBps).replace("%", "")
         }
         defaultTierEntryFees={poolFeeDefaults.tierEntryFeesCents.map((cents) => (cents / 100).toFixed(2))}
+        platformCapabilities={platformCapabilities}
         defaultVisibility={duplicateVisibility ?? undefined}
         defaultParticipationVisibility={duplicateParticipationVisibility ?? undefined}
         duplicateTemplate={duplicateTemplate}

@@ -82,5 +82,38 @@ export default defineConfig({
       NEXT_PUBLIC_SENTRY_DSN: "",
     },
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  // Two projects, not a global fullyParallel:false — every other spec
+  // (paid-entry-flow, free-entry-flow, invite-flow, and any future one)
+  // stays fully parallel-eligible in "chromium". Only
+  // platform-capability-toggle-flow.spec.ts — the one file that mutates
+  // the platform_settings singleton, a real cross-test shared resource,
+  // the same class of problem vitest.integration.config.ts already solves
+  // for the integration suite via fileParallelism:false — is pulled into
+  // its own project. `dependencies: ["chromium"]` is Playwright's own
+  // ordering primitive ("List of projects that need to run before any
+  // test in this project runs" — @playwright/test's own type doc): it
+  // guarantees zero time-overlap between the two projects, so the
+  // canonical `playwright test` command is deterministic with no manual
+  // --workers=1, no test ordering flags, and no sleeps. The toggle
+  // project's own fullyParallel:false is belt-and-suspenders on top of
+  // that file's existing test.describe.configure({ mode: "serial" }) —
+  // its own two tests were already guaranteed to run in order; this
+  // config change is what stops them from ever running *alongside*
+  // paid-entry-flow/free-entry-flow, which is the actual race that was
+  // observed. The stale-client toggle test itself is unchanged — this is
+  // purely a scheduling fix, not a change to what it verifies.
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+      testIgnore: /platform-capability-toggle/,
+    },
+    {
+      name: "chromium-capability-toggle",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: /platform-capability-toggle/,
+      fullyParallel: false,
+      dependencies: ["chromium"],
+    },
+  ],
 });

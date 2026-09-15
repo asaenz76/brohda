@@ -114,6 +114,7 @@ export function PoolTemplateBuilder({
   defaultParticipationVisibility = "SHOW_BEFORE_ENTRY",
   duplicateTemplate = null,
   initialFixtureId,
+  platformCapabilities = { paidPoolsEnabled: true, freePoolsEnabled: true },
 }: {
   fixtures: FixtureOption[];
   defaultEntryFee?: string;
@@ -125,6 +126,11 @@ export function PoolTemplateBuilder({
   defaultVisibility?: string;
   defaultParticipationVisibility?: string;
   duplicateTemplate?: DuplicateTemplate | null;
+  /** Governs which Pool mode options are selectable — a UX courtesy only
+   *  (FREE_MODE_ARCHITECTURE_PROPOSAL.md §5.2 item 1); server-side
+   *  validation and the DB's own pools_enforce_capability trigger are the
+   *  real enforcement regardless of what this prop says. */
+  platformCapabilities?: { paidPoolsEnabled: boolean; freePoolsEnabled: boolean };
   // Phase 2 (local-first football browsing) spec §13: "browse local
   // fixture → Create Pool → existing pool creation flow" — the fixture
   // admins pick while browsing /admin/fixtures arrives here as a
@@ -135,12 +141,20 @@ export function PoolTemplateBuilder({
 }) {
   const [state, formAction, pending] = useActionState(createPoolFromTemplate, initialState);
   const [mode, setMode] = useState<"single" | "multi">("single");
+  // Paid/Free — a sibling top-level choice, deliberately not nested inside
+  // tierMode's single/tiered branching below (tiers are exclusively a PAID
+  // concept). Defaults to whichever mode the platform currently allows if
+  // only one does, so the form never opens on a pre-selected option that's
+  // actually disabled.
+  const [poolMode, setPoolMode] = useState<"PAID" | "FREE">(
+    platformCapabilities.paidPoolsEnabled || !platformCapabilities.freePoolsEnabled ? "PAID" : "FREE",
+  );
   // Whether the single-fixture flow is creating one ordinary pool or a
   // fee-tier group — the only thing that actually differs is Step 3's
   // entry-fee input and how the final submit is dispatched (native form
   // action vs createPoolTierGroupAction); fixture/template selection
   // (Steps 1-2) are identical either way.
-  const [entryMode, setEntryMode] = useState<"single" | "tiered">("single");
+  const [tierMode, setTierMode] = useState<"single" | "tiered">("single");
   const [tierFees, setTierFees] = useState<string[]>(defaultTierEntryFees);
   const [tierResults, setTierResults] = useState<CreatePoolTierGroupResult[] | null>(null);
   const [tierSubmitError, setTierSubmitError] = useState<string | null>(null);
@@ -619,8 +633,10 @@ export function PoolTemplateBuilder({
   ].filter((m): m is string => m != null);
 
   const step3Valid =
-    (entryMode === "single" ? entryFee.trim().length > 0 : tierFeesAllFilled && tierFeesUnique && tierFeesValidFormat && tierFees.length >= 2) &&
-    houseFeePercent.trim().length > 0 &&
+    (poolMode === "FREE"
+      ? true
+      : (tierMode === "single" ? entryFee.trim().length > 0 : tierFeesAllFilled && tierFeesUnique && tierFeesValidFormat && tierFees.length >= 2) &&
+        houseFeePercent.trim().length > 0) &&
     locksAtLocal.length > 0 &&
     !lockTimeTooLate;
 
@@ -1185,26 +1201,70 @@ export function PoolTemplateBuilder({
 
           {/* Step 3 — Financials & Review */}
           <div className={cn("space-y-4", step !== 3 && "hidden")}>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant={entryMode === "single" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setEntryMode("single")}
-              >
-                Single entry fee
-              </Button>
-              <Button
-                type="button"
-                variant={entryMode === "tiered" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setEntryMode("tiered")}
-              >
-                Multiple entry fees
-              </Button>
+            <div className="space-y-1.5">
+              <Label>Pool mode</Label>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={poolMode === "PAID" ? "default" : "outline"}
+                  size="sm"
+                  disabled={!platformCapabilities.paidPoolsEnabled}
+                  onClick={() => setPoolMode("PAID")}
+                >
+                  Paid
+                </Button>
+                <Button
+                  type="button"
+                  variant={poolMode === "FREE" ? "default" : "outline"}
+                  size="sm"
+                  disabled={!platformCapabilities.freePoolsEnabled}
+                  onClick={() => setPoolMode("FREE")}
+                >
+                  Free
+                </Button>
+              </div>
+              {!platformCapabilities.paidPoolsEnabled && (
+                <p className="text-xs text-text-muted">Paid pools are currently disabled platform-wide.</p>
+              )}
+              {!platformCapabilities.freePoolsEnabled && (
+                <p className="text-xs text-text-muted">Free pools are currently disabled platform-wide.</p>
+              )}
             </div>
+            <input type="hidden" name="entryMode" value={poolMode} />
 
-            {entryMode === "single" ? (
+            {/* The form adapts semantically, not just visually — a FREE
+                submission never renders (and so never sends) an entry fee
+                or platform fee field at all, rather than leaving them
+                visible with a "$0" value (FREE_MODE_ARCHITECTURE_PROPOSAL.md
+                §10). Tiers are exclusively a PAID concept, so the whole
+                tierMode UI lives inside this same PAID branch. */}
+            {poolMode === "FREE" ? (
+              <p className="text-sm text-text-secondary">
+                No entry fee, platform fee, or prize pool — predictions are free to make and still lock, grade, and
+                count toward accuracy and streaks.
+              </p>
+            ) : (
+              <>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant={tierMode === "single" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setTierMode("single")}
+                  >
+                    Single entry fee
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={tierMode === "tiered" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setTierMode("tiered")}
+                  >
+                    Multiple entry fees
+                  </Button>
+                </div>
+
+                {tierMode === "single" ? (
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="entryFee">Entry fee ($)</Label>
@@ -1240,6 +1300,8 @@ export function PoolTemplateBuilder({
                     className="max-w-32"
                   />
                 </div>
+              </>
+            )}
               </>
             )}
 
@@ -1308,7 +1370,9 @@ export function PoolTemplateBuilder({
                   ))}
                 </ul>
               )}
-              {entryMode === "single" ? (
+              {poolMode === "FREE" ? (
+                <p className="mt-1 text-text-muted">Free — no entry fee, no platform fee</p>
+              ) : tierMode === "single" ? (
                 <p className="mt-1 text-text-muted">
                   Entry ${entryFee || "0.00"} · Platform fee {houseFeePercent || "0"}%
                 </p>
@@ -1331,12 +1395,12 @@ export function PoolTemplateBuilder({
               Publish immediately (skip Draft — players can enter right away)
             </label>
 
-            {entryMode === "single" && state.error && (
+            {tierMode === "single" && state.error && (
               <p role="alert" className="text-sm text-danger">
                 {state.error}
               </p>
             )}
-            {entryMode === "tiered" && tierSubmitError && (
+            {tierMode === "tiered" && tierSubmitError && (
               <p role="alert" className="text-sm text-danger">
                 {tierSubmitError}
               </p>
@@ -1350,7 +1414,7 @@ export function PoolTemplateBuilder({
                 surfaces this after submit instead (TierCreationResults'
                 "Publish anyway" retry) — same pattern MultiFixtureBuilder
                 already uses for its own per-item warnings. */}
-            {entryMode === "single" && state.warnings && state.warnings.length > 0 && (
+            {tierMode === "single" && state.warnings && state.warnings.length > 0 && (
               <div className="space-y-2 rounded-xl border border-warning-muted/40 bg-warning-muted/10 p-3">
                 <p className="text-sm font-semibold text-text-primary">Before you publish this question</p>
                 <ul className="space-y-1">
@@ -1375,7 +1439,7 @@ export function PoolTemplateBuilder({
               <Button type="button" variant="outline" onClick={() => goToStep(2)}>
                 Back
               </Button>
-              {entryMode === "single" ? (
+              {tierMode === "single" ? (
                 <Button type="submit" className="flex-1" disabled={pending || !step3Valid}>
                   {pending
                     ? "Creating…"

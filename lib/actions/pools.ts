@@ -22,6 +22,7 @@ import { notifyFollowedPoolPublished } from "@/lib/email/notify-followed-pool-pu
 import { getPoolPublishFollowRecipients } from "@/lib/pools/follow-recipients";
 import { createPoolPublishedFollowNotifications } from "@/lib/notifications/create";
 import { parseDollarsToCents, parsePercentToBps } from "@/lib/utils/money";
+import { getPlatformPoolCapabilities } from "@/lib/settings/pool-capabilities";
 import {
   createPoolFromTemplateSchema,
   createPoolsForFixturesSchema,
@@ -34,9 +35,18 @@ import {
 import type { UserProfile } from "@/lib/auth/session";
 
 function readPoolConfigFromForm(formData: FormData) {
+  const entryMode = String(formData.get("entryMode") ?? "PAID") === "FREE" ? "FREE" : "PAID";
+
   return {
-    entryFeeCents: parseDollarsToCents(String(formData.get("entryFee") ?? "")),
-    houseFeeBps: parsePercentToBps(String(formData.get("houseFeePercent") ?? "0")),
+    entryMode,
+    // A FREE submission never renders the fee inputs at all (§10) — forced
+    // to null here regardless of what's in the form, rather than trusting
+    // parseDollarsToCents's empty-string fallback, since houseFeePercent's
+    // "0" default would otherwise parse to a real 0 (a valid bps value,
+    // not null), which the schema's refine requires to be genuinely absent
+    // for FREE.
+    entryFeeCents: entryMode === "FREE" ? null : parseDollarsToCents(String(formData.get("entryFee") ?? "")),
+    houseFeeBps: entryMode === "FREE" ? null : parsePercentToBps(String(formData.get("houseFeePercent") ?? "0")),
     visibility: String(formData.get("visibility") ?? "VISIBLE_TO_ALL_MEMBERS"),
     participationVisibility: String(
       formData.get("participationVisibility") ?? "SHOW_BEFORE_ENTRY",
@@ -123,8 +133,12 @@ type PoolFixtureRow = {
 type PoolCreationInput =
   | {
       poolType: "WHO_WILL_ADVANCE" | "REGULATION_RESULT";
-      entryFeeCents: number;
-      houseFeeBps: number;
+      // Optional, defaulting to PAID — a bare "not set" means every
+      // existing caller (the multi-fixture bulk action, which has no FREE
+      // UI of its own) is unaffected by this feature's addition.
+      entryMode?: "PAID" | "FREE";
+      entryFeeCents: number | null;
+      houseFeeBps: number | null;
       visibility: string;
       participationVisibility: string;
       overridePublishWarnings?: boolean;
@@ -134,8 +148,9 @@ type PoolCreationInput =
       title: string;
       question: string;
       legs: string[];
-      entryFeeCents: number;
-      houseFeeBps: number;
+      entryMode?: "PAID" | "FREE";
+      entryFeeCents: number | null;
+      houseFeeBps: number | null;
       visibility: string;
       participationVisibility: string;
       overridePublishWarnings?: boolean;
@@ -144,8 +159,9 @@ type PoolCreationInput =
       poolType: "TEMPLATE_GRADED";
       templateId: string;
       templateConfig: Record<string, unknown>;
-      entryFeeCents: number;
-      houseFeeBps: number;
+      entryMode?: "PAID" | "FREE";
+      entryFeeCents: number | null;
+      houseFeeBps: number | null;
       visibility: string;
       participationVisibility: string;
       overridePublishWarnings?: boolean;
@@ -354,8 +370,13 @@ async function createPoolForFixture(
       ),
       title,
       question,
-      entry_fee: input.entryFeeCents,
-      house_fee_bps: input.houseFeeBps,
+      entry_mode: input.entryMode ?? "PAID",
+      // The DB's pools_entry_mode_financial_check constraint requires
+      // entry_fee/house_fee_bps null/0 for FREE and positive/valid for
+      // PAID — mirrored here so a FREE submission never even attempts to
+      // insert a stray fee value that constraint would reject anyway.
+      entry_fee: input.entryMode === "FREE" ? null : input.entryFeeCents,
+      house_fee_bps: input.entryMode === "FREE" ? 0 : input.houseFeeBps,
       min_total_entries: MINIMUM_POOL_ENTRIES,
       visibility: input.visibility,
       participation_visibility: input.participationVisibility,
@@ -497,6 +518,23 @@ export async function createPoolFromTemplate(
   // gate — same status publishPoolAction would set, just done here so the
   // wizard's single submit can do it in one round trip.
   const publishImmediately = formData.get("publishImmediately") === "on";
+
+  // UX-layer courtesy check only (§5.2 item 1) — the actual, authoritative
+  // enforcement is the pools_enforce_capability DB trigger, which fires on
+  // this exact insert regardless of whether this check runs. This just
+  // gives a clearer error than the trigger's generic "Could not create the
+  // pool." fallback would. Only relevant when publishing immediately —
+  // saving a DRAFT is unaffected either way (§5.4).
+  if (publishImmediately) {
+    const capabilities = await getPlatformPoolCapabilities();
+    const entryMode = (parsed.data as { entryMode?: "PAID" | "FREE" }).entryMode ?? "PAID";
+    if (entryMode === "PAID" && !capabilities.paidPoolsEnabled) {
+      return { error: "Paid pools are currently disabled platform-wide. Save as a draft, or enable paid pools first." };
+    }
+    if (entryMode === "FREE" && !capabilities.freePoolsEnabled) {
+      return { error: "Free pools are currently disabled platform-wide. Save as a draft, or enable free pools first." };
+    }
+  }
 
   const outcome = await createPoolForFixture(
     adminClient,
@@ -914,8 +952,15 @@ export async function updatePoolAction(
   // .strict() and doesn't declare it — spreading the full shared object
   // used to make every edit fail safeParse with "unrecognized_keys"
   // (pre-existing bug, found while adding tier-group-aware validation
-  // below; unrelated to it).
-  const { overridePublishWarnings: _createOnlyField, ...sharedConfig } = readPoolConfigFromForm(formData);
+  // below; unrelated to it). entryMode is the same story: pool mode is
+  // immutable after creation (frozen by enforce_pool_fee_immutability,
+  // extended for entry_mode — see FREE_MODE_ARCHITECTURE_PROPOSAL.md §6),
+  // never editable, and updatePoolSchema correctly has no field for it.
+  const {
+    overridePublishWarnings: _createOnlyField,
+    entryMode: _immutableField,
+    ...sharedConfig
+  } = readPoolConfigFromForm(formData);
   const parsed = updatePoolSchema.safeParse({
     poolId: formData.get("poolId"),
     ...sharedConfig,

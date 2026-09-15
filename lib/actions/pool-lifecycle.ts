@@ -198,7 +198,7 @@ export async function checkPoolResultNowAction(
   const { data: pool } = await adminClient
     .from("pools")
     .select(
-      "id, fixture_id, status, pool_type, template_id, template_config, template_version, fixtures(internal_status, scheduled_start_utc, venue_timezone, home_team_name, away_team_name, home_team_external_id, away_team_external_id, regulation_home_score, regulation_away_score, halftime_home_score, halftime_away_score, provider_events_payload, provider)",
+      "id, fixture_id, status, pool_type, template_id, template_config, template_version, entry_mode, fixtures(internal_status, scheduled_start_utc, venue_timezone, home_team_name, away_team_name, home_team_external_id, away_team_external_id, regulation_home_score, regulation_away_score, halftime_home_score, halftime_away_score, provider_events_payload, provider)",
     )
     .eq("id", poolId)
     .single();
@@ -237,7 +237,8 @@ export async function checkPoolResultNowAction(
     }
 
     const voidReason = mapAnomalyToVoidReason(internalStatus);
-    const { data: voidedPool, error } = await adminClient.rpc("confirm_pool_refund", {
+    const voidRpc = pool.entry_mode === "FREE" ? "void_pool_no_refund" : "confirm_pool_refund";
+    const { data: voidedPool, error } = await adminClient.rpc(voidRpc, {
       p_pool_id: poolId,
       p_void_reason: voidReason,
       p_idempotency_key: `${poolId}:void:${voidReason}`,
@@ -278,7 +279,11 @@ export async function checkPoolResultNowAction(
       fixture.provider,
       fixture,
     );
-    const outcome = await gradeTemplatePool(pool, fixtureRow, { resultEvidence });
+    const outcome = await gradeTemplatePool(
+      { ...pool, entryMode: pool.entry_mode as "PAID" | "FREE" },
+      fixtureRow,
+      { resultEvidence },
+    );
     if (outcome === "failed") {
       return { message: null, error: "Could not grade this pool from its template." };
     }

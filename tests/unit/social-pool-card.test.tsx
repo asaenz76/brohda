@@ -76,6 +76,7 @@ function buildViewModel(overrides: Partial<SocialPoolCardViewModel> = {}): Socia
     poolType: "CUSTOM",
     ruleLabel: "Custom Poll",
     comboLegs: null,
+    entryMode: "PAID",
     entryFee: 1000,
     houseFeeBasisPoints: 1000,
     minTotalEntries: 10,

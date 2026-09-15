@@ -132,4 +132,51 @@ describe("enterPoolAction", () => {
       success: false,
     });
   });
+
+  it("sends p_amount: null (not 0) when the form omits amountCents entirely, for a FREE entry", async () => {
+    const fd = new FormData();
+    fd.set("poolId", POOL_ID);
+    fd.set("optionId", OPTION_ID);
+    fd.set("idempotencyKey", IDEMPOTENCY_KEY);
+    // amountCents deliberately not set — the FREE confirmation sheet never
+    // sends this field.
+
+    const result = await enterPoolAction({ error: null, success: false }, fd);
+
+    expect(result).toEqual({ error: null, success: true });
+    expect(rpcCall?.args.p_amount).toBeNull();
+  });
+
+  it("surfaces paid_pools_disabled with clear, specific copy", async () => {
+    rpcError = { message: "paid_pools_disabled" };
+
+    const result = await enterPoolAction({ error: null, success: false }, validFormData());
+
+    expect(result).toEqual({
+      error: "Paid pools are temporarily unavailable. Try again later.",
+      success: false,
+    });
+  });
+
+  it("surfaces free_pools_disabled with clear, specific copy", async () => {
+    rpcError = { message: "free_pools_disabled" };
+
+    const result = await enterPoolAction({ error: null, success: false }, validFormData());
+
+    expect(result).toEqual({
+      error: "Free pools are temporarily unavailable. Try again later.",
+      success: false,
+    });
+  });
+
+  it("surfaces platform_settings_missing as an unavailability message, not a generic error", async () => {
+    rpcError = { message: "platform_settings_missing" };
+
+    const result = await enterPoolAction({ error: null, success: false }, validFormData());
+
+    expect(result).toEqual({
+      error: "Entries are temporarily unavailable. Try again later.",
+      success: false,
+    });
+  });
 });

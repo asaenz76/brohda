@@ -1,5 +1,6 @@
 import { requireSuperAdmin } from "@/lib/auth/session";
 import { getRegistrationEnabled } from "@/lib/settings/registration";
+import { getPlatformPoolCapabilities } from "@/lib/settings/pool-capabilities";
 import { getPoolFeeDefaults } from "@/lib/settings/pool-defaults";
 import { getPaymentMethods } from "@/lib/payment-methods/fetch";
 import { apiNflProvider } from "@/lib/sports-data/api-nfl-provider";
@@ -8,6 +9,7 @@ import { API_NFL_PROVIDER } from "@/lib/sports-data/provider-names";
 import { formatBps } from "@/lib/utils/money";
 import { Card, CardContent } from "@/components/ui/card";
 import { RegistrationToggle } from "./registration-toggle";
+import { PlatformPoolCapabilityToggle } from "./platform-pool-capability-toggle";
 import { PaymentMethodsSettings } from "./payment-methods-settings";
 import { PoolFeeDefaultsForm } from "./pool-fee-defaults-form";
 import { ProviderStatusPanel } from "./provider-status-panel";
@@ -18,8 +20,9 @@ export default async function AdminSettingsPage() {
   // one provider's status must never reflect or be gated by the other's,
   // and opening this page must never make a live provider request itself
   // (getProviderStatus only ever reads provider_request_log).
-  const [registrationEnabled, poolFeeDefaults, paymentMethods, nflStatus] = await Promise.all([
+  const [registrationEnabled, poolCapabilities, poolFeeDefaults, paymentMethods, nflStatus] = await Promise.all([
     getRegistrationEnabled(),
+    getPlatformPoolCapabilities(),
     getPoolFeeDefaults(),
     getPaymentMethods(),
     getProviderStatus(apiNflProvider.isEnabled(), API_NFL_PROVIDER),
@@ -31,6 +34,14 @@ export default async function AdminSettingsPage() {
       <Card>
         <CardContent className="pt-6">
           <RegistrationToggle initialEnabled={registrationEnabled} />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardContent className="space-y-4 pt-6">
+          <PlatformPoolCapabilityToggle capability="paid" initialEnabled={poolCapabilities.paidPoolsEnabled} />
+          <div className="border-t border-border-subtle pt-4">
+            <PlatformPoolCapabilityToggle capability="free" initialEnabled={poolCapabilities.freePoolsEnabled} />
+          </div>
         </CardContent>
       </Card>
       <Card>

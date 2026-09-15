@@ -261,6 +261,84 @@ describe("buildNoticeCopy", () => {
   });
 });
 
+describe("buildNoticeCopy — FREE mode", () => {
+  it("WON: falls back to the mode-neutral 'You won!' with no code change needed, since finalPayout is always null for FREE", () => {
+    expect(
+      buildNoticeCopy({
+        ...base,
+        poolStatus: "SETTLED",
+        entryStatus: "WON",
+        entryMode: "FREE",
+        entryAmount: null,
+        finalPayout: null,
+      }),
+    ).toEqual({ type: "SETTLED_WON", message: "You won!" });
+  });
+
+  it("void with no entry: never mentions a refund", () => {
+    expect(
+      buildNoticeCopy({
+        ...base,
+        poolStatus: "VOIDED",
+        voidReason: "MATCH_CANCELLED",
+        entryStatus: null,
+        entryMode: "FREE",
+        entryAmount: null,
+      }),
+    ).toEqual({ type: "MATCH_CANCELLED", message: "This pool has been voided." });
+  });
+
+  it("void with an entry: never claims a credit/refund occurred, for every void reason", () => {
+    const reasons = [
+      "MATCH_POSTPONED_NOT_COMPLETED_SAME_DAY",
+      "MATCH_SUSPENDED_NOT_COMPLETED_SAME_DAY",
+      "MATCH_ABANDONED",
+      "MATCH_CANCELLED",
+      "MATCH_AWARDED",
+      "MATCH_STATUS_UNKNOWN",
+      "MINIMUM_ENTRIES_NOT_REACHED",
+      "NO_WINNING_ENTRIES",
+      "ALL_ENTRIES_WINNING",
+      "ADMIN_MANUAL_CANCEL",
+      "COMBO_PLAYER_DID_NOT_PLAY",
+      "ONE_SIDED_POOL",
+    ] as const;
+
+    for (const voidReason of reasons) {
+      const notice = buildNoticeCopy({
+        ...base,
+        poolStatus: "CANCELLED",
+        voidReason,
+        entryStatus: "VOID",
+        entryMode: "FREE",
+        entryAmount: null,
+      });
+      expect(notice).not.toBeNull();
+      expect(notice!.message.toLowerCase()).not.toMatch(/credited|refund|\$/);
+    }
+  });
+
+  it("PAID void copy is completely unaffected — same message with or without the new entryMode field present", () => {
+    const withoutMode = buildNoticeCopy({
+      ...base,
+      poolStatus: "CANCELLED",
+      voidReason: "MINIMUM_ENTRIES_NOT_REACHED",
+      entryStatus: "REFUNDED",
+      entryAmount: 1000,
+    });
+    const withMode = buildNoticeCopy({
+      ...base,
+      poolStatus: "CANCELLED",
+      voidReason: "MINIMUM_ENTRIES_NOT_REACHED",
+      entryStatus: "REFUNDED",
+      entryMode: "PAID",
+      entryAmount: 1000,
+    });
+    expect(withoutMode).toEqual(withMode);
+    expect(withoutMode?.message).toContain("$10.00");
+  });
+});
+
 describe("voidReasonLabel", () => {
   it("translates every pool_void_reason enum value to a short, plain-text label", () => {
     const reasons = [

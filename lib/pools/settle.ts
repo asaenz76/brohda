@@ -66,7 +66,7 @@ export async function processAwaitingResults(): Promise<ProcessResultsResult> {
   const { data: pools } = await admin
     .from("pools")
     .select(
-      "id, fixture_id, pool_type, template_id, template_config, template_version, fixtures(internal_status, scheduled_start_utc, venue_timezone, home_team_name, away_team_name, home_team_external_id, away_team_external_id, regulation_home_score, regulation_away_score, halftime_home_score, halftime_away_score, provider_events_payload, provider)",
+      "id, fixture_id, pool_type, template_id, template_config, template_version, entry_mode, fixtures(internal_status, scheduled_start_utc, venue_timezone, home_team_name, away_team_name, home_team_external_id, away_team_external_id, regulation_home_score, regulation_away_score, halftime_home_score, halftime_away_score, provider_events_payload, provider)",
     )
     .eq("status", "AWAITING_RESULT");
 
@@ -112,7 +112,11 @@ export async function processAwaitingResults(): Promise<ProcessResultsResult> {
       }
 
       const voidReason = mapAnomalyToVoidReason(internalStatus);
-      const { data: voidedPool, error } = await admin.rpc("confirm_pool_refund", {
+      // FREE pools have nothing to refund — confirm_pool_refund would
+      // attempt a null-amount wallet credit and fail; void_pool_no_refund
+      // is the mode-appropriate sibling (§8).
+      const voidRpc = pool.entry_mode === "FREE" ? "void_pool_no_refund" : "confirm_pool_refund";
+      const { data: voidedPool, error } = await admin.rpc(voidRpc, {
         p_pool_id: pool.id,
         p_void_reason: voidReason,
         p_idempotency_key: `${pool.id}:void:${voidReason}`,
@@ -140,7 +144,11 @@ export async function processAwaitingResults(): Promise<ProcessResultsResult> {
           fixture.provider,
           fixture,
         );
-        const outcome = await gradeTemplatePool(pool, fixtureRow, { resultEvidence });
+        const outcome = await gradeTemplatePool(
+          { ...pool, entryMode: pool.entry_mode as "PAID" | "FREE" },
+          fixtureRow,
+          { resultEvidence },
+        );
         if (outcome === "settled") {
           result.settled++;
         } else if (outcome === "readyForReview") {

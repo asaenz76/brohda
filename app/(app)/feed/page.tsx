@@ -203,7 +203,10 @@ export default async function FeedPage({
       tiers: ids
         .map((id) => viewModelById.get(id))
         .filter((vm) => vm != null)
-        .sort((a, b) => a.entryFee - b.entryFee),
+        // Tier groups are exclusively a PAID concept (tier_group_id is
+        // constraint-enforced null for every FREE pool), so every member of
+        // one group is guaranteed to have a non-null entryFee.
+        .sort((a, b) => a.entryFee! - b.entryFee!),
     }))
     .filter((g) => g.tiers.length > 0);
 

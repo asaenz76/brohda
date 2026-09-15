@@ -30,10 +30,18 @@ export async function enterPoolAction(
     return { error: "Too many attempts — wait a moment and try again.", success: false };
   }
 
+  // A FREE entry's form omits the amountCents field entirely (or may send
+  // an explicit empty value) — Number(null) would silently coerce to 0,
+  // which is a real amount, not "absent." Must stay null all the way
+  // through to create_pool_entry, which rejects a FREE pool entry with any
+  // non-null amount outright (Decision 3, §7) rather than accepting a 0.
+  const rawAmount = formData.get("amountCents");
+  const amountCents = rawAmount === null || rawAmount === "" ? null : Number(rawAmount);
+
   const parsed = enterPoolSchema.safeParse({
     poolId: formData.get("poolId"),
     optionId: formData.get("optionId"),
-    amountCents: Number(formData.get("amountCents")),
+    amountCents,
     idempotencyKey: formData.get("idempotencyKey"),
   });
 
@@ -64,6 +72,25 @@ export async function enterPoolAction(
     }
     if (error.message.includes("already_entered_tier_group")) {
       return { error: "You've already entered this pool at a different fee tier.", success: false };
+    }
+    if (error.message.includes("paid_pools_disabled")) {
+      return { error: "Paid pools are temporarily unavailable. Try again later.", success: false };
+    }
+    if (error.message.includes("free_pools_disabled")) {
+      return { error: "Free pools are temporarily unavailable. Try again later.", success: false };
+    }
+    if (error.message.includes("platform_settings_missing")) {
+      // Operational anomaly, not a user-caused state — same fallback copy
+      // as *_disabled from the player's point of view; ops monitoring
+      // should alert on this exception name separately (see
+      // FREE_MODE_ARCHITECTURE_PROPOSAL.md §16, risk 13).
+      return { error: "Entries are temporarily unavailable. Try again later.", success: false };
+    }
+    if (error.message.includes("amount_not_allowed_for_free_pool")) {
+      // Should never fire from legitimate UI — the FREE confirmation sheet
+      // never sends an amount field. Generic fallback is fine; this only
+      // indicates a manipulated request.
+      return { error: "Could not submit your entry. Try again.", success: false };
     }
     return { error: "Could not submit your entry. Try again.", success: false };
   }

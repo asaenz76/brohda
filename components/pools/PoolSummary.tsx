@@ -7,7 +7,8 @@ import { cn } from "@/lib/utils";
 
 interface PoolSummaryProps {
   participantCount: number;
-  grossPool: number;
+  /** Null for a FREE pool — never rendered as a "$0 pot", omitted entirely. */
+  grossPool: number | null;
   locksAt: string;
   // True only while choices are genuinely still closed with no result yet
   // (LOCKED/LIVE) — a resolved pool hides the countdown line entirely
@@ -67,12 +68,14 @@ export function PoolSummary({ participantCount, grossPool, locksAt, isLocked, is
     <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs font-medium text-text-secondary sm:text-sm">
       <span className="flex items-center gap-1.5 whitespace-nowrap">
         <Users className="size-3.5 shrink-0 text-text-muted" aria-hidden="true" />
-        {participantCount} entered
+        {participantCount} {grossPool == null ? "predicted" : "entered"}
       </span>
-      <span className="flex items-center gap-1.5 whitespace-nowrap">
-        <Trophy className="size-3.5 shrink-0 text-text-muted" aria-hidden="true" />
-        {formatCents(grossPool)} pot
-      </span>
+      {grossPool != null && (
+        <span className="flex items-center gap-1.5 whitespace-nowrap">
+          <Trophy className="size-3.5 shrink-0 text-text-muted" aria-hidden="true" />
+          {formatCents(grossPool)} pot
+        </span>
+      )}
       {lockText && (
         <span className={cn("flex items-center gap-1.5 whitespace-nowrap", urgent && "font-semibold text-warning-muted")}>
           <Clock className={cn("size-3.5 shrink-0", urgent ? "text-warning-muted" : "text-text-muted")} aria-hidden="true" />

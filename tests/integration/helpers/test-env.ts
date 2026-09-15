@@ -36,6 +36,16 @@ import { createClient as createSupabaseClient, type SupabaseClient } from "@supa
 // never target anything but a disposable local instance.
 const ALLOWED_TEST_SUPABASE_URL_PATTERN = /^http:\/\/(127\.0\.0\.1|localhost):54321\/?$/;
 
+// Same discipline as ALLOWED_TEST_SUPABASE_URL_PATTERN, for the one test
+// (the FREE-mode toggle/entry linearization proof) that needs a raw
+// Postgres connection instead of going through PostgREST — proving the
+// FOR SHARE lock actually blocks a concurrent admin UPDATE requires two
+// real, independently-controlled transactions, which a stateless REST call
+// per RPC invocation cannot provide. The Supabase CLI's local stack always
+// listens on 54322 for direct Postgres access, same fixed address on every
+// machine and in CI.
+const ALLOWED_TEST_DATABASE_URL_PATTERN = /^postgres(?:ql)?:\/\/[^@]+@(127\.0\.0\.1|localhost):54322\//;
+
 export class UnsafeTestSupabaseTargetError extends Error {
   constructor(message: string) {
     super(message);
@@ -76,6 +86,31 @@ export function assertSafeTestSupabaseUrl(url: string): void {
         "test suite against production and deleted real data.",
     );
   }
+}
+
+export function assertSafeTestDatabaseUrl(url: string): void {
+  if (!ALLOWED_TEST_DATABASE_URL_PATTERN.test(url)) {
+    throw new UnsafeTestSupabaseTargetError(
+      `Refusing to open a direct Postgres connection to "${url}" — this is not the ` +
+        "local Supabase CLI's fixed database address. Direct-connection integration " +
+        "tests may ONLY target postgresql://...@127.0.0.1:54322/... or " +
+        ".../localhost:54322/... — the same class of mistake that previously ran " +
+        "the REST-based test suite against production applies here too.",
+    );
+  }
+}
+
+/**
+ * Raw Postgres connection string for the local test database, validated
+ * against the same local-only allowlist as getTestSupabaseConfig(). Only
+ * needed by tests that must hold an explicit multi-statement transaction
+ * open across two independent connections (row-lock proofs) — every other
+ * integration test should use getTestAdminClient() instead.
+ */
+export function getTestDatabaseUrl(): string {
+  const url = requireEnv("TEST_DATABASE_URL");
+  assertSafeTestDatabaseUrl(url);
+  return url;
 }
 
 let cachedAdminClient: SupabaseClient | null = null;

@@ -249,6 +249,152 @@ describe.skipIf(!SERVICE_ROLE_KEY)("platform-wide admin analytics RPCs", () => {
     expect(rowB).toMatchObject({ entries: 1, entry_volume: 500, net_result: -500, wins: 0, losses: 1 });
   });
 
+  it("excludes FREE entries from pools_entered/entries counts, but still counts them in wins/losses (accuracy)", async () => {
+    const paidPlayer = await createTestPlayer(`admin-analytics-free-paid-${Date.now()}@example.com`);
+    const freePlayer = await createTestPlayer(`admin-analytics-free-free-${Date.now()}@example.com`);
+    deactivatedIds.push(paidPlayer.userId, freePlayer.userId);
+
+    const fixture = await createFixture("Free Mode Analytics League");
+    createdFixtureIds.push(fixture);
+
+    const paidPool = await createPool(adminId, fixture, [1000, 0]);
+    const { data: freePool, error: freePoolError } = await admin
+      .from("pools")
+      .insert({
+        fixture_id: fixture,
+        created_by: adminId,
+        pool_type: "CUSTOM",
+        // Same category as the PAID pool below (createPool's default) so
+        // get_platform_category_performance's exclusion can be proven
+        // within one grouped row, not just across two different ones.
+        analytics_category: "MATCH_RESULT",
+        entry_mode: "FREE",
+        entry_fee: null,
+        house_fee_bps: 0,
+        question: "free test question",
+        min_total_entries: 2,
+        open_at: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
+        locks_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+        status: "SETTLED",
+      })
+      .select("id")
+      .single();
+    if (freePoolError || !freePool) throw freePoolError ?? new Error("failed to create free pool");
+    createdPoolIds.push(freePool.id as string);
+
+    const { data: freeOption, error: freeOptionError } = await admin
+      .from("pool_options")
+      .insert({ pool_id: freePool.id, label: "Yes", sort_order: 0, entry_count: 1 })
+      .select("id")
+      .single();
+    if (freeOptionError || !freeOption) throw freeOptionError ?? new Error("failed to create free option");
+
+    // get_platform_top_users's graded CTE inner-joins settlements (matching
+    // snapshot_version) and date-filters on the settlement's own created_at
+    // — a FREE pool needs one too, exactly like the PAID helper pool
+    // already gets from createPool, or it simply won't appear in that
+    // function's output at all (not a 0-row — no row).
+    const { data: freeSettlement, error: freeSettlementError } = await admin
+      .from("settlements")
+      .insert({ pool_id: freePool.id, grading_version: 1, provider_status: "TEST" })
+      .select("id")
+      .single();
+    if (freeSettlementError || !freeSettlement) throw freeSettlementError ?? new Error("failed to create free settlement");
+
+    // A wide (±1s) window risks catching the previous test's ambient
+    // entries, which default to now() and run only moments before this one
+    // — every timestamp here is pinned exactly to controlledAt, so a 2ms
+    // window is generous for insert/query jitter while still excluding
+    // anything from an adjacent test.
+    const controlledAt = new Date().toISOString();
+    const wideFrom = controlledAt;
+    const wideTo = new Date(Date.parse(controlledAt) + 2).toISOString();
+
+    const { error: settledAtError } = await admin
+      .from("settlements")
+      .update({ created_at: controlledAt })
+      .in("id", [paidPool.settlementId, freeSettlement.id]);
+    if (settledAtError) throw settledAtError;
+
+    // One real PAID entry, one FREE entry (amount null) — both WON, both
+    // pinned to the same tight window so the platform-wide unscoped
+    // aggregate can be compared with an exact, not just a floor, count.
+    await admin
+      .from("entries")
+      .insert({
+        pool_id: paidPool.poolId,
+        user_id: paidPlayer.userId,
+        option_id: paidPool.optionAId,
+        amount: 1000,
+        status: "WON",
+        idempotency_key: randomUUID(),
+        created_at: controlledAt,
+      });
+    await admin
+      .from("entries")
+      .insert({
+        pool_id: freePool.id,
+        user_id: freePlayer.userId,
+        option_id: freeOption.id,
+        amount: null,
+        status: "WON",
+        idempotency_key: randomUUID(),
+        created_at: controlledAt,
+      });
+
+    const { data: overviewRows, error: overviewError } = await admin.rpc("get_platform_overview", {
+      p_date_from: wideFrom,
+      p_date_to: wideTo,
+    });
+    expect(overviewError).toBeNull();
+    const overview = overviewRows![0];
+    // Financial volume count: only the PAID entry.
+    expect(overview.pools_entered).toBe(1);
+    // Accuracy: both WON entries count, PAID and FREE alike.
+    expect(overview.wins).toBe(2);
+
+    const { data: topUsersRows } = await admin.rpc("get_platform_top_users", {
+      p_date_from: wideFrom,
+      p_date_to: wideTo,
+      p_order: "net_result",
+      p_limit: 50,
+    });
+    const paidRow = topUsersRows!.find((r: { user_id: string }) => r.user_id === paidPlayer.userId);
+    const freeRow = topUsersRows!.find((r: { user_id: string }) => r.user_id === freePlayer.userId);
+    // The PAID row's own entries count is unaffected by the FREE player
+    // existing in the same window — proves this is additive, not a
+    // regression to the PAID accounting.
+    expect(paidRow?.entries).toBe(1);
+    // The FREE player has no settlement_payouts/wallet_transactions row
+    // (net computes to null and sum() skips it), and now — thanks to this
+    // migration — is also excluded from the entries count. Without the
+    // fix this would have been 1, silently counting a $0 entry as real
+    // financial activity.
+    expect(freeRow?.entries).toBe(0);
+
+    const { data: categoryRows } = await admin.rpc("get_platform_category_performance", {
+      p_date_from: wideFrom,
+      p_date_to: wideTo,
+    });
+    const matchResult = categoryRows!.find((r: { category: string }) => r.category === "MATCH_RESULT");
+    expect(matchResult).toBeDefined();
+    // Financial count: only the PAID entry (release-gate follow-up fix).
+    expect(matchResult.entries).toBe(1);
+    // Accuracy stays combined: both WON entries count.
+    expect(matchResult.wins).toBe(2);
+
+    const { data: monthlyRows } = await admin.rpc("get_platform_monthly_activity", {
+      p_date_from: wideFrom,
+      p_date_to: wideTo,
+      p_granularity: "day",
+      p_timezone: "UTC",
+    });
+    expect(monthlyRows).toHaveLength(1);
+    // Financial count: only the PAID entry (release-gate follow-up fix) —
+    // this function has no accuracy/engagement column to leave combined.
+    expect(monthlyRows![0].pools_entered).toBe(1);
+  });
+
   it("rejects a regular authenticated session — these RPCs are service_role-only, unlike get_user_*", async () => {
     const player = await createTestPlayer(`admin-analytics-unauthorized-${Date.now()}@example.com`);
     deactivatedIds.push(player.userId);

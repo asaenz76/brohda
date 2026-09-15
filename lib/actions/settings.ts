@@ -47,6 +47,54 @@ export async function setRegistrationEnabledAction(
   return { success: true, error: null };
 }
 
+export type SetPlatformPoolCapabilityResult = { success: boolean; error: string | null };
+
+/** Global entry-time kill switches (FREE_MODE_ARCHITECTURE_PROPOSAL.md §5) —
+ * paid_pools_enabled/free_pools_enabled, each independently toggleable.
+ * Same service-role-update + audit-log shape as setRegistrationEnabledAction,
+ * but improves on that precedent by recording `before` as well as `after`
+ * (§5.5). Turning a capability off blocks NEW entries of that mode from
+ * this moment forward — create_pool_entry re-checks the flag itself, fail-
+ * closed, on every call (§7); it does not touch any existing pool or entry.
+ */
+export async function setPlatformPoolCapabilityAction(
+  capability: "paid" | "free",
+  enabled: boolean,
+): Promise<SetPlatformPoolCapabilityResult> {
+  const admin = await requireSuperAdmin();
+  const adminClient = createAdminClient();
+  const column = capability === "paid" ? "paid_pools_enabled" : "free_pools_enabled";
+
+  const { data: current } = await adminClient.from("platform_settings").select(column).eq("id", true).single();
+  const previousValue = (current as Record<string, boolean> | null)?.[column] ?? null;
+
+  const { error } = await adminClient
+    .from("platform_settings")
+    .update({
+      [column]: enabled,
+      updated_at: new Date().toISOString(),
+      updated_by: admin.id,
+    })
+    .eq("id", true);
+
+  if (error) {
+    return { success: false, error: "Could not update this setting." };
+  }
+
+  await writeAuditLog({
+    actorId: admin.id,
+    action: `settings.${column}_changed`,
+    entityType: "platform_settings",
+    entityId: null,
+    before: { [column]: previousValue },
+    after: { [column]: enabled },
+  });
+
+  revalidatePath("/admin/settings");
+  revalidatePath("/admin/pools/new");
+  return { success: true, error: null };
+}
+
 export type SetPoolFeeDefaultsResult = { success: boolean; error: string | null };
 
 /** Org-wide entry fee / platform fee defaults pre-filled into the pool

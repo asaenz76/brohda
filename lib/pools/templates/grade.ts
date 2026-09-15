@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createRefundNotifications, createSettlementNotifications } from "@/lib/notifications/create";
 import { getTemplate, getTemplateConfigSchema } from "./registry";
 import { parseEvents } from "./event-helpers";
+import type { EntryMode } from "@/lib/pools/capabilities";
 import type { GradingEvidenceItem, TemplateFixtureScore } from "./types";
 
 export interface TemplateGradedPool {
@@ -12,6 +13,11 @@ export interface TemplateGradedPool {
   // Null/absent for any pool created before template versioning shipped —
   // resolved as version 1 (the only version that existed at the time).
   template_version?: number | null;
+  // Optional (defaults to "PAID" below) so every pre-existing caller/test
+  // exercising the PAID path — which is every pool before this feature
+  // shipped — needs no change. Real callers should still pass it
+  // explicitly when available (settle.ts, pool-lifecycle.ts do).
+  entryMode?: EntryMode;
 }
 
 export interface TemplateFixtureRow {
@@ -163,7 +169,12 @@ export async function gradeTemplatePool(
     // fixture is COMPLETED; this branch exists for future templates whose
     // gradingRule can genuinely return VOID (e.g. ambiguous event data).
     const voidReason = "MATCH_STATUS_UNKNOWN";
-    const { data: voidedPool, error } = await admin.rpc("confirm_pool_refund", {
+    // FREE pools never accumulate a wallet-refundable amount (entries.amount
+    // is null) — confirm_pool_refund would attempt a null-amount wallet
+    // credit and fail; void_pool_no_refund is the FREE-mode sibling that
+    // skips the wallet loop entirely (FREE_MODE_ARCHITECTURE_PROPOSAL.md §8).
+    const voidRpc = pool.entryMode === "FREE" ? "void_pool_no_refund" : "confirm_pool_refund";
+    const { data: voidedPool, error } = await admin.rpc(voidRpc, {
       p_pool_id: pool.id,
       p_void_reason: voidReason,
       p_idempotency_key: `${pool.id}:template_void:${voidReason}`,
@@ -249,7 +260,12 @@ export async function gradeTemplatePool(
   // idempotency key (not crypto.randomUUID() the way the admin-UI confirm
   // button does) so a retried cron tick converges on the same wallet
   // transactions instead of minting a fresh key every attempt.
-  const { error: confirmError } = await admin.rpc("confirm_pool_settlement", {
+  // FREE pools never move money — confirm_pool_grading_only marks
+  // WON/LOST and updates streaks/accuracy with zero wallet activity
+  // (§8). Dispatched here rather than inside confirm_pool_settlement
+  // itself, which receives zero modifications.
+  const confirmRpc = pool.entryMode === "FREE" ? "confirm_pool_grading_only" : "confirm_pool_settlement";
+  const { error: confirmError } = await admin.rpc(confirmRpc, {
     p_pool_id: pool.id,
     p_admin_id: null,
     p_grading_version: settlement.grading_version,

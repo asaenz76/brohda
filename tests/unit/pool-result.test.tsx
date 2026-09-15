@@ -36,6 +36,7 @@ function buildViewModel(overrides: Partial<SocialPoolCardViewModel> = {}): Socia
     poolType: "TEMPLATE_GRADED",
     ruleLabel: "Auto-graded from the fixture result",
     comboLegs: null,
+    entryMode: "PAID",
     entryFee: 1000,
     houseFeeBasisPoints: 500,
     minTotalEntries: 10,
