@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Search, Plus, Trophy } from "lucide-react";
+import { Home, Search, Plus, Trophy, Compass } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/Avatar";
 
@@ -11,7 +11,17 @@ const LEFT_TABS = [
   { href: "/search", label: "Search", icon: Search },
 ] as const;
 
-const RIGHT_TABS = [{ href: "/leaderboard", label: "Leaderboard", icon: Trophy }] as const;
+// "/markets" is the Milestone 2 prediction-market discovery surface
+// (docs/PRODUCT_TRANSFORMATION_ROADMAP.md) — intentionally coexisting
+// alongside, not replacing, the legacy pool feed at "/feed". A dedicated
+// nav tab (rather than a link buried inside another page) is the smallest
+// change that still makes it genuinely discoverable, per the milestone's
+// own "a user should be able to open Brohda [and] discover interesting
+// real-world prediction questions" requirement.
+const RIGHT_TABS = [
+  { href: "/leaderboard", label: "Leaderboard", icon: Trophy },
+  { href: "/markets", label: "Markets", icon: Compass },
+] as const;
 
 function NavLink({
   href,

@@ -19,9 +19,12 @@
     "supabase:stop": "supabase stop",
     "supabase:reset": "supabase db reset",
     "create-super-admin": "dotenv -e .env.local -- tsx scripts/create-super-admin.ts",
+    "set-capability-policy": "dotenv -e .env.local -- tsx scripts/set-capability-policy.ts",
     "seed": "dotenv -e .env.local -- tsx scripts/seed.ts",
     "seed:dev-grading": "dotenv -e .env.development.local -- tsx scripts/seed-dev-grading.ts",
-    "verify-custom-pool-cron": "NODE_OPTIONS=--conditions=react-server dotenv -e .env.local -- tsx scripts/verify-custom-pool-cron.ts"
+    "verify-custom-pool-cron": "NODE_OPTIONS=--conditions=react-server dotenv -e .env.local -- tsx scripts/verify-custom-pool-cron.ts",
+    "ingest-prediction-markets": "NODE_OPTIONS=--conditions=react-server dotenv -e .env.local -- tsx scripts/ingest-prediction-markets.ts",
+    "inspect-prediction-markets": "NODE_OPTIONS=--conditions=react-server dotenv -e .env.local -- tsx scripts/inspect-prediction-markets.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
