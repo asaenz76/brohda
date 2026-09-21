@@ -1,7 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getMarketById, listActiveMarkets, type MarketRecord } from "../repository";
-import { POLYMARKET_PROVIDER } from "../provider-names";
 import { computeMarketCategoryIds, type CategoryMappingRow } from "./category-mapping";
 import { compareDiscoveryMarkets, DEFAULT_SORT_POLICY, type SortCriterion, type SortDirection, type SortPolicy } from "./ordering";
 import { getFreshnessPolicy } from "./policy";
@@ -315,7 +314,3 @@ export async function getMarketDetail(id: string): Promise<DiscoveryMarketDetail
 
   return toDiscoveryMarketDetail(market, refs, freshnessPolicy);
 }
-
-// Re-exported for admin diagnostics only (e.g. confirming which provider a
-// mapping targets) — never imported by consumer-facing code.
-export { POLYMARKET_PROVIDER };

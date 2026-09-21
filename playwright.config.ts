@@ -77,14 +77,6 @@ export default defineConfig({
       NEXT_PUBLIC_SUPABASE_ANON_KEY: testSupabase.anonKey,
       SUPABASE_SERVICE_ROLE_KEY: testSupabase.serviceRoleKey,
       API_NFL_ENABLED: "false",
-      // Milestone 5 (Simulated Execution) needs this ON, unlike API_NFL_ENABLED
-      // above — its E2E suite exercises the real read-only Polymarket
-      // order-book adapter deliberately (no mutation endpoint exists to
-      // gate; see tests/e2e/simulated-execution-flow.spec.ts's own comment
-      // on why no database-only fixture can substitute for live depth
-      // data). Explicit here for the same reason every other var in this
-      // block is explicit: never let ambient `.env.local` be the source.
-      PREDICTION_MARKETS_POLYMARKET_ENABLED: "true",
       CRON_SECRET: "e2e-placeholder",
       RESEND_API_KEY: "",
       NEXT_PUBLIC_SENTRY_DSN: "",

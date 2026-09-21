@@ -1,14 +1,13 @@
 /**
- * Integration tests for the Milestone 1 Market domain
- * (docs/PRODUCT_TRANSFORMATION_ROADMAP.md, Milestone 1). Real local
- * Supabase only (pnpm supabase:start) — never touches Polymarket's real API
- * or production Supabase; every market fixture here is constructed
- * in-process, exercising the persistence layer exactly the way real
- * ingestion would, without any network call.
+ * Integration tests for the `markets` persistence layer (Milestone R0,
+ * docs/architecture/sports-prediction-network.md) — repurposed from the
+ * abandoned Polymarket-market catalog into the candidate schema for a
+ * sports PredictionQuestion. Real local Supabase only (pnpm supabase:start);
+ * every fixture here is constructed in-process, exercising persistence,
+ * upsert, and RLS without any network call.
  */
 import { afterAll, describe, expect, it } from "vitest";
 import { getTestAdminClient, getTestAnonClient } from "./helpers/test-env";
-import { evaluateEligibility } from "@/lib/prediction-markets/eligibility";
 import { getMarketByProviderMarketId, upsertMarket } from "@/lib/prediction-markets/repository";
 import type { NormalizedMarket } from "@/lib/prediction-markets/types";
 
@@ -144,16 +143,5 @@ describe("prediction-markets Market domain", () => {
     const record = await getMarketByProviderMarketId(testProvider, goodMarketId);
     expect(record).not.toBeNull();
     expect(record?.question).toBe(fixture(goodMarketId).question);
-  });
-
-  it("bounded-selection: an ineligible market (per explicit criteria) never reaches eligibility, and is never persisted by ingestion logic that respects that decision", () => {
-    const decision = evaluateEligibility(
-      { providerMarketId: "not-allowed", providerEventId: null, categoryTags: [], isActive: true, liquidity: 1000 },
-      { explicitMarketIds: ["only-this-one"], maxResults: 10 },
-    );
-    expect(decision.eligible).toBe(false);
-    // This is the same eligibility check ingest.ts relies on before ever
-    // calling upsertMarket — proving it rejects here is what guarantees a
-    // non-eligible market never reaches this table in a real run.
   });
 });

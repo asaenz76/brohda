@@ -6,10 +6,10 @@ import { listPendingPredictions, markPredictionGraded } from "./repository";
 import type { Prediction, PredictionOutcome, PredictionResult } from "./types";
 
 /**
- * Provider resolution -> normalized Market resolution -> Prediction grading
- * (roadmap STEP 18). This module never interprets a raw provider field —
- * it only reads `MarketRecord.status`/`resolvedOutcome`, which
- * lib/prediction-markets/providers/polymarket/normalize.ts is solely
+ * Provider resolution -> normalized Market resolution -> Prediction grading.
+ * This module never interprets a raw provider field directly — it only
+ * reads `MarketRecord.status`/`resolvedOutcome`, which a resolution source
+ * (docs/architecture/sports-prediction-network.md §12) is solely
  * responsible for deriving. Grading a Prediction directly from a raw
  * provider result (skipping the normalized Market) would violate that
  * boundary and is deliberately not possible from this file's imports.

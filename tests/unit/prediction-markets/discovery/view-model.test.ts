@@ -8,7 +8,7 @@ import type { MarketRecord } from "@/lib/prediction-markets/repository";
 function record(overrides: Partial<MarketRecord> = {}): MarketRecord {
   return {
     id: "brohda-id-1",
-    provider: "polymarket",
+    provider: "api-sports",
     providerMarketId: "provider-id-should-never-leak",
     providerEventId: "provider-event-should-never-leak",
     question: "Will X happen?",

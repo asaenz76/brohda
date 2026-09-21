@@ -26,8 +26,6 @@ const TABS: Array<{ href: string; label: string; superAdminOnly?: boolean; activ
   { href: "/admin/settings", label: "Settings", superAdminOnly: true },
   { href: "/admin/discovery-categories", label: "Discovery Categories", superAdminOnly: true },
   { href: "/admin/predictions", label: "Predictions", superAdminOnly: true },
-  { href: "/admin/simulated-execution", label: "Simulated Execution", superAdminOnly: true },
-  { href: "/admin/execution-operations", label: "Execution Operations", superAdminOnly: true },
 ];
 
 export function AdminNav({ role }: { role: "super_admin" | "admin" | "player" }) {

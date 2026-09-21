@@ -30,11 +30,11 @@ export function CreateMappingForm({ categories }: { categories: DiscoveryCategor
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="provider">Provider</Label>
-            <Input id="provider" name="provider" placeholder="polymarket" defaultValue="polymarket" required />
+            <Input id="provider" name="provider" placeholder="api-sports" defaultValue="api-sports" required />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="providerTag">Provider tag</Label>
-            <Input id="providerTag" name="providerTag" placeholder="Politics" required />
+            <Input id="providerTag" name="providerTag" placeholder="NFL" required />
           </div>
           <div className="flex items-end gap-2">
             <label className="flex items-center gap-2 text-sm text-text-secondary">

@@ -1,10 +1,10 @@
 /**
- * Integration tests for Milestone 2 — Prediction Market Discovery
- * (docs/PRODUCT_TRANSFORMATION_ROADMAP.md). Real local Supabase only
- * (pnpm supabase:start). Covers: taxonomy CRUD, RLS/grant boundaries,
+ * Integration tests for the discovery taxonomy/feed layer
+ * (docs/architecture/sports-prediction-network.md). Real local Supabase
+ * only (pnpm supabase:start). Covers: taxonomy CRUD, RLS/grant boundaries,
  * feed/category-filter correctness, and the discovery-vs-ingestion
  * eligibility distinction — using markets constructed in-process, never a
- * real Polymarket call.
+ * real network call.
  */
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { getTestAdminClient, getTestAnonClient } from "./helpers/test-env";

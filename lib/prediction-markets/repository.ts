@@ -2,14 +2,13 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { NormalizedMarket } from "./types";
 
-// Server-side read/write layer for the `markets` table. This is the ONLY
-// module in the app allowed to run a Supabase query against `markets` —
-// every future caller (a script, a Server Action, a later milestone's
-// consumer route) goes through here, never through its own ad hoc query,
-// so the shape of what "a normalized market" looks like to the rest of the
-// app stays defined in exactly one place (roadmap STEP 15: "future callers
-// should be able to retrieve normalized markets without importing the
-// Polymarket adapter").
+// Server-side read/write layer for the `markets` table — repurposed
+// (docs/architecture/sports-prediction-network.md §9) as the candidate
+// PredictionQuestion schema after the Polymarket direction was abandoned.
+// This is the ONLY module in the app allowed to run a Supabase query
+// against `markets` — every future caller goes through here, never through
+// its own ad hoc query, so the shape of "a normalized market" stays
+// defined in exactly one place.
 
 interface MarketRow {
   id: string;
@@ -59,10 +58,10 @@ export interface MarketRecord {
   /**
    * Extracted provider category/tag labels only — NOT the raw provider
    * payload. This is the one deliberate exception to "provider internals
-   * stop at the adapter boundary" (docs/architecture/prediction-market-provider.md
-   * §2): Milestone 2's category-mapping layer (lib/prediction-markets/
-   * discovery/category-mapping.ts) needs these strings to match against
-   * `discovery_category_provider_mappings`, but the consumer-facing
+   * stop at the adapter boundary": the category-mapping layer
+   * (lib/prediction-markets/discovery/category-mapping.ts) needs these
+   * strings to match against `discovery_category_provider_mappings`, but
+   * the consumer-facing
    * DiscoveryMarketCard/Detail view models never expose this field —
    * only the resolved Brohda category objects.
    */
@@ -170,22 +169,6 @@ export async function getMarketByProviderMarketId(provider: string, providerMark
     .maybeSingle();
   if (error) throw error;
   return data ? toRecord(data as MarketRow) : null;
-}
-
-/**
- * Raw provider metadata for one market — deliberately narrow and
- * separate from `MarketRecord` (which already exposes `categoryTags` as
- * its one deliberate raw-metadata exception, per this file's own
- * documented convention). Milestone 5's execution adapter needs the raw
- * `clobTokenIds` field to call Polymarket's read-only order-book endpoint
- * — a second, equally narrow exception, not a general reopening of
- * `provider_metadata` to every caller. No other caller should use this.
- */
-export async function getMarketProviderMetadata(id: string): Promise<Record<string, unknown> | null> {
-  const admin = createAdminClient();
-  const { data, error } = await admin.from("markets").select("provider_metadata").eq("id", id).maybeSingle();
-  if (error) throw error;
-  return (data?.provider_metadata as Record<string, unknown> | null) ?? null;
 }
 
 export async function listActiveMarkets(limit = 100): Promise<MarketRecord[]> {

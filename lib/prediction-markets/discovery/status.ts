@@ -11,13 +11,12 @@ import type { ConsumerMarketStatus } from "./types";
  * provider has stopped updating entirely); callers treat null as "this
  * market has no consumer-facing presentation."
  *
- * RESOLVED vs CLOSED is the honest distinction roadmap STEP 16 requires: a
- * CLOSED market only becomes RESOLVED once `resolvedOutcome` is genuinely
- * non-null. Milestone 1 never populates that field yet (documented
- * limitation in docs/architecture/prediction-market-provider.md §15), so in
- * practice every closed market today presents as CLOSED, not RESOLVED —
- * this function does not fabricate a result to make the distinction appear
- * exercised.
+ * RESOLVED vs CLOSED is an honest distinction: a CLOSED market only becomes
+ * RESOLVED once `resolvedOutcome` is genuinely non-null. Populating that
+ * field automatically from real results is R3's own job
+ * (docs/architecture/sports-prediction-network.md §12) — this function
+ * never fabricates a result to make the distinction appear exercised
+ * before a real resolution source exists.
  */
 export function deriveConsumerStatus(status: string, resolvedOutcome: string | null): ConsumerMarketStatus | null {
   if (status === "ACTIVE") return "ACTIVE";

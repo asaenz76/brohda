@@ -294,12 +294,10 @@ describe("grading", () => {
     expect(stillPending?.lifecycleState).toBe("PENDING");
 
     // Resolve the market cleanly (YES wins). resolvedOutcome is set
-    // explicitly here because this fixture bypasses the Polymarket
-    // adapter's own mapResolvedOutcome derivation (normalize.ts) — that
-    // derivation is unit-tested separately
-    // (tests/unit/prediction-markets/polymarket-normalize.test.ts); this
-    // integration test is only proving the Market -> Prediction grading
-    // boundary, given an already-resolved normalized Market.
+    // explicitly here since this fixture constructs an already-resolved
+    // normalized Market directly — this integration test is only proving
+    // the Market -> Prediction grading boundary, not any resolution-source
+    // adapter's own derivation logic.
     await upsertMarket(
       marketFixture((await admin.from("markets").select("provider_market_id").eq("id", marketId).single()).data!.provider_market_id, {
         status: "CLOSED",

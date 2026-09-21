@@ -5,13 +5,14 @@ import { MarketCard } from "@/components/discovery/MarketCard";
 import { CategoryTabs } from "@/components/discovery/CategoryTabs";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
 
-// Prediction Market Discovery Experience (docs/PRODUCT_TRANSFORMATION_ROADMAP.md
-// Milestone 2). Read-only browse surface — no prediction submission, no
-// order, no wallet, no position. Reads only Brohda's own normalized data
-// (lib/prediction-markets/discovery/repository.ts) — never calls Polymarket
-// directly, never triggers ingestion. The legacy pool feed at /feed is
-// untouched and remains the default player-facing surface; this is an
-// additional, clearly-separate route (roadmap STEP 17).
+// Sports prediction question discovery surface
+// (docs/architecture/sports-prediction-network.md). Read-only browse
+// surface — no order, no wallet, no position, no financial exposure of any
+// kind. Reads only Brohda's own normalized `markets` data
+// (lib/prediction-markets/discovery/repository.ts) — never calls a
+// third-party provider directly, never triggers ingestion from here. The
+// legacy pool feed at /feed is untouched and remains the default
+// player-facing surface; this is an additional, clearly-separate route.
 
 export default async function MarketsPage({
   searchParams,

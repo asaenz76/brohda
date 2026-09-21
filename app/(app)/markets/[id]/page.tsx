@@ -10,7 +10,6 @@ import { checkMarketEligibility, getPredictionPolicy } from "@/lib/predictions/p
 import { copyForIneligible } from "@/lib/predictions/copy";
 import { PredictionActions } from "@/components/predictions/PredictionActions";
 import { YourPredictionCard } from "@/components/predictions/YourPredictionCard";
-import { SimulateExecutionPanel } from "@/components/execution/SimulateExecutionPanel";
 
 // Market detail (roadmap STEP 15; prediction submission added Milestone 3,
 // roadmap STEP 17). A market that's INACTIVE/ARCHIVED, or genuinely doesn't
@@ -100,20 +99,6 @@ export default async function MarketDetailPage({ params }: { params: Promise<{ i
           )}
         </CardContent>
       </Card>
-
-      {/* Milestone 5 — deliberately a separate Card from the Prediction
-          section above (roadmap STEP 28: "keep Prediction and Simulated
-          Execution visually distinct"). Simulating execution here never
-          reads or writes Prediction state. Only rendered for ACTIVE
-          markets — a closed/resolved market can still show a Prediction,
-          but never a new simulation entry point. */}
-      {market.status === "ACTIVE" && (
-        <Card>
-          <CardContent className="pt-6">
-            <SimulateExecutionPanel marketId={market.id} />
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

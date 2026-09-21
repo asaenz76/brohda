@@ -83,12 +83,9 @@ test.describe("Brohda Prediction layer", () => {
 
       const bodyTextBefore = await page.locator("body").innerText();
       for (const pattern of FORBIDDEN_TERMS) expect(bodyTextBefore).not.toMatch(pattern);
-      // No amount input within the Prediction flow itself — Milestone 5
-      // legitimately adds one for its own, visually and structurally
-      // separate Simulated Execution section further down the same page
-      // (docs/architecture/simulated-execution.md §5), so this check is
-      // scoped to Prediction's own component rather than the whole page.
-      await expect(page.getByTestId("prediction-actions").locator('input[type="number"]')).toHaveCount(0);
+      // No amount input anywhere on the page — a Prediction is a free,
+      // equal, non-monetary belief, never a stake.
+      await expect(page.locator('input[type="number"]')).toHaveCount(0);
 
       await page.getByRole("button", { name: "Predict YES" }).click();
       // submitPredictionAction calls revalidatePath on this same route, so

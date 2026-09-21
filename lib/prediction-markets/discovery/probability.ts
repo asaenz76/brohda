@@ -8,9 +8,8 @@
  * consumer-facing percentages (components/pools/CommunitySplit.tsx renders
  * pre-computed whole-number percentages the same way). Never fabricates a
  * value — null in, null out; the two sides are never forced to sum to 100
- * if the underlying provider prices don't (see
- * lib/prediction-markets/providers/polymarket/normalize.ts's own price
- * independence guarantee).
+ * if the underlying prices don't (each side is read independently, never
+ * derived as `1 - other`).
  */
 export function formatProbabilityPercent(price: number | null): number | null {
   if (price == null) return null;

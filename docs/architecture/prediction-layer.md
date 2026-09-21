@@ -1,10 +1,10 @@
-# Prediction Layer — Milestone 3
+# Prediction Layer
 
-**Status**: Implements `docs/PRODUCT_TRANSFORMATION_ROADMAP.md` Milestone 3 — Brohda Prediction Layer, and only that milestone.
+**Status**: Describes the Brohda Prediction domain (`lib/predictions/`), originally built as Milestone 3 of the abandoned Polymarket-execution roadmap and **preserved unchanged** through the Milestone R0 sports-prediction-network repivot (`docs/architecture/sports-prediction-network.md`). The domain itself never depended on Polymarket or execution — only on a normalized `markets` row, which is now repurposed as the candidate `PredictionQuestion` schema rather than sourced from Polymarket.
 
 > A Brohda Prediction is a permanent social/history/reputation record of what a user believed at a specific moment. It is not an Order, Trade, Position, wallet transaction, or financial exposure.
 
-> Milestone 3 introduces no real-money execution capability. Milestone 4 remains the hard gate for custody, signing, legal/compliance, fee, geofencing, account-model, and execution decisions.
+> **There is no real-money execution roadmap.** The abandoned Milestone 4-6 real-execution direction (custody, signing, compliance, fee, geofencing, account-model decisions) is archived in full at `docs/deprecated/polymarket-execution-direction-2026/` and does not describe any current or future Brohda direction.
 
 ## 1. Scope
 
@@ -90,15 +90,11 @@ Provider resolution
 
 No production scheduler is wired to this job — it is a manual/developer invocation only, matching Milestone 1's `pnpm ingest-prediction-markets` precedent exactly. A future milestone may point a cron-compatible route at the same `runGradingJob` function; that decision belongs there, not here.
 
-## 8. Resolution source — Milestone 1 extension
+## 8. Resolution source
 
-Milestone 1 explicitly left `resolved_outcome` always `null` (`docs/architecture/prediction-market-provider.md` §15) — no confirmed, reliable resolution field had been researched. Grading needs one, so this milestone researched and extended it minimally, per this task's own instruction to verify official documentation and live behavior rather than guess:
+`lib/predictions/grading.ts` reads only `MarketRecord.status`/`resolvedOutcome` — it never derives a result itself and never inspects a raw provider field. This boundary is what let the entire Polymarket-specific resolution-derivation adapter be removed in the Milestone R0 repivot without touching grading at all: grading has always been agnostic to *how* `resolved_outcome` gets populated, only that it eventually does.
 
-- **Official docs** (`docs.polymarket.com/concepts/resolution`): "winning tokens become redeemable for $1.00 each."
-- **Live verification** (`gamma-api.polymarket.com`, 2026-09-16, real recently-closed markets): a genuinely resolved market's `outcomePrices` settle to exactly `1` for the winning outcome and exactly `0` for the losing one (e.g. `["1","0"]`).
-- **A real discrepancy found and deliberately not trusted**: some very old (2020-era) closed markets return `["0","0"]` — likely pre-CLOB/AMM-era rows whose prices were never backfilled after resolution. These are left unresolved by design rather than guessed at.
-
-**Extension**: `lib/prediction-markets/providers/polymarket/normalize.ts`'s new `mapResolvedOutcome` derives `"YES"`/`"NO"`/`null` from the already-independently-read `price.yes`/`price.no` pair (never deriving one side from the other — both were already read independently by the pre-existing `mapPrices`; this only recognizes when that pair happens to form a clean, terminal settle) when `status === "CLOSED"`. `umaResolutionStatus`/`resolvedBy` remain raw, provider-specific, diagnostic-only pass-through — their exact value vocabulary is not officially documented, so they are never used to *derive* a result, only kept for inspection. Unit-tested in `tests/unit/prediction-markets/polymarket-normalize.test.ts` (clean YES, clean NO, non-closed market, legacy-shaped `["0","0"]`, and `ARCHIVED` markets all covered).
+**Current state, post-repivot**: nothing automatically populates `resolved_outcome` today — it is set directly by test fixtures and manual seeding, exactly as `tests/integration/predictions.test.ts` already exercises. Building the real, automated, sports-data-driven resolution source (per template — moneyline/spread/total) is R3's own explicit scope (`docs/architecture/sports-prediction-network.md` §12), not something this document should describe in advance of that work actually existing.
 
 ## 9. Reputation/streak hooks
 
@@ -259,6 +255,6 @@ Who can do what:
 - As with Milestone 1/2, this development environment's browser-preview tooling is anchored to an unrelated project directory — functional verification relied on the full automated suite (`tests/unit/predictions/*`, `tests/integration/predictions.test.ts`, `tests/e2e/predictions-flow.spec.ts`), not a manual browser session.
 - `next dev`'s own module-compilation contention under many parallel Playwright workers produced transient, non-deterministic `ECONNRESET`/`MODULE_UNPARSABLE` server-log noise during this milestone's E2E runs (also observed in Milestone 2's own verification) — never a real test failure on repeat runs; not present in a production build.
 
-## 21. Explicit Milestone 4 boundary
+## 21. Explicit real-money-execution boundary
 
-Nothing in this milestone creates, references, or assumes an `Order`, a `Trade`, a `Position`, a wallet, a signing key, a custody model, a builder fee, or any authenticated Polymarket functionality. The custody/signing/compliance/geofencing/account-model decisions remain entirely unresolved, exactly as `docs/PRODUCT_TRANSFORMATION_ROADMAP.md` Milestone 4 — the Execution Architecture hard gate — requires. This milestone's `Prediction` domain and its reputation hooks are designed to mature independently of that gate, per the roadmap's own dependency graph (§8 there: Milestone 3 can proceed and even feed Milestone 8's reputation-algorithm research before Milestone 4 is ever exited).
+Nothing in this domain creates, references, or assumes an `Order`, a `Trade`, a `Position`, a wallet, a signing key, a custody model, a builder fee, or any authenticated third-party trading functionality. There is no real-money execution roadmap for this product at all (`docs/PRODUCT_TRANSFORMATION_ROADMAP.md`) — the abandoned execution-architecture direction that once gated this question is archived in full at `docs/deprecated/polymarket-execution-direction-2026/`. The `Prediction` domain and its reputation hooks mature entirely on their own, per the current roadmap's R1-R4 sequence.
