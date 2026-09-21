@@ -23,8 +23,12 @@
     "seed": "dotenv -e .env.local -- tsx scripts/seed.ts",
     "seed:dev-grading": "dotenv -e .env.development.local -- tsx scripts/seed-dev-grading.ts",
     "verify-custom-pool-cron": "NODE_OPTIONS=--conditions=react-server dotenv -e .env.local -- tsx scripts/verify-custom-pool-cron.ts",
+    "send-beta-sunset-email": "dotenv -e .env.local -- tsx scripts/send-beta-sunset-email.ts",
     "ingest-prediction-markets": "NODE_OPTIONS=--conditions=react-server dotenv -e .env.local -- tsx scripts/ingest-prediction-markets.ts",
-    "inspect-prediction-markets": "NODE_OPTIONS=--conditions=react-server dotenv -e .env.local -- tsx scripts/inspect-prediction-markets.ts"
+    "inspect-prediction-markets": "NODE_OPTIONS=--conditions=react-server dotenv -e .env.local -- tsx scripts/inspect-prediction-markets.ts",
+    "grade-predictions": "NODE_OPTIONS=--conditions=react-server dotenv -e .env.local -- tsx scripts/grade-predictions.ts",
+    "set-prediction-policy": "dotenv -e .env.local -- tsx scripts/set-prediction-policy.ts",
+    "set-execution-policy": "dotenv -e .env.local -- tsx scripts/set-execution-policy.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

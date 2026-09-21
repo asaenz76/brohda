@@ -172,6 +172,22 @@ export async function getMarketByProviderMarketId(provider: string, providerMark
   return data ? toRecord(data as MarketRow) : null;
 }
 
+/**
+ * Raw provider metadata for one market — deliberately narrow and
+ * separate from `MarketRecord` (which already exposes `categoryTags` as
+ * its one deliberate raw-metadata exception, per this file's own
+ * documented convention). Milestone 5's execution adapter needs the raw
+ * `clobTokenIds` field to call Polymarket's read-only order-book endpoint
+ * — a second, equally narrow exception, not a general reopening of
+ * `provider_metadata` to every caller. No other caller should use this.
+ */
+export async function getMarketProviderMetadata(id: string): Promise<Record<string, unknown> | null> {
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("markets").select("provider_metadata").eq("id", id).maybeSingle();
+  if (error) throw error;
+  return (data?.provider_metadata as Record<string, unknown> | null) ?? null;
+}
+
 export async function listActiveMarkets(limit = 100): Promise<MarketRecord[]> {
   const admin = createAdminClient();
   const { data, error } = await admin

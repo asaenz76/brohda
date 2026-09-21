@@ -125,14 +125,62 @@ describe("normalizePolymarketMarket", () => {
     expect(result.market.volume24hr).toBeNull();
   });
 
-  it("passes through raw resolution fields without inventing a resolved outcome", () => {
+  it("passes through raw resolution fields as diagnostic-only, never deriving a resolved outcome from them", () => {
     const raw = rawMarket({ closed: true, umaResolutionStatus: "resolved", resolvedBy: "UMA" });
     const result = normalizePolymarketMarket(raw, { ingestionSource: "test" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.market.resolutionStatus).toBe("resolved");
     expect(result.market.resolvedBy).toBe("UMA");
-    // Milestone 1 never derives a resolved outcome — see normalize.ts's comment.
+    // A closed market whose prices aren't a clean 1/0 settle (this
+    // fixture's default 0.62/0.38) stays unresolved regardless of what
+    // umaResolutionStatus/resolvedBy say — those remain raw diagnostic
+    // pass-through only, never the resolution signal. See §15a.
+    expect(result.market.resolvedOutcome).toBeNull();
+  });
+});
+
+describe("resolved-outcome derivation (Milestone 3 extension, §15a)", () => {
+  it("derives YES when outcomePrices settle cleanly to 1/0 on a closed market", () => {
+    const raw = rawMarket({ closed: true, active: true, outcomePrices: ["1", "0"] });
+    const result = normalizePolymarketMarket(raw, { ingestionSource: "test" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.market.resolvedOutcome).toBe("YES");
+  });
+
+  it("derives NO when outcomePrices settle cleanly to 0/1 on a closed market", () => {
+    const raw = rawMarket({ closed: true, active: true, outcomePrices: ["0", "1"] });
+    const result = normalizePolymarketMarket(raw, { ingestionSource: "test" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.market.resolvedOutcome).toBe("NO");
+  });
+
+  it("never derives a resolved outcome for a market that isn't CLOSED, even if prices happen to be 1/0", () => {
+    const raw = rawMarket({ closed: false, active: true, outcomePrices: ["1", "0"] });
+    const result = normalizePolymarketMarket(raw, { ingestionSource: "test" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.market.status).toBe("ACTIVE");
+    expect(result.market.resolvedOutcome).toBeNull();
+  });
+
+  it("leaves resolvedOutcome null for a closed market whose prices don't show a clean settle (e.g. legacy 0/0 data)", () => {
+    const raw = rawMarket({ closed: true, active: true, outcomePrices: ["0", "0"] });
+    const result = normalizePolymarketMarket(raw, { ingestionSource: "test" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.market.status).toBe("CLOSED");
+    expect(result.market.resolvedOutcome).toBeNull();
+  });
+
+  it("leaves resolvedOutcome null for an ARCHIVED market even with clean 1/0 prices — only CLOSED triggers derivation", () => {
+    const raw = rawMarket({ closed: true, archived: true, active: true, outcomePrices: ["1", "0"] });
+    const result = normalizePolymarketMarket(raw, { ingestionSource: "test" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.market.status).toBe("ARCHIVED");
     expect(result.market.resolvedOutcome).toBeNull();
   });
 

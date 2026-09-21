@@ -98,6 +98,39 @@ export function mapPrices(raw: Pick<RawGammaMarket, "outcomes" | "outcomePrices"
   };
 }
 
+/**
+ * Derives the resolved outcome from an already-independently-read price
+ * pair — never a raw provider string, and never inferred from
+ * `umaResolutionStatus`/`resolvedBy` (whose exact value vocabulary is not
+ * officially documented; kept as raw diagnostic pass-through only, per
+ * `resolutionStatus`/`resolvedBy` on NormalizedMarket).
+ *
+ * Milestone 3 research (docs/architecture/prediction-market-provider.md
+ * §15a): Polymarket's own resolution docs (docs.polymarket.com/concepts/
+ * resolution) state plainly that "winning tokens become redeemable for
+ * $1.00 each." Live-verified against gamma-api.polymarket.com on
+ * 2026-09-16 on real, recently-closed markets: a genuinely resolved
+ * market's `outcomePrices` settle to exactly 1 for the winning outcome and
+ * exactly 0 for the losing one (e.g. `["1","0"]`/`["0","1"]`). This is not
+ * "deriving no from yes" (still forbidden) — both sides are already
+ * independently read by `mapPrices`; this only recognizes when that
+ * already-independent pair happens to form a clean, terminal settle.
+ *
+ * A CLOSED market whose prices do NOT show this clean split (observed on
+ * some very old markets, e.g. `["0","0"]` — likely pre-CLOB/AMM-era rows
+ * whose prices were never backfilled after resolution) is left unresolved
+ * rather than guessed at — never a fabricated result.
+ */
+function mapResolvedOutcome(
+  status: PredictionMarketStatus,
+  price: { yes: number | null; no: number | null },
+): "YES" | "NO" | null {
+  if (status !== "CLOSED") return null;
+  if (price.yes === 1 && price.no === 0) return "YES";
+  if (price.no === 1 && price.yes === 0) return "NO";
+  return null;
+}
+
 function extractEventId(raw: RawGammaMarket): string | null {
   const first = raw.events?.[0];
   return first && typeof first.id === "string" ? first.id : null;
@@ -124,6 +157,7 @@ export interface NormalizeContext {
  */
 export function normalizePolymarketMarket(raw: RawGammaMarket, context: NormalizeContext): NormalizeResult {
   const price = mapPrices(raw);
+  const status = mapStatus(raw);
   const categoryTags = extractCategoryTags(raw);
 
   return {
@@ -134,14 +168,14 @@ export function normalizePolymarketMarket(raw: RawGammaMarket, context: Normaliz
       providerEventId: extractEventId(raw),
       question: raw.question,
       description: raw.description ?? null,
-      status: mapStatus(raw),
+      status,
       price,
       volume24hr: parseNumeric(raw.volume24hr),
       liquidity: parseNumeric(raw.liquidity),
       resolutionStatus: raw.umaResolutionStatus ?? null,
       resolvedBy: raw.resolvedBy ?? null,
-      // Never populated in Milestone 1 — see types.ts's comment.
-      resolvedOutcome: null,
+      // Milestone 3 extension — see mapResolvedOutcome's own comment.
+      resolvedOutcome: mapResolvedOutcome(status, price),
       opensAt: raw.startDateIso ?? null,
       closesAt: raw.endDateIso ?? null,
       closedAt: raw.closedTime ?? null,

@@ -141,11 +141,14 @@ test.describe("prediction market discovery", () => {
       await expect(page.getByText(categorizedQuestion)).toBeVisible();
       await expect(page.getByText(uncategorizedQuestion)).toHaveCount(0);
 
-      // Market detail opens and is read-only.
+      // Market detail opens. This user has no existing Prediction here, so
+      // Milestone 3's real "Predict YES"/"Predict NO" actions legitimately
+      // render (docs/architecture/prediction-layer.md) — still asserting no
+      // financial/exchange language of any kind appears.
       await page.getByText(categorizedQuestion).click();
       await expect(page).toHaveURL(new RegExp(`/markets/${categorizedMarketId}`));
       await expect(page.getByText("62%")).toBeVisible();
-      await expect(page.getByRole("button", { name: /buy|sell|trade|predict|enter/i })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: /buy|sell|trade|enter/i })).toHaveCount(0);
     } finally {
       await cleanup(provider, [categoryId]);
     }

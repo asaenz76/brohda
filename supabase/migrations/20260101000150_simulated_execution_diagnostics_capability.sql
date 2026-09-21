@@ -1,0 +1,13 @@
+-- Milestone 5 admin diagnostics authorization — capability-driven from the
+-- start (learning directly from Milestone 3's own two-pass remediation of
+-- the identical mistake for Prediction diagnostics). Reuses the exact
+-- capability-policy architecture built in migration 20260101000140 and
+-- extended in 20260101000143 — a new capability KEY, same table, same
+-- fail-closed interpreter, same `pnpm set-capability-policy` path. No
+-- second authorization framework, and no `requireSuperAdmin()` direct call
+-- anywhere in the Milestone 5 admin surface.
+--
+-- Split into its own migration (see 20260101000151 for the seed insert)
+-- because Postgres does not allow a newly added enum value to be used
+-- within the same transaction that added it.
+alter type public.app_capability add value 'view_simulated_execution_diagnostics';

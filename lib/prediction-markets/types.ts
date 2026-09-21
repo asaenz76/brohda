@@ -37,7 +37,17 @@ export interface NormalizedMarket {
   /** Raw, provider-specific resolution tracking — diagnostic pass-through only, not a normalized enum. See known limitations in the architecture doc. */
   resolutionStatus: string | null;
   resolvedBy: string | null;
-  /** Never populated by Milestone 1's ingestion. Reserved for a later, properly-researched milestone. */
+  /**
+   * "YES" | "NO" | null. Never populated by Milestone 1's own ingestion
+   * (a true limitation then); extended in Milestone 3 to derive this from
+   * an already-clean-settled price pair — see
+   * lib/prediction-markets/providers/polymarket/normalize.ts's
+   * mapResolvedOutcome and docs/architecture/prediction-market-provider.md
+   * §15a for the live-verified research behind it. Still `string | null`
+   * at this type level (not narrowed to a literal union) so a future
+   * provider can express its own resolution vocabulary without widening
+   * this interface.
+   */
   resolvedOutcome: string | null;
   opensAt: string | null;
   closesAt: string | null;

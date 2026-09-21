@@ -18,7 +18,14 @@
  * genuine application change — the same reasoning that keeps the discovery
  * sort *primitives* hard-coded while their priority/direction is data.
  */
-export const APP_CAPABILITIES = ["discovery_taxonomy_management"] as const;
+export const APP_CAPABILITIES = [
+  "discovery_taxonomy_management",
+  "view_prediction_diagnostics",
+  "view_simulated_execution_diagnostics",
+  "view_execution_operations",
+  "manage_execution_controls",
+  "manage_execution_rollout",
+] as const;
 export type Capability = (typeof APP_CAPABILITIES)[number];
 
 /**

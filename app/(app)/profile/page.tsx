@@ -7,6 +7,8 @@ import { AvatarUploader } from "./avatar-uploader";
 import { ProfileForm } from "./profile-form";
 import { ChangePasswordForm } from "./change-password-form";
 import { PredictionsTab } from "./predictions-tab";
+import { MarketPredictionsTab } from "./market-predictions-tab";
+import { SimulatedExecutionTab } from "./simulated-execution-tab";
 import { ProfileTabs } from "./profile-tabs";
 import { FollowedTeamsLeaguesTab } from "./followed-teams-leagues-tab";
 import { CloseAccountForm } from "./close-account-form";
@@ -57,6 +59,8 @@ export default async function ProfilePage() {
             viewer={{ id: user.id, isModerator: isAdminOrAbove(user) }}
           />
         }
+        markets={<MarketPredictionsTab userId={user.id} />}
+        simulations={<SimulatedExecutionTab userId={user.id} />}
         following={<FollowedTeamsLeaguesTab />}
         edit={
           <div className="space-y-6">
