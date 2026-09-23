@@ -3,10 +3,12 @@ import { isAdminOrAbove } from "@/lib/auth/guards";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent } from "@/components/ui/card";
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
+import { ReputationSummary } from "@/components/reputation/ReputationSummary";
 import { AvatarUploader } from "./avatar-uploader";
 import { ProfileForm } from "./profile-form";
 import { ChangePasswordForm } from "./change-password-form";
 import { PredictionsTab } from "./predictions-tab";
+import { MarketPredictionsTab } from "./market-predictions-tab";
 import { ProfileTabs } from "./profile-tabs";
 import { FollowedTeamsLeaguesTab } from "./followed-teams-leagues-tab";
 import { CloseAccountForm } from "./close-account-form";
@@ -50,6 +52,8 @@ export default async function ProfilePage() {
         profileHref={`/profile/${user.username ?? user.id}`}
       />
 
+      <ReputationSummary userId={user.id} />
+
       <ProfileTabs
         predictions={
           <PredictionsTab
@@ -57,6 +61,7 @@ export default async function ProfilePage() {
             viewer={{ id: user.id, isModerator: isAdminOrAbove(user) }}
           />
         }
+        markets={<MarketPredictionsTab userId={user.id} />}
         following={<FollowedTeamsLeaguesTab />}
         edit={
           <div className="space-y-6">

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Trophy } from "lucide-react";
 import { requireUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
@@ -65,6 +66,16 @@ export default async function LeaderboardPage({
   return (
     <div className="space-y-6">
       <h1 className="sr-only">Leaderboard</h1>
+      {/* Milestone R11: a separate, wallet-independent prediction-accuracy
+          leaderboard lives at its own route rather than folded into this
+          (legacy pool) page — one small, additive discoverability link,
+          per the milestone's own "do not hijack this route" instruction. */}
+      <p className="text-xs text-text-muted">
+        Looking for prediction accuracy rankings?{" "}
+        <Link href="/leaderboard/predictions" className="text-accent-primary hover:underline">
+          View the Predictions Leaderboard
+        </Link>
+      </p>
       <LeaderboardFilters />
 
       {/* Personal, emotionally-resonant stat leads the page — kept

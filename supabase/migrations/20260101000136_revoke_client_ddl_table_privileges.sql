@@ -1,0 +1,98 @@
+-- Security Remediation Gate 1A (docs/PRODUCT_TRANSFORMATION_ROADMAP.md
+-- Milestone 1 follow-up). Not part of the prediction-market feature itself
+-- — a project-wide privilege hygiene fix discovered while verifying grants
+-- on the new `markets` table.
+--
+-- FINDING: `anon`/`authenticated` hold TRUNCATE, REFERENCES, TRIGGER, and
+-- MAINTAIN on this project's core sensitive tables — directly confirmed via
+-- `has_table_privilege()` on `markets`, `wallet_transactions`,
+-- `wallet_balances`, `audit_logs`, `user_profiles`, `pools`, `entries`, and
+-- `settlements` — none of which any migration in this project's history
+-- ever explicitly granted, and none of which serve any legitimate purpose
+-- for either role under Brohda's actual architecture (RLS + explicit
+-- SELECT/INSERT/UPDATE/DELETE grants per table, mutations otherwise routed
+-- through service-role-only RPCs).
+--
+-- This is NOT this project's first encounter with this class of problem —
+-- 20260101000120's own comment documents three prior instances
+-- (20260101000099, 20260101000100, 20260101000119) before fixing two more
+-- itself (fixtures, follows; plus a service_role DELETE variant on
+-- nfl_game_results). Directly re-verified here that all four of those
+-- specific, already-shipped per-table fixes still hold correctly today
+-- (`has_table_privilege` confirms `false` on every one of them) — this
+-- migration does not touch them again. But each of those fixes was a
+-- `revoke ... on public.<one table>` scoped to whatever a live production
+-- query happened to catch at the time — none of them ever corrected the
+-- underlying default privilege itself. Every table created since (the
+-- entire FREE-mode schema, `markets`) inherited the identical gap
+-- unnoticed, and so — confirmed directly, not assumed — did several
+-- long-predating tables that simply never came up in one of those four ad
+-- hoc discoveries: `wallet_transactions`, `wallet_balances`, `audit_logs`,
+-- `user_profiles`, `pools`, `entries`, `settlements`. This migration is the
+-- first to close the actual default itself, precisely so this stops being
+-- a recurring incident.
+--
+-- VERIFIED, not assumed:
+--   - `has_table_privilege('authenticated', 'public.markets', 'TRUNCATE')`
+--     returns true, and a live `BEGIN; SET ROLE authenticated; TRUNCATE
+--     TABLE public.markets; ROLLBACK;` executed successfully (rolled back
+--     before commit) — this is a genuinely effective privilege, not just
+--     ACL metadata.
+--   - REFERENCES is inert in practice: `has_schema_privilege('authenticated',
+--     'public', 'CREATE')` is false, so neither role can create the
+--     referencing table a REFERENCES grant would require to be useful.
+--   - No current exploit PATH exists through Supabase's actual client
+--     surface: every one of the 27 functions granted EXECUTE to
+--     anon/authenticated is SECURITY DEFINER (confirmed via
+--     information_schema.routine_privileges joined to pg_proc.prosecdef —
+--     zero SECURITY INVOKER functions are exposed to these roles), so no
+--     RPC ever runs SQL under authenticated/anon's OWN privilege set, and
+--     PostgREST's REST table endpoints never issue TRUNCATE or DDL. This is
+--     "effective but not currently reachable" — not "harmless."
+--
+-- ORIGIN: a schema-level `ALTER DEFAULT PRIVILEGES` entry owned by role
+-- `postgres` (`select * from pg_default_acl where defaclnamespace::regnamespace::text
+-- = 'public'` shows `defaclrole=postgres, defaclacl={postgres=arwdDxtm/postgres,
+-- anon=Dxtm/postgres, authenticated=Dxtm/postgres, service_role=Dxtm/postgres}`
+-- for relations). Every Brohda table is owned by `postgres` (the role every
+-- migration runs as — confirmed via `pg_tables.tableowner`), so every table
+-- this project has ever created, or ever will create via a normal
+-- migration, automatically inherits this. No migration in this repo's
+-- history ever set this default explicitly — grep confirms zero
+-- `alter default privileges` statements anywhere in supabase/migrations/
+-- before this one. This predates Brohda's own migration history; it is a
+-- Supabase project-bootstrap default, not something this codebase did to
+-- itself.
+--
+-- RELATED BUT NOT THE SAME MECHANISM as the two prior RPC EXECUTE-grant-
+-- drift incidents (SECURITY_RPC_PRIVILEGE_INCIDENT_REPORT.md,
+-- 20260101000134_free_mode_rpc_grant_remediation.sql) — those trace to a
+-- *function*-level default-privilege entry (EXECUTE on functions); this is
+-- the analogous *table*-level entry (TRUNCATE/REFERENCES/TRIGGER/MAINTAIN
+-- on tables). Same class of platform-default mechanism, different specific
+-- ACL entry, discovered independently.
+--
+-- service_role is deliberately left untouched here: it is this
+-- application's fully-trusted backend role (bypasses RLS, is the sole
+-- writer for nearly every table), and retaining TRUNCATE/REFERENCES/
+-- TRIGGER/MAINTAIN for it is consistent with that trust level, not a
+-- security gap — this remediation is scoped to the two client-facing,
+-- untrusted-by-default roles only, per Brohda's own established
+-- least-privilege posture for anon/authenticated.
+
+-- Existing objects: every table already created before this migration.
+revoke truncate, references, trigger, maintain
+on all tables in schema public
+from anon, authenticated;
+
+-- Future objects: correct the default itself so a table created by a
+-- LATER migration (which also runs as role `postgres`) never inherits this
+-- again. Scoped to exactly the role that owns Brohda's tables and the
+-- schema Brohda actually uses — verified via pg_tables.tableowner before
+-- writing this, not assumed. Deliberately does NOT touch the separate
+-- `supabase_admin`-owned default ACL entry on the same schema, since no
+-- Brohda table is ever created by that role.
+alter default privileges for role postgres in schema public
+revoke truncate, references, trigger, maintain
+on tables
+from anon, authenticated;

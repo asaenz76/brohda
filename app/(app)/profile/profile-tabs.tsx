@@ -7,6 +7,10 @@ import { cn } from "@/lib/utils";
 
 const TABS = [
   { id: "predictions", label: "Predictions" },
+  // Milestone 3 — deliberately distinct label/id from "predictions" above
+  // (which is the legacy pool-entries tab): the two domains must never be
+  // visually or structurally conflated. See market-predictions-tab.tsx.
+  { id: "markets", label: "Market Predictions" },
   { id: "following", label: "Teams & Leagues" },
   { id: "edit", label: "Edit profile" },
 ] as const;
@@ -19,10 +23,12 @@ function isTabId(value: string | null): value is TabId {
 
 export function ProfileTabs({
   predictions,
+  markets,
   following,
   edit,
 }: {
   predictions: React.ReactNode;
+  markets: React.ReactNode;
   following: React.ReactNode;
   edit: React.ReactNode;
 }) {
@@ -69,6 +75,7 @@ export function ProfileTabs({
       </div>
 
       <div className={activeTab === "predictions" ? "block" : "hidden"}>{predictions}</div>
+      <div className={activeTab === "markets" ? "block" : "hidden"}>{markets}</div>
       <div className={activeTab === "following" ? "block" : "hidden"}>{following}</div>
       <div className={activeTab === "edit" ? "block" : "hidden"}>{edit}</div>
     </div>

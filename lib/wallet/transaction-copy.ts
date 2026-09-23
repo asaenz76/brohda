@@ -17,6 +17,8 @@ const WALLET_TRANSACTION_COPY: Record<string, string> = {
   settlement_reversal_credit: "Settlement reversal credit",
   house_fee_credit: "Platform fee collected",
   rounding_remainder_credit: "Rounding remainder retained",
+  p2p_position_win: "Won a monetary position",
+  p2p_position_loss: "Lost a monetary position",
 };
 
 /** Falls back to a humanized version of the raw type for anything not

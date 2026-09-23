@@ -1,0 +1,19 @@
+-- Milestone 3 final standing-rule remediation, Finding 1: Prediction
+-- diagnostics authorization. The admin diagnostics page
+-- (app/(admin)/admin/predictions/page.tsx) previously gated itself with
+-- requireSuperAdmin() directly — the same mistake Milestone 2's own final
+-- remediation (migration 20260101000140) already fixed once for discovery
+-- taxonomy: "that an authorized check exists" is the true invariant, but
+-- "which role satisfies it" is mutable policy that must not require a
+-- source change or deployment to alter.
+--
+-- Reuses the exact capability-policy architecture built in migration
+-- 20260101000140 — a new capability KEY (closed set, may stay in code per
+-- that migration's own reasoning), same table, same fail-closed
+-- interpreter, same `pnpm set-capability-policy` operational path. No
+-- second authorization framework.
+--
+-- Split into its own migration (rather than combined with the seed insert
+-- below in 20260101000144) because Postgres does not allow a newly added
+-- enum value to be used within the same transaction that added it.
+alter type public.app_capability add value 'view_prediction_diagnostics';

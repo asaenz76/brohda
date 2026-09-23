@@ -5,6 +5,7 @@ import { isAdminOrAbove } from "@/lib/auth/guards";
 import { createClient } from "@/lib/supabase/server";
 import { getPoolCardViewModels } from "@/lib/pools/fetch";
 import { getPaymentMethods } from "@/lib/payment-methods/fetch";
+import { getWalletBalanceSummary } from "@/lib/wallet/reservations";
 import { SocialPoolCard } from "@/components/pools/SocialPoolCard";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
 import { LocalDateTime } from "@/components/LocalDateTime";
@@ -29,7 +30,7 @@ export default async function FixturePoolsPage({ params }: { params: Promise<{ i
   const user = await requireUser();
   const supabase = await createClient();
 
-  const [{ data: fixture }, { data: poolRows }, { data: myEntries }, { data: wallet }, paymentMethods] =
+  const [{ data: fixture }, { data: poolRows }, { data: myEntries }, summary, paymentMethods] =
     await Promise.all([
       supabase
         .from("fixtures")
@@ -45,7 +46,7 @@ export default async function FixturePoolsPage({ params }: { params: Promise<{ i
       // actually entered still shows (so they can see their own entry) —
       // only *unentered sibling* tiers get filtered out below.
       supabase.from("entries").select("pool_id, tier_group_id").eq("user_id", user.id).eq("status", "ACTIVE"),
-      supabase.from("wallet_balances").select("balance").eq("user_id", user.id).single(),
+      getWalletBalanceSummary(user.id),
       getPaymentMethods(),
     ]);
   const enabledPaymentMethods = paymentMethods.filter((m) => m.enabled);
@@ -71,7 +72,10 @@ export default async function FixturePoolsPage({ params }: { params: Promise<{ i
     .filter((vm) => vm != null)
     .sort((a, b) => (STATUS_PRIORITY[a.status] ?? 4) - (STATUS_PRIORITY[b.status] ?? 4));
 
-  const balanceCents = wallet?.balance ?? 0;
+  // Milestone R8: entry eligibility (and this page's own insufficient-
+  // balance UI) must reflect AVAILABLE balance, not total owned balance —
+  // see lib/wallet/reservations.ts.
+  const balanceCents = summary.available;
   const [firstTeam, secondTeam] = orderTeamsForDisplay(fixture.sport, fixture.home_team_name, fixture.away_team_name);
 
   return (
