@@ -8,6 +8,7 @@ import { parseDollarsToCents } from "@/lib/utils/money";
 import { walletRequestSchema, walletRequestReviewSchema } from "@/lib/validations/wallet";
 import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "@/lib/payment-methods/constants";
 import { broadcastPoolEntryAdded } from "@/lib/realtime/pool-updates";
+import { reserveFunds, releaseReservation, consumeReservation } from "@/lib/wallet/reservations";
 import {
   createFollowerEntryNotifications,
   createQuickTopUpEntrySuccessNotification,
@@ -138,7 +139,40 @@ export async function submitWalletRequestAction(
   }
 
   const adminClient = createAdminClient();
+
+  // Milestone R8 (docs/BROHDA_2_0_MILESTONE_MAP.md, Wallet Reservation
+  // Layer), §11: a withdrawal request now reserves its funds AT SUBMISSION
+  // time, closing the exact gap R0.5/R8's own audit confirmed — before
+  // this, a pending withdrawal request reserved nothing, so the same
+  // balance could be spent in a paid pool before an admin ever reviewed
+  // it. The request id is generated here (not left to the database
+  // default) so the reservation can reference it, and the request row
+  // itself is only ever inserted once its funds are genuinely held —
+  // never the other way around. Deposits are entirely unaffected: they
+  // only ever increase owned balance later, on approval (§13), so nothing
+  // needs to be reserved for one.
+  const requestId = crypto.randomUUID();
+  let reservationId: string | null = null;
+  if (parsed.data.type === "withdrawal") {
+    try {
+      const reservation = await reserveFunds({
+        userId: user.id,
+        amount: parsed.data.amountCents,
+        purpose: "withdrawal_request",
+        idempotencyKey: `wallet_request:${parsed.data.idempotencyKey}:reserve`,
+      });
+      reservationId = reservation.id;
+    } catch (reserveError) {
+      const message = reserveError instanceof Error ? reserveError.message : String(reserveError);
+      if (message.includes("insufficient_available_balance")) {
+        return { error: "You don't have enough available balance for this withdrawal.", success: false, idempotencyKey };
+      }
+      return { error: "Could not submit this request.", success: false, idempotencyKey };
+    }
+  }
+
   const { error } = await adminClient.from("wallet_requests").insert({
+    id: requestId,
     user_id: user.id,
     type: parsed.data.type,
     amount: parsed.data.amountCents,
@@ -149,13 +183,21 @@ export async function submitWalletRequestAction(
     payment_method: parsed.data.paymentMethod ?? null,
     other_method_note: parsed.data.otherMethodNote ?? null,
     transaction_ref: parsed.data.transactionRef ?? null,
+    reservation_id: reservationId,
   });
 
   if (error) {
     if (error.code === "23505") {
       // Duplicate idempotency key — a retried submit, not a new request.
+      // The reservation call above was equally idempotent (same derived
+      // key), so no funds were double-reserved either.
       return { error: null, success: true, idempotencyKey };
     }
+    // The wallet_requests insert itself failed after funds were already
+    // reserved (a genuine anomaly, not an ordinary rejection) — release
+    // the hold rather than leaving it stranded against a request that was
+    // never actually recorded.
+    if (reservationId) await releaseReservation(reservationId);
     return { error: "Could not submit this request.", success: false, idempotencyKey };
   }
 
@@ -215,23 +257,50 @@ export async function approveWalletRequestAction(
         : request.note
       : null;
 
-  const { data: transaction, error: rpcError } = await adminClient.rpc("apply_wallet_transaction", {
-    p_account_type: "user",
-    p_user_id: request.user_id,
-    p_type: request.type === "deposit" ? "manual_deposit" : "manual_withdrawal",
-    p_direction: request.type === "deposit" ? "credit" : "debit",
-    p_amount: request.amount,
-    p_admin_id: admin.id,
-    p_reason: reason,
-    p_idempotency_key: `wallet_request:${request.id}`,
-    p_destination: destination,
-  });
-
-  if (rpcError) {
-    if (rpcError.message.includes("insufficient_balance")) {
-      return { error: "This withdrawal would drive the balance below zero." };
+  // Milestone R8: a withdrawal's funds were already reserved at submission
+  // time (submitWalletRequestAction) — approval CONSUMES that exact hold
+  // rather than issuing a fresh, unrelated debit, so there is no separate
+  // "does the current balance still cover this" question to get wrong; the
+  // funds were proven available and set aside the moment the request was
+  // made. A deposit never reserved anything, so it still goes straight
+  // through apply_wallet_transaction exactly as before this milestone.
+  let transaction: { id: string } | null = null;
+  if (request.type === "withdrawal") {
+    if (!request.reservation_id) {
+      return { error: "This withdrawal has no funds on hold — it predates the reservation system and cannot be approved automatically." };
     }
-    return { error: "Could not complete this transaction." };
+    try {
+      const result = await consumeReservation({
+        reservationId: request.reservation_id,
+        walletTransactionType: "manual_withdrawal",
+        adminId: admin.id,
+        reason,
+        idempotencyKey: `wallet_request:${request.id}`,
+        destination,
+      });
+      if (result.outcome === "already_released") {
+        return { error: "This withdrawal's hold was already released and cannot be approved." };
+      }
+      transaction = result.walletTransactionId ? { id: result.walletTransactionId } : null;
+    } catch {
+      return { error: "Could not complete this transaction." };
+    }
+  } else {
+    const { data, error: rpcError } = await adminClient.rpc("apply_wallet_transaction", {
+      p_account_type: "user",
+      p_user_id: request.user_id,
+      p_type: "manual_deposit",
+      p_direction: "credit",
+      p_amount: request.amount,
+      p_admin_id: admin.id,
+      p_reason: reason,
+      p_idempotency_key: `wallet_request:${request.id}`,
+      p_destination: destination,
+    });
+    if (rpcError) {
+      return { error: "Could not complete this transaction." };
+    }
+    transaction = data;
   }
 
   const { error: updateError } = await adminClient
@@ -270,7 +339,7 @@ export async function approveWalletRequestAction(
       userId: request.user_id,
       requestType: request.type as "deposit" | "withdrawal",
       amountCents: request.amount,
-      transactionId: (transaction as { id: string } | null)?.id ?? null,
+      transactionId: transaction?.id ?? null,
     });
   }
 
@@ -305,11 +374,19 @@ export async function rejectWalletRequestAction(
     })
     .eq("id", parsed.data.requestId)
     .eq("status", "pending")
-    .select("id, user_id, type, amount")
+    .select("id, user_id, type, amount, reservation_id")
     .single();
 
   if (updateError || !request) {
     return { error: "This request is no longer pending." };
+  }
+
+  // Milestone R8: rejecting a withdrawal releases its hold — the funds
+  // were never spent, so this restores availability without touching
+  // owned balance (§15). No effect on a deposit, which never reserved
+  // anything.
+  if (request.type === "withdrawal" && request.reservation_id) {
+    await releaseReservation(request.reservation_id);
   }
 
   await writeAuditLog({

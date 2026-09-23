@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { resolvePublicProfile } from "@/lib/profiles/fetch";
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
 import { FollowButton } from "@/components/profile/FollowButton";
+import { ReputationSummary } from "@/components/reputation/ReputationSummary";
 import { PredictionsTab } from "../predictions-tab";
 
 // A visited profile's Predictions tab is scoped to settled (WON/LOST)
@@ -54,6 +55,8 @@ export default async function PublicProfilePage({
         profileHref={`/profile/${identifier}`}
         action={<FollowButton followeeId={profile.id} initiallyFollowing={Boolean(isFollowing)} />}
       />
+
+      <ReputationSummary userId={profile.id} />
 
       <div className="space-y-4">
         <h2 className="text-sm font-semibold text-text-primary">Predictions</h2>

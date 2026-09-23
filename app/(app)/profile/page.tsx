@@ -3,6 +3,7 @@ import { isAdminOrAbove } from "@/lib/auth/guards";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent } from "@/components/ui/card";
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
+import { ReputationSummary } from "@/components/reputation/ReputationSummary";
 import { AvatarUploader } from "./avatar-uploader";
 import { ProfileForm } from "./profile-form";
 import { ChangePasswordForm } from "./change-password-form";
@@ -50,6 +51,8 @@ export default async function ProfilePage() {
         currentStreak={stats?.current_streak ?? 0}
         profileHref={`/profile/${user.username ?? user.id}`}
       />
+
+      <ReputationSummary userId={user.id} />
 
       <ProfileTabs
         predictions={

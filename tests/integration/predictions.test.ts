@@ -18,7 +18,8 @@ import path from "node:path";
 import { getTestAdminClient, getTestAnonClient } from "./helpers/test-env";
 import { upsertMarket } from "@/lib/prediction-markets/repository";
 import type { NormalizedMarket } from "@/lib/prediction-markets/types";
-import { createPrediction, getLatestUserPredictionForMarket, markPredictionGraded } from "@/lib/predictions/repository";
+import { setPick, getLatestUserPredictionForMarket, markPredictionGraded } from "@/lib/predictions/repository";
+import type { Prediction, PredictionOutcome, PredictionMarketStatusSnapshot } from "@/lib/predictions/types";
 import {
   checkMarketEligibility,
   getPredictionNotificationCopyPolicy,
@@ -33,10 +34,55 @@ import { loadCapabilityPolicy, roleHasCapability } from "@/lib/auth/capabilities
 const admin = getTestAdminClient();
 const testProvider = `predictions_test_provider_${Date.now()}`;
 const createdMarketIds: string[] = [];
+const createdFixtureIds: string[] = [];
 const createdUserIds: string[] = [];
+// Milestone R1: every Market now belongs to its own canonical Game
+// (fixture_id is a real, NOT NULL FK — see
+// supabase/migrations/20260101000148_market_game_foundation.sql). This map
+// lets the handful of tests that need to drive real grading (via the
+// fixture's score, not a synthetic `resolvedOutcome`) find the fixture a
+// given seeded market belongs to, without changing seedMarket's return
+// shape (still just a marketId string) for the many call sites that don't
+// care.
+const marketFixtureIds = new Map<string, string>();
 const PASSWORD = "integration-test-password-123";
 
-function marketFixture(providerMarketId: string, overrides: Partial<NormalizedMarket> = {}): NormalizedMarket {
+async function createTestFixture(): Promise<string> {
+  const { data, error } = await admin
+    .from("fixtures")
+    .insert({
+      external_fixture_id: `predictions-test-${crypto.randomUUID()}`,
+      home_team_name: "Home Test FC",
+      away_team_name: "Away Test FC",
+      scheduled_start_utc: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      internal_status: "NOT_STARTED",
+    })
+    .select("id")
+    .single();
+  if (error || !data) throw error ?? new Error("failed to create test fixture");
+  createdFixtureIds.push(data.id);
+  return data.id;
+}
+
+/**
+ * Drives real Milestone R1 grading (lib/predictions/sports-resolution.ts)
+ * by completing the fixture a seeded market belongs to — the only way a
+ * Prediction on that market can grade CORRECT/INCORRECT now, since grading
+ * reads the Game's own score, never a market-level `resolvedOutcome` text
+ * field. Defaults to a HOME win, which is CORRECT for the default
+ * MONEYLINE/yesSide:"HOME" market shape `marketFixture` below produces.
+ */
+async function resolveFixtureForMarket(
+  marketId: string,
+  { internalStatus = "COMPLETED", homeScore = 1, awayScore = 0 }: { internalStatus?: string; homeScore?: number | null; awayScore?: number | null } = {},
+): Promise<void> {
+  const fixtureId = marketFixtureIds.get(marketId);
+  if (!fixtureId) throw new Error(`no fixture tracked for market ${marketId} — was it created via seedMarket()?`);
+  const { error } = await admin.from("fixtures").update({ internal_status: internalStatus, home_score: homeScore, away_score: awayScore }).eq("id", fixtureId);
+  if (error) throw error;
+}
+
+function marketFixture(providerMarketId: string, fixtureId: string, overrides: Partial<NormalizedMarket> = {}): NormalizedMarket {
   return {
     provider: testProvider,
     providerMarketId,
@@ -44,6 +90,10 @@ function marketFixture(providerMarketId: string, overrides: Partial<NormalizedMa
     question: `Will predictions test ${providerMarketId} pass?`,
     description: null,
     status: "ACTIVE",
+    fixtureId,
+    marketTemplate: "MONEYLINE",
+    lineValue: null,
+    yesSide: "HOME",
     price: { yes: 0.62, no: 0.38, outcomeLabels: { yes: "Yes", no: "No" } },
     volume24hr: 100,
     liquidity: 1000,
@@ -60,8 +110,10 @@ function marketFixture(providerMarketId: string, overrides: Partial<NormalizedMa
 }
 
 async function seedMarket(overrides: Partial<NormalizedMarket> = {}): Promise<string> {
-  const { id } = await upsertMarket(marketFixture(`m_${Math.random().toString(36).slice(2)}`, overrides));
+  const fixtureId = overrides.fixtureId ?? (await createTestFixture());
+  const { id } = await upsertMarket(marketFixture(`m_${Math.random().toString(36).slice(2)}`, fixtureId, overrides));
   createdMarketIds.push(id);
+  marketFixtureIds.set(id, fixtureId);
   return id;
 }
 
@@ -77,6 +129,42 @@ async function seedUser(): Promise<{ id: string; email: string }> {
   return { id: data.user.id, email };
 }
 
+/**
+ * Milestone R5: thin compatibility wrapper over setPick(), matching the
+ * pre-R5 createPrediction() call shape exactly so every existing call site
+ * below needed no change beyond the function name — createPrediction()
+ * itself was removed (dead code once lib/actions/predictions.ts switched
+ * to setPick(); see docs/architecture/pick-editing-and-locking.md). Throws
+ * if setPick() rejects (a null prediction), since every call site here
+ * expects a genuine create/edit to succeed — tests that specifically
+ * exercise rejection call setPick() directly instead.
+ */
+async function makePick(input: {
+  userId: string;
+  marketId: string;
+  selectedOutcome: PredictionOutcome;
+  yesProbabilitySnapshot: number;
+  noProbabilitySnapshot: number;
+  marketQuestionSnapshot: string;
+  marketCloseAtSnapshot: string | null;
+  marketStatusSnapshot: PredictionMarketStatusSnapshot;
+  idempotencyKey: string;
+}): Promise<{ prediction: Prediction; outcome: string }> {
+  const result = await setPick({
+    userId: input.userId,
+    marketId: input.marketId,
+    selectedOutcome: input.selectedOutcome,
+    yesProbability: input.yesProbabilitySnapshot,
+    noProbability: input.noProbabilitySnapshot,
+    marketQuestionSnapshot: input.marketQuestionSnapshot,
+    marketCloseAtSnapshot: input.marketCloseAtSnapshot,
+    marketStatusSnapshot: input.marketStatusSnapshot,
+    idempotencyKey: input.idempotencyKey,
+  });
+  if (!result.prediction) throw new Error(`setPick unexpectedly rejected (outcome: ${result.outcome})`);
+  return { prediction: result.prediction, outcome: result.outcome };
+}
+
 async function signInAs(email: string) {
   const client = getTestAnonClient();
   const { error } = await client.auth.signInWithPassword({ email, password: PASSWORD });
@@ -85,7 +173,17 @@ async function signInAs(email: string) {
 }
 
 afterAll(async () => {
-  if (createdMarketIds.length > 0) await admin.from("markets").delete().in("id", createdMarketIds);
+  if (createdMarketIds.length > 0) {
+    // Predictions before markets — predictions.market_id is a soft
+    // reference (no FK), so deleting the market first would leave the
+    // prediction permanently orphaned (see call-bs-challenges.test.ts's
+    // own afterEach for the same pattern).
+    await admin.from("predictions").delete().in("market_id", createdMarketIds);
+    await admin.from("markets").delete().in("id", createdMarketIds);
+  }
+  // Markets first (FK child), fixtures last (FK parent) — markets.fixture_id
+  // is a real, non-cascading foreign key (Milestone R1).
+  if (createdFixtureIds.length > 0) await admin.from("fixtures").delete().in("id", createdFixtureIds);
   for (const id of createdUserIds) await admin.auth.admin.deleteUser(id);
 });
 
@@ -97,6 +195,7 @@ afterEach(async () => {
     .update({
       prediction_allow_repeat: false,
       prediction_cutoff_minutes_before_close: 0,
+      pick_lock_minutes_before_kickoff: 10,
       prediction_allow_stale_price: true,
       prediction_allow_unavailable_price: false,
       prediction_allow_closed_market: false,
@@ -119,7 +218,7 @@ describe("creating a Prediction", () => {
     const marketId = await seedMarket();
     const user = await seedUser();
 
-    const { prediction, outcome } = await createPrediction({
+    const { prediction, outcome } = await makePick({
       userId: user.id,
       marketId,
       selectedOutcome: "YES",
@@ -174,11 +273,11 @@ describe("creating a Prediction", () => {
       idempotencyKey,
     };
 
-    const first = await createPrediction(input);
-    const second = await createPrediction(input);
+    const first = await makePick(input);
+    const second = await makePick(input);
 
     expect(first.outcome).toBe("created");
-    expect(second.outcome).toBe("existing");
+    expect(second.outcome).toBe("replayed"); // Milestone R5: idempotency-key replay, renamed from createPrediction's "existing"
     expect(second.prediction.id).toBe(first.prediction.id);
 
     const { count } = await admin.from("predictions").select("id", { count: "exact", head: true }).eq("idempotency_key", idempotencyKey);
@@ -192,7 +291,7 @@ describe("RLS — cross-user isolation and immutability", () => {
     const owner = await seedUser();
     const other = await seedUser();
 
-    const { prediction } = await createPrediction({
+    const { prediction } = await makePick({
       userId: owner.id,
       marketId,
       selectedOutcome: "YES",
@@ -216,7 +315,7 @@ describe("RLS — cross-user isolation and immutability", () => {
   it("no authenticated client — not even the owner — can UPDATE a Prediction directly; only the service role can", async () => {
     const marketId = await seedMarket();
     const owner = await seedUser();
-    const { prediction } = await createPrediction({
+    const { prediction } = await makePick({
       userId: owner.id,
       marketId,
       selectedOutcome: "YES",
@@ -243,7 +342,7 @@ describe("the probability and question snapshot survive later Market changes", (
     const marketId = await seedMarket({ price: { yes: 0.3, no: 0.7, outcomeLabels: { yes: "Yes", no: "No" } } });
     const user = await seedUser();
 
-    await createPrediction({
+    await makePick({
       userId: user.id,
       marketId,
       selectedOutcome: "YES",
@@ -258,7 +357,7 @@ describe("the probability and question snapshot survive later Market changes", (
     // The market's price AND question both move — simulating a later
     // ingestion run and a provider-side question edit.
     await upsertMarket(
-      marketFixture((await admin.from("markets").select("provider_market_id").eq("id", marketId).single()).data!.provider_market_id, {
+      marketFixture((await admin.from("markets").select("provider_market_id").eq("id", marketId).single()).data!.provider_market_id, marketFixtureIds.get(marketId)!, {
         price: { yes: 0.91, no: 0.09, outcomeLabels: { yes: "Yes", no: "No" } },
         question: "A completely different question now",
       }),
@@ -275,7 +374,7 @@ describe("grading", () => {
   it("grades CORRECT once the Market authoritatively resolves, and is idempotent on repeated runs", async () => {
     const marketId = await seedMarket({ status: "ACTIVE" });
     const user = await seedUser();
-    await createPrediction({
+    await makePick({
       userId: user.id,
       marketId,
       selectedOutcome: "YES",
@@ -293,18 +392,18 @@ describe("grading", () => {
     const stillPending = await getLatestUserPredictionForMarket(user.id, marketId);
     expect(stillPending?.lifecycleState).toBe("PENDING");
 
-    // Resolve the market cleanly (YES wins). resolvedOutcome is set
-    // explicitly here since this fixture constructs an already-resolved
-    // normalized Market directly — this integration test is only proving
-    // the Market -> Prediction grading boundary, not any resolution-source
-    // adapter's own derivation logic.
+    // Resolve the market cleanly (YES wins). Milestone R1: the objective
+    // result comes from the linked Game's final score, never from a
+    // market-level `resolvedOutcome` field — completing the fixture with a
+    // HOME win is what makes this market's default MONEYLINE/yesSide:"HOME"
+    // proposition grade YES.
     await upsertMarket(
-      marketFixture((await admin.from("markets").select("provider_market_id").eq("id", marketId).single()).data!.provider_market_id, {
+      marketFixture((await admin.from("markets").select("provider_market_id").eq("id", marketId).single()).data!.provider_market_id, marketFixtureIds.get(marketId)!, {
         status: "CLOSED",
         price: { yes: 1, no: 0, outcomeLabels: { yes: "Yes", no: "No" } },
-        resolvedOutcome: "YES",
       }),
     );
+    await resolveFixtureForMarket(marketId, { homeScore: 1, awayScore: 0 });
 
     const before = await getPredictionStats(user.id);
     const firstRun = await runGradingJob(recordGradedPredictionResult);
@@ -340,7 +439,7 @@ describe("grading", () => {
   it("markPredictionGraded is a safe no-op against a row that's already GRADED", async () => {
     const marketId = await seedMarket({ status: "CLOSED", price: { yes: 0, no: 1, outcomeLabels: { yes: "Yes", no: "No" } } });
     const user = await seedUser();
-    const { prediction } = await createPrediction({
+    const { prediction } = await makePick({
       userId: user.id,
       marketId,
       selectedOutcome: "NO",
@@ -360,6 +459,51 @@ describe("grading", () => {
 
     const { data } = await admin.from("predictions").select("result").eq("id", prediction.id).single();
     expect(data?.result).toBe("CORRECT");
+  });
+
+  it("a GRADED row's result/graded_at/lifecycle_state/selected_outcome cannot be changed by a raw UPDATE, even via the service-role admin client (R13 defense-in-depth)", async () => {
+    // The test above proves markPredictionGraded()'s own app-layer scoping
+    // is a safe no-op. This proves the STRONGER guarantee added in
+    // 20260101000162_forbid_graded_prediction_mutation.sql: the database
+    // itself refuses the mutation, independent of which code path
+    // attempts it — settle_monetary_position() reads this exact column to
+    // move real money, so its permanence must not rest on convention alone.
+    const marketId = await seedMarket({ status: "CLOSED", price: { yes: 1, no: 0, outcomeLabels: { yes: "Yes", no: "No" } } });
+    const user = await seedUser();
+    const { prediction } = await makePick({
+      userId: user.id,
+      marketId,
+      selectedOutcome: "YES",
+      yesProbabilitySnapshot: 0.6,
+      noProbabilitySnapshot: 0.4,
+      marketQuestionSnapshot: "q",
+      marketCloseAtSnapshot: null,
+      marketStatusSnapshot: "CLOSED",
+      idempotencyKey: crypto.randomUUID(),
+    });
+    const applied = await markPredictionGraded(prediction.id, { result: "CORRECT", resolvedOutcomeSnapshot: "YES", gradedAt: new Date().toISOString() });
+    expect(applied).toBe(true);
+
+    const { error: resultTamperError } = await admin.from("predictions").update({ result: "INCORRECT" }).eq("id", prediction.id);
+    expect(resultTamperError).not.toBeNull();
+    expect(resultTamperError!.message).toContain("immutable");
+
+    const { error: gradedAtTamperError } = await admin.from("predictions").update({ graded_at: new Date().toISOString() }).eq("id", prediction.id);
+    expect(gradedAtTamperError).not.toBeNull();
+
+    const { error: lifecycleTamperError } = await admin.from("predictions").update({ lifecycle_state: "PENDING" }).eq("id", prediction.id);
+    expect(lifecycleTamperError).not.toBeNull();
+
+    const { error: selectedOutcomeTamperError } = await admin.from("predictions").update({ selected_outcome: "NO" }).eq("id", prediction.id);
+    expect(selectedOutcomeTamperError).not.toBeNull();
+
+    // Nothing changed across all 4 rejected attempts.
+    const { data: stillIntact } = await admin.from("predictions").select("result, graded_at, lifecycle_state, selected_outcome").eq("id", prediction.id).single();
+    expect(stillIntact).toMatchObject({ result: "CORRECT", lifecycle_state: "GRADED", selected_outcome: "YES" });
+
+    // A column outside the guarded set (e.g. updated_at) is still writable — the trigger is scoped, not a blanket freeze.
+    const { error: updatedAtError } = await admin.from("predictions").update({ updated_at: new Date().toISOString() }).eq("id", prediction.id);
+    expect(updatedAtError).toBeNull();
   });
 });
 
@@ -464,9 +608,9 @@ describe("Prediction diagnostics authorization (Finding 1 remediation)", () => {
  */
 describe("streak deferral (Finding 2 remediation)", () => {
   it("grading still updates factual correct/incorrect counts, with no derived streak state changing", async () => {
-    const marketId = await seedMarket({ status: "CLOSED", price: { yes: 1, no: 0, outcomeLabels: { yes: "Yes", no: "No" } }, resolvedOutcome: "YES" });
+    const marketId = await seedMarket({ status: "CLOSED", price: { yes: 1, no: 0, outcomeLabels: { yes: "Yes", no: "No" } } });
     const user = await seedUser();
-    await createPrediction({
+    await makePick({
       userId: user.id,
       marketId,
       selectedOutcome: "YES",
@@ -477,6 +621,7 @@ describe("streak deferral (Finding 2 remediation)", () => {
       marketStatusSnapshot: "CLOSED",
       idempotencyKey: crypto.randomUUID(),
     });
+    await resolveFixtureForMarket(marketId, { homeScore: 1, awayScore: 0 });
 
     const { data: profileBefore } = await admin
       .from("user_profiles")
@@ -522,16 +667,18 @@ describe("streak deferral (Finding 2 remediation)", () => {
 describe("grading notification policy (final notification-policy remediation)", () => {
   async function gradeOnePrediction(result: "CORRECT" | "INCORRECT" | "VOID") {
     const marketStatus = result === "VOID" ? "ARCHIVED" : "CLOSED";
-    const resolvedOutcome = result === "VOID" ? null : "YES";
     const selectedOutcome = result === "INCORRECT" ? "NO" : "YES";
 
     const marketId = await seedMarket({
       status: marketStatus,
       price: result === "VOID" ? { yes: null, no: null, outcomeLabels: null } : { yes: 1, no: 0, outcomeLabels: { yes: "Yes", no: "No" } },
-      resolvedOutcome,
     });
     const user = await seedUser();
-    await createPrediction({
+    // Milestone R5: Pick creation itself now requires the Game still be
+    // NOT_STARTED (set_pick's own live eligibility check) — the fixture
+    // must be resolved AFTER the Pick exists, matching the real temporal
+    // order (a user picks before the game, then the game happens).
+    await makePick({
       userId: user.id,
       marketId,
       selectedOutcome,
@@ -542,6 +689,10 @@ describe("grading notification policy (final notification-policy remediation)", 
       marketStatusSnapshot: "ACTIVE",
       idempotencyKey: crypto.randomUUID(),
     });
+    // ARCHIVED (VOID) grades without ever consulting the fixture — nothing
+    // to resolve there. CORRECT/INCORRECT need a completed Game with a HOME
+    // win, matching the default MONEYLINE/yesSide:"HOME" market shape.
+    if (result !== "VOID") await resolveFixtureForMarket(marketId, { homeScore: 1, awayScore: 0 });
 
     await runGradingJob(recordGradedPredictionResult);
     return user.id;
@@ -626,9 +777,9 @@ describe("grading notification policy (final notification-policy remediation)", 
     // test instead proves the other half end to end: grading's own
     // success and correctness never depend on the notification-policy
     // read succeeding.
-    const marketId = await seedMarket({ status: "CLOSED", price: { yes: 1, no: 0, outcomeLabels: { yes: "Yes", no: "No" } }, resolvedOutcome: "YES" });
+    const marketId = await seedMarket({ status: "CLOSED", price: { yes: 1, no: 0, outcomeLabels: { yes: "Yes", no: "No" } } });
     const user = await seedUser();
-    const { prediction } = await createPrediction({
+    const { prediction } = await makePick({
       userId: user.id,
       marketId,
       selectedOutcome: "YES",
@@ -639,6 +790,7 @@ describe("grading notification policy (final notification-policy remediation)", 
       marketStatusSnapshot: "ACTIVE",
       idempotencyKey: crypto.randomUUID(),
     });
+    await resolveFixtureForMarket(marketId, { homeScore: 1, awayScore: 0 });
 
     const policy = await getPredictionNotificationPolicy();
     expect(policy).not.toBeNull(); // sanity: real row is readable by default
@@ -665,9 +817,9 @@ describe("grading notification policy (final notification-policy remediation)", 
     // Separately: grading a real Prediction still succeeds and persists
     // its result regardless of notification-policy state (proven by the
     // "missing policy row" test above and this one together).
-    const marketId = await seedMarket({ status: "CLOSED", price: { yes: 1, no: 0, outcomeLabels: { yes: "Yes", no: "No" } }, resolvedOutcome: "YES" });
+    const marketId = await seedMarket({ status: "CLOSED", price: { yes: 1, no: 0, outcomeLabels: { yes: "Yes", no: "No" } } });
     const user = await seedUser();
-    await createPrediction({
+    await makePick({
       userId: user.id,
       marketId,
       selectedOutcome: "YES",
@@ -678,14 +830,15 @@ describe("grading notification policy (final notification-policy remediation)", 
       marketStatusSnapshot: "ACTIVE",
       idempotencyKey: crypto.randomUUID(),
     });
+    await resolveFixtureForMarket(marketId, { homeScore: 1, awayScore: 0 });
     const summary = await runGradingJob(recordGradedPredictionResult);
     expect(summary.graded).toBeGreaterThanOrEqual(1);
   });
 
   it("repeated grading never duplicates the notification, even across multiple runs", async () => {
-    const marketId = await seedMarket({ status: "CLOSED", price: { yes: 1, no: 0, outcomeLabels: { yes: "Yes", no: "No" } }, resolvedOutcome: "YES" });
+    const marketId = await seedMarket({ status: "CLOSED", price: { yes: 1, no: 0, outcomeLabels: { yes: "Yes", no: "No" } } });
     const user = await seedUser();
-    await createPrediction({
+    await makePick({
       userId: user.id,
       marketId,
       selectedOutcome: "YES",
@@ -696,6 +849,7 @@ describe("grading notification policy (final notification-policy remediation)", 
       marketStatusSnapshot: "ACTIVE",
       idempotencyKey: crypto.randomUUID(),
     });
+    await resolveFixtureForMarket(marketId, { homeScore: 1, awayScore: 0 });
 
     await runGradingJob(recordGradedPredictionResult);
     await runGradingJob(recordGradedPredictionResult);
@@ -760,9 +914,9 @@ describe("grading notification copy (final copy-configuration remediation)", () 
   it("a real grading run sends the notification using the currently configured wording", async () => {
     await admin.from("platform_settings").update({ prediction_notify_title_correct: "Nailed it" }).eq("id", true);
 
-    const marketId = await seedMarket({ status: "CLOSED", price: { yes: 1, no: 0, outcomeLabels: { yes: "Yes", no: "No" } }, resolvedOutcome: "YES" });
+    const marketId = await seedMarket({ status: "CLOSED", price: { yes: 1, no: 0, outcomeLabels: { yes: "Yes", no: "No" } } });
     const user = await seedUser();
-    await createPrediction({
+    await makePick({
       userId: user.id,
       marketId,
       selectedOutcome: "YES",
@@ -773,6 +927,7 @@ describe("grading notification copy (final copy-configuration remediation)", () 
       marketStatusSnapshot: "ACTIVE",
       idempotencyKey: crypto.randomUUID(),
     });
+    await resolveFixtureForMarket(marketId, { homeScore: 1, awayScore: 0 });
 
     await runGradingJob(recordGradedPredictionResult);
 
@@ -786,15 +941,30 @@ describe("grading notification copy (final copy-configuration remediation)", () 
     expect(notification?.body).toContain("configured-copy test question");
   });
 
-  it("a malformed copy value (empty string) invalidates the whole policy — falls back to default wording, never sends a partially-configured message", async () => {
-    await admin.from("platform_settings").update({ prediction_notify_title_correct: "" }).eq("id", true);
+  it("the database itself refuses a malformed (empty) copy value — a bad row can never exist in the first place", async () => {
+    // Milestone R12 added platform_settings_notify_copy_correct_nonempty
+    // (and the matching incorrect/void constraints) as defense-in-depth
+    // directly on the column, superseding this test's own former setup
+    // step of forcing an empty string into the row: that write is now
+    // rejected outright, so getPredictionNotificationCopyPolicy()'s own
+    // "one bad entry invalidates the whole row" application-level fallback
+    // (still real, still live code — now covered independently by
+    // tests/unit/predictions/policy.test.ts against a mocked client, since
+    // an integration test can no longer manufacture the bad DB state
+    // needed to exercise it) is no longer reachable via any legitimate
+    // write path, which is the point of the constraint.
+    await admin.from("platform_settings").update({ prediction_notify_title_correct: "Nailed it" }).eq("id", true);
 
+    const { error: rejected } = await admin.from("platform_settings").update({ prediction_notify_title_correct: "" }).eq("id", true);
+    expect(rejected).not.toBeNull();
+
+    // The rejected write changed nothing — the last valid value survives.
     const policy = await getPredictionNotificationCopyPolicy();
-    expect(policy).toBeNull();
+    expect(policy?.correct.title).toBe("Nailed it");
 
-    const marketId = await seedMarket({ status: "CLOSED", price: { yes: 1, no: 0, outcomeLabels: { yes: "Yes", no: "No" } }, resolvedOutcome: "YES" });
+    const marketId = await seedMarket({ status: "CLOSED", price: { yes: 1, no: 0, outcomeLabels: { yes: "Yes", no: "No" } } });
     const user = await seedUser();
-    await createPrediction({
+    await makePick({
       userId: user.id,
       marketId,
       selectedOutcome: "YES",
@@ -805,22 +975,23 @@ describe("grading notification copy (final copy-configuration remediation)", () 
       marketStatusSnapshot: "ACTIVE",
       idempotencyKey: crypto.randomUUID(),
     });
+    await resolveFixtureForMarket(marketId, { homeScore: 1, awayScore: 0 });
 
-    // Grading itself is entirely unaffected by the malformed copy config.
+    // Grading itself is entirely unaffected either way.
     const summary = await runGradingJob(recordGradedPredictionResult);
     expect(summary.graded).toBeGreaterThanOrEqual(1);
     const graded = await getLatestUserPredictionForMarket(user.id, marketId);
     expect(graded?.result).toBe("CORRECT");
 
-    // The notification still sends, using the safe built-in fallback —
-    // never a blank or broken title.
+    // The notification uses the still-valid configured wording — the
+    // rejected write never took even partial effect.
     const { data: notification } = await admin
       .from("notifications")
       .select("title, body")
       .eq("user_id", user.id)
       .eq("type", "prediction_graded")
       .single();
-    expect(notification?.title).toBe("You were right");
+    expect(notification?.title).toBe("Nailed it");
     expect(notification?.body).toContain("fallback test question");
   });
 

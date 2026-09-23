@@ -2,6 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { ConsumerMarketStatus, Freshness } from "@/lib/prediction-markets/discovery/types";
 import type {
+  PickLockPolicy,
   PredictionEligibility,
   PredictionNotificationCopyPolicy,
   PredictionNotificationPolicy,
@@ -105,6 +106,26 @@ export function checkMarketEligibility(input: MarketEligibilityInput, policy: Pr
   }
 
   return { eligible: true };
+}
+
+const DEFAULT_PICK_LOCK_POLICY: PickLockPolicy = { lockMinutesBeforeKickoff: 10 };
+
+/**
+ * Milestone R5: reads the Pick-cutoff-before-kickoff policy
+ * (platform_settings.pick_lock_minutes_before_kickoff,
+ * 20260101000152_pick_editing_and_locking.sql). Present mainly for
+ * display/presentation purposes (e.g. a countdown deriving its own copy) —
+ * the authoritative enforcement of this value lives inside the `set_pick`
+ * SQL function itself, re-read fresh on every call, never trusted from a
+ * value computed here and handed across a round-trip (§11, §28, §35).
+ * Fail-open, matching getPredictionPolicy's own reasoning: this governs
+ * ordinary product policy display, not a privilege decision.
+ */
+export async function getPickLockPolicy(): Promise<PickLockPolicy> {
+  const supabase = createAdminClient();
+  const { data } = await supabase.from("platform_settings").select("pick_lock_minutes_before_kickoff").eq("id", true).single();
+  if (!data) return DEFAULT_PICK_LOCK_POLICY;
+  return { lockMinutesBeforeKickoff: data.pick_lock_minutes_before_kickoff ?? DEFAULT_PICK_LOCK_POLICY.lockMinutesBeforeKickoff };
 }
 
 /**

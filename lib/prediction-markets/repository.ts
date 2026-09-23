@@ -1,6 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { NormalizedMarket } from "./types";
+import type { MarketTemplate, MarketYesSide, NormalizedMarket } from "./types";
 
 // Server-side read/write layer for the `markets` table — repurposed
 // (docs/architecture/sports-prediction-network.md §9) as the candidate
@@ -18,6 +18,10 @@ interface MarketRow {
   question: string;
   description: string | null;
   status: string;
+  fixture_id: string;
+  market_template: MarketTemplate;
+  line_value: number | string | null;
+  yes_side: MarketYesSide | null;
   yes_price: number | string | null;
   no_price: number | string | null;
   price_outcome_labels: { yes: string | null; no: string | null } | null;
@@ -44,6 +48,10 @@ export interface MarketRecord {
   question: string;
   description: string | null;
   status: string;
+  fixtureId: string;
+  marketTemplate: MarketTemplate;
+  lineValue: number | null;
+  yesSide: MarketYesSide | null;
   yesPrice: number | null;
   noPrice: number | null;
   volume24hr: number | null;
@@ -82,6 +90,10 @@ function toRecord(row: MarketRow): MarketRecord {
     question: row.question,
     description: row.description,
     status: row.status,
+    fixtureId: row.fixture_id,
+    marketTemplate: row.market_template,
+    lineValue: row.line_value != null ? Number(row.line_value) : null,
+    yesSide: row.yes_side,
     yesPrice: row.yes_price != null ? Number(row.yes_price) : null,
     noPrice: row.no_price != null ? Number(row.no_price) : null,
     volume24hr: row.volume_24hr != null ? Number(row.volume_24hr) : null,
@@ -105,6 +117,10 @@ function toRow(market: NormalizedMarket) {
     question: market.question,
     description: market.description,
     status: market.status,
+    fixture_id: market.fixtureId,
+    market_template: market.marketTemplate,
+    line_value: market.lineValue,
+    yes_side: market.yesSide,
     yes_price: market.price.yes,
     no_price: market.price.no,
     price_outcome_labels: market.price.outcomeLabels,
@@ -193,4 +209,54 @@ export async function listRecentlySyncedMarkets(sinceIso: string, limit = 100): 
     .limit(limit);
   if (error) throw error;
   return (data as MarketRow[]).map(toRecord);
+}
+
+/**
+ * Milestone R2 (docs/BROHDA_2_0_MILESTONE_MAP.md, Sports Market Ingestion):
+ * the "current/preferred Market" lookup for a Game+template — distinct
+ * from canonical Market *existence*, which every historical proposition
+ * row retains forever regardless of status (R1's identity/uniqueness
+ * constraints, unaffected by this query). Used by ingestion to decide
+ * whether an observed proposition is a price refresh on the existing
+ * current line (same identity, update in place via upsertMarket) or a
+ * genuinely new line (a different identity — insert a new row, then
+ * deactivateMarket the old one via this same lookup's result).
+ */
+/**
+ * Milestone R3 (Post Foundation): every currently-current Market for a
+ * Game, across all templates — the query a Post detail surface (or the
+ * automatic publication policy's "does this fixture have an active
+ * Market" check) needs. Deliberately not scoped to one template, unlike
+ * getActiveMarketByFixtureAndTemplate above.
+ */
+export async function listActiveMarketsForFixture(fixtureId: string): Promise<MarketRecord[]> {
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("markets").select("*").eq("fixture_id", fixtureId).eq("status", "ACTIVE");
+  if (error) throw error;
+  return (data as MarketRow[]).map(toRecord);
+}
+
+export async function getActiveMarketByFixtureAndTemplate(fixtureId: string, marketTemplate: MarketTemplate): Promise<MarketRecord | null> {
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("markets").select("*").eq("fixture_id", fixtureId).eq("market_template", marketTemplate).eq("status", "ACTIVE").maybeSingle();
+  if (error) throw error;
+  return data ? toRecord(data as MarketRow) : null;
+}
+
+/**
+ * Marks a Market row no-longer-current for discovery (R2 §17: existence vs
+ * visibility are different concepts) — never deletes, never touches the
+ * identity columns R1 made immutable. `status` alone is sufficient:
+ * INACTIVE already means "not discoverable" per
+ * lib/prediction-markets/discovery/status.ts's deriveConsumerStatus, and is
+ * distinct from ARCHIVED (which specifically means "never resolved,
+ * grades VOID" — not the right meaning for "superseded by a newer line").
+ * Any Prediction that already referenced this row keeps working exactly as
+ * before: its soft `market_id` reference, snapshot fields, and eventual
+ * grading are all untouched by a status change here.
+ */
+export async function deactivateMarket(id: string): Promise<void> {
+  const admin = createAdminClient();
+  const { error } = await admin.from("markets").update({ status: "INACTIVE" }).eq("id", id);
+  if (error) throw error;
 }

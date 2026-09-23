@@ -3,9 +3,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import type {
   Prediction,
   PredictionLifecycleState,
+  PredictionLockReason,
   PredictionMarketStatusSnapshot,
   PredictionOutcome,
   PredictionResult,
+  PredictionRevision,
 } from "./types";
 
 // Server-side read/write layer for the `predictions` table — the ONLY
@@ -31,6 +33,8 @@ interface PredictionRow {
   result: PredictionResult | null;
   resolved_outcome_snapshot: PredictionOutcome | null;
   graded_at: string | null;
+  locked_at: string | null;
+  lock_reason: PredictionLockReason | null;
   idempotency_key: string;
   created_at: string;
   updated_at: string;
@@ -51,81 +55,24 @@ function toDomain(row: PredictionRow): Prediction {
     result: row.result,
     resolvedOutcomeSnapshot: row.resolved_outcome_snapshot,
     gradedAt: row.graded_at,
+    lockedAt: row.locked_at,
+    lockReason: row.lock_reason,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-export interface CreatePredictionInput {
-  userId: string;
-  marketId: string;
-  selectedOutcome: PredictionOutcome;
-  yesProbabilitySnapshot: number;
-  noProbabilitySnapshot: number;
-  marketQuestionSnapshot: string;
-  marketCloseAtSnapshot: string | null;
-  marketStatusSnapshot: PredictionMarketStatusSnapshot;
-  /** Client-generated, carried across retries — see docs/architecture/prediction-layer.md's mutation-safety section. */
-  idempotencyKey: string;
-}
-
-const POSTGRES_UNIQUE_VIOLATION = "23505";
-
-/**
- * Idempotent create. Mirrors `create_pool_entry`'s own idempotency-key
- * pattern (pre-check, then insert, then a race-safe fallback on the unique
- * constraint) without needing a SECURITY DEFINER function — a plain
- * service-role insert is sufficient here since, unlike wallet debit +
- * entry creation, no other table needs to change atomically alongside this
- * one. Returns `{outcome: "existing"}` on a genuine replay (same key seen
- * before), never a duplicate row.
- */
-export async function createPrediction(
-  input: CreatePredictionInput,
-): Promise<{ prediction: Prediction; outcome: "created" | "existing" }> {
-  const admin = createAdminClient();
-
-  const { data: existing, error: lookupError } = await admin
-    .from("predictions")
-    .select("*")
-    .eq("idempotency_key", input.idempotencyKey)
-    .maybeSingle();
-  if (lookupError) throw lookupError;
-  if (existing) return { prediction: toDomain(existing as PredictionRow), outcome: "existing" };
-
-  const { data: inserted, error } = await admin
-    .from("predictions")
-    .insert({
-      user_id: input.userId,
-      market_id: input.marketId,
-      selected_outcome: input.selectedOutcome,
-      yes_probability_snapshot: input.yesProbabilitySnapshot,
-      no_probability_snapshot: input.noProbabilitySnapshot,
-      market_question_snapshot: input.marketQuestionSnapshot,
-      market_close_at_snapshot: input.marketCloseAtSnapshot,
-      market_status_snapshot: input.marketStatusSnapshot,
-      idempotency_key: input.idempotencyKey,
-    })
-    .select("*")
-    .single();
-
-  if (error) {
-    if (error.code === POSTGRES_UNIQUE_VIOLATION) {
-      // Lost the race against a concurrent identical-key retry — the other
-      // request's row is the true result, not an error.
-      const { data: raced, error: racedError } = await admin
-        .from("predictions")
-        .select("*")
-        .eq("idempotency_key", input.idempotencyKey)
-        .single();
-      if (racedError) throw racedError;
-      return { prediction: toDomain(raced as PredictionRow), outcome: "existing" };
-    }
-    throw error;
-  }
-
-  return { prediction: toDomain(inserted as PredictionRow), outcome: "created" };
-}
+// Milestone R5 (docs/BROHDA_2_0_MILESTONE_MAP.md, Pick Editing + Locking):
+// the pre-R5 createPrediction() — a plain idempotent insert, no editing,
+// no locking — was removed here. It is fully superseded by setPick()
+// below, which subsumes its idempotency-key-replay behavior and adds
+// create-or-edit-or-reject semantics on top. It was not merely deprecated
+// in place: once lib/actions/predictions.ts switched to setPick(), it had
+// zero remaining callers, and its own idempotency handling covered only
+// the idempotency_key unique constraint — calling it twice for the same
+// (user_id, market_id) with different keys would have thrown an unhandled
+// conflict against R5's new predictions_one_per_user_market constraint.
+// Keeping genuinely dead, newly-unsafe code around had no upside.
 
 /** Most recent Prediction a user has made on a given market, if any — used for repeat-policy checks and market-detail display. */
 export async function getLatestUserPredictionForMarket(userId: string, marketId: string): Promise<Prediction | null> {
@@ -155,15 +102,39 @@ export async function listUserPredictions(userId: string, limit = 50): Promise<P
   return (data as PredictionRow[]).map(toDomain);
 }
 
-/** Every still-ungraded Prediction, oldest first — the grading job's own work queue. Bounded, so one run never processes an unbounded backlog. */
-export async function listPendingPredictions(limit = 200): Promise<Prediction[]> {
+/** A single Prediction by id — used by Milestone R7's Challenge resolution (lib/challenges/resolution.ts), which needs to read the current graded state of two specific Picks, not a user's own latest one. */
+export async function getPredictionById(id: string): Promise<Prediction | null> {
   const admin = createAdminClient();
+  const { data, error } = await admin.from("predictions").select("*").eq("id", id).maybeSingle();
+  if (error) throw error;
+  return data ? toDomain(data as PredictionRow) : null;
+}
+
+/**
+ * Every still-ungraded Prediction, oldest first — the grading job's own
+ * work queue. Bounded, so one run never processes an unbounded backlog.
+ *
+ * Milestone R13.5: `platform_settings.grading_batch_size` (default 200,
+ * matching this function's own former hard-coded default exactly) is the
+ * canonical source, live-read on every call, changeable by an operator
+ * with no deployment — same pattern R12 already established for
+ * `listSettlementEligiblePositionIds()`. An explicit `limit` argument
+ * still overrides it (used by tests that need a smaller, deterministic
+ * batch).
+ */
+export async function listPendingPredictions(limit?: number): Promise<Prediction[]> {
+  const admin = createAdminClient();
+  let effectiveLimit: number = limit ?? 200;
+  if (limit === undefined) {
+    const { data: settingsRow } = await admin.from("platform_settings").select("grading_batch_size").eq("id", true).single();
+    effectiveLimit = settingsRow?.grading_batch_size ?? 200;
+  }
   const { data, error } = await admin
     .from("predictions")
     .select("*")
     .eq("lifecycle_state", "PENDING")
     .order("created_at", { ascending: true })
-    .limit(limit);
+    .limit(effectiveLimit);
   if (error) throw error;
   return (data as PredictionRow[]).map(toDomain);
 }
@@ -176,6 +147,94 @@ export async function listPendingPredictions(limit = 200): Promise<Prediction[]>
  * write — belt-and-suspenders idempotency alongside the job's own
  * PENDING-only read query.
  */
+export interface SetPickInput {
+  userId: string;
+  marketId: string;
+  selectedOutcome: PredictionOutcome;
+  yesProbability: number;
+  noProbability: number;
+  marketQuestionSnapshot: string;
+  marketCloseAtSnapshot: string | null;
+  marketStatusSnapshot: PredictionMarketStatusSnapshot;
+  idempotencyKey: string;
+}
+
+export type SetPickOutcome = "created" | "updated" | "unchanged" | "replayed" | "rejected_cutoff" | "rejected_game_closed" | "rejected_locked";
+
+export interface SetPickResult {
+  prediction: Prediction | null;
+  outcome: SetPickOutcome;
+}
+
+interface SetPickRpcRow {
+  prediction: PredictionRow | null;
+  outcome: SetPickOutcome;
+}
+
+/**
+ * Milestone R5's single coherent create-or-edit-or-reject domain operation
+ * (§25) — the server decides create vs. update vs. no-op vs. reject; the
+ * caller never has to. Wraps the `set_pick` SQL function (see
+ * supabase/migrations/20260101000152_pick_editing_and_locking.sql for the
+ * full concurrency/locking rationale — this is intentionally an RPC, not a
+ * plain table write, because it needs SELECT ... FOR UPDATE row-locking
+ * and an authoritative in-transaction re-read of the Game's live
+ * kickoff/status, which a multi-round-trip JS implementation cannot give
+ * the same race-safety guarantee for (§27-29).
+ */
+export async function setPick(input: SetPickInput): Promise<SetPickResult> {
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .rpc("set_pick", {
+      p_user_id: input.userId,
+      p_market_id: input.marketId,
+      p_selected_outcome: input.selectedOutcome,
+      p_yes_probability: input.yesProbability,
+      p_no_probability: input.noProbability,
+      p_market_question: input.marketQuestionSnapshot,
+      p_market_close_at: input.marketCloseAtSnapshot,
+      p_market_status: input.marketStatusSnapshot,
+      p_idempotency_key: input.idempotencyKey,
+    })
+    .single();
+  if (error) throw error;
+
+  const row = data as SetPickRpcRow;
+  return { prediction: row.prediction ? toDomain(row.prediction) : null, outcome: row.outcome };
+}
+
+interface PredictionRevisionRow {
+  id: string;
+  prediction_id: string;
+  user_id: string;
+  previous_selected_outcome: PredictionOutcome;
+  previous_probability_snapshot: number | string;
+  new_selected_outcome: PredictionOutcome;
+  new_probability_snapshot: number | string;
+  changed_at: string;
+}
+
+function toRevisionDomain(row: PredictionRevisionRow): PredictionRevision {
+  return {
+    id: row.id,
+    predictionId: row.prediction_id,
+    userId: row.user_id,
+    previousSelectedOutcome: row.previous_selected_outcome,
+    previousProbabilitySnapshot: Number(row.previous_probability_snapshot),
+    newSelectedOutcome: row.new_selected_outcome,
+    newProbabilitySnapshot: Number(row.new_probability_snapshot),
+    changedAt: row.changed_at,
+  };
+}
+
+/** A Pick's full change history, oldest first — audit/history surface only; grading and current-state reads never consult this. */
+export async function listPredictionRevisions(predictionId: string): Promise<PredictionRevision[]> {
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("prediction_revisions").select("*").eq("prediction_id", predictionId).order("changed_at", { ascending: true });
+  if (error) throw error;
+  return (data as PredictionRevisionRow[]).map(toRevisionDomain);
+}
+
 export async function markPredictionGraded(
   id: string,
   outcome: { result: PredictionResult; resolvedOutcomeSnapshot: PredictionOutcome | null; gradedAt: string },

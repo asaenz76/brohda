@@ -34,7 +34,28 @@ async function loginAs(page: Page, email: string) {
   await expect(page).toHaveURL(/\/feed$/);
 }
 
+// Milestone R1: every Market now belongs to a canonical Game (fixture_id is
+// a real, NOT NULL FK — supabase/migrations/20260101000148_*.sql). Each
+// seeded market gets its own dedicated fixture, distinct enough to satisfy
+// the proposition-uniqueness constraint.
+async function seedFixture(): Promise<string> {
+  const { data, error } = await admin
+    .from("fixtures")
+    .insert({
+      external_fixture_id: `e2e-prediction-${randomUUID()}`,
+      home_team_name: "Home Test FC",
+      away_team_name: "Away Test FC",
+      scheduled_start_utc: new Date(Date.now() + 86_400_000).toISOString(),
+      internal_status: "NOT_STARTED",
+    })
+    .select("id")
+    .single();
+  if (error || !data) throw error ?? new Error("failed to create fixture");
+  return data.id as string;
+}
+
 async function seedMarket(provider: string, providerMarketId: string, overrides: Record<string, unknown> = {}) {
+  const fixtureId = (overrides.fixture_id as string | undefined) ?? (await seedFixture());
   const { data, error } = await admin
     .from("markets")
     .insert({
@@ -42,6 +63,9 @@ async function seedMarket(provider: string, providerMarketId: string, overrides:
       provider_market_id: providerMarketId,
       question: `E2E prediction test: ${providerMarketId}`,
       status: "ACTIVE",
+      fixture_id: fixtureId,
+      market_template: "MONEYLINE",
+      yes_side: "HOME",
       yes_price: 0.62,
       no_price: 0.38,
       liquidity: 1000,
@@ -58,7 +82,10 @@ async function seedMarket(provider: string, providerMarketId: string, overrides:
 }
 
 async function cleanup(provider: string, userIds: string[]) {
+  const { data: markets } = await admin.from("markets").select("fixture_id").eq("provider", provider);
+  const fixtureIds = (markets ?? []).map((m) => m.fixture_id).filter((id): id is string => id != null);
   await admin.from("markets").delete().eq("provider", provider);
+  if (fixtureIds.length > 0) await admin.from("fixtures").delete().in("id", fixtureIds);
   for (const id of userIds) await admin.auth.admin.deleteUser(id);
 }
 
@@ -88,30 +115,33 @@ test.describe("Brohda Prediction layer", () => {
       await expect(page.locator('input[type="number"]')).toHaveCount(0);
 
       await page.getByRole("button", { name: "Predict YES" }).click();
-      // submitPredictionAction calls revalidatePath on this same route, so
-      // whether the assertion below catches PredictionActions' own
-      // transient client-side confirmation banner ("You predicted YES at
-      // N%.") or the page's server-rendered already-predicted state
-      // ("Your prediction: YES") racing ahead of it is a genuine, harmless
-      // timing detail of Next's Server Action + revalidation mechanism —
-      // both states equally prove the YES prediction succeeded, so the
-      // test accepts either rather than being brittle against exactly one.
-      await expect(page.getByText(/You predicted YES at \d+%\.|Your prediction: YES/)).toBeVisible();
+      await expect(page.getByText(/You predicted YES at \d+%\./)).toBeVisible();
 
       const bodyTextAfter = await page.locator("body").innerText();
       for (const pattern of FORBIDDEN_TERMS) expect(bodyTextAfter).not.toMatch(pattern);
 
-      // Revisit: the submission action itself already re-renders the
-      // confirmation client-side; reloading proves the server also now
-      // considers this predicted (the YES/NO buttons must not reappear).
+      // Revisit: the server now considers this Game's Pick cutoff still
+      // far away (Milestone R5: the fixture here is scheduled well in the
+      // future), so reloading must show the EDITABLE control pre-filled
+      // with the current selection, never the old always-readonly
+      // "Your prediction: YES" state and never a bare re-offer of a first
+      // pick — both YES/NO buttons remain, now labeled as a change.
       await page.reload();
-      await expect(page.getByText("Your prediction: YES")).toBeVisible();
-      await expect(page.getByText(/You predicted at \d+%\./)).toBeVisible();
-      await expect(page.getByRole("button", { name: "Predict YES" })).toHaveCount(0);
+      await expect(page.getByText("Change your prediction")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Predict YES" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Predict YES" })).toHaveAttribute("aria-pressed", "true");
 
-      // Profile's Market Predictions tab shows the same history entry.
+      // Milestone R5: change the Pick from YES to NO while still eligible.
+      await page.getByRole("button", { name: "Predict NO" }).click();
+      await expect(page.getByText(/You predicted NO at \d+%\./)).toBeVisible();
+      await page.reload();
+      await expect(page.getByRole("button", { name: "Predict NO" })).toHaveAttribute("aria-pressed", "true");
+
+      // Profile's Market Predictions tab shows the latest (NO) selection —
+      // not the original YES — matching "the final selection is the
+      // permanent record" (§7).
       await page.goto("/profile?tab=markets");
-      await expect(page.getByText("You predicted YES", { exact: false })).toBeVisible();
+      await expect(page.getByText("You predicted NO", { exact: false })).toBeVisible();
     } finally {
       await cleanup(provider, userIds);
     }

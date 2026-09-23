@@ -8,6 +8,7 @@ import { getProviderStatus } from "@/lib/sports-data/provider-gateway";
 import { API_NFL_PROVIDER } from "@/lib/sports-data/provider-names";
 import { formatBps } from "@/lib/utils/money";
 import { Card, CardContent } from "@/components/ui/card";
+import Link from "next/link";
 import { RegistrationToggle } from "./registration-toggle";
 import { PlatformPoolCapabilityToggle } from "./platform-pool-capability-toggle";
 import { PaymentMethodsSettings } from "./payment-methods-settings";
@@ -31,6 +32,13 @@ export default async function AdminSettingsPage() {
   return (
     <div className="space-y-6">
       <h1 className="sr-only">Settings</h1>
+      <p className="text-sm text-text-muted">
+        Legacy pool and platform-level settings. Brohda 2.0 product and operational policy (Predictions, Markets, Communities, Conversation, Call BS, Monetary P2P, Reputation, Operations) now lives in a{" "}
+        <Link href="/admin/settings/brohda" className="font-medium text-accent-primary hover:underline">
+          dedicated Brohda Settings area
+        </Link>
+        .
+      </p>
       <Card>
         <CardContent className="pt-6">
           <RegistrationToggle initialEnabled={registrationEnabled} />

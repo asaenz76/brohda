@@ -1,10 +1,12 @@
 # Brohda Product Transformation Roadmap
 
-**Status: CANONICAL. This is the primary product and transformation authority for Brohda's sports prediction network direction.**
+**Status: HISTORICAL / SUPERSEDED.** This document's R1–R9 milestone sequence is no longer the implementation authority. `docs/BROHDA_2_0_MILESTONE_MAP.md` is now the active canonical Brohda 2.0 implementation roadmap (R1–R14, recorded 2026-09-21). This document is preserved for historical context — what R0 originally planned before the Brohda 2.0 product refinement — and remains accurate for Milestone R0 itself, which is complete and unchanged.
 
 **This document replaces, in full, the previous Polymarket-powered real-money-execution roadmap.** That direction (external-market discovery, a Brohda Prediction layer against Polymarket prices, simulated execution, an execution-operational-safety layer, and a Milestone 6 real-execution readiness package) was researched and partially built — **never deployed, never carrying real financial exposure** — before the founder decided, decisively, to abandon it. Every document describing that direction has been moved to `docs/deprecated/polymarket-execution-direction-2026/` and is historical only. See `docs/architecture/sports-prediction-network.md` for the full architecture this document's milestones implement, and that document's own §20/file-audit for exactly what was kept, repurposed, or removed from the abandoned direction.
 
 **No implementation work beyond Milestone R0 is authorized by this document alone.** Future tasks should reference one milestone (R1, R2, ...) explicitly rather than re-deriving direction from first principles.
+
+**Milestone R0.5 status note (2026-09-21):** the product direction was refined further into "Brohda 2.0" — a social layer (`Game → Post → Market → Pick → Challenge → Monetary Position`) sitting on top of the sports-prediction network this document describes. R0.5 was an audit-only milestone (no code or schema changed) that reconciled this document's R1–R9 sequence against the actual repository; see `docs/architecture/brohda-2.0-reconciliation.md` for what R0 got right and what it left incomplete (notably: no `Post`/`Community`/`Challenge` objects exist yet, and `markets` has no real foreign key to `fixtures`). The resequenced R1–R14 roadmap adopted from that audit now lives in `docs/BROHDA_2_0_MILESTONE_MAP.md`, which is the active implementation authority. The R1–R9 list below is preserved as historical context for what R0 originally planned; it is superseded by that document, not by silent edits here.
 
 ## Authority and supersession
 

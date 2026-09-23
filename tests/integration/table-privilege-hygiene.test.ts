@@ -31,16 +31,27 @@ const CLIENT_ROLES = ["anon", "authenticated"] as const;
 // guardrail).
 const REPRESENTATIVE_TABLES = [
   "markets",
+  "posts",
+  "communities",
+  "post_communities",
+  "community_follows",
   "discovery_categories",
   "discovery_category_provider_mappings",
   "discovery_sort_policy",
   "capability_policies",
   "predictions",
+  "prediction_revisions",
   "platform_settings",
   "audit_logs",
   "wallet_balances",
   "wallet_transactions",
   "user_profiles",
+  "post_comments",
+  "challenges",
+  "wallet_reservations",
+  "monetary_proposals",
+  "monetary_positions",
+  "monetary_position_settlements",
 ];
 
 let client: Client;

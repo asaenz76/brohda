@@ -1,11 +1,10 @@
 /**
  * Manual/developer entrypoint for grading Predictions
  * (docs/PRODUCT_TRANSFORMATION_ROADMAP.md Milestone 3, roadmap STEP 20).
- * Deliberately NOT wired to any scheduler — no Vercel Cron entry, no
- * cron-job.org job, nothing invokes this automatically. A future milestone
- * MAY choose to point a cron-compatible route at the same `runGradingJob`
- * function this script calls — that decision belongs to that milestone's
- * own implementation spec, not this one.
+ * As of Milestone R13.5, this same runGradingJob() is also invoked
+ * automatically on a schedule via app/api/cron/grade-predictions — this
+ * script remains as a manual/debug entrypoint for local runs and ad hoc
+ * production reruns, not the only way this job executes anymore.
  *
  * Idempotent: safe to run repeatedly. Only ever touches Predictions still
  * in PENDING state — see lib/predictions/grading.ts.
@@ -32,6 +31,12 @@ async function main() {
   console.log(`    incorrect:   ${summary.incorrect}`);
   console.log(`    void:        ${summary.voided}`);
   console.log(`  still pending: ${summary.stillPending}`);
+  console.log(`  failures:      ${summary.failures.length}`);
+  for (const failure of summary.failures) {
+    console.error(`    [error] prediction ${failure.predictionId}: ${failure.error}`);
+  }
+
+  if (summary.failures.length > 0) process.exitCode = 1;
 }
 
 main().catch((error) => {

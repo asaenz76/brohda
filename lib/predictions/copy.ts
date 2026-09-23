@@ -31,5 +31,11 @@ export function copyForIneligible(reason: PredictionIneligibleReason): string {
       return "It's too close to this market's close time to make a new prediction.";
     case "ALREADY_PREDICTED":
       return "You've already made a prediction on this market.";
+    case "PICK_PAST_CUTOFF":
+      return "Picks are locked for this game.";
+    case "GAME_NOT_OPEN":
+      return "This game has already started, so picks are locked.";
+    case "PICK_LOCKED":
+      return "Your pick is locked for this game.";
   }
 }

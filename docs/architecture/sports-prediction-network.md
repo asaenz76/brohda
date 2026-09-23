@@ -2,6 +2,8 @@
 
 **Status**: Implements `docs/PRODUCT_TRANSFORMATION_ROADMAP.md` Milestone R0 — the sports prediction network repivot. This document is the canonical architecture reference for Brohda's current and future direction. **There is no real-money execution, no Polymarket integration, no crypto, and no wallet/custody concept anywhere in this architecture.** The abandoned direction that once occupied this file's role is archived at `docs/deprecated/polymarket-execution-direction-2026/`.
 
+**Numbering note (2026-09-21):** the "R0/R1/R2/R3 scope" labels below refer to `docs/PRODUCT_TRANSFORMATION_ROADMAP.md`'s original (now-historical) milestone sequence, written before the Brohda 2.0 product refinement. They are **not** the same milestones as `docs/BROHDA_2_0_MILESTONE_MAP.md`'s active R1–R14 sequence — that document's R1 ("Game ↔ Market Foundation") has now actually implemented part of what §5 below still describes as future work: `markets` has a real, immutable, structural relationship to `fixtures` (Game), and MONEYLINE/SPREAD/TOTAL push/void grading is real, not aspirational. See `docs/architecture/game-market-foundation.md` for exactly what R1 built and `docs/architecture/brohda-2.0-reconciliation.md` for the full reconciliation. Odds ingestion, aggregation, and vig removal (§6, §8–10) remain entirely unimplemented, as this document already says.
+
 ---
 
 ## 1. Product scope

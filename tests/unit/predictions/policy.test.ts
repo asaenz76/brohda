@@ -1,6 +1,35 @@
-import { describe, expect, it } from "vitest";
-import { checkMarketEligibility, shouldNotifyForResult, type MarketEligibilityInput } from "@/lib/predictions/policy";
+import { describe, expect, it, vi } from "vitest";
+import { checkMarketEligibility, shouldNotifyForResult, getPredictionNotificationCopyPolicy, type MarketEligibilityInput } from "@/lib/predictions/policy";
 import type { PredictionNotificationPolicy, PredictionPolicy, PredictionResult } from "@/lib/predictions/types";
+
+/**
+ * getPredictionNotificationCopyPolicy()'s own "one bad entry invalidates
+ * the whole row" fallback logic (§ above the function itself) is tested
+ * here at the application layer, against a mocked Supabase client, rather
+ * than in an integration test that writes a genuinely malformed row —
+ * since Milestone R12 added `platform_settings_notify_copy_*_nonempty`
+ * CHECK constraints, an empty copy value can no longer be persisted at all
+ * (see tests/integration/admin-brohda-settings.test.ts and
+ * docs/architecture/admin-configuration.md's own "Validation" section).
+ * That makes the DB the first line of defense in practice, but this
+ * function's own defensive read-time check is still real, live code and a
+ * deliberate second line of defense — this suite is what keeps it under
+ * test now that an integration test can no longer manufacture the bad
+ * state to exercise it.
+ */
+let mockRow: Record<string, unknown> | null = null;
+let mockError: { message: string } | null = null;
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: () => ({
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          single: async () => ({ data: mockRow, error: mockError }),
+        }),
+      }),
+    }),
+  }),
+}));
 
 /**
  * The pure Prediction market-eligibility decision, in isolation from any
@@ -198,5 +227,41 @@ describe("shouldNotifyForResult", () => {
     // simply not matching CORRECT/INCORRECT/VOID.
     const unknownResult = "SOMETHING_ELSE" as unknown as PredictionResult;
     expect(shouldNotifyForResult(unknownResult, ALL_ENABLED)).toBe(false);
+  });
+});
+
+const VALID_COPY_ROW = {
+  prediction_notify_title_correct: "You were right",
+  prediction_notify_body_correct: "Your prediction on \"{{question}}\" was correct.",
+  prediction_notify_title_incorrect: "Result is in",
+  prediction_notify_body_incorrect: "Your prediction on \"{{question}}\" was incorrect.",
+  prediction_notify_title_void: "No result this time",
+  prediction_notify_body_void: "\"{{question}}\" didn't reach a final result, so this prediction won't count.",
+};
+
+describe("getPredictionNotificationCopyPolicy", () => {
+  it("returns the full policy when every field is a non-empty string", async () => {
+    mockRow = VALID_COPY_ROW;
+    mockError = null;
+    const policy = await getPredictionNotificationCopyPolicy();
+    expect(policy).toEqual({
+      correct: { title: "You were right", body: VALID_COPY_ROW.prediction_notify_body_correct },
+      incorrect: { title: "Result is in", body: VALID_COPY_ROW.prediction_notify_body_incorrect },
+      void: { title: "No result this time", body: VALID_COPY_ROW.prediction_notify_body_void },
+    });
+  });
+
+  it("treats a single empty-string field as invalidating the WHOLE policy, never a partial result", async () => {
+    for (const field of Object.keys(VALID_COPY_ROW)) {
+      mockRow = { ...VALID_COPY_ROW, [field]: "" };
+      mockError = null;
+      expect(await getPredictionNotificationCopyPolicy(), `field ${field} empty should invalidate the whole policy`).toBeNull();
+    }
+  });
+
+  it("returns null when the row can't be read at all", async () => {
+    mockRow = null;
+    mockError = { message: "connection refused" };
+    expect(await getPredictionNotificationCopyPolicy()).toBeNull();
   });
 });

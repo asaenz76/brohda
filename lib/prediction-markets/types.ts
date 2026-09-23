@@ -18,6 +18,16 @@
 
 export type PredictionMarketStatus = "ACTIVE" | "INACTIVE" | "CLOSED" | "ARCHIVED";
 
+// Milestone R1 (docs/BROHDA_2_0_MILESTONE_MAP.md, Game <-> Market
+// Foundation): the approved sports proposition families. A Market
+// belongs to exactly one canonical Game (fixture) and represents one
+// immutable proposition — see supabase/migrations/20260101000148_*.sql for
+// the enforced identity/shape rules this type must satisfy.
+export type MarketTemplate = "MONEYLINE" | "SPREAD" | "TOTAL";
+
+/** Which fixture side the YES outcome refers to. Null only for TOTAL, where YES always means OVER (a fixed template convention, not per-row data). */
+export type MarketYesSide = "HOME" | "AWAY";
+
 export interface NormalizedMarketPrice {
   /** Independently-read YES price, 0-1 range. Null = not available at ingestion time — never a substituted zero. */
   yes: number | null;
@@ -35,6 +45,13 @@ export interface NormalizedMarket {
   question: string;
   description: string | null;
   status: PredictionMarketStatus;
+  /** The canonical Game this proposition is about. Required — Brohda is sports-only; see 20260101000148_market_game_foundation.sql. */
+  fixtureId: string;
+  marketTemplate: MarketTemplate;
+  /** Required for SPREAD/TOTAL, null for MONEYLINE — enforced by the DB shape constraint. */
+  lineValue: number | null;
+  /** Required for MONEYLINE/SPREAD, null for TOTAL (YES=OVER there) — enforced by the DB shape constraint. */
+  yesSide: MarketYesSide | null;
   price: NormalizedMarketPrice;
   volume24hr: number | null;
   liquidity: number | null;

@@ -28,8 +28,31 @@ const admin = getTestAdminClient();
 const testProvider = `test_discovery_provider_${Date.now()}`;
 const createdCategoryIds: string[] = [];
 const createdMarketIds: string[] = [];
+const createdFixtureIds: string[] = [];
 
-function marketFixture(providerMarketId: string, overrides: Partial<NormalizedMarket> = {}): NormalizedMarket {
+// Milestone R1: every Market now belongs to a canonical Game (fixture_id is
+// a real, NOT NULL FK — supabase/migrations/20260101000148_*.sql). None of
+// these tests exercise grading, so each seeded market just gets its own
+// dedicated fixture, distinct enough to satisfy the new
+// proposition-uniqueness constraint.
+async function createTestFixture(): Promise<string> {
+  const { data, error } = await admin
+    .from("fixtures")
+    .insert({
+      external_fixture_id: `discovery-test-${crypto.randomUUID()}`,
+      home_team_name: "Home Test FC",
+      away_team_name: "Away Test FC",
+      scheduled_start_utc: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      internal_status: "NOT_STARTED",
+    })
+    .select("id")
+    .single();
+  if (error || !data) throw error ?? new Error("failed to create test fixture");
+  createdFixtureIds.push(data.id);
+  return data.id;
+}
+
+function marketFixture(providerMarketId: string, fixtureId: string, overrides: Partial<NormalizedMarket> = {}): NormalizedMarket {
   return {
     provider: testProvider,
     providerMarketId,
@@ -37,6 +60,10 @@ function marketFixture(providerMarketId: string, overrides: Partial<NormalizedMa
     question: `Discovery test market ${providerMarketId}`,
     description: "Test description",
     status: "ACTIVE",
+    fixtureId,
+    marketTemplate: "MONEYLINE",
+    lineValue: null,
+    yesSide: "HOME",
     price: { yes: 0.6, no: 0.4, outcomeLabels: { yes: "Yes", no: "No" } },
     volume24hr: 100,
     liquidity: 1000,
@@ -53,7 +80,8 @@ function marketFixture(providerMarketId: string, overrides: Partial<NormalizedMa
 }
 
 async function seedMarket(providerMarketId: string, overrides: Partial<NormalizedMarket> = {}) {
-  const { id } = await upsertMarket(marketFixture(providerMarketId, overrides));
+  const fixtureId = overrides.fixtureId ?? (await createTestFixture());
+  const { id } = await upsertMarket(marketFixture(providerMarketId, fixtureId, overrides));
   createdMarketIds.push(id);
   return id;
 }
@@ -67,6 +95,7 @@ async function seedCategory(slug: string, displayOrder: number, enabled = true) 
 describe("discovery taxonomy", () => {
   afterAll(async () => {
     if (createdMarketIds.length > 0) await admin.from("markets").delete().in("id", createdMarketIds);
+    if (createdFixtureIds.length > 0) await admin.from("fixtures").delete().in("id", createdFixtureIds);
     if (createdCategoryIds.length > 0) await admin.from("discovery_categories").delete().in("id", createdCategoryIds);
   });
 

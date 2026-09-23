@@ -82,31 +82,31 @@ export default defineConfig({
       NEXT_PUBLIC_SENTRY_DSN: "",
     },
   },
-  // Two projects, not a global fullyParallel:false — every other spec
+  // Three projects, not a global fullyParallel:false — every other spec
   // (paid-entry-flow, free-entry-flow, invite-flow, and any future one)
-  // stays fully parallel-eligible in "chromium". Only
-  // platform-capability-toggle-flow.spec.ts — the one file that mutates
-  // the platform_settings singleton, a real cross-test shared resource,
-  // the same class of problem vitest.integration.config.ts already solves
-  // for the integration suite via fileParallelism:false — is pulled into
-  // its own project. `dependencies: ["chromium"]` is Playwright's own
-  // ordering primitive ("List of projects that need to run before any
-  // test in this project runs" — @playwright/test's own type doc): it
-  // guarantees zero time-overlap between the two projects, so the
+  // stays fully parallel-eligible in "chromium". platform-capability-
+  // toggle-flow.spec.ts and (Milestone R12) admin-brohda-settings.spec.ts
+  // both mutate the platform_settings singleton — a real cross-test shared
+  // resource, the same class of problem vitest.integration.config.ts
+  // already solves for the integration suite via fileParallelism:false —
+  // so each gets pulled into its own project. `dependencies` is
+  // Playwright's own ordering primitive ("List of projects that need to
+  // run before any test in this project runs" — @playwright/test's own
+  // type doc): it guarantees zero time-overlap between projects, so the
   // canonical `playwright test` command is deterministic with no manual
-  // --workers=1, no test ordering flags, and no sleeps. The toggle
+  // --workers=1, no test ordering flags, and no sleeps. The R12 project
+  // depends on BOTH "chromium" and "chromium-capability-toggle" — not just
+  // "chromium" — because two projects that share no dependency edge can
+  // still run concurrently with each other; depending on both is what
+  // stops admin-brohda-settings.spec.ts from ever overlapping the toggle
+  // spec's own singleton mutations, not just the main suite's. Each
   // project's own fullyParallel:false is belt-and-suspenders on top of
-  // that file's existing test.describe.configure({ mode: "serial" }) —
-  // its own two tests were already guaranteed to run in order; this
-  // config change is what stops them from ever running *alongside*
-  // paid-entry-flow/free-entry-flow, which is the actual race that was
-  // observed. The stale-client toggle test itself is unchanged — this is
-  // purely a scheduling fix, not a change to what it verifies.
+  // its file's existing test.describe.configure({ mode: "serial" }).
   projects: [
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
-      testIgnore: /platform-capability-toggle/,
+      testIgnore: /platform-capability-toggle|admin-brohda-settings/,
     },
     {
       name: "chromium-capability-toggle",
@@ -114,6 +114,13 @@ export default defineConfig({
       testMatch: /platform-capability-toggle/,
       fullyParallel: false,
       dependencies: ["chromium"],
+    },
+    {
+      name: "chromium-admin-settings",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: /admin-brohda-settings/,
+      fullyParallel: false,
+      dependencies: ["chromium", "chromium-capability-toggle"],
     },
   ],
 });

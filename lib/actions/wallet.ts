@@ -48,7 +48,12 @@ async function applyAdjustment(
 
   if (error) {
     if (error.message.includes("insufficient_balance")) {
-      return { error: "This withdrawal would drive the balance below zero." };
+      // Milestone R8: this now also fires when the debit would dip into
+      // funds already on hold (e.g. the user's own pending withdrawal
+      // reservation) — apply_wallet_transaction's own check protects
+      // available balance, not just the literal zero floor, so the
+      // message no longer implies only the latter.
+      return { error: "This withdrawal would drive the available balance below zero." };
     }
     return { error: "Could not complete this transaction." };
   }

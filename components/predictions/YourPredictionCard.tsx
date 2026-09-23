@@ -24,6 +24,13 @@ export function YourPredictionCard({ prediction }: { prediction: Prediction }) {
 
 function ResultLine({ prediction }: { prediction: Prediction }) {
   if (prediction.lifecycleState === "PENDING") {
+    // Milestone R5: this card is only ever shown for a locked-or-graded
+    // Pick now (MarketPredictionCard routes a still-editable Pick to the
+    // interactive PredictionActions instead) — a PENDING Pick reaching
+    // here is therefore always locked, never merely "not yet resolved."
+    if (prediction.lockedAt !== null) {
+      return <p className="text-xs font-medium text-text-muted">Picks are locked for this game. Waiting for result.</p>;
+    }
     return <p className="text-xs font-medium text-text-muted">Waiting for result</p>;
   }
   if (prediction.result === "CORRECT") {

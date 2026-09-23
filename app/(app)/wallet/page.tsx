@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
 import { Badge } from "@/components/ui/badge";
 import { getLedgerEntries } from "@/lib/wallet/ledger";
+import { getWalletBalanceSummary } from "@/lib/wallet/reservations";
 import { getPaymentMethods } from "@/lib/payment-methods/fetch";
 import { TransactionList } from "@/components/activity/TransactionList";
 import { WalletRequestForm } from "./wallet-request-form";
@@ -30,8 +31,8 @@ export default async function WalletPage() {
 
   const supabase = await createClient();
 
-  const [{ data: wallet }, { data: requests }, entries, paymentMethods] = await Promise.all([
-    supabase.from("wallet_balances").select("balance").eq("user_id", user.id).single(),
+  const [summary, { data: requests }, entries, paymentMethods] = await Promise.all([
+    getWalletBalanceSummary(user.id),
     supabase
       .from("wallet_requests")
       .select("id, type, amount, status, note, admin_note, created_at")
@@ -41,7 +42,6 @@ export default async function WalletPage() {
     getPaymentMethods(),
   ]);
 
-  const balanceCents = wallet?.balance ?? 0;
   const enabledPaymentMethods = paymentMethods.filter((m) => m.enabled);
 
   return (
@@ -53,7 +53,22 @@ export default async function WalletPage() {
           button or heading below it. */}
       <div className="rounded-2xl border border-border-subtle bg-surface-primary p-5">
         <p className="text-sm text-text-muted">Current balance</p>
-        <p className="text-4xl font-bold text-text-primary">{formatCents(balanceCents)}</p>
+        <p className="text-4xl font-bold text-text-primary">{formatCents(summary.total)}</p>
+        {/* Milestone R8: only shown once something actually holds funds —
+            a pending withdrawal request today — so the common case (no
+            holds) stays exactly as simple as before this milestone. */}
+        {summary.reserved > 0 && (
+          <div className="mt-3 flex items-center gap-4 border-t border-border-subtle pt-3 text-sm">
+            <div>
+              <p className="text-text-muted">Available</p>
+              <p className="font-medium text-text-primary">{formatCents(summary.available)}</p>
+            </div>
+            <div>
+              <p className="text-text-muted">On hold</p>
+              <p className="font-medium text-text-primary">{formatCents(summary.reserved)}</p>
+            </div>
+          </div>
+        )}
       </div>
 
       <WalletRequestForm paymentMethods={enabledPaymentMethods} />

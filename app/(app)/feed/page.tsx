@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getPoolCardViewModels } from "@/lib/pools/fetch";
 import { getPaymentMethods } from "@/lib/payment-methods/fetch";
+import { getWalletBalanceSummary } from "@/lib/wallet/reservations";
 import { effectivePoolStatus } from "@/lib/pools/status-filter";
 import { TieredPoolCard } from "@/components/pools/TieredPoolCard";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
@@ -102,13 +103,13 @@ export default async function FeedPage({
     .order(sortByLockingSoon ? "locks_at" : "created_at", { ascending: sortByLockingSoon })
     .limit(FEED_ROW_FETCH_LIMIT);
 
-  const [{ data: pools }, { data: myEntries }, { data: wallet }, paymentMethods] = await Promise.all([
+  const [{ data: pools }, { data: myEntries }, summary, paymentMethods] = await Promise.all([
     poolsQuery,
     // tier_group_id alongside pool_id: entering one tier must hide every
     // sibling tier from the feed too, not just the exact pool entered —
     // see the filter below.
     supabase.from("entries").select("pool_id, tier_group_id").eq("user_id", user.id).eq("status", "ACTIVE"),
-    supabase.from("wallet_balances").select("balance").eq("user_id", user.id).single(),
+    getWalletBalanceSummary(user.id),
     getPaymentMethods(),
   ]);
   const enabledPaymentMethods = paymentMethods.filter((m) => m.enabled);
@@ -210,7 +211,10 @@ export default async function FeedPage({
     }))
     .filter((g) => g.tiers.length > 0);
 
-  const balanceCents = wallet?.balance ?? 0;
+  // Milestone R8: entry eligibility (and this page's own insufficient-
+  // balance UI) must reflect AVAILABLE balance, not total owned balance —
+  // see lib/wallet/reservations.ts.
+  const balanceCents = summary.available;
 
   return (
     <div className="space-y-[18px] sm:space-y-[22px]">

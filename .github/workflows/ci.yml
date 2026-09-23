@@ -100,6 +100,47 @@ jobs:
         if: always()
         run: pnpm supabase:stop
 
+  build:
+    name: Production build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - run: pnpm install --frozen-lockfile
+
+      # Milestone R13.5 (§44): R13 found CI ran lint/typecheck/unit,
+      # integration, and E2E, but never the actual production build —
+      # meaning a build-only failure (e.g. a type error Next's own build
+      # step catches that isolated `tsc --noEmit` doesn't, or a bundling
+      # failure) could reach `main` undetected until a real deploy. This
+      # job requires no live Supabase/Docker — `next build` only needs
+      # valid-*looking* NEXT_PUBLIC_SUPABASE_URL/ANON_KEY values to build
+      # (baked into next.config.ts's CSP connect-src and the client
+      # Supabase instantiation), never a live connection — every page in
+      # this app is either server-rendered on demand or genuinely static
+      # (login/register/terms/privacy/robots/manifest), none needing DB
+      # data at build time (confirmed: `pnpm build` already succeeds
+      # locally with no Supabase container running at all). The values
+      # below are the same fixed, publicly-documented local-Supabase-CLI
+      # demo credentials the "integration"/"e2e" jobs already treat as
+      # safe to use with no GitHub Actions secret (§45) — not real
+      # production credentials, and never used to reach a live database
+      # here.
+      - name: Production build
+        run: pnpm build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+          SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+          API_NFL_ENABLED: "false"
+          CRON_SECRET: ci-build-placeholder
+
   e2e:
     name: End-to-end tests (Playwright)
     runs-on: ubuntu-latest

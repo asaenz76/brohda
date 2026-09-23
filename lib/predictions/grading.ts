@@ -2,17 +2,27 @@ import "server-only";
 import { getMarketById, type MarketRecord } from "@/lib/prediction-markets/repository";
 import { deriveConsumerStatus } from "@/lib/prediction-markets/discovery/status";
 import { maybeCreatePredictionGradedNotification } from "@/lib/notifications/predictions";
+import { computeSportsMarketOutcome } from "./sports-resolution";
+import { getFixtureForGrading, type FixtureForGrading } from "@/lib/sports-data/fixture-lookup";
 import { listPendingPredictions, markPredictionGraded } from "./repository";
 import type { Prediction, PredictionOutcome, PredictionResult } from "./types";
 
 /**
  * Provider resolution -> normalized Market resolution -> Prediction grading.
- * This module never interprets a raw provider field directly — it only
- * reads `MarketRecord.status`/`resolvedOutcome`, which a resolution source
- * (docs/architecture/sports-prediction-network.md §12) is solely
- * responsible for deriving. Grading a Prediction directly from a raw
- * provider result (skipping the normalized Market) would violate that
- * boundary and is deliberately not possible from this file's imports.
+ * This module never interprets a raw provider field directly.
+ *
+ * Two decision functions exist:
+ * - `decideGrading` (legacy/generic path): reads `MarketRecord.status`/
+ *   `resolvedOutcome` only. Kept for its still-correct ARCHIVED -> VOID rule
+ *   and CORRECT/INCORRECT comparison logic, and for unit coverage of that
+ *   boundary in isolation.
+ * - `decideGradingForMarket` (Milestone R1, the one `runGradingJob` actually
+ *   uses): every Market now belongs to a canonical Game
+ *   (`fixture_id`/`market_template`, see
+ *   supabase/migrations/20260101000148_market_game_foundation.sql), so the
+ *   objective result is computed deterministically from that Game's final
+ *   score (lib/predictions/sports-resolution.ts) rather than from the
+ *   provider-pass-through `resolved_outcome` field.
  */
 
 export type GradingDecision =
@@ -54,6 +64,42 @@ export function decideGrading(market: MarketRecord | null, selectedOutcome: Pred
   return { decision: "graded", result, resolvedOutcomeSnapshot: resolvedOutcome };
 }
 
+/**
+ * Milestone R1 (docs/BROHDA_2_0_MILESTONE_MAP.md) grading entry point: every
+ * Market now carries a canonical Game (fixture_id/market_template are NOT
+ * NULL — supabase/migrations/20260101000148_market_game_foundation.sql), so
+ * the objective result is computed from that Game's final score
+ * (lib/predictions/sports-resolution.ts), never from the legacy
+ * `resolved_outcome` pass-through field. `decideGrading` above is preserved
+ * unchanged (and still covers the shared ARCHIVED -> VOID rule, reused
+ * here) rather than deleted, since it remains the correct, tested
+ * description of that one shared boundary case and of the
+ * resolvedOutcome-based comparison this function's own sports path mirrors.
+ *
+ * `fixture` is passed in explicitly (never fetched by this function) so the
+ * decision itself stays pure and unit-testable without a database — see
+ * tests/unit/predictions/grading.test.ts and
+ * tests/unit/predictions/sports-resolution.test.ts. `runGradingJob` below is
+ * the only caller that performs the actual fixture lookup.
+ */
+export function decideGradingForMarket(market: MarketRecord | null, fixture: FixtureForGrading | null, selectedOutcome: PredictionOutcome): GradingDecision {
+  if (market === null) return { decision: "still-pending" };
+  if (market.status === "ARCHIVED") {
+    return { decision: "graded", result: "VOID", resolvedOutcomeSnapshot: null };
+  }
+  // A fixture lookup miss is a data anomaly (fixture_id is a real,
+  // non-nullable FK) — never fabricate a result over it.
+  if (fixture === null) return { decision: "still-pending" };
+
+  const outcome = computeSportsMarketOutcome({ marketTemplate: market.marketTemplate, lineValue: market.lineValue, yesSide: market.yesSide }, fixture);
+
+  if (outcome === "PENDING") return { decision: "still-pending" };
+  if (outcome === "VOID") return { decision: "graded", result: "VOID", resolvedOutcomeSnapshot: null };
+
+  const result: PredictionResult = outcome === selectedOutcome ? "CORRECT" : "INCORRECT";
+  return { decision: "graded", result, resolvedOutcomeSnapshot: outcome };
+}
+
 export interface GradingRunSummary {
   examined: number;
   graded: number;
@@ -61,6 +107,8 @@ export interface GradingRunSummary {
   incorrect: number;
   voided: number;
   stillPending: number;
+  /** Milestone R13.5 — per-Prediction failure isolation, mirroring lib/prediction-markets/ingestion/nfl.ts's own established shape. One bad row never aborts the rest of the batch, and its failure is never silent. */
+  failures: Array<{ predictionId: string; error: string }>;
 }
 
 /**
@@ -100,43 +148,55 @@ export async function runGradingJob(
   resultRecorder: (prediction: Prediction, result: Extract<PredictionResult, "CORRECT" | "INCORRECT">) => Promise<void>,
 ): Promise<GradingRunSummary> {
   const pending = await listPendingPredictions();
-  const summary: GradingRunSummary = { examined: 0, graded: 0, correct: 0, incorrect: 0, voided: 0, stillPending: 0 };
+  const summary: GradingRunSummary = { examined: 0, graded: 0, correct: 0, incorrect: 0, voided: 0, stillPending: 0, failures: [] };
 
   for (const prediction of pending) {
     summary.examined += 1;
-    const market = await getMarketById(prediction.marketId);
-    const decision = decideGrading(market, prediction.selectedOutcome);
+    try {
+      const market = await getMarketById(prediction.marketId);
+      // ARCHIVED short-circuits before any fixture lookup — an archived
+      // market is VOID regardless of its Game's state, and never needs one.
+      const fixture = market !== null && market.status !== "ARCHIVED" ? await getFixtureForGrading(market.fixtureId) : null;
+      const decision = decideGradingForMarket(market, fixture, prediction.selectedOutcome);
 
-    if (decision.decision === "still-pending") {
-      summary.stillPending += 1;
-      continue;
+      if (decision.decision === "still-pending") {
+        summary.stillPending += 1;
+        continue;
+      }
+
+      const gradedAt = new Date().toISOString();
+      const applied = await markPredictionGraded(prediction.id, {
+        result: decision.result,
+        resolvedOutcomeSnapshot: decision.resolvedOutcomeSnapshot,
+        gradedAt,
+      });
+      // A concurrent run already graded this exact row between our read and
+      // write — safe no-op, not double-counted.
+      if (!applied) continue;
+
+      summary.graded += 1;
+      if (decision.result === "CORRECT") summary.correct += 1;
+      else if (decision.result === "INCORRECT") summary.incorrect += 1;
+      else summary.voided += 1;
+
+      if (decision.result === "CORRECT" || decision.result === "INCORRECT") {
+        await resultRecorder(prediction, decision.result);
+      }
+
+      await maybeCreatePredictionGradedNotification({
+        userId: prediction.userId,
+        predictionId: prediction.id,
+        questionSnapshot: prediction.marketQuestionSnapshot,
+        result: decision.result,
+      });
+    } catch (error) {
+      // Milestone R13.5 (§22, §26): one bad Prediction must not abort the
+      // rest of an automated batch. Grading itself is a single row-scoped
+      // write (markPredictionGraded), so a failure here never leaves that
+      // one row partially graded — it's simply left PENDING for the next
+      // run, exactly like a still-pending decision.
+      summary.failures.push({ predictionId: prediction.id, error: error instanceof Error ? error.message : String(error) });
     }
-
-    const gradedAt = new Date().toISOString();
-    const applied = await markPredictionGraded(prediction.id, {
-      result: decision.result,
-      resolvedOutcomeSnapshot: decision.resolvedOutcomeSnapshot,
-      gradedAt,
-    });
-    // A concurrent run already graded this exact row between our read and
-    // write — safe no-op, not double-counted.
-    if (!applied) continue;
-
-    summary.graded += 1;
-    if (decision.result === "CORRECT") summary.correct += 1;
-    else if (decision.result === "INCORRECT") summary.incorrect += 1;
-    else summary.voided += 1;
-
-    if (decision.result === "CORRECT" || decision.result === "INCORRECT") {
-      await resultRecorder(prediction, decision.result);
-    }
-
-    await maybeCreatePredictionGradedNotification({
-      userId: prediction.userId,
-      predictionId: prediction.id,
-      questionSnapshot: prediction.marketQuestionSnapshot,
-      result: decision.result,
-    });
   }
 
   return summary;

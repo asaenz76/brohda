@@ -30,6 +30,15 @@ export type PredictionLifecycleState = "PENDING" | "GRADED";
  */
 export type PredictionResult = "CORRECT" | "INCORRECT" | "VOID";
 
+/**
+ * Why a Pick became permanently non-editable (Milestone R5,
+ * docs/architecture/pick-editing-and-locking.md). 'CUTOFF' is the only
+ * reason any current code path ever sets. 'CHALLENGE_ACCEPTED' is reserved
+ * vocabulary for a future R7 Free Call BS Challenge acceptance — not
+ * settable by anything in this milestone.
+ */
+export type PredictionLockReason = "CUTOFF" | "CHALLENGE_ACCEPTED";
+
 /** Brohda's own provider-neutral consumer market status, snapshotted at prediction time. */
 export type PredictionMarketStatusSnapshot = "ACTIVE" | "CLOSED" | "RESOLVED";
 
@@ -63,8 +72,28 @@ export interface Prediction {
   resolvedOutcomeSnapshot: PredictionOutcome | null;
   gradedAt: string | null;
 
+  /** Milestone R5: null until permanently locked (§12-13, §17) — one-way, never nulled back out by any code path. */
+  lockedAt: string | null;
+  lockReason: PredictionLockReason | null;
+
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * Milestone R5 append-only revision history (§7-8) — captures only actual
+ * selection CHANGES, never the initial creation and never a same-selection
+ * idempotent retry. See prediction_revisions' own migration comment.
+ */
+export interface PredictionRevision {
+  id: string;
+  predictionId: string;
+  userId: string;
+  previousSelectedOutcome: PredictionOutcome;
+  previousProbabilitySnapshot: number;
+  newSelectedOutcome: PredictionOutcome;
+  newProbabilitySnapshot: number;
+  changedAt: string;
 }
 
 /**
@@ -90,9 +119,29 @@ export type PredictionIneligibleReason =
   | "PRICE_UNAVAILABLE"
   | "PRICE_STALE"
   | "PAST_CUTOFF"
-  | "ALREADY_PREDICTED";
+  | "ALREADY_PREDICTED"
+  // Milestone R5 — deliberately distinct from PAST_CUTOFF above, which is
+  // markets.closes_at-anchored (a different, provider/Market-level
+  // concept). These three are decided authoritatively inside set_pick()
+  // against the Game's own canonical kickoff/status and the Pick's own
+  // lock state — never pre-decided in application code.
+  | "PICK_PAST_CUTOFF"
+  | "GAME_NOT_OPEN"
+  | "PICK_LOCKED";
 
 export type PredictionEligibility = { eligible: true } | { eligible: false; reason: PredictionIneligibleReason };
+
+/**
+ * Milestone R5 configurable policy (§10, §42) — the Pick cutoff before
+ * kickoff (the product's "T-10" rule). Read from `platform_settings` by
+ * lib/predictions/policy.ts's getPickLockPolicy(). Deliberately a separate
+ * policy/column from PredictionPolicy.cutoffMinutesBeforeClose above — see
+ * that migration's own column comment for why the two cutoffs are not the
+ * same concept.
+ */
+export interface PickLockPolicy {
+  lockMinutesBeforeKickoff: number;
+}
 
 /**
  * The configurable policy governing whether/which grading results send a

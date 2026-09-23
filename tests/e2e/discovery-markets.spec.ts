@@ -55,7 +55,28 @@ async function seedMapping(categoryId: string, provider: string, providerTag: st
   if (error) throw error;
 }
 
+// Milestone R1: every Market now belongs to a canonical Game (fixture_id is
+// a real, NOT NULL FK — supabase/migrations/20260101000148_*.sql). Each
+// seeded market gets its own dedicated fixture, distinct enough to satisfy
+// the proposition-uniqueness constraint.
+async function seedFixture(): Promise<string> {
+  const { data, error } = await admin
+    .from("fixtures")
+    .insert({
+      external_fixture_id: `e2e-discovery-${randomUUID()}`,
+      home_team_name: "Home Test FC",
+      away_team_name: "Away Test FC",
+      scheduled_start_utc: new Date(Date.now() + 86_400_000).toISOString(),
+      internal_status: "NOT_STARTED",
+    })
+    .select("id")
+    .single();
+  if (error || !data) throw error ?? new Error("failed to create fixture");
+  return data.id as string;
+}
+
 async function seedMarket(provider: string, providerMarketId: string, overrides: Record<string, unknown> = {}) {
+  const fixtureId = (overrides.fixture_id as string | undefined) ?? (await seedFixture());
   const { data, error } = await admin
     .from("markets")
     .insert({
@@ -63,6 +84,9 @@ async function seedMarket(provider: string, providerMarketId: string, overrides:
       provider_market_id: providerMarketId,
       question: `E2E discovery test: ${providerMarketId}`,
       status: "ACTIVE",
+      fixture_id: fixtureId,
+      market_template: "MONEYLINE",
+      yes_side: "HOME",
       yes_price: 0.62,
       no_price: 0.38,
       liquidity: 1000,
@@ -79,7 +103,10 @@ async function seedMarket(provider: string, providerMarketId: string, overrides:
 }
 
 async function cleanup(provider: string, categoryIds: string[]) {
+  const { data: markets } = await admin.from("markets").select("fixture_id").eq("provider", provider);
+  const fixtureIds = (markets ?? []).map((m) => m.fixture_id).filter((id): id is string => id != null);
   await admin.from("markets").delete().eq("provider", provider);
+  if (fixtureIds.length > 0) await admin.from("fixtures").delete().in("id", fixtureIds);
   if (categoryIds.length > 0) await admin.from("discovery_categories").delete().in("id", categoryIds);
 }
 

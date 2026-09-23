@@ -116,13 +116,29 @@ local dev and CI both work today with no Sentry account at all.
 
 ## 5. Cron jobs (cron-job.org, not Vercel Cron)
 
-The app exposes **4** cron-secret-gated routes under `app/api/cron/*`, all
-meant to be scheduled. Association football / soccer has been retired —
-the football-only cron routes that used to live here (`sync-fixtures`,
+The app exposes **10** cron-secret-gated routes under `app/api/cron/*`,
+all meant to be scheduled — 4 pre-existing (legacy pools + provider
+hygiene), 3 added for Brohda 2.0's sports-prediction-network (R1-R4:
+market ingestion, Post publication, Community distribution), and 3 added
+by Milestone R13.5 for Brohda's core social/monetary lifecycle (grading,
+Call BS resolution, P2P settlement — see
+`docs/architecture/production-operations-gate.md` for the full design and
+regression proof). Association football / soccer has been retired — the
+football-only cron routes that used to live here (`sync-fixtures`,
 `discover-competitions`, `process-competition-imports`,
 `refresh-recommendation-cache`) were deleted along with the rest of the
 soccer provider/competition-import subsystem; nothing calls API-Football
 anymore, scheduled or otherwise.
+
+**R13's PRODUCTION OPERATIONS DECISION REQUIRED is resolved as of
+Milestone R13.5.** Grading, Call BS resolution, and P2P settlement now
+each have a production cron route (`/api/cron/grade-predictions`,
+`/api/cron/resolve-challenges`, `/api/cron/settle-monetary-positions`),
+calling the exact same canonical domain functions their CLI-script
+equivalents already used — no job logic was duplicated. `pnpm
+grade-predictions`/`pnpm resolve-challenges`/`pnpm settle-monetary-
+positions` remain available as manual/debug entrypoints for local runs
+and ad hoc production reruns, no longer the only way these jobs execute.
 
 Vercel's Hobby plan only allows daily cron invocations (Pro is required for
 per-minute native Vercel Cron), so this project uses
@@ -154,6 +170,12 @@ can never stack, and one job's lock never affects another job's.
 | `/api/cron/process-results` | none (DB-only) | No | `processAwaitingResults` | Every 1 minute |
 | `/api/cron/sync-fixtures-nfl` | api_nfl | Yes — one request per tick regardless of season size | `runNflFixtureSync` | Every 5 minutes |
 | `/api/cron/prune-provider-request-log` | none (DB-only) | No | `runProviderRequestLogRetention` | Every 5 minutes |
+| `/api/cron/ingest-nfl-markets` | api_nfl | Yes | `runNflMarketIngestion` — no-ops unless `platform_settings.market_ingestion_enabled` | Every 15 minutes (recommended — odds don't need second-level freshness; adjust based on real quota headroom once live) |
+| `/api/cron/publish-posts` | none (DB-only) | No | `runPostPublication` — no-ops unless `platform_settings.post_publication_enabled` | Every 5 minutes (recommended) |
+| `/api/cron/distribute-posts` | none (DB-only) | No | `runCommunityDistribution` — no-ops unless `platform_settings.community_distribution_enabled` | Every 5-15 minutes (recommended — a full reconciliation scan, not just new Posts) |
+| `/api/cron/grade-predictions` | none (DB-only) | No | `runGradingJob` — batch size from `platform_settings.grading_batch_size` | Every 2 minutes (recommended) |
+| `/api/cron/resolve-challenges` | none (DB-only) | No | `resolveAcceptedChallenges` — batch size from `platform_settings.challenge_resolution_batch_size` | Every 2 minutes, after grading (recommended) |
+| `/api/cron/settle-monetary-positions` | none (DB-only) | No | `runSettlementJob` — batch size from `platform_settings.settlement_batch_size` | Every 2 minutes, after grading (recommended) |
 
 Expected max duration for every job is well under cron-job.org's timeout —
 observed production durations are sub-second to a few seconds.
@@ -189,6 +211,12 @@ cron-job.org's own settings and the Vercel env var):
 | Process results | `https://brohda.com/api/cron/process-results` | Every 1 minute | `Authorization: Bearer <CRON_SECRET>` |
 | Sync NFL fixtures | `https://brohda.com/api/cron/sync-fixtures-nfl` | Every 5 minutes | `Authorization: Bearer <CRON_SECRET>` |
 | Prune provider request log | `https://brohda.com/api/cron/prune-provider-request-log` | Every 5 minutes | `Authorization: Bearer <CRON_SECRET>` |
+| Ingest NFL markets | `https://brohda.com/api/cron/ingest-nfl-markets` | Every 15 minutes | `Authorization: Bearer <CRON_SECRET>` |
+| Publish posts | `https://brohda.com/api/cron/publish-posts` | Every 5 minutes | `Authorization: Bearer <CRON_SECRET>` |
+| Distribute posts | `https://brohda.com/api/cron/distribute-posts` | Every 5-15 minutes | `Authorization: Bearer <CRON_SECRET>` |
+| Grade predictions | `https://brohda.com/api/cron/grade-predictions` | Every 2 minutes | `Authorization: Bearer <CRON_SECRET>` |
+| Resolve Call BS Challenges | `https://brohda.com/api/cron/resolve-challenges` | Every 2 minutes, offset after grading | `Authorization: Bearer <CRON_SECRET>` |
+| Settle monetary Positions | `https://brohda.com/api/cron/settle-monetary-positions` | Every 2 minutes, offset after grading | `Authorization: Bearer <CRON_SECRET>` |
 
 Leaving cron off Vercel entirely also means Vercel's Hobby (free) plan is
 sufficient for hosting — no Pro upgrade is required purely for this.
@@ -285,3 +313,63 @@ Pool 3 should grade automatically and move to `READY_FOR_REVIEW` with Alice
 and Carol as winners; an admin confirm click (or `confirm_pool_settlement`)
 completes the payout. Pool 4 should refund both entries automatically, no
 admin action needed.
+
+## 8. Production configuration checklist (Milestones R13/R13.5)
+
+Every one of these lives in `platform_settings`, reviewable/changeable at
+any time (no deploy needed) via `/admin/settings/brohda` — but the
+*default* value each ships with should be deliberately reviewed once,
+before real users arrive, rather than left at whatever the last local/dev
+value happened to be:
+
+- [ ] **Pick lock** (`pick_lock_minutes_before_kickoff`) — minutes before
+      kickoff a Pick locks.
+- [ ] **Prediction cutoff before market close**
+      (`prediction_cutoff_minutes_before_close`).
+- [ ] **Prediction eligibility policy** (`prediction_allow_repeat`/
+      `allow_stale_price`/`allow_unavailable_price`/`allow_closed_market`)
+      — R3's fail-safe defaults; confirm they match intended launch
+      behavior.
+- [ ] **Market ingestion enabled** — confirm `true` once `API_NFL_KEY` is
+      live, or deliberately `false` until ready.
+- [ ] **Post publication enabled** / **requires active Market**.
+- [ ] **Community distribution enabled** (+ per-type team/league/sport
+      switches).
+- [ ] **Comment length + rate limit** (`post_comment_max_length`,
+      `post_comment_rate_limit_*`).
+- [ ] **Call BS enabled + rate limit**.
+- [ ] **Monetary P2P enabled** — see "Monetary launch gate" below; this is
+      the one switch with a real go/no-go decision behind it, not just a
+      default to review.
+- [ ] **P2P settlement fee** (`p2p_fee_bps`) — 0% by default; confirm
+      intentional before the first real Position commits (never
+      retroactive once changed).
+- [ ] **Leaderboard minimum sample** (`leaderboard_min_decided_picks`).
+- [ ] **Settlement / grading / Challenge-resolution batch sizes**
+      (`settlement_batch_size`, `grading_batch_size`,
+      `challenge_resolution_batch_size` — Milestone R13.5).
+- [ ] **Notification policy/copy** (`prediction_notifications_enabled` +
+      per-outcome switches + all 6 title/body templates).
+- [ ] **Grading / Call BS resolution / P2P settlement cron jobs
+      configured** — Milestone R13.5 resolved R13's own PRODUCTION
+      OPERATIONS DECISION REQUIRED finding; the 3 routes exist and are
+      proven idempotent/concurrency-safe, but still need to be actually
+      created as cron-job.org entries against the real deployed URL
+      before they run in production (see §5 and
+      `docs/architecture/production-operations-gate.md`'s own "Technical
+      vs. deployed" section).
+- [ ] **`CRON_SECRET`** set and matching between Vercel and cron-job.org
+      for all 10 scheduled routes.
+- [ ] **Dependency versions** — confirm `next`/`sharp` are current (see
+      `docs/architecture/security-production-readiness.md`'s dependency
+      audit; `pnpm audit --prod` should show 0 critical).
+
+### Monetary launch gate
+
+Per `docs/architecture/security-production-readiness.md`, social features
+and monetary P2P have independent technical readiness — social is ready;
+monetary P2P's *technical* readiness is also affirmed there, but enabling
+real-money P2P additionally requires a legal/compliance review this
+milestone does not and cannot provide (licensing, KYC, AML, jurisdictional
+eligibility — none of that is assessed here). Do not flip `monetary_p2p_
+enabled` to `true` in production without that separate review.
