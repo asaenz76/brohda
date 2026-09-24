@@ -1,5 +1,5 @@
 import { Sparkles } from "lucide-react";
-import { requireUser } from "@/lib/auth/session";
+import { requireSocialPredictionAccess } from "@/lib/social/access";
 import { getDiscoveryFeed, listEnabledCategories } from "@/lib/prediction-markets/discovery/repository";
 import { MarketCard } from "@/components/discovery/MarketCard";
 import { CategoryTabs } from "@/components/discovery/CategoryTabs";
@@ -19,7 +19,7 @@ export default async function MarketsPage({
 }: {
   searchParams: Promise<{ category?: string }>;
 }) {
-  await requireUser();
+  await requireSocialPredictionAccess();
   const { category: categorySlug } = await searchParams;
 
   const [categories, markets] = await Promise.all([listEnabledCategories(), getDiscoveryFeed(categorySlug)]);

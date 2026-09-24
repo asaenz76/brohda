@@ -53,6 +53,7 @@ export function MobileBottomNavigation({
   createHref,
   profile,
   wide = false,
+  showSocialPredictionNav = true,
 }: {
   createHref: string | null;
   profile: { displayName: string; avatarUrl: string | null };
@@ -60,9 +61,16 @@ export function MobileBottomNavigation({
   // header/content instead of staying pinned to the narrow player-page
   // width while the rest of the shell widens for the admin section.
   wide?: boolean;
+  // Milestone R13.10 (Stage 0) — a UX signal only (server-enforced access
+  // lives in lib/social/access.ts's requireSocialPredictionAccess(), which
+  // every Brohda 2.0 page calls independently of nav visibility). Hides
+  // only the "/markets" tab; the pre-existing legacy "/leaderboard" tab is
+  // always shown.
+  showSocialPredictionNav?: boolean;
 }) {
   const pathname = usePathname();
   const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+  const rightTabs = showSocialPredictionNav ? RIGHT_TABS : RIGHT_TABS.filter((tab) => tab.href !== "/markets");
 
   return (
     <nav
@@ -88,7 +96,7 @@ export function MobileBottomNavigation({
           </li>
         )}
 
-        {RIGHT_TABS.map(({ href, label, icon: Icon }) => (
+        {rightTabs.map(({ href, label, icon: Icon }) => (
           <li key={href} className="min-w-0 flex-1">
             <NavLink href={href} label={label} Icon={Icon} active={isActive(href)} />
           </li>

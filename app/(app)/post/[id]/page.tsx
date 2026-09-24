@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requireUser } from "@/lib/auth/session";
+import { requireSocialPredictionAccess } from "@/lib/social/access";
 import { isAdminOrAbove } from "@/lib/auth/guards";
 import { getPublishedPostById } from "@/lib/posts/repository";
 import { getPostPublicationPolicy } from "@/lib/posts/policy";
@@ -32,7 +32,7 @@ import Link from "next/link";
  * (R4/R7/R9).
  */
 export default async function PostDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await requireUser();
+  const user = await requireSocialPredictionAccess();
   const { id } = await params;
 
   const post = await getPublishedPostById(id);

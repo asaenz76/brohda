@@ -196,6 +196,15 @@ export const SETTINGS_REGISTRY: SettingRegistryEntry[] = [
     description: "Whether a Post may only publish once it has at least one ACTIVE Market.",
     type: "boolean",
   },
+  {
+    domain: "Markets",
+    key: "socialPredictionEnabled",
+    column: "social_prediction_enabled",
+    label: "Social prediction access",
+    description: "Master switch controlling whether ordinary users can reach the Brohda 2.0 social prediction experience (Markets, Posts, Communities, Picks). Independent of the content-preparation flags above — Super Admin/Admin always retain preview access regardless of this setting.",
+    type: "boolean",
+    impactNote: "This is the DEPLOY vs ACTIVATE boundary — content can be ingested/published/distributed while this stays off. Takes effect immediately for ordinary users; no deployment needed.",
+  },
 
   // Communities
   {

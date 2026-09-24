@@ -14,6 +14,11 @@ export function AppShell({
   unreadNotificationCount,
   createHref,
   wide = false,
+  // Milestone R13.10 (Stage 0) — defaults true so AdminLayout (every user
+  // there is already admin-or-above via requireAdminOrAbove()) doesn't
+  // need to compute/pass this itself; app/(app)/layout.tsx passes the
+  // real per-request value for ordinary players.
+  showSocialPredictionNav = true,
   children,
 }: {
   user: UserProfile;
@@ -25,6 +30,7 @@ export function AppShell({
   // (an 8-tab nav plus wide tables) and reads better using more of a
   // desktop viewport, so AdminLayout opts into this instead.
   wide?: boolean;
+  showSocialPredictionNav?: boolean;
   children: React.ReactNode;
 }) {
   const maxWidth = wide ? "max-w-[1200px]" : "max-w-[720px]";
@@ -89,6 +95,7 @@ export function AppShell({
         createHref={createHref}
         profile={{ displayName: user.display_name, avatarUrl: user.avatar_url }}
         wide={wide}
+        showSocialPredictionNav={showSocialPredictionNav}
       />
       <NotificationToast initialUnreadCount={unreadNotificationCount} />
     </div>

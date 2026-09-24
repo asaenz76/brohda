@@ -33,6 +33,8 @@ export interface MarketSettings {
   marketIngestionMinBookmakerCount: number;
   postPublicationEnabled: boolean;
   postPublicationRequiresActiveMarket: boolean;
+  /** Milestone R13.10 — gates ordinary-user access to the Brohda 2.0 social prediction routes, independent of the three content-preparation flags above. See lib/social/access.ts. */
+  socialPredictionEnabled: boolean;
 }
 
 export interface CommunitySettings {

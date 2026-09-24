@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Trophy } from "lucide-react";
-import { requireUser } from "@/lib/auth/session";
+import { requireSocialPredictionAccess } from "@/lib/social/access";
 import { getPredictionLeaderboard } from "@/lib/reputation/repository";
 import type { LeaderboardPeriod } from "@/lib/reputation/types";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
@@ -32,7 +32,7 @@ export default async function PredictionLeaderboardPage({
   const page = Math.max(1, Number(pageParam) || 1);
   const offset = (page - 1) * PAGE_SIZE;
 
-  const user = await requireUser();
+  const user = await requireSocialPredictionAccess();
   const { entries, totalEligible } = await getPredictionLeaderboard(period, PAGE_SIZE, offset);
 
   const hasNextPage = offset + entries.length < totalEligible;

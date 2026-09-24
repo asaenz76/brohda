@@ -282,9 +282,9 @@ describe("Atomic update + audit, one domain per RPC", () => {
     expect((auditRow!.after as typeof values).predictionNotifyTitleCorrect).toBe("Nice");
   });
 
-  it("Markets: updates ingestion and publication policy atomically", async () => {
+  it("Markets: updates ingestion, publication, and social access policy atomically", async () => {
     const at = await currentUpdatedAt();
-    const values = { marketIngestionEnabled: false, marketIngestionMinBookmakerCount: 4, postPublicationEnabled: false, postPublicationRequiresActiveMarket: false };
+    const values = { marketIngestionEnabled: false, marketIngestionMinBookmakerCount: 4, postPublicationEnabled: false, postPublicationRequiresActiveMarket: false, socialPredictionEnabled: true };
     const result = await updateMarketSettings(adminUserId, at, values);
     expect(result.outcome).toBe("updated");
     expect(result.settings.markets).toEqual(values);
@@ -443,7 +443,7 @@ describe("Internal role check (R13 defense-in-depth)", () => {
   const CALLS: Array<{ rpc: string; args: Record<string, unknown> }> = [
     { rpc: "update_prediction_settings", args: { p_pick_lock_minutes_before_kickoff: 10, p_prediction_cutoff_minutes_before_close: 0, p_prediction_allow_repeat: true, p_prediction_allow_stale_price: true, p_prediction_allow_unavailable_price: true, p_prediction_allow_closed_market: true } },
     { rpc: "update_notification_settings", args: { p_prediction_notifications_enabled: true, p_prediction_notify_on_correct: true, p_prediction_notify_on_incorrect: true, p_prediction_notify_on_void: true, p_prediction_notify_title_correct: "t", p_prediction_notify_body_correct: "b", p_prediction_notify_title_incorrect: "t", p_prediction_notify_body_incorrect: "b", p_prediction_notify_title_void: "t", p_prediction_notify_body_void: "b" } },
-    { rpc: "update_market_settings", args: { p_market_ingestion_enabled: true, p_market_ingestion_min_bookmaker_count: 2, p_post_publication_enabled: true, p_post_publication_requires_active_market: true } },
+    { rpc: "update_market_settings", args: { p_market_ingestion_enabled: true, p_market_ingestion_min_bookmaker_count: 2, p_post_publication_enabled: true, p_post_publication_requires_active_market: true, p_social_prediction_enabled: false } },
     { rpc: "update_community_settings", args: { p_community_distribution_enabled: true, p_community_team_distribution_enabled: true, p_community_league_distribution_enabled: true, p_community_sport_distribution_enabled: true } },
     { rpc: "update_conversation_settings", args: { p_post_comment_max_length: 500, p_post_comment_rate_limit_window_seconds: 60, p_post_comment_rate_limit_max_attempts: 10 } },
     { rpc: "update_call_bs_settings", args: { p_call_bs_enabled: true, p_call_bs_rate_limit_window_seconds: 60, p_call_bs_rate_limit_max_attempts: 10 } },

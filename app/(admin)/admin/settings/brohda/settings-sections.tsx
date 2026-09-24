@@ -232,6 +232,9 @@ export function MarketSettingsSection({ initial, updatedAt }: { initial: MarketS
       <FieldRow label="Require an active Market to publish" description="Whether a Post may only publish once it has at least one ACTIVE Market.">
         <Switch checked={values.postPublicationRequiresActiveMarket} onCheckedChange={(checked) => setValues((v) => ({ ...v, postPublicationRequiresActiveMarket: checked }))} />
       </FieldRow>
+      <FieldRow label="Social prediction access" description="Whether ordinary users can reach Brohda 2.0's social prediction experience (Markets, Posts, Communities, Picks). Super Admin/Admin always retain preview access. This is the DEPLOY vs ACTIVATE boundary.">
+        <Switch checked={values.socialPredictionEnabled} onCheckedChange={(checked) => setValues((v) => ({ ...v, socialPredictionEnabled: checked }))} />
+      </FieldRow>
       <SectionFeedback result={result} />
       <Button type="button" disabled={isPending} onClick={save}>
         {isPending ? "Saving…" : "Save Markets"}
