@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requireUser } from "@/lib/auth/session";
+import { requireSocialPredictionAccess } from "@/lib/social/access";
 import { getMarketDetail } from "@/lib/prediction-markets/discovery/repository";
 import { MarketPredictionCard } from "@/components/predictions/MarketPredictionCard";
 
@@ -14,7 +14,7 @@ import { MarketPredictionCard } from "@/components/predictions/MarketPredictionC
 // unchanged.
 
 export default async function MarketDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await requireUser();
+  const user = await requireSocialPredictionAccess();
   const { id } = await params;
 
   const market = await getMarketDetail(id);

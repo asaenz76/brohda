@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { requireUser } from "@/lib/auth/session";
+import { requireSocialPredictionAccess } from "@/lib/social/access";
 import { getCommunityBySlug } from "@/lib/communities/repository";
 import { getCommunityDisplayName } from "@/lib/communities/presentation";
 import { isFollowingCommunity } from "@/lib/communities/follows";
@@ -22,7 +22,7 @@ import { LocalDateTime } from "@/components/LocalDateTime";
  * this is affinity + distribution only (§26).
  */
 export default async function CommunityDetailPage({ params }: { params: Promise<{ slug: string }> }) {
-  const user = await requireUser();
+  const user = await requireSocialPredictionAccess();
   const { slug } = await params;
 
   const community = await getCommunityBySlug(slug);

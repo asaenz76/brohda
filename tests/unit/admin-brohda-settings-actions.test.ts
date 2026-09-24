@@ -51,7 +51,7 @@ function fakeSettings(overrides: Partial<BrohdaSettings> = {}): BrohdaSettings {
       predictionNotifyTitleVoid: "No result",
       predictionNotifyBodyVoid: "Void.",
     },
-    markets: { marketIngestionEnabled: true, marketIngestionMinBookmakerCount: 2, postPublicationEnabled: true, postPublicationRequiresActiveMarket: true },
+    markets: { marketIngestionEnabled: true, marketIngestionMinBookmakerCount: 2, postPublicationEnabled: true, postPublicationRequiresActiveMarket: true, socialPredictionEnabled: false },
     communities: { communityDistributionEnabled: true, communityTeamDistributionEnabled: true, communityLeagueDistributionEnabled: true, communitySportDistributionEnabled: true },
     conversation: { postCommentMaxLength: 500, postCommentRateLimitWindowSeconds: 60, postCommentRateLimitMaxAttempts: 10 },
     callBs: { callBsEnabled: true, callBsRateLimitWindowSeconds: 60, callBsRateLimitMaxAttempts: 10 },
@@ -98,7 +98,7 @@ const {
 
 const VALID_PREDICTIONS = { pickLockMinutesBeforeKickoff: 10, predictionCutoffMinutesBeforeClose: 0, predictionAllowRepeat: false, predictionAllowStalePrice: true, predictionAllowUnavailablePrice: false, predictionAllowClosedMarket: false };
 const VALID_NOTIFICATIONS = fakeSettings().notifications;
-const VALID_MARKETS = { marketIngestionEnabled: true, marketIngestionMinBookmakerCount: 2, postPublicationEnabled: true, postPublicationRequiresActiveMarket: true };
+const VALID_MARKETS = { marketIngestionEnabled: true, marketIngestionMinBookmakerCount: 2, postPublicationEnabled: true, postPublicationRequiresActiveMarket: true, socialPredictionEnabled: false };
 const VALID_COMMUNITIES = { communityDistributionEnabled: true, communityTeamDistributionEnabled: true, communityLeagueDistributionEnabled: true, communitySportDistributionEnabled: true };
 const VALID_CONVERSATION = { postCommentMaxLength: 500, postCommentRateLimitWindowSeconds: 60, postCommentRateLimitMaxAttempts: 10 };
 const VALID_CALL_BS = { callBsEnabled: true, callBsRateLimitWindowSeconds: 60, callBsRateLimitMaxAttempts: 10 };

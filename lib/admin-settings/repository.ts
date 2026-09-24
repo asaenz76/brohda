@@ -42,6 +42,7 @@ interface PlatformSettingsRow {
   market_ingestion_min_bookmaker_count: number;
   post_publication_enabled: boolean;
   post_publication_requires_active_market: boolean;
+  social_prediction_enabled: boolean;
   community_distribution_enabled: boolean;
   community_team_distribution_enabled: boolean;
   community_league_distribution_enabled: boolean;
@@ -97,6 +98,7 @@ function toMarkets(row: PlatformSettingsRow): MarketSettings {
     marketIngestionMinBookmakerCount: row.market_ingestion_min_bookmaker_count,
     postPublicationEnabled: row.post_publication_enabled,
     postPublicationRequiresActiveMarket: row.post_publication_requires_active_market,
+    socialPredictionEnabled: row.social_prediction_enabled,
   };
 }
 
@@ -170,7 +172,7 @@ async function toBrohdaSettings(row: PlatformSettingsRow): Promise<BrohdaSetting
 }
 
 const SETTINGS_COLUMNS =
-  "pick_lock_minutes_before_kickoff, prediction_cutoff_minutes_before_close, prediction_allow_repeat, prediction_allow_stale_price, prediction_allow_unavailable_price, prediction_allow_closed_market, prediction_notifications_enabled, prediction_notify_on_correct, prediction_notify_on_incorrect, prediction_notify_on_void, prediction_notify_title_correct, prediction_notify_body_correct, prediction_notify_title_incorrect, prediction_notify_body_incorrect, prediction_notify_title_void, prediction_notify_body_void, market_ingestion_enabled, market_ingestion_min_bookmaker_count, post_publication_enabled, post_publication_requires_active_market, community_distribution_enabled, community_team_distribution_enabled, community_league_distribution_enabled, community_sport_distribution_enabled, post_comment_max_length, post_comment_rate_limit_window_seconds, post_comment_rate_limit_max_attempts, call_bs_enabled, call_bs_rate_limit_window_seconds, call_bs_rate_limit_max_attempts, monetary_p2p_enabled, monetary_proposal_rate_limit_window_seconds, monetary_proposal_rate_limit_max_attempts, p2p_fee_bps, leaderboard_min_decided_picks, settlement_batch_size, grading_batch_size, challenge_resolution_batch_size, job_staleness_multiplier, updated_at, updated_by";
+  "pick_lock_minutes_before_kickoff, prediction_cutoff_minutes_before_close, prediction_allow_repeat, prediction_allow_stale_price, prediction_allow_unavailable_price, prediction_allow_closed_market, prediction_notifications_enabled, prediction_notify_on_correct, prediction_notify_on_incorrect, prediction_notify_on_void, prediction_notify_title_correct, prediction_notify_body_correct, prediction_notify_title_incorrect, prediction_notify_body_incorrect, prediction_notify_title_void, prediction_notify_body_void, market_ingestion_enabled, market_ingestion_min_bookmaker_count, post_publication_enabled, post_publication_requires_active_market, social_prediction_enabled, community_distribution_enabled, community_team_distribution_enabled, community_league_distribution_enabled, community_sport_distribution_enabled, post_comment_max_length, post_comment_rate_limit_window_seconds, post_comment_rate_limit_max_attempts, call_bs_enabled, call_bs_rate_limit_window_seconds, call_bs_rate_limit_max_attempts, monetary_p2p_enabled, monetary_proposal_rate_limit_window_seconds, monetary_proposal_rate_limit_max_attempts, p2p_fee_bps, leaderboard_min_decided_picks, settlement_batch_size, grading_batch_size, challenge_resolution_batch_size, job_staleness_multiplier, updated_at, updated_by";
 
 /** The full effective Brohda 2.0 settings snapshot — the one place "what policy is Brohda using right now?" (§14) is answered, for both the admin UI and any test/script that needs it. */
 export async function getBrohdaSettings(): Promise<BrohdaSettings> {
@@ -239,6 +241,7 @@ export async function updateMarketSettings(adminId: string, expectedUpdatedAt: s
       p_market_ingestion_min_bookmaker_count: values.marketIngestionMinBookmakerCount,
       p_post_publication_enabled: values.postPublicationEnabled,
       p_post_publication_requires_active_market: values.postPublicationRequiresActiveMarket,
+      p_social_prediction_enabled: values.socialPredictionEnabled,
     })
     .single();
   if (error) throw error;
