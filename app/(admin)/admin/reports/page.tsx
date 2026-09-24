@@ -12,6 +12,17 @@ import {
   getTransactionTypeTotals,
   getUserCounts,
 } from "@/lib/reports/fetch";
+import type { JobHealthStatus } from "@/lib/jobs/health";
+
+// Deliberately not text-credit/text-debit (globals.css reserves those for
+// wallet transaction direction) — this is a separate operational-status
+// scale, not a money signal.
+function jobHealthStatusClass(status: JobHealthStatus): string {
+  if (status === "failed") return "font-medium text-danger";
+  if (status === "degraded" || status === "stale") return "font-medium text-warning-muted";
+  if (status === "never_run") return "text-text-muted";
+  return "font-medium text-text-primary";
+}
 
 export default async function AdminReportsPage() {
   await requireSuperAdmin();
@@ -102,24 +113,23 @@ export default async function AdminReportsPage() {
       <Card>
         <CardContent className="space-y-2 pt-6">
           <h2 className="text-sm font-semibold text-text-primary">Job health</h2>
-          <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
-            {jobHealth.lastRunByJob.map((job) => (
-              <div key={job.jobName} className="rounded-lg border border-border-subtle p-2">
-                <dt className="font-medium text-text-primary">{job.jobName}</dt>
-                <dd
-                  className={
-                    job.status === "error"
-                      ? "text-danger"
-                      : job.status === "never_run"
-                        ? "text-text-muted"
-                        : "font-medium text-text-primary"
-                  }
-                >
-                  {humanizeEnum(job.status)}
-                </dd>
+          <p className="text-xs text-text-muted">
+            Every production lifecycle job (lib/jobs/registry.ts), sourced live from `background_jobs` — not a
+            hard-coded list. A flag-gated job that fires on schedule but does nothing because its feature is
+            disabled shows as &ldquo;No-op / healthy&rdquo;, distinct from &ldquo;Stale&rdquo; (the scheduler itself
+            hasn&rsquo;t fired recently).
+          </p>
+          <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+            {jobHealth.jobs.map((entry) => (
+              <div key={entry.job.id} className="rounded-lg border border-border-subtle p-2">
+                <dt className="font-medium text-text-primary">{entry.job.displayName}</dt>
+                <dd className="text-xs text-text-muted">{entry.job.category}</dd>
+                <dd className={jobHealthStatusClass(entry.status)}>{humanizeEnum(entry.status)}</dd>
                 <dd className="text-xs text-text-muted">
-                  {job.finishedAt ? new Date(job.finishedAt).toLocaleString() : "Never run"}
+                  {entry.lastAttemptedAt ? new Date(entry.lastAttemptedAt).toLocaleString() : "Never run"}
                 </dd>
+                {entry.lastResultSummary && <dd className="text-xs text-text-muted">{entry.lastResultSummary}</dd>}
+                {entry.lastError && <dd className="text-xs text-danger">{entry.lastError}</dd>}
               </div>
             ))}
           </dl>

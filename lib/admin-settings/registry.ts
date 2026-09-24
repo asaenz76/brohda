@@ -358,6 +358,15 @@ export const SETTINGS_REGISTRY: SettingRegistryEntry[] = [
     type: "integer",
     impactNote: "A pure operational throughput knob — never affects resolution correctness, only how much work one run does.",
   },
+  {
+    domain: "Operations",
+    key: "jobStalenessMultiplier",
+    column: "job_staleness_multiplier",
+    label: "Job staleness tolerance",
+    description: "Multiplier applied to each lifecycle job's own expected cadence before the admin Job Health view flags it as stale.",
+    type: "integer",
+    impactNote: "A pure alerting-sensitivity knob — never affects any job's own scheduling, execution, or correctness.",
+  },
 ];
 
 /**

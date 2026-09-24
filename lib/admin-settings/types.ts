@@ -72,6 +72,8 @@ export interface OperationsSettings {
   gradingBatchSize: number;
   /** Milestone R13.5 — max ACCEPTED Call BS Challenges the resolution runner considers per invocation. */
   challengeResolutionBatchSize: number;
+  /** Milestone R13.9 — multiplier applied to each lifecycle job's own expected cadence (lib/jobs/registry.ts) before the admin Job Health view calls it STALE. */
+  jobStalenessMultiplier: number;
 }
 
 /** The full effective Brohda 2.0 settings snapshot, plus the concurrency token every domain's own update action must echo back. */

@@ -1,5 +1,8 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { JOB_REGISTRY } from "@/lib/jobs/registry";
+import { computeJobHealth, type BackgroundJobRow, type JobHealthEntry } from "@/lib/jobs/health";
+import { getBrohdaSettings } from "@/lib/admin-settings/repository";
 
 export interface UserCounts {
   total: number;
@@ -90,48 +93,42 @@ export async function getHouseRevenue(): Promise<HouseRevenue> {
   };
 }
 
-export interface JobRunSummary {
-  jobName: string;
-  status: string;
-  finishedAt: string;
-  durationMs: number;
-  error: string | null;
-}
-
 export interface JobHealth {
-  lastRunByJob: JobRunSummary[];
-  recentRuns: JobRunSummary[];
+  jobs: JobHealthEntry[];
 }
 
-const KNOWN_JOBS = ["sync-fixtures", "lock-pools", "process-results"] as const;
-
+/**
+ * Milestone R13.9 — replaces the old hard-coded 3-job KNOWN_JOBS list
+ * (which had already drifted: it named "sync-fixtures", the real
+ * job_name is "sync-fixtures-nfl", so that job's health silently read
+ * "never run" forever). Now driven entirely by lib/jobs/registry.ts, the
+ * same identifiers every cron route actually uses, so a job can never be
+ * missing from this dashboard or misspelled relative to it.
+ *
+ * One shared query across all 10 jobs (rather than one query per job) —
+ * a comfortable window (200 rows) easily covers every job's recent
+ * history at their fastest expected cadence (1 minute) for 20+ minutes
+ * back, which is far more than needed to find each job's latest run and
+ * its latest successful run.
+ */
 export async function getJobHealth(): Promise<JobHealth> {
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("background_jobs")
-    .select("job_name, status, finished_at, duration_ms, error")
-    .order("finished_at", { ascending: false })
-    .limit(50);
+  const [{ data }, settings] = await Promise.all([
+    supabase
+      .from("background_jobs")
+      .select("job_name, status, result, error, started_at, finished_at, duration_ms")
+      .order("finished_at", { ascending: false })
+      .limit(200),
+    getBrohdaSettings(),
+  ]);
 
-  const rows = (data ?? []).map((r) => ({
-    jobName: r.job_name,
-    status: r.status,
-    finishedAt: r.finished_at,
-    durationMs: r.duration_ms,
-    error: r.error,
-  }));
-
-  const lastRunByJob = KNOWN_JOBS.map(
-    (jobName) => rows.find((r) => r.jobName === jobName) ?? {
-      jobName,
-      status: "never_run",
-      finishedAt: "",
-      durationMs: 0,
-      error: null,
-    },
+  const rows: BackgroundJobRow[] = data ?? [];
+  const now = new Date();
+  const jobs = JOB_REGISTRY.map((job) =>
+    computeJobHealth(job, rows, now, settings.operations.jobStalenessMultiplier),
   );
 
-  return { lastRunByJob, recentRuns: rows.slice(0, 20) };
+  return { jobs };
 }
 
 export type TransactionTypeTotals = Record<string, { credit: number; debit: number }>;

@@ -123,7 +123,12 @@ market ingestion, Post publication, Community distribution), and 3 added
 by Milestone R13.5 for Brohda's core social/monetary lifecycle (grading,
 Call BS resolution, P2P settlement — see
 `docs/architecture/production-operations-gate.md` for the full design and
-regression proof). Association football / soccer has been retired — the
+regression proof). Every route's identity, category, and expected cadence
+is canonically declared once in `lib/jobs/registry.ts` — the cadences in
+the table below must match it (Milestone R13.9,
+`docs/architecture/production-operations-observability.md`); `/admin/
+reports`' Job Health card reads that same registry, not a separately
+maintained list. Association football / soccer has been retired — the
 football-only cron routes that used to live here (`sync-fixtures`,
 `discover-competitions`, `process-competition-imports`,
 `refresh-recommendation-cache`) were deleted along with the rest of the

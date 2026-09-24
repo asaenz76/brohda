@@ -491,6 +491,9 @@ export function OperationsSettingsSection({ initial, updatedAt }: { initial: Ope
       <FieldRow label="Challenge resolution batch size" description="Maximum accepted Call BS Challenges the resolution runner processes per invocation. A pure throughput knob — never affects resolution correctness.">
         <Input type="number" className="w-24" value={values.challengeResolutionBatchSize} onChange={(e) => setValues((v) => ({ ...v, challengeResolutionBatchSize: Number(e.target.value) }))} />
       </FieldRow>
+      <FieldRow label="Job staleness tolerance" description="Multiplier applied to each lifecycle job's own expected cadence before Job Health flags it stale. A pure alerting-sensitivity knob — never affects any job's scheduling or correctness.">
+        <Input type="number" className="w-24" value={values.jobStalenessMultiplier} onChange={(e) => setValues((v) => ({ ...v, jobStalenessMultiplier: Number(e.target.value) }))} />
+      </FieldRow>
       <SectionFeedback result={result} />
       <Button type="button" disabled={isPending} onClick={save}>
         {isPending ? "Saving…" : "Save Operations"}

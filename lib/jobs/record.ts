@@ -1,5 +1,7 @@
 import "server-only";
+import * as Sentry from "@sentry/nextjs";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isDegradedResult } from "./health";
 
 // Generous relative to every job's actual observed duration (sub-second
 // to a few seconds today) — long enough to never expire mid-run, short
@@ -54,15 +56,54 @@ export async function recordJobRun<T>(
   try {
     const result = await fn();
     const finishedAt = new Date();
+    const degraded = isDegradedResult(result);
 
     await admin.from("background_jobs").insert({
       job_name: jobName,
-      status: "success",
+      status: degraded ? "degraded" : "success",
       result: result as object,
       started_at: startedAt.toISOString(),
       finished_at: finishedAt.toISOString(),
       duration_ms: finishedAt.getTime() - startedAt.getTime(),
     });
+
+    // Milestone R13.9 (§9): a job that completes without throwing but
+    // reports per-item failures or a financial invariant_violation must
+    // never be operationally silent — recording "degraded" in
+    // background_jobs is necessary but not sufficient, since nothing
+    // proactively watches that table. This is the one place every
+    // degraded lifecycle run passes through, so it's the correct place
+    // to raise it in the existing Sentry integration rather than
+    // console.log-and-continue. Never automatically repairs anything —
+    // detection and alerting only.
+    if (degraded) {
+      const resultRecord = result as Record<string, unknown>;
+      const invariantViolations =
+        typeof resultRecord.invariantViolations === "number" ? resultRecord.invariantViolations : 0;
+      const failureCount = Array.isArray(resultRecord.failures) ? resultRecord.failures.length : 0;
+
+      Sentry.captureMessage(
+        invariantViolations > 0
+          ? `${jobName}: financial invariant violation requires manual review`
+          : `${jobName}: completed with per-item failures`,
+        {
+          level: invariantViolations > 0 ? "error" : "warning",
+          tags: { job: jobName, status: "degraded" },
+          extra: {
+            failureCount,
+            invariantViolations,
+            // Non-secret internal object ids only — never user/financial
+            // detail beyond that, per §9's explicit instruction.
+            failedIds: Array.isArray(resultRecord.failures)
+              ? resultRecord.failures.map((f) => (f as Record<string, unknown>).predictionId ??
+                  (f as Record<string, unknown>).challengeId ??
+                  (f as Record<string, unknown>).positionId ??
+                  "unknown")
+              : [],
+          },
+        },
+      );
+    }
 
     return result;
   } catch (error) {

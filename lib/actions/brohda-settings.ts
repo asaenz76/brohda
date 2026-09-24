@@ -253,6 +253,9 @@ export async function updateOperationsSettingsAction(expectedUpdatedAt: string, 
   if (values.challengeResolutionBatchSize < 1 || values.challengeResolutionBatchSize > 5000) {
     return { success: false, error: "Challenge resolution batch size must be between 1 and 5000.", conflict: false, settings: null };
   }
+  if (values.jobStalenessMultiplier < 1 || values.jobStalenessMultiplier > 20) {
+    return { success: false, error: "Job staleness tolerance must be between 1 and 20.", conflict: false, settings: null };
+  }
 
   let result;
   try {
