@@ -60,6 +60,7 @@ interface PlatformSettingsRow {
   settlement_batch_size: number;
   grading_batch_size: number;
   challenge_resolution_batch_size: number;
+  job_staleness_multiplier: number;
   updated_at: string;
   updated_by: string | null;
 }
@@ -138,7 +139,12 @@ function toReputation(row: PlatformSettingsRow): ReputationSettings {
 }
 
 function toOperations(row: PlatformSettingsRow): OperationsSettings {
-  return { settlementBatchSize: row.settlement_batch_size, gradingBatchSize: row.grading_batch_size, challengeResolutionBatchSize: row.challenge_resolution_batch_size };
+  return {
+    settlementBatchSize: row.settlement_batch_size,
+    gradingBatchSize: row.grading_batch_size,
+    challengeResolutionBatchSize: row.challenge_resolution_batch_size,
+    jobStalenessMultiplier: row.job_staleness_multiplier,
+  };
 }
 
 async function toBrohdaSettings(row: PlatformSettingsRow): Promise<BrohdaSettings> {
@@ -164,7 +170,7 @@ async function toBrohdaSettings(row: PlatformSettingsRow): Promise<BrohdaSetting
 }
 
 const SETTINGS_COLUMNS =
-  "pick_lock_minutes_before_kickoff, prediction_cutoff_minutes_before_close, prediction_allow_repeat, prediction_allow_stale_price, prediction_allow_unavailable_price, prediction_allow_closed_market, prediction_notifications_enabled, prediction_notify_on_correct, prediction_notify_on_incorrect, prediction_notify_on_void, prediction_notify_title_correct, prediction_notify_body_correct, prediction_notify_title_incorrect, prediction_notify_body_incorrect, prediction_notify_title_void, prediction_notify_body_void, market_ingestion_enabled, market_ingestion_min_bookmaker_count, post_publication_enabled, post_publication_requires_active_market, community_distribution_enabled, community_team_distribution_enabled, community_league_distribution_enabled, community_sport_distribution_enabled, post_comment_max_length, post_comment_rate_limit_window_seconds, post_comment_rate_limit_max_attempts, call_bs_enabled, call_bs_rate_limit_window_seconds, call_bs_rate_limit_max_attempts, monetary_p2p_enabled, monetary_proposal_rate_limit_window_seconds, monetary_proposal_rate_limit_max_attempts, p2p_fee_bps, leaderboard_min_decided_picks, settlement_batch_size, grading_batch_size, challenge_resolution_batch_size, updated_at, updated_by";
+  "pick_lock_minutes_before_kickoff, prediction_cutoff_minutes_before_close, prediction_allow_repeat, prediction_allow_stale_price, prediction_allow_unavailable_price, prediction_allow_closed_market, prediction_notifications_enabled, prediction_notify_on_correct, prediction_notify_on_incorrect, prediction_notify_on_void, prediction_notify_title_correct, prediction_notify_body_correct, prediction_notify_title_incorrect, prediction_notify_body_incorrect, prediction_notify_title_void, prediction_notify_body_void, market_ingestion_enabled, market_ingestion_min_bookmaker_count, post_publication_enabled, post_publication_requires_active_market, community_distribution_enabled, community_team_distribution_enabled, community_league_distribution_enabled, community_sport_distribution_enabled, post_comment_max_length, post_comment_rate_limit_window_seconds, post_comment_rate_limit_max_attempts, call_bs_enabled, call_bs_rate_limit_window_seconds, call_bs_rate_limit_max_attempts, monetary_p2p_enabled, monetary_proposal_rate_limit_window_seconds, monetary_proposal_rate_limit_max_attempts, p2p_fee_bps, leaderboard_min_decided_picks, settlement_batch_size, grading_batch_size, challenge_resolution_batch_size, job_staleness_multiplier, updated_at, updated_by";
 
 /** The full effective Brohda 2.0 settings snapshot — the one place "what policy is Brohda using right now?" (§14) is answered, for both the admin UI and any test/script that needs it. */
 export async function getBrohdaSettings(): Promise<BrohdaSettings> {
@@ -323,6 +329,7 @@ export async function updateOperationsSettings(adminId: string, expectedUpdatedA
       p_settlement_batch_size: values.settlementBatchSize,
       p_grading_batch_size: values.gradingBatchSize,
       p_challenge_resolution_batch_size: values.challengeResolutionBatchSize,
+      p_job_staleness_multiplier: values.jobStalenessMultiplier,
     })
     .single();
   if (error) throw error;

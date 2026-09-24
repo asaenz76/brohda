@@ -57,7 +57,7 @@ function fakeSettings(overrides: Partial<BrohdaSettings> = {}): BrohdaSettings {
     callBs: { callBsEnabled: true, callBsRateLimitWindowSeconds: 60, callBsRateLimitMaxAttempts: 10 },
     monetary: { monetaryP2pEnabled: true, monetaryProposalRateLimitWindowSeconds: 60, monetaryProposalRateLimitMaxAttempts: 10, p2pFeeBps: 0 },
     reputation: { leaderboardMinDecidedPicks: 5 },
-    operations: { settlementBatchSize: 500, gradingBatchSize: 200, challengeResolutionBatchSize: 200 },
+    operations: { settlementBatchSize: 500, gradingBatchSize: 200, challengeResolutionBatchSize: 200, jobStalenessMultiplier: 3 },
     updatedAt: "2026-01-01T00:00:00.000Z",
     updatedByDisplayName: "Test Admin",
     ...overrides,
@@ -104,7 +104,7 @@ const VALID_CONVERSATION = { postCommentMaxLength: 500, postCommentRateLimitWind
 const VALID_CALL_BS = { callBsEnabled: true, callBsRateLimitWindowSeconds: 60, callBsRateLimitMaxAttempts: 10 };
 const VALID_MONETARY = { monetaryP2pEnabled: true, monetaryProposalRateLimitWindowSeconds: 60, monetaryProposalRateLimitMaxAttempts: 10, feePercent: "2.5" };
 const VALID_REPUTATION = { leaderboardMinDecidedPicks: 5 };
-const VALID_OPERATIONS = { settlementBatchSize: 500, gradingBatchSize: 200, challengeResolutionBatchSize: 200 };
+const VALID_OPERATIONS = { settlementBatchSize: 500, gradingBatchSize: 200, challengeResolutionBatchSize: 200, jobStalenessMultiplier: 3 };
 const T0 = "2026-01-01T00:00:00.000Z";
 
 const ACTIONS: Array<{ name: string; call: () => Promise<{ success: boolean; error: string | null; conflict: boolean }>; repoFn: string }> = [
@@ -264,6 +264,15 @@ describe("Operations validation", () => {
     for (const bad of [0, 5001]) {
       repoCalls = [];
       const result = await updateOperationsSettingsAction(T0, { ...VALID_OPERATIONS, settlementBatchSize: bad });
+      expect(result.success).toBe(false);
+      expect(repoCalls).toHaveLength(0);
+    }
+  });
+
+  it("rejects a job staleness multiplier outside 1-20", async () => {
+    for (const bad of [0, 21]) {
+      repoCalls = [];
+      const result = await updateOperationsSettingsAction(T0, { ...VALID_OPERATIONS, jobStalenessMultiplier: bad });
       expect(result.success).toBe(false);
       expect(repoCalls).toHaveLength(0);
     }

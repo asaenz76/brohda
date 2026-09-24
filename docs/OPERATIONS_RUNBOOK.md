@@ -12,6 +12,39 @@ applies across almost every incident type here.
 
 ---
 
+## A job shows Stale, Degraded, or Failed on Job Health
+
+**Symptom**: `/admin/reports`' Job Health card (Milestone R13.9,
+`docs/architecture/production-operations-observability.md`) shows a job
+in one of these states instead of `Healthy`/`No-op / healthy`.
+
+1. **Stale** means the scheduler itself likely stopped firing for this
+   job — its own `expectedCadenceMinutes * job_staleness_multiplier`
+   window has passed since its last recorded run. This is distinct from
+   `No-op / healthy` (scheduler firing correctly, feature intentionally
+   disabled) — confirm which one you're actually looking at before
+   assuming an incident. Check cron-job.org's own dashboard for that job
+   first; a 401 there means `CRON_SECRET` mismatch.
+2. **Degraded** means the job completed without crashing, but its own
+   result reported at least one per-item failure (or, for
+   `settle-monetary-positions`, a financial `invariant_violation`) — read
+   `background_jobs.result` for that run (`failures`/`invariantViolations`
+   fields) to find the specific affected object id(s). A degraded
+   settlement run also raises a Sentry alert automatically — check there
+   first for a ready-made summary before querying the database by hand.
+3. **Failed** means the whole job threw — check `background_jobs.error`
+   for that run, then Sentry for the full stack trace.
+4. If the staleness threshold itself feels miscalibrated (too sensitive or
+   not sensitive enough) for current traffic, adjust `job_staleness_
+   multiplier` via `/admin/settings/brohda` (Operations) — takes effect
+   immediately, no deployment needed.
+5. A `degraded` or `failed` financial job (settlement, or grading/
+   resolution feeding into it) should be treated as a suspected financial
+   inconsistency (see that section below) if the affected object is a
+   monetary Position — do not manually repair it.
+
+---
+
 ## Sports ingestion stopped
 
 **Symptom**: no new Markets appearing; `/admin/reports` Job Health shows

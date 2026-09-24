@@ -1215,6 +1215,59 @@ authoritative for final remote state.
 
 ---
 
+# MILESTONE R13.9 — PRODUCTION OPERATIONS & OBSERVABILITY GATE
+
+Not a launch/activation milestone (R13.7 merged the R13.6 checkpoint into
+`main`; R13.8/R13.8.1/R13.8.2 audited and aligned the production
+database — neither added a section here, since both were pure
+audit/verification/schema-alignment work, not roadmap changes). R13.8's
+own production deployment audit found two operational gaps:
+`background_jobs.status` couldn't represent "completed without crashing
+but had per-item failures or a financial invariant violation," and the
+admin Job Health dashboard read from a hard-coded, already-drifted 3-job
+list rather than the actual set of production cron routes.
+
+## Goal
+
+Make every production lifecycle job observable — never-run vs healthy vs
+intentionally-disabled-no-op vs stale vs degraded vs failed, all
+distinguishable without manually reading JSON blobs — and schedule
+Brohda 2.0's six lifecycle jobs in production, all while every
+launch-sensitive `platform_settings` flag stays `false`.
+
+## Scope
+
+- `lib/jobs/registry.ts` — canonical, centralized job identity/cadence
+  registry (10 jobs), replacing the old hard-coded, drifted list.
+- `supabase/migrations/20260101000166_lifecycle_job_observability.sql` —
+  widens `background_jobs.status` to include `'degraded'`; adds the one
+  new admin-configurable `job_staleness_multiplier` setting.
+- `lib/jobs/health.ts` — pure job-health classification, shared by the
+  admin dashboard and by `recordJobRun`'s own degraded-status detection.
+- Financial invariant violations and per-item failures now raise a Sentry
+  alert (existing integration, no new vendor) — detection and alerting
+  only, never automatic repair.
+- `/admin/reports`' Job Health card rebuilt on the full registry.
+- Production scheduler configured for `ingest-nfl-markets`,
+  `publish-posts`, `distribute-posts`, `grade-predictions`,
+  `resolve-challenges`, `settle-monetary-positions` — all six proven to
+  run safely with every launch flag off and every Brohda 2.0 product
+  table empty.
+
+## Explicitly not in scope
+
+Social activation, Call BS activation, monetary P2P activation, R14, and
+resolving the route/navigation-reachability gap R13.8 identified
+(deliberately deferred — see
+`docs/architecture/production-operations-observability.md`).
+
+## Exit state
+
+See `docs/architecture/production-operations-observability.md` for the
+full design and reasoning.
+
+---
+
 # MILESTONE R14 — LEGACY POOL WIND-DOWN & REPOSITORY CLEANUP
 
 ## Goal
@@ -1463,6 +1516,7 @@ The canonical implementation sequence is now:
     R13    Security, Abuse & Production Readiness                   COMPLETE
     R13.5  Production Operations Gate                                COMPLETE
     R13.6  Brohda 2.0 Integration Checkpoint                 see completion report
+    R13.9  Production Operations & Observability Gate        see completion report
 
     R14    Legacy Pool Wind-Down & Repository Cleanup
 

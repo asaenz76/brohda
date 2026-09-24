@@ -183,7 +183,7 @@ async function currentUpdatedAt(): Promise<string> {
 const DEFAULT_PREDICTIONS = { pickLockMinutesBeforeKickoff: 10, predictionCutoffMinutesBeforeClose: 0, predictionAllowRepeat: false, predictionAllowStalePrice: true, predictionAllowUnavailablePrice: false, predictionAllowClosedMarket: false };
 const DEFAULT_REPUTATION = { leaderboardMinDecidedPicks: 5 };
 const DEFAULT_MONETARY = { monetaryP2pEnabled: true, monetaryProposalRateLimitWindowSeconds: 60, monetaryProposalRateLimitMaxAttempts: 10, p2pFeeBps: 0 };
-const DEFAULT_OPERATIONS = { settlementBatchSize: 500, gradingBatchSize: 200, challengeResolutionBatchSize: 200 };
+const DEFAULT_OPERATIONS = { settlementBatchSize: 500, gradingBatchSize: 200, challengeResolutionBatchSize: 200, jobStalenessMultiplier: 3 };
 
 beforeEach(async () => {
   const { userId } = await createUser("r12-admin", "super_admin");
@@ -205,6 +205,7 @@ beforeEach(async () => {
       settlement_batch_size: DEFAULT_OPERATIONS.settlementBatchSize,
       grading_batch_size: DEFAULT_OPERATIONS.gradingBatchSize,
       challenge_resolution_batch_size: DEFAULT_OPERATIONS.challengeResolutionBatchSize,
+      job_staleness_multiplier: DEFAULT_OPERATIONS.jobStalenessMultiplier,
       call_bs_enabled: true,
     })
     .eq("id", true);
@@ -320,11 +321,21 @@ describe("Atomic update + audit, one domain per RPC", () => {
     expect(result.settings.reputation.leaderboardMinDecidedPicks).toBe(12);
   });
 
-  it("Operations: updates the settlement, grading, and challenge-resolution batch sizes", async () => {
+  it("Operations: updates the settlement, grading, challenge-resolution batch sizes, and job staleness multiplier", async () => {
     const at = await currentUpdatedAt();
-    const result = await updateOperationsSettings(adminUserId, at, { settlementBatchSize: 250, gradingBatchSize: 150, challengeResolutionBatchSize: 100 });
+    const result = await updateOperationsSettings(adminUserId, at, {
+      settlementBatchSize: 250,
+      gradingBatchSize: 150,
+      challengeResolutionBatchSize: 100,
+      jobStalenessMultiplier: 5,
+    });
     expect(result.outcome).toBe("updated");
-    expect(result.settings.operations).toEqual({ settlementBatchSize: 250, gradingBatchSize: 150, challengeResolutionBatchSize: 100 });
+    expect(result.settings.operations).toEqual({
+      settlementBatchSize: 250,
+      gradingBatchSize: 150,
+      challengeResolutionBatchSize: 100,
+      jobStalenessMultiplier: 5,
+    });
   });
 
   it("a second change to the same domain produces a second, distinct audit event", async () => {
@@ -438,7 +449,7 @@ describe("Internal role check (R13 defense-in-depth)", () => {
     { rpc: "update_call_bs_settings", args: { p_call_bs_enabled: true, p_call_bs_rate_limit_window_seconds: 60, p_call_bs_rate_limit_max_attempts: 10 } },
     { rpc: "update_monetary_settings", args: { p_monetary_p2p_enabled: true, p_monetary_proposal_rate_limit_window_seconds: 60, p_monetary_proposal_rate_limit_max_attempts: 10, p_p2p_fee_bps: 0 } },
     { rpc: "update_reputation_settings", args: { p_leaderboard_min_decided_picks: 5 } },
-    { rpc: "update_operations_settings", args: { p_settlement_batch_size: 500, p_grading_batch_size: 200, p_challenge_resolution_batch_size: 200 } },
+    { rpc: "update_operations_settings", args: { p_settlement_batch_size: 500, p_grading_batch_size: 200, p_challenge_resolution_batch_size: 200, p_job_staleness_multiplier: 3 } },
   ];
 
   for (const { rpc, args } of CALLS) {
