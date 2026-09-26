@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 
-const TABS = [
+const ALL_TABS = [
   { id: "predictions", label: "Predictions" },
   // Milestone 3 — deliberately distinct label/id from "predictions" above
   // (which is the legacy pool-entries tab): the two domains must never be
@@ -15,11 +15,7 @@ const TABS = [
   { id: "edit", label: "Edit profile" },
 ] as const;
 
-type TabId = (typeof TABS)[number]["id"];
-
-function isTabId(value: string | null): value is TabId {
-  return TABS.some((tab) => tab.id === value);
-}
+type TabId = (typeof ALL_TABS)[number]["id"];
 
 export function ProfileTabs({
   predictions,
@@ -28,10 +24,22 @@ export function ProfileTabs({
   edit,
 }: {
   predictions: React.ReactNode;
-  markets: React.ReactNode;
+  /**
+   * Stage 4A remediation (Stage 4 audit §18 — "profile Market Predictions
+   * tab appearing while social prediction is disabled"): `null` hides the
+   * tab entirely (its content is also never rendered by the caller, see
+   * app/(app)/profile/page.tsx), matching the same
+   * social_prediction_enabled-or-admin gate the nav bar itself uses.
+   */
+  markets: React.ReactNode | null;
   following: React.ReactNode;
   edit: React.ReactNode;
 }) {
+  const TABS = ALL_TABS.filter((tab) => tab.id !== "markets" || markets !== null);
+  function isTabId(value: string | null): value is TabId {
+    return TABS.some((tab) => tab.id === value);
+  }
+
   // Read once on mount — lets a deep link (?tab=edit) land the user
   // directly on Edit profile. Deliberately not kept in sync afterward:
   // switching tabs by clicking stays purely client-state, same as before.
@@ -75,7 +83,7 @@ export function ProfileTabs({
       </div>
 
       <div className={activeTab === "predictions" ? "block" : "hidden"}>{predictions}</div>
-      <div className={activeTab === "markets" ? "block" : "hidden"}>{markets}</div>
+      {markets !== null && <div className={activeTab === "markets" ? "block" : "hidden"}>{markets}</div>}
       <div className={activeTab === "following" ? "block" : "hidden"}>{following}</div>
       <div className={activeTab === "edit" ? "block" : "hidden"}>{edit}</div>
     </div>

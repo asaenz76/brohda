@@ -205,6 +205,14 @@ export const SETTINGS_REGISTRY: SettingRegistryEntry[] = [
     type: "boolean",
     impactNote: "This is the DEPLOY vs ACTIVATE boundary — content can be ingested/published/distributed while this stays off. Takes effect immediately for ordinary users; no deployment needed.",
   },
+  {
+    domain: "Markets",
+    key: "feedCompletedGameRetentionHours",
+    column: "feed_completed_game_retention_hours",
+    label: "Feed retention for completed games (hours)",
+    description: "How long a finished game's Post stays visible in the discovery feed (lib/communities/feed.ts) before dropping out. Never affects grading, reputation, or notifications — those are keyed off Prediction lifecycle state, not this.",
+    type: "integer",
+  },
 
   // Communities
   {

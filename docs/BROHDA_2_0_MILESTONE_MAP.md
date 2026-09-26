@@ -521,6 +521,8 @@ Current desired policy:
     T:
       scheduled kickoff
 
+**Post-implementation note (Milestone R13.10, Stage 4A)**: the Stage 4 pre-exposure audit established that a separate "T-5 Game/Markets lock" mechanism was never actually built — R5 shipped exactly one live, effective cutoff (`platform_settings.pick_lock_minutes_before_kickoff`, the "T-10" rule) enforced transactionally inside `set_pick()`, combined with the `fixture.internal_status = 'NOT_STARTED'` requirement (see `docs/architecture/pick-editing-and-locking.md`'s "Resolved decisions"). No new T-5 mechanism was introduced to make this historical planning note true after the fact — see that same document for the canonical V1 eligibility rule as actually implemented.
+
 These VALUES are configurable policy.
 
 Do not hard-code `10` or `5`.

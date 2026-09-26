@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { requireSocialPredictionAccess } from "@/lib/social/access";
 import { getCommunityBySlug } from "@/lib/communities/repository";
-import { getCommunityDisplayName } from "@/lib/communities/presentation";
+import { getCommunityDisplayName, getCommunityTypeLabel } from "@/lib/communities/presentation";
 import { isFollowingCommunity } from "@/lib/communities/follows";
 import { getCommunityFeed } from "@/lib/communities/feed";
 import { getFixtureForPostPresentation } from "@/lib/sports-data/fixture-lookup";
@@ -42,7 +42,7 @@ export default async function CommunityDetailPage({ params }: { params: Promise<
 
       <Card>
         <CardContent className="space-y-3 pt-6">
-          <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{community.type}</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{getCommunityTypeLabel(community.type)}</p>
           <p className="text-xl font-semibold text-text-primary">{displayName}</p>
           <CommunityFollowButton communityId={community.id} initiallyFollowing={following} />
         </CardContent>

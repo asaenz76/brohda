@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { getTestAdminClient, getTestAnonClient } from "./helpers/test-env";
 import { ensureTeamCommunity, ensureLeagueCommunity, ensureSportCommunity } from "@/lib/communities/repository";
 import { distributePostForFixture, distributePostToCommunity, listCommunityIdsForPost, runCommunityDistribution } from "@/lib/communities/distribution";
-import { getCommunityFeed, getPersonalizedFeed } from "@/lib/communities/feed";
+import { getCommunityFeed, getSocialFeed } from "@/lib/communities/feed";
 import { followCommunity, isFollowingCommunity, listFollowedCommunityIds, unfollowCommunity } from "@/lib/communities/follows";
 import { ensurePostForFixture, publishPost } from "@/lib/posts/repository";
 import { upsertMarket } from "@/lib/prediction-markets/repository";
@@ -468,8 +468,45 @@ describe("Community feed", () => {
   });
 });
 
-describe("personalized discovery", () => {
-  it("deduplicates a Post distributed to two Communities the user follows — it appears exactly once", async () => {
+describe("social feed (Stage 4A)", () => {
+  it("(A) a zero-follow user still gets eligible published Posts — following is never a prerequisite", async () => {
+    const fixtureId = await createFixture();
+    const postId = await createPublishedPost(fixtureId);
+
+    const userId = await createTestUser();
+    expect(await listFollowedCommunityIds(userId)).toEqual([]);
+
+    const feed = await getSocialFeed(userId);
+    expect(feed.map((i) => i.post.id)).toContain(postId);
+  });
+
+  it("(B) a Post in a followed Community is prioritized ahead of an equally-eligible unfollowed one", async () => {
+    const followedTeam = await createTeam("Prioritized Team");
+    const otherTeam = await createTeam("Other Team");
+    const followedFixture = await createFixture({ homeTeamExternalId: followedTeam.externalId, overrides: { scheduled_start_utc: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString() } });
+    const otherFixture = await createFixture({ homeTeamExternalId: otherTeam.externalId, overrides: { scheduled_start_utc: new Date(Date.now() + 1 * 60 * 60 * 1000).toISOString() } });
+    const followedPostId = await createPublishedPost(followedFixture);
+    const otherPostId = await createPublishedPost(otherFixture);
+
+    const followedCommunity = await ensureTeamCommunity(followedTeam.id);
+    createdCommunityIds.push(followedCommunity.id);
+    await distributePostToCommunity(followedPostId, followedCommunity.id);
+
+    const userId = await createTestUser();
+    await followCommunity(userId, followedCommunity.id);
+
+    const feed = await getSocialFeed(userId);
+    const followedIndex = feed.findIndex((i) => i.post.id === followedPostId);
+    const otherIndex = feed.findIndex((i) => i.post.id === otherPostId);
+    expect(followedIndex).toBeGreaterThanOrEqual(0);
+    expect(otherIndex).toBeGreaterThanOrEqual(0);
+    // Followed ranks first even though its kickoff is further away — relevance beats timing.
+    expect(followedIndex).toBeLessThan(otherIndex);
+    expect(feed[followedIndex]!.isFromFollowedCommunity).toBe(true);
+    expect(feed[otherIndex]!.isFromFollowedCommunity).toBe(false);
+  });
+
+  it("(C) a Post distributed to two Communities the user follows appears exactly once", async () => {
     const home = await createTeam("Dedup Home Team");
     const away = await createTeam("Dedup Away Team");
     const fixtureId = await createFixture({ homeTeamExternalId: home.externalId, awayTeamExternalId: away.externalId });
@@ -485,12 +522,42 @@ describe("personalized discovery", () => {
     await followCommunity(userId, homeCommunity.id);
     await followCommunity(userId, awayCommunity.id);
 
-    const feed = await getPersonalizedFeed(userId);
-    expect(feed.filter((p) => p.id === postId)).toHaveLength(1);
+    const feed = await getSocialFeed(userId);
+    expect(feed.filter((i) => i.post.id === postId)).toHaveLength(1);
+    expect(feed.find((i) => i.post.id === postId)?.communities).toHaveLength(2);
   });
 
-  it("returns nothing for a user who follows no Communities", async () => {
+  it("(D) a draft (unpublished) Post never appears in the feed", async () => {
+    const fixtureId = await createFixture();
+    const { id: draftPostId } = await ensurePostForFixture(fixtureId); // deliberately not published
+    createdPostIds.push(draftPostId);
+
     const userId = await createTestUser();
-    expect(await getPersonalizedFeed(userId)).toEqual([]);
+    const feed = await getSocialFeed(userId);
+    expect(feed.map((i) => i.post.id)).not.toContain(draftPostId);
+  });
+
+  it("(E) a POSTPONED game's Post is excluded, and a COMPLETED game's Post drops out after the configured retention window", async () => {
+    const postponedFixture = await createFixture({ overrides: { internal_status: "POSTPONED" } });
+    const postponedPostId = await createPublishedPost(postponedFixture);
+
+    const staleFixture = await createFixture({
+      overrides: { internal_status: "COMPLETED", updated_at: new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString() },
+    });
+    const stalePostId = await createPublishedPost(staleFixture);
+
+    const recentFixture = await createFixture({
+      overrides: { internal_status: "COMPLETED", updated_at: new Date(Date.now() - 60 * 60 * 1000).toISOString() },
+    });
+    const recentPostId = await createPublishedPost(recentFixture);
+
+    await setPolicy({ feed_completed_game_retention_hours: 24 });
+
+    const userId = await createTestUser();
+    const feed = await getSocialFeed(userId);
+    const feedIds = feed.map((i) => i.post.id);
+    expect(feedIds).not.toContain(postponedPostId);
+    expect(feedIds).not.toContain(stalePostId);
+    expect(feedIds).toContain(recentPostId);
   });
 });

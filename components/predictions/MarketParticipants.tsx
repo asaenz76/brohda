@@ -29,7 +29,18 @@ import { MonetaryProposalAction } from "@/components/predictions/MonetaryProposa
 // both the new monetary E2E spec AND this file's own pre-existing R7 spec
 // (two "Picked YES" nodes suddenly matched one locator). One row, both
 // independent actions, is both correct and simpler.
-export async function MarketParticipants({ marketId, viewerId }: { marketId: string; viewerId: string }) {
+export async function MarketParticipants({
+  marketId,
+  viewerId,
+  yesLabel,
+  noLabel,
+}: {
+  marketId: string;
+  viewerId: string;
+  /** Stage 4A remediation (§13): semantic per-side labels, so "Picked X" never renders the raw YES/NO enum. */
+  yesLabel: string;
+  noLabel: string;
+}) {
   const rawMarket = await getMarketById(marketId);
   if (rawMarket === null) return null;
 
@@ -125,7 +136,7 @@ export async function MarketParticipants({ marketId, viewerId }: { marketId: str
                   <Link href={profileHref} className="text-sm font-medium text-text-primary hover:underline">
                     {participant.displayName}
                   </Link>
-                  <p className="text-xs text-text-muted">Picked {participant.selectedOutcome}</p>
+                  <p className="text-xs text-text-muted">Picked {participant.selectedOutcome === "YES" ? yesLabel : noLabel}</p>
                 </div>
               </div>
               <div className="flex flex-col items-end gap-1">

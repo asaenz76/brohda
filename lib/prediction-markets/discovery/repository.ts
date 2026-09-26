@@ -295,6 +295,8 @@ export async function getDiscoveryFeed(categorySlug?: string): Promise<Discovery
     status: card.status,
     closesAt: card.closesAt,
     freshness: card.freshness,
+    yesLabel: card.yesLabel,
+    noLabel: card.noLabel,
   }));
 }
 

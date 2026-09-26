@@ -11,16 +11,17 @@ const LEFT_TABS = [
   { href: "/search", label: "Search", icon: Search },
 ] as const;
 
-// "/markets" is the Milestone 2 prediction-market discovery surface
-// (docs/PRODUCT_TRANSFORMATION_ROADMAP.md) — intentionally coexisting
-// alongside, not replacing, the legacy pool feed at "/feed". A dedicated
-// nav tab (rather than a link buried inside another page) is the smallest
-// change that still makes it genuinely discoverable, per the milestone's
-// own "a user should be able to open Brohda [and] discover interesting
-// real-world prediction questions" requirement.
+// "/markets" is the canonical Brohda 2.0 social discovery feed (Stage 4A,
+// R13.10 — see app/(app)/markets/page.tsx's own header comment for the
+// full architecture decision) — intentionally coexisting alongside, not
+// replacing, the legacy pool feed at "/feed". Labeled "Discover" rather
+// than "Markets" now that the route shows the Post-centric feed, not a
+// raw Market browse list. A dedicated nav tab (rather than a link buried
+// inside another page) is the smallest change that still makes it
+// genuinely discoverable.
 const RIGHT_TABS = [
   { href: "/leaderboard", label: "Leaderboard", icon: Trophy },
-  { href: "/markets", label: "Markets", icon: Compass },
+  { href: "/markets", label: "Discover", icon: Compass },
 ] as const;
 
 function NavLink({

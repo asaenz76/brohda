@@ -1,13 +1,25 @@
 /**
- * E2E coverage for Milestone 2 — Prediction Market Discovery
- * (docs/PRODUCT_TRANSFORMATION_ROADMAP.md). Read-only browse surface — no
- * prediction submission, no order, no wallet. Requires the local Supabase
- * stack (`pnpm supabase:start`) — `pnpm test:e2e` handles the rest.
+ * E2E coverage for the canonical Brohda 2.0 social discovery feed at
+ * `/markets` (Milestone R13.10, Stage 4A remediation of the Stage 4
+ * pre-exposure audit's P0 finding — an ordinary user previously had no
+ * in-app way to discover a Post/Market/Community at all). Read-only browse
+ * surface — no prediction submission, no order, no wallet. Requires the
+ * local Supabase stack (`pnpm supabase:start`) — `pnpm test:e2e` handles
+ * the rest.
  *
- * Every seeded market's question text embeds this test's unique suffix —
- * not just its provider_market_id — because Playwright's text/role matchers
- * match by visible content, and a prior run's leftover row (if a run is
- * ever interrupted before its own cleanup) would otherwise collide with an
+ * This spec replaces the prior Milestone-2-era coverage of `/markets` as a
+ * raw Market-browse page with category tabs — that engine
+ * (getDiscoveryFeed/discovery_categories) is untouched and still covered
+ * at the repository/RLS level by tests/integration/discovery-categories.test.ts;
+ * it simply no longer backs this route, which now serves the canonical
+ * Post-centric feed instead (see app/(app)/markets/page.tsx's own header
+ * comment for the full architecture decision). `/markets/[id]` (Market
+ * detail) is unchanged and still covered here as a direct deep link.
+ *
+ * Every seeded fixture's team names embed this test's unique suffix — not
+ * just its external id — because Playwright's text matchers match by
+ * visible content, and a prior run's leftover row (if a run is ever
+ * interrupted before its own cleanup) would otherwise collide with an
  * identically-worded question from a fresh run.
  */
 import { test, expect, type Page } from "@playwright/test";
@@ -16,6 +28,7 @@ import { getTestAdminClient } from "./helpers/test-env";
 
 const admin = getTestAdminClient();
 const PASSWORD = "e2e-password-123";
+const PROVIDER = "e2e_discovery_feed";
 
 async function createPlayer(email: string) {
   const { data, error } = await admin.auth.admin.createUser({ email, password: PASSWORD, email_confirm: true });
@@ -40,32 +53,22 @@ async function loginAs(page: Page, email: string) {
   await expect(page).toHaveURL(/\/feed$/);
 }
 
-async function seedCategory(slug: string, displayOrder: number, enabled = true) {
-  const { data, error } = await admin
-    .from("discovery_categories")
-    .insert({ slug, display_name: slug.replace(/-/g, " "), display_order: displayOrder, enabled })
-    .select("id")
-    .single();
-  if (error || !data) throw error ?? new Error("failed to create category");
-  return data.id as string;
+async function seedTeam(name: string) {
+  const externalId = `team-${randomUUID()}`;
+  const { data, error } = await admin.from("teams").insert({ provider: PROVIDER, external_id: externalId, name }).select("id").single();
+  if (error || !data) throw error ?? new Error("failed to create team");
+  return { id: data.id as string, externalId };
 }
 
-async function seedMapping(categoryId: string, provider: string, providerTag: string) {
-  const { error } = await admin.from("discovery_category_provider_mappings").insert({ category_id: categoryId, provider, provider_tag: providerTag, enabled: true });
-  if (error) throw error;
-}
-
-// Milestone R1: every Market now belongs to a canonical Game (fixture_id is
-// a real, NOT NULL FK — supabase/migrations/20260101000148_*.sql). Each
-// seeded market gets its own dedicated fixture, distinct enough to satisfy
-// the proposition-uniqueness constraint.
-async function seedFixture(): Promise<string> {
+async function seedFixture(homeTeamName: string, awayTeamName: string, homeExternalId: string | null = null): Promise<string> {
   const { data, error } = await admin
     .from("fixtures")
     .insert({
-      external_fixture_id: `e2e-discovery-${randomUUID()}`,
-      home_team_name: "Home Test FC",
-      away_team_name: "Away Test FC",
+      provider: PROVIDER,
+      external_fixture_id: `e2e-feed-${randomUUID()}`,
+      home_team_external_id: homeExternalId,
+      home_team_name: homeTeamName,
+      away_team_name: awayTeamName,
       scheduled_start_utc: new Date(Date.now() + 86_400_000).toISOString(),
       internal_status: "NOT_STARTED",
     })
@@ -75,26 +78,23 @@ async function seedFixture(): Promise<string> {
   return data.id as string;
 }
 
-async function seedMarket(provider: string, providerMarketId: string, overrides: Record<string, unknown> = {}) {
-  const fixtureId = (overrides.fixture_id as string | undefined) ?? (await seedFixture());
+async function seedMarket(fixtureId: string, question: string, outcomeLabels: { yes: string; no: string } = { yes: "Home wins", no: "Home does not win" }) {
   const { data, error } = await admin
     .from("markets")
     .insert({
-      provider,
-      provider_market_id: providerMarketId,
-      question: `E2E discovery test: ${providerMarketId}`,
+      provider: PROVIDER,
+      provider_market_id: `m-${randomUUID()}`,
+      question,
       status: "ACTIVE",
       fixture_id: fixtureId,
       market_template: "MONEYLINE",
       yes_side: "HOME",
       yes_price: 0.62,
       no_price: 0.38,
-      liquidity: 1000,
-      closes_at: new Date(Date.now() + 86_400_000).toISOString(),
+      price_outcome_labels: outcomeLabels,
       last_synced_at: new Date().toISOString(),
       ingestion_source: "e2e_test",
       provider_metadata: {},
-      ...overrides,
     })
     .select("id")
     .single();
@@ -102,102 +102,136 @@ async function seedMarket(provider: string, providerMarketId: string, overrides:
   return data.id as string;
 }
 
-async function cleanup(provider: string, categoryIds: string[]) {
-  const { data: markets } = await admin.from("markets").select("fixture_id").eq("provider", provider);
-  const fixtureIds = (markets ?? []).map((m) => m.fixture_id).filter((id): id is string => id != null);
-  await admin.from("markets").delete().eq("provider", provider);
-  if (fixtureIds.length > 0) await admin.from("fixtures").delete().in("id", fixtureIds);
-  if (categoryIds.length > 0) await admin.from("discovery_categories").delete().in("id", categoryIds);
+async function seedPublishedPost(fixtureId: string) {
+  const { data, error } = await admin.from("posts").insert({ fixture_id: fixtureId, published_at: new Date().toISOString() }).select("id").single();
+  if (error || !data) throw error ?? new Error("failed to create post");
+  return data.id as string;
 }
 
-test.describe("prediction market discovery", () => {
-  test("user can browse the discovery feed, see YES/NO percentages, filter by a configured category, and open a market's detail page", async ({ page }) => {
+async function cleanup(fixtureIds: string[], teamIds: string[]) {
+  const { data: posts } = await admin.from("posts").select("id").in("fixture_id", fixtureIds);
+  const postIds = (posts ?? []).map((p) => p.id);
+  if (postIds.length > 0) await admin.from("post_communities").delete().in("post_id", postIds);
+  await admin.from("markets").delete().in("fixture_id", fixtureIds);
+  await admin.from("posts").delete().in("fixture_id", fixtureIds);
+  await admin.from("fixtures").delete().in("id", fixtureIds);
+  if (teamIds.length > 0) await admin.from("communities").delete().in("team_id", teamIds);
+  if (teamIds.length > 0) await admin.from("teams").delete().in("id", teamIds);
+}
+
+test.describe("social discovery feed", () => {
+  test("a brand-new user with zero Community follows still sees eligible published Posts, with semantic Market labels and no raw enum leakage", async ({ page }) => {
     const suffix = randomUUID();
-    const provider = `e2e_provider_${suffix}`;
-    const categorySlug = `e2e-cat-${suffix}`;
-    const categoryDisplayName = categorySlug.replace(/-/g, " ");
-    const categoryId = await seedCategory(categorySlug, 0);
+    const homeTeamName = `E2E Home ${suffix}`;
+    const awayTeamName = `E2E Away ${suffix}`;
+    const fixtureId = await seedFixture(homeTeamName, awayTeamName);
+    const question = `Will the E2E Home ${suffix} win?`;
+    const yesLabel = `E2E Home ${suffix} wins`;
+    const noLabel = `E2E Home ${suffix} does not win`;
+    await seedMarket(fixtureId, question, { yes: yesLabel, no: noLabel });
+    await seedPublishedPost(fixtureId);
+
+    const email = `e2e-feed-${suffix}@example.com`;
+    await createPlayer(email);
 
     try {
-      await seedMapping(categoryId, provider, `e2e-tag-${suffix}`);
-
-      const categorizedQuestion = `Will the E2E test pass ${suffix}?`;
-      const uncategorizedQuestion = `An uncategorized E2E market ${suffix}`;
-      const unpricedQuestion = `A market with no price data ${suffix}`;
-
-      const categorizedMarketId = await seedMarket(provider, `cat-market-${suffix}`, {
-        question: categorizedQuestion,
-        provider_metadata: { _categoryTagsExtracted: [`e2e-tag-${suffix}`] },
-      });
-      await seedMarket(provider, `uncat-market-${suffix}`, { question: uncategorizedQuestion });
-      await seedMarket(provider, `unpriced-market-${suffix}`, { question: unpricedQuestion, yes_price: null, no_price: null });
-
-      const email = `e2e-discovery-${suffix}@example.com`;
-      await createPlayer(email);
-
       await loginAs(page, email);
       await page.goto("/markets");
 
-      // Category tab renders dynamically from configuration, not a hard-coded list.
-      await expect(page.getByRole("link", { name: "All", exact: true })).toBeVisible();
-      await expect(page.getByRole("link", { name: categoryDisplayName, exact: true })).toBeVisible();
+      // Scoped to this test's own card — the shared feed is global, so
+      // other E2E workers' concurrently-seeded Posts are also visible on
+      // this same page; every locator below is anchored to this test's own
+      // unique suffix to avoid a strict-mode collision with them.
+      const card = page.locator("a", { hasText: `${awayTeamName} @ ${homeTeamName}` });
+      await expect(card).toBeVisible();
+      await expect(card.getByText(question)).toBeVisible();
 
-      // All three markets appear under "All."
-      await expect(page.getByText(categorizedQuestion)).toBeVisible();
-      await expect(page.getByText(uncategorizedQuestion)).toBeVisible();
-      await expect(page.getByText(unpricedQuestion)).toBeVisible();
+      // Semantic selection labels, never the raw YES/NO enum, on the feed card.
+      await expect(card.getByText(yesLabel)).toBeVisible();
+      await expect(card.getByText(noLabel)).toBeVisible();
+      await expect(card.getByText(/^\s*yes\s*$/i)).toHaveCount(0);
+      await expect(card.getByText(/^\s*no\s*$/i)).toHaveCount(0);
 
-      // YES/NO percentages render for the priced market.
-      const categorizedCard = page.locator("a", { hasText: categorizedQuestion });
-      await expect(categorizedCard.getByText("62%")).toBeVisible();
-      await expect(categorizedCard.getByText("38%")).toBeVisible();
-      await expect(categorizedCard.getByText("Yes", { exact: true })).toBeVisible();
-      await expect(categorizedCard.getByText("No", { exact: true })).toBeVisible();
-
-      // Unavailable price is presented honestly — no fabricated percentage.
-      const unpricedCard = page.locator("a", { hasText: unpricedQuestion });
-      await expect(unpricedCard.getByText(/pricing isn.t available/i)).toBeVisible();
-
-      // No prediction/order/trade UI exists anywhere on this page.
-      await expect(page.getByRole("button", { name: /buy|sell|trade|predict|enter/i })).toHaveCount(0);
-      await expect(page.getByText(/potential return/i)).toHaveCount(0);
-
-      // Category filtering: only the mapped market appears; the uncategorized one does not.
-      await page.getByRole("link", { name: categoryDisplayName, exact: true }).click();
-      await expect(page).toHaveURL(new RegExp(`category=${categorySlug}`));
-      await expect(page.getByText(categorizedQuestion)).toBeVisible();
-      await expect(page.getByText(uncategorizedQuestion)).toHaveCount(0);
-
-      // Market detail opens. This user has no existing Prediction here, so
-      // Milestone 3's real "Predict YES"/"Predict NO" actions legitimately
-      // render (docs/architecture/prediction-layer.md) — still asserting no
-      // financial/exchange language of any kind appears.
-      await page.getByText(categorizedQuestion).click();
-      await expect(page).toHaveURL(new RegExp(`/markets/${categorizedMarketId}`));
-      await expect(page.getByText("62%")).toBeVisible();
+      // No prediction/order/trade/financial UI on the discovery surface itself.
       await expect(page.getByRole("button", { name: /buy|sell|trade|enter/i })).toHaveCount(0);
+      await expect(page.getByText(/put money on it|potential return/i)).toHaveCount(0);
+
+      // Opening the Post reaches the canonical Post, not a copy.
+      await card.click();
+      await expect(page).toHaveURL(/\/post\//);
     } finally {
-      await cleanup(provider, [categoryId]);
+      await cleanup([fixtureId], []);
     }
   });
 
-  test("a disabled category is absent from discovery navigation and its direct slug renders an honest empty state, not an error", async ({ page }) => {
+  test("a followed Community's Post is visually prioritized/marked, without hiding other eligible Posts", async ({ page }) => {
     const suffix = randomUUID();
-    const disabledSlug = `e2e-disabled-cat-${suffix}`;
-    const categoryId = await seedCategory(disabledSlug, 0, false);
+    const followedTeamName = `E2E Followed Team ${suffix}`;
+    const followedTeam = await seedTeam(followedTeamName);
+    const otherHomeTeamName = `E2E Unfollowed Home ${suffix}`;
+
+    const followedFixtureId = await seedFixture(followedTeamName, `E2E Away vs Followed ${suffix}`, followedTeam.externalId);
+    await seedMarket(followedFixtureId, `Will the ${followedTeamName} win?`);
+    await seedPublishedPost(followedFixtureId);
+
+    const otherFixtureId = await seedFixture(otherHomeTeamName, `E2E Away vs Other ${suffix}`);
+    await seedMarket(otherFixtureId, `Will the ${otherHomeTeamName} win?`);
+    await seedPublishedPost(otherFixtureId);
+
+    const email = `e2e-feed-follow-${suffix}@example.com`;
+    const userId = await createPlayer(email);
+
+    // Distribution normally happens via the community-distribution cron
+    // job — this test seeds the resulting rows directly via the admin
+    // client (matching this file's own established seedTeam/seedFixture/
+    // seedMarket pattern) rather than calling server-only domain code from
+    // a Playwright test process.
+    const { data: post } = await admin.from("posts").select("id").eq("fixture_id", followedFixtureId).single();
+    const { data: community } = await admin
+      .from("communities")
+      .insert({ type: "TEAM", team_id: followedTeam.id, slug: `e2e-followed-${suffix}` })
+      .select("id")
+      .single();
+    await admin.from("post_communities").insert({ post_id: post!.id, community_id: community!.id });
+    await admin.from("community_follows").insert({ user_id: userId, community_id: community!.id });
 
     try {
-      const email = `e2e-discovery-disabled-${suffix}@example.com`;
-      await createPlayer(email);
-
       await loginAs(page, email);
       await page.goto("/markets");
-      await expect(page.getByRole("link", { name: new RegExp(disabledSlug, "i") })).toHaveCount(0);
 
-      await page.goto(`/markets?category=${disabledSlug}`);
-      await expect(page.getByText(/nothing here yet/i)).toBeVisible();
+      // Scoped to each test's own card — see the previous test's own note
+      // on why (the shared feed is global across concurrently-running
+      // E2E workers).
+      const followedCard = page.locator("a", { hasText: `E2E Away vs Followed ${suffix}` });
+      const otherCard = page.locator("a", { hasText: `E2E Away vs Other ${suffix}` });
+      await expect(followedCard.getByText("Following")).toBeVisible();
+      await expect(otherCard).toBeVisible();
+      await expect(otherCard.getByText("Following")).toHaveCount(0);
     } finally {
-      await cleanup(`e2e_provider_${suffix}`, [categoryId]);
+      await admin.from("community_follows").delete().eq("user_id", userId);
+      await admin.from("post_communities").delete().eq("community_id", community!.id);
+      await admin.from("communities").delete().eq("id", community!.id);
+      await cleanup([followedFixtureId, otherFixtureId], [followedTeam.id]);
+    }
+  });
+});
+
+test.describe("market detail deep link", () => {
+  test("a Market is still reachable directly at /markets/[id]", async ({ page }) => {
+    const suffix = randomUUID();
+    const fixtureId = await seedFixture(`E2E Detail Home ${suffix}`, `E2E Detail Away ${suffix}`);
+    const question = `Will the E2E Detail Home ${suffix} win?`;
+    const marketId = await seedMarket(fixtureId, question);
+
+    const email = `e2e-market-detail-${suffix}@example.com`;
+    await createPlayer(email);
+
+    try {
+      await loginAs(page, email);
+      await page.goto(`/markets/${marketId}`);
+      await expect(page.getByText(question)).toBeVisible();
+    } finally {
+      await cleanup([fixtureId], []);
     }
   });
 });

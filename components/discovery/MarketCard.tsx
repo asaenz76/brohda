@@ -32,11 +32,11 @@ export function MarketCard({ market }: { market: DiscoveryMarketCard }) {
             <div className="flex items-center gap-6">
               <div>
                 <p className="text-2xl font-bold text-text-primary sm:text-3xl">{market.yesPercent}%</p>
-                <p className="text-xs font-medium uppercase tracking-wide text-text-muted">Yes</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{market.yesLabel}</p>
               </div>
               <div>
                 <p className="text-2xl font-bold text-text-primary sm:text-3xl">{market.noPercent}%</p>
-                <p className="text-xs font-medium uppercase tracking-wide text-text-muted">No</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{market.noLabel}</p>
               </div>
             </div>
           ) : (

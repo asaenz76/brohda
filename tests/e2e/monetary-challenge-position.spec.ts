@@ -127,15 +127,15 @@ test.describe("Monetary Challenge + Position", () => {
       // A picks YES.
       await loginAs(page, emailA);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Predict YES" }).click();
-      await expect(page.getByText(/You predicted YES/)).toBeVisible();
+      await page.getByRole("button", { name: "Pick: Yes" }).click();
+      await expect(page.getByText(/You picked Yes/)).toBeVisible();
 
       // B picks NO, sees A's opposing pick, and proposes $10.
       await page.context().clearCookies();
       await loginAs(page, emailB);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Predict NO" }).click();
-      await expect(page.getByText(/You predicted NO/)).toBeVisible();
+      await page.getByRole("button", { name: "Pick: No" }).click();
+      await expect(page.getByText(/You picked No/)).toBeVisible();
       await page.reload();
       await expect(page.getByText("Other picks")).toBeVisible();
 

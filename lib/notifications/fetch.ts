@@ -8,6 +8,8 @@ export interface NotificationRow {
   body: string;
   pool_id: string | null;
   transaction_id: string | null;
+  /** Stage 4A remediation — populated only for type=prediction_graded (lib/notifications/predictions.ts), the canonical Post this notification is about. See lib/notifications/links.ts's resolveNotificationHref. */
+  post_id: string | null;
   read_at: string | null;
   created_at: string;
 }
@@ -28,7 +30,7 @@ export async function getNotifications(userId: string): Promise<NotificationRow[
   const supabase = await createClient();
   const { data } = await supabase
     .from("notifications")
-    .select("id, type, title, body, pool_id, transaction_id, read_at, created_at")
+    .select("id, type, title, body, pool_id, transaction_id, post_id, read_at, created_at")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 

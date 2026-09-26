@@ -8,8 +8,10 @@ import { getFixtureForPostPresentation } from "@/lib/sports-data/fixture-lookup"
 import { listActiveMarketsForFixture } from "@/lib/prediction-markets/repository";
 import { getMarketDetail } from "@/lib/prediction-markets/discovery/repository";
 import { getPostConversation } from "@/lib/post-comments/repository";
+import { getCommunityRefsForPost } from "@/lib/communities/feed";
 import { MarketPredictionCard } from "@/components/predictions/MarketPredictionCard";
 import { PostConversation } from "@/components/posts/PostConversation";
+import { PostCommunityBadges } from "@/components/communities/PostCommunityBadges";
 import { Card, CardContent } from "@/components/ui/card";
 import { LocalDateTime } from "@/components/LocalDateTime";
 import Link from "next/link";
@@ -27,9 +29,10 @@ import Link from "next/link";
  *
  * Comments (Milestone R6, Post Conversation) render below the Markets —
  * the one canonical, shared conversation for this Post, independent of
- * Market state and Pick locking. No Community badges, no Challenge
- * controls, no monetary controls — those belong to later milestones
- * (R4/R7/R9).
+ * Market state and Pick locking. Community badges were added in Stage 4A
+ * (R13.10 remediation of the Stage 4 audit's §11 finding) — no Challenge
+ * controls, no monetary controls, still deferred to later milestones
+ * (R7/R9).
  */
 export default async function PostDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireSocialPredictionAccess();
@@ -41,10 +44,11 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
   const fixture = await getFixtureForPostPresentation(post.fixtureId);
   if (!fixture) notFound();
 
-  const [activeMarkets, policy, conversation] = await Promise.all([
+  const [activeMarkets, policy, conversation, communities] = await Promise.all([
     listActiveMarketsForFixture(post.fixtureId),
     getPostPublicationPolicy(),
     getPostConversation(post.id),
+    getCommunityRefsForPost(post.id),
   ]);
   const primaryMarket = selectPrimaryMarket(activeMarkets, policy.primaryMarketTemplatePriority);
   const primaryMarketDetail = primaryMarket ? await getMarketDetail(primaryMarket.id) : null;
@@ -69,6 +73,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
             </p>
           )}
           {fixture.internalStatus === "CANCELLED" && <p className="text-sm font-medium text-text-primary">This game was cancelled.</p>}
+          <PostCommunityBadges communities={communities} />
         </CardContent>
       </Card>
 

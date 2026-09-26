@@ -143,14 +143,14 @@ test.describe("P2P Settlement", () => {
 
       await loginAs(page, emailWinner);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Predict YES" }).click();
-      await expect(page.getByText(/You predicted YES/)).toBeVisible();
+      await page.getByRole("button", { name: "Pick: Yes" }).click();
+      await expect(page.getByText(/You picked Yes/)).toBeVisible();
 
       await page.context().clearCookies();
       await loginAs(page, emailLoser);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Predict NO" }).click();
-      await expect(page.getByText(/You predicted NO/)).toBeVisible();
+      await page.getByRole("button", { name: "Pick: No" }).click();
+      await expect(page.getByText(/You picked No/)).toBeVisible();
       await page.reload();
       await page.getByRole("button", { name: "Put money on it" }).click();
       await page.getByPlaceholder("Amount").fill("10");

@@ -133,3 +133,12 @@ export async function getCommunityById(id: string): Promise<Community | null> {
   if (error) throw error;
   return data ? toRecord(data as CommunityRow) : null;
 }
+
+/** Stage 4A remediation (feed/Post Community badges): batched by id, one query regardless of count — avoids an N-query loop when a feed page needs several Posts' worth of Communities at once. */
+export async function listCommunitiesByIds(ids: string[]): Promise<Community[]> {
+  if (ids.length === 0) return [];
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("communities").select("*").in("id", ids);
+  if (error) throw error;
+  return (data as CommunityRow[]).map(toRecord);
+}

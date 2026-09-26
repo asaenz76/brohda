@@ -12,6 +12,8 @@ function market(overrides: Partial<OrderableMarket>): OrderableMarket {
     closesAt: null,
     freshness: "FRESH",
     liquidity: null,
+    yesLabel: "Yes",
+    noLabel: "No",
     ...overrides,
   };
 }
