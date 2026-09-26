@@ -4,6 +4,7 @@ import { deriveConsumerStatus } from "@/lib/prediction-markets/discovery/status"
 import { maybeCreatePredictionGradedNotification } from "@/lib/notifications/predictions";
 import { computeSportsMarketOutcome } from "./sports-resolution";
 import { getFixtureForGrading, type FixtureForGrading } from "@/lib/sports-data/fixture-lookup";
+import { getPostByFixtureId } from "@/lib/posts/repository";
 import { listPendingPredictions, markPredictionGraded } from "./repository";
 import type { Prediction, PredictionOutcome, PredictionResult } from "./types";
 
@@ -183,11 +184,18 @@ export async function runGradingJob(
         await resultRecorder(prediction, decision.result);
       }
 
+      // Stage 4A remediation (Stage 4 audit §14): resolve the canonical
+      // Post once, here, at the moment of grading — `market` is guaranteed
+      // non-null in this branch (a null market short-circuits to
+      // "still-pending" above, before this line is ever reached).
+      const post = await getPostByFixtureId(market!.fixtureId);
+
       await maybeCreatePredictionGradedNotification({
         userId: prediction.userId,
         predictionId: prediction.id,
         questionSnapshot: prediction.marketQuestionSnapshot,
         result: decision.result,
+        postId: post?.id ?? null,
       });
     } catch (error) {
       // Milestone R13.5 (§22, §26): one bad Prediction must not abort the

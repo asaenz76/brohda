@@ -97,19 +97,19 @@ test.describe("Call BS Challenges", () => {
       // A picks YES.
       await loginAs(page, emailA);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Predict YES" }).click();
-      await expect(page.getByText(/You predicted YES/)).toBeVisible();
+      await page.getByRole("button", { name: "Pick: Yes" }).click();
+      await expect(page.getByText(/You picked Yes/)).toBeVisible();
 
       // B picks NO, then sees A's opposing pick with a Call BS button.
       await page.context().clearCookies();
       await loginAs(page, emailB);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Predict NO" }).click();
-      await expect(page.getByText(/You predicted NO/)).toBeVisible();
+      await page.getByRole("button", { name: "Pick: No" }).click();
+      await expect(page.getByText(/You picked No/)).toBeVisible();
 
       await page.reload();
       await expect(page.getByText("Other picks")).toBeVisible();
-      await expect(page.getByText("Picked YES")).toBeVisible();
+      await expect(page.getByText("Picked Yes")).toBeVisible();
       await page.getByRole("button", { name: "Call BS" }).click();
       await expect(page.getByText("Pending")).toBeVisible();
 
@@ -117,7 +117,7 @@ test.describe("Call BS Challenges", () => {
       await page.context().clearCookies();
       await loginAs(page, emailA);
       await page.goto(`/markets/${marketId}`);
-      await expect(page.getByText("Picked NO")).toBeVisible();
+      await expect(page.getByText("Picked No")).toBeVisible();
       await expect(page.getByRole("button", { name: "Accept" })).toBeVisible();
       await page.getByRole("button", { name: "Accept" }).click();
       await expect(page.getByText("Accepted")).toBeVisible();
@@ -149,14 +149,14 @@ test.describe("Call BS Challenges", () => {
 
       await loginAs(page, emailA);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Predict YES" }).click();
-      await expect(page.getByText(/You predicted YES/)).toBeVisible();
+      await page.getByRole("button", { name: "Pick: Yes" }).click();
+      await expect(page.getByText(/You picked Yes/)).toBeVisible();
 
       await page.context().clearCookies();
       await loginAs(page, emailB);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Predict NO" }).click();
-      await expect(page.getByText(/You predicted NO/)).toBeVisible();
+      await page.getByRole("button", { name: "Pick: No" }).click();
+      await expect(page.getByText(/You picked No/)).toBeVisible();
       await page.reload();
       await page.getByRole("button", { name: "Call BS" }).click();
       await expect(page.getByText("Pending")).toBeVisible();

@@ -33,6 +33,19 @@ export function resolveNotificationHref(
   // for this type).
   if (n.type === "WALLET_REQUEST_SUBMITTED") return "/admin/wallet-requests";
 
+  // Stage 4A remediation (Stage 4 audit §14 — "prediction_graded
+  // notifications currently resolve to no destination"). Generic, not a
+  // per-type branch: `post_id` is populated only for POST_COMMENT_REPLY
+  // (lib/notifications/post-comments.ts, pre-existing) and, as of this
+  // milestone, prediction_graded (lib/predictions/grading.ts, resolved
+  // once at creation time — the grading job already has the Market's
+  // fixture_id in scope, one extra getPostByFixtureId lookup) — both
+  // resolve identically, so one shared branch fixes both gaps rather than
+  // duplicating the same one-liner per type. Null only for a row created
+  // before either of these populated it, or the rare case where the Post
+  // was somehow unresolvable at notification time.
+  if (n.post_id) return `/post/${n.post_id}`;
+
   if (POOL_LINK_ONLY_TYPES.has(n.type)) {
     return n.pool_id ? `/pool/${n.pool_id}` : null;
   }

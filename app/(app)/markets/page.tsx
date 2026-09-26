@@ -1,49 +1,44 @@
 import { Sparkles } from "lucide-react";
 import { requireSocialPredictionAccess } from "@/lib/social/access";
-import { getDiscoveryFeed, listEnabledCategories } from "@/lib/prediction-markets/discovery/repository";
-import { MarketCard } from "@/components/discovery/MarketCard";
-import { CategoryTabs } from "@/components/discovery/CategoryTabs";
+import { getSocialFeed } from "@/lib/communities/feed";
+import { SocialFeedCard } from "@/components/discovery/SocialFeedCard";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
 
-// Sports prediction question discovery surface
-// (docs/architecture/sports-prediction-network.md). Read-only browse
-// surface — no order, no wallet, no position, no financial exposure of any
-// kind. Reads only Brohda's own normalized `markets` data
-// (lib/prediction-markets/discovery/repository.ts) — never calls a
-// third-party provider directly, never triggers ingestion from here. The
-// legacy pool feed at /feed is untouched and remains the default
-// player-facing surface; this is an additional, clearly-separate route.
-
-export default async function MarketsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ category?: string }>;
-}) {
-  await requireSocialPredictionAccess();
-  const { category: categorySlug } = await searchParams;
-
-  const [categories, markets] = await Promise.all([listEnabledCategories(), getDiscoveryFeed(categorySlug)]);
+/**
+ * The canonical Brohda 2.0 social discovery surface (Stage 4A remediation
+ * of the Stage 4 audit's P0 finding — an ordinary user previously had no
+ * in-app way to reach a Post/Market/Community at all). Route/nav slot
+ * (`/markets`, the "Discover" tab) unchanged from Milestone 2's own
+ * discovery surface — already gated by requireSocialPredictionAccess()
+ * and already hidden while social_prediction_enabled=false, so evolving
+ * its content carries no legacy-breakage risk: this route has never been
+ * reachable by an ordinary user in production. Milestone 2's own
+ * Market-only browse engine (getDiscoveryFeed, discovery_categories, the
+ * admin category/sort-rule CRUD) is untouched, just no longer this page's
+ * data source — it predates the canonical Post/Community/Comments model
+ * (bypasses Posts entirely, links to /markets/[id] rather than /post/[id])
+ * and is superseded here, not deleted (still reachable at /markets/[id]
+ * as a direct deep link, e.g. from a Post's "other Markets" list).
+ *
+ * The legacy money-pools feed at /feed is completely untouched and remains
+ * the default entry point for any user this flag doesn't yet cover — no
+ * collision, since this route only ever becomes reachable once
+ * social_prediction_enabled=true for that specific user.
+ */
+export default async function MarketsPage() {
+  const user = await requireSocialPredictionAccess();
+  const feed = await getSocialFeed(user.id);
 
   return (
     <div className="space-y-[18px] sm:space-y-[22px]">
-      <h1 className="sr-only">Markets</h1>
+      <h1 className="sr-only">Discover</h1>
 
-      <CategoryTabs categories={categories} activeSlug={categorySlug ?? null} />
-
-      {markets.length === 0 ? (
-        <EmptyFeedState
-          icon={Sparkles}
-          title={categorySlug ? "Nothing here yet" : "No predictions right now"}
-          description={
-            categorySlug
-              ? "There's nothing in this category at the moment — check back soon or browse All."
-              : "Check back soon for new questions to think about."
-          }
-        />
+      {feed.length === 0 ? (
+        <EmptyFeedState icon={Sparkles} title="No games right now" description="Check back soon for new games and predictions." />
       ) : (
         <div className="space-y-3">
-          {markets.map((market) => (
-            <MarketCard key={market.id} market={market} />
+          {feed.map((item) => (
+            <SocialFeedCard key={item.post.id} item={item} />
           ))}
         </div>
       )}

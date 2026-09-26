@@ -35,10 +35,13 @@ export interface DiscoveryMarketCard {
   status: ConsumerMarketStatus;
   closesAt: string | null;
   freshness: Freshness;
+  /** Stage 4A remediation (§5/§13): semantic per-side labels ("Chiefs win", "Over 47.5") derived from `markets.price_outcome_labels` — never the raw YES/NO enum. See lib/prediction-markets/selection-labels.ts. */
+  yesLabel: string;
+  noLabel: string;
 }
 
 export interface DiscoveryMarketDetail extends DiscoveryMarketCard {
   description: string | null;
-  /** Only ever non-null once Brohda's own normalized data genuinely contains a resolution — never fabricated (roadmap STEP 16). */
+  /** Only ever non-null once Brohda's own normalized data genuinely contains a resolution — never fabricated (roadmap STEP 16). Raw "YES"/"NO" — resolve through yesLabel/noLabel for display, never render this directly. */
   resolvedOutcome: string | null;
 }

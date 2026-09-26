@@ -17,6 +17,7 @@ function market(overrides: Partial<MarketRecord> = {}): MarketRecord {
     yesSide: "HOME",
     yesPrice: 0.5,
     noPrice: 0.5,
+    priceOutcomeLabels: null,
     volume24hr: null,
     liquidity: null,
     resolvedOutcome: null,

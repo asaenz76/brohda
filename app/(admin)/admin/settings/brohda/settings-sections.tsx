@@ -235,6 +235,14 @@ export function MarketSettingsSection({ initial, updatedAt }: { initial: MarketS
       <FieldRow label="Social prediction access" description="Whether ordinary users can reach Brohda 2.0's social prediction experience (Markets, Posts, Communities, Picks). Super Admin/Admin always retain preview access. This is the DEPLOY vs ACTIVATE boundary.">
         <Switch checked={values.socialPredictionEnabled} onCheckedChange={(checked) => setValues((v) => ({ ...v, socialPredictionEnabled: checked }))} />
       </FieldRow>
+      <FieldRow label="Feed retention for completed games (hours)" description="How long a finished game's Post stays visible in the discovery feed before dropping out. Grading/reputation/notifications are unaffected.">
+        <Input
+          type="number"
+          min={0}
+          value={values.feedCompletedGameRetentionHours}
+          onChange={(e) => setValues((v) => ({ ...v, feedCompletedGameRetentionHours: Number(e.target.value) }))}
+        />
+      </FieldRow>
       <SectionFeedback result={result} />
       <Button type="button" disabled={isPending} onClick={save}>
         {isPending ? "Saving…" : "Save Markets"}

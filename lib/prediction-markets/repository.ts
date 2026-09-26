@@ -54,6 +54,21 @@ export interface MarketRecord {
   yesSide: MarketYesSide | null;
   yesPrice: number | null;
   noPrice: number | null;
+  /**
+   * Human-language selection labels authored once at ingestion time
+   * (lib/prediction-markets/ingestion/nfl.ts — e.g. `{yes: "Chiefs win", no:
+   * "Chiefs do not win"}` for MONEYLINE, `{yes: "Over 47.5", no: "Under
+   * 47.5"}` for TOTAL), stored verbatim on `markets.price_outcome_labels`.
+   * Not a new snapshot column: `market_template`/`line_value`/`yes_side`
+   * are DB-immutable once set (markets_forbid_identity_mutation), and this
+   * value is deterministically recomputed from those same frozen inputs
+   * plus the fixture's own (equally immutable) team names on every
+   * ingestion refresh — so reading it live from this Market's own row
+   * already gives correct, stable historical semantics for any Pick that
+   * references this market_id, with no separate immutable snapshot needed
+   * (Stage 4A remediation, §14).
+   */
+  priceOutcomeLabels: { yes: string | null; no: string | null } | null;
   volume24hr: number | null;
   liquidity: number | null;
   /** Never populated by Milestone 1's own ingestion (always null there) — kept here so a future milestone's real resolution data flows through without another repository change. */
@@ -96,6 +111,7 @@ function toRecord(row: MarketRow): MarketRecord {
     yesSide: row.yes_side,
     yesPrice: row.yes_price != null ? Number(row.yes_price) : null,
     noPrice: row.no_price != null ? Number(row.no_price) : null,
+    priceOutcomeLabels: row.price_outcome_labels,
     volume24hr: row.volume_24hr != null ? Number(row.volume_24hr) : null,
     liquidity: row.liquidity != null ? Number(row.liquidity) : null,
     resolvedOutcome: row.resolved_outcome,
@@ -234,6 +250,24 @@ export async function listActiveMarketsForFixture(fixtureId: string): Promise<Ma
   const { data, error } = await admin.from("markets").select("*").eq("fixture_id", fixtureId).eq("status", "ACTIVE");
   if (error) throw error;
   return (data as MarketRow[]).map(toRecord);
+}
+
+/** Stage 4A remediation (feed primary-Market hydration): the same query as listActiveMarketsForFixture, batched across several fixtures in one round trip — callers group the result by fixtureId themselves (e.g. via selectPrimaryMarket per group). */
+export async function listActiveMarketsForFixtures(fixtureIds: string[]): Promise<MarketRecord[]> {
+  if (fixtureIds.length === 0) return [];
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("markets").select("*").in("fixture_id", fixtureIds).eq("status", "ACTIVE");
+  if (error) throw error;
+  return (data as MarketRow[]).map(toRecord);
+}
+
+/** Stage 4A remediation (§13/§16 — a Prediction-history list needs only its Market's semantic labels, not the full record) — one query regardless of how many distinct markets appear across a user's Prediction history. */
+export async function listPriceOutcomeLabelsByMarketIds(marketIds: string[]): Promise<Map<string, MarketRecord["priceOutcomeLabels"]>> {
+  if (marketIds.length === 0) return new Map();
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("markets").select("id, price_outcome_labels").in("id", marketIds);
+  if (error) throw error;
+  return new Map((data as { id: string; price_outcome_labels: MarketRecord["priceOutcomeLabels"] }[]).map((row) => [row.id, row.price_outcome_labels]));
 }
 
 export async function getActiveMarketByFixtureAndTemplate(fixtureId: string, marketTemplate: MarketTemplate): Promise<MarketRecord | null> {

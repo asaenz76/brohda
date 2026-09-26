@@ -26,11 +26,16 @@ export function PredictionActions({
   marketId,
   disabledReason,
   currentSelection = null,
+  yesLabel,
+  noLabel,
 }: {
   marketId: string;
   disabledReason: string | null;
   /** Milestone R5: pass the existing Pick's selection to render this as an editable "change your pick" control instead of a first-time one. */
   currentSelection?: "YES" | "NO" | null;
+  /** Stage 4A remediation (§13/§16): semantic per-side labels ("Chiefs win", "Over 47.5") — YES/NO stays the internal wire representation (submitPredictionAction still receives "YES"/"NO"), only the rendered copy changes. */
+  yesLabel: string;
+  noLabel: string;
 }) {
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [selection, setSelection] = useState<"YES" | "NO" | null>(currentSelection);
@@ -80,10 +85,10 @@ export function PredictionActions({
           size="lg"
           disabled={isDisabled}
           onClick={() => handleSubmit("YES")}
-          aria-label="Predict YES"
+          aria-label={`Pick: ${yesLabel}`}
           aria-pressed={selection === "YES"}
         >
-          YES
+          {yesLabel}
         </Button>
         <Button
           type="button"
@@ -91,15 +96,15 @@ export function PredictionActions({
           size="lg"
           disabled={isDisabled}
           onClick={() => handleSubmit("NO")}
-          aria-label="Predict NO"
+          aria-label={`Pick: ${noLabel}`}
           aria-pressed={selection === "NO"}
         >
-          NO
+          {noLabel}
         </Button>
       </div>
       {confirmation && (
         <p role="status" className="text-sm font-semibold text-text-primary">
-          You predicted {confirmation.selectedOutcome} at {confirmation.probabilityPercent}%.
+          You picked {confirmation.selectedOutcome === "YES" ? yesLabel : noLabel} ({confirmation.probabilityPercent}%).
         </p>
       )}
       {disabledReason && <p className="text-xs text-text-muted">{disabledReason}</p>}

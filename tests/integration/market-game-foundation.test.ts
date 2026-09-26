@@ -267,7 +267,7 @@ describe("end-to-end objective grading from a real fixture", () => {
 
     await admin.from("fixtures").update({ internal_status: "COMPLETED", home_score: 17, away_score: 20 }).eq("id", fixtureId);
 
-    const market = { ...marketPayload(fixtureId, { marketTemplate: "SPREAD", lineValue: 6.5, yesSide: "HOME" }), id, createdAt: "", updatedAt: "", categoryTags: [], lastSyncedAt: "", yesPrice: null, noPrice: null, status: "CLOSED" as const };
+    const market = { ...marketPayload(fixtureId, { marketTemplate: "SPREAD", lineValue: 6.5, yesSide: "HOME" }), id, createdAt: "", updatedAt: "", categoryTags: [], lastSyncedAt: "", yesPrice: null, noPrice: null, priceOutcomeLabels: null, status: "CLOSED" as const };
     const fixture = await getFixtureForGrading(fixtureId);
     expect(fixture).not.toBeNull();
     const decision = decideGradingForMarket(market, fixture, "YES");
@@ -281,7 +281,7 @@ describe("end-to-end objective grading from a real fixture", () => {
 
     await admin.from("fixtures").update({ internal_status: "COMPLETED", home_score: 24, away_score: 23 }).eq("id", fixtureId);
 
-    const market = { ...marketPayload(fixtureId, { marketTemplate: "TOTAL", lineValue: 47, yesSide: null }), id, createdAt: "", updatedAt: "", categoryTags: [], lastSyncedAt: "", yesPrice: null, noPrice: null, status: "CLOSED" as const };
+    const market = { ...marketPayload(fixtureId, { marketTemplate: "TOTAL", lineValue: 47, yesSide: null }), id, createdAt: "", updatedAt: "", categoryTags: [], lastSyncedAt: "", yesPrice: null, noPrice: null, priceOutcomeLabels: null, status: "CLOSED" as const };
     const fixture = await getFixtureForGrading(fixtureId);
     const decision = decideGradingForMarket(market, fixture, "YES");
     expect(decision).toEqual({ decision: "graded", result: "VOID", resolvedOutcomeSnapshot: null });
@@ -292,7 +292,7 @@ describe("end-to-end objective grading from a real fixture", () => {
     const { id } = await upsertMarket(marketPayload(fixtureId, { status: "ACTIVE" }));
     createdMarketIds.push(id);
 
-    const market = { ...marketPayload(fixtureId), id, createdAt: "", updatedAt: "", categoryTags: [], lastSyncedAt: "", yesPrice: null, noPrice: null };
+    const market = { ...marketPayload(fixtureId), id, createdAt: "", updatedAt: "", categoryTags: [], lastSyncedAt: "", yesPrice: null, noPrice: null, priceOutcomeLabels: null };
     const fixture = await getFixtureForGrading(fixtureId);
     const decision = decideGradingForMarket(market, fixture, "YES");
     expect(decision).toEqual({ decision: "still-pending" });

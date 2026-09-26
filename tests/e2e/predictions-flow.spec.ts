@@ -68,6 +68,7 @@ async function seedMarket(provider: string, providerMarketId: string, overrides:
       yes_side: "HOME",
       yes_price: 0.62,
       no_price: 0.38,
+      price_outcome_labels: { yes: "Home Test FC wins", no: "Home Test FC does not win" },
       liquidity: 1000,
       closes_at: new Date(Date.now() + 86_400_000).toISOString(),
       last_synced_at: new Date().toISOString(),
@@ -105,8 +106,8 @@ test.describe("Brohda Prediction layer", () => {
       await loginAs(page, email);
       await page.goto(`/markets/${marketId}`);
 
-      await expect(page.getByRole("button", { name: "Predict YES" })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Predict NO" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Pick: Home Test FC wins" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Pick: Home Test FC does not win" })).toBeVisible();
 
       const bodyTextBefore = await page.locator("body").innerText();
       for (const pattern of FORBIDDEN_TERMS) expect(bodyTextBefore).not.toMatch(pattern);
@@ -114,8 +115,10 @@ test.describe("Brohda Prediction layer", () => {
       // equal, non-monetary belief, never a stake.
       await expect(page.locator('input[type="number"]')).toHaveCount(0);
 
-      await page.getByRole("button", { name: "Predict YES" }).click();
-      await expect(page.getByText(/You predicted YES at \d+%\./)).toBeVisible();
+      await page.getByRole("button", { name: "Pick: Home Test FC wins" }).click();
+      // Stage 4A remediation (Stage 4 audit §16): semantic Pick confirmation
+      // language, never the raw YES/NO enum.
+      await expect(page.getByText(/You picked Home Test FC wins \(\d+%\)\./)).toBeVisible();
 
       const bodyTextAfter = await page.locator("body").innerText();
       for (const pattern of FORBIDDEN_TERMS) expect(bodyTextAfter).not.toMatch(pattern);
@@ -124,24 +127,24 @@ test.describe("Brohda Prediction layer", () => {
       // far away (Milestone R5: the fixture here is scheduled well in the
       // future), so reloading must show the EDITABLE control pre-filled
       // with the current selection, never the old always-readonly
-      // "Your prediction: YES" state and never a bare re-offer of a first
-      // pick — both YES/NO buttons remain, now labeled as a change.
+      // "You picked: ..." state and never a bare re-offer of a first
+      // pick — both selection buttons remain, now labeled as a change.
       await page.reload();
       await expect(page.getByText("Change your prediction")).toBeVisible();
-      await expect(page.getByRole("button", { name: "Predict YES" })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Predict YES" })).toHaveAttribute("aria-pressed", "true");
+      await expect(page.getByRole("button", { name: "Pick: Home Test FC wins" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Pick: Home Test FC wins" })).toHaveAttribute("aria-pressed", "true");
 
       // Milestone R5: change the Pick from YES to NO while still eligible.
-      await page.getByRole("button", { name: "Predict NO" }).click();
-      await expect(page.getByText(/You predicted NO at \d+%\./)).toBeVisible();
+      await page.getByRole("button", { name: "Pick: Home Test FC does not win" }).click();
+      await expect(page.getByText(/You picked Home Test FC does not win \(\d+%\)\./)).toBeVisible();
       await page.reload();
-      await expect(page.getByRole("button", { name: "Predict NO" })).toHaveAttribute("aria-pressed", "true");
+      await expect(page.getByRole("button", { name: "Pick: Home Test FC does not win" })).toHaveAttribute("aria-pressed", "true");
 
       // Profile's Market Predictions tab shows the latest (NO) selection —
       // not the original YES — matching "the final selection is the
       // permanent record" (§7).
       await page.goto("/profile?tab=markets");
-      await expect(page.getByText("You predicted NO", { exact: false })).toBeVisible();
+      await expect(page.getByText("You picked Home Test FC does not win", { exact: false })).toBeVisible();
     } finally {
       await cleanup(provider, userIds);
     }
@@ -160,7 +163,7 @@ test.describe("Brohda Prediction layer", () => {
       await loginAs(page, email);
       await page.goto(`/markets/${marketId}`);
 
-      const yesButton = page.getByRole("button", { name: "Predict YES" });
+      const yesButton = page.getByRole("button", { name: "Pick: Home Test FC wins" });
       await expect(yesButton).toBeVisible();
       await expect(yesButton).toBeDisabled();
       await expect(page.getByText("This market is closed to new predictions.")).toBeVisible();
@@ -206,7 +209,16 @@ test.describe("Brohda Prediction layer", () => {
 
       await loginAs(page, email);
       await page.goto(`/markets/${marketId}`);
-      await expect(page.getByText("Your prediction: YES")).toBeVisible();
+      // Stage 4A remediation (Stage 4 audit §15): the Market's resolved
+      // outcome renders as its semantic label ("Home Test FC wins"), never
+      // "Result: YES" — kept visually/conceptually distinct from the
+      // Pick's own graded result ("Correct"/"Incorrect"/"Void").
+      await expect(page.getByText("You picked: Home Test FC wins")).toBeVisible();
+      // The Market's own resolved-outcome line and its Yes/No percentage
+      // breakdown label now render the same semantic text ("Home Test FC
+      // wins") — expected and harmless duplication, not a raw-enum leak —
+      // so this checks at least one such element renders, not exactly one.
+      await expect(page.getByText("Home Test FC wins", { exact: true }).first()).toBeVisible();
       await expect(page.getByText("Result: Correct")).toBeVisible();
 
       await page.goto("/profile?tab=markets");

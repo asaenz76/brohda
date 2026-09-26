@@ -1,4 +1,5 @@
 import type { MarketRecord } from "../repository";
+import { getSelectionLabel } from "../selection-labels";
 import { classifyFreshness, type FreshnessPolicy } from "./policy";
 import { formatProbabilityPercent } from "./probability";
 import { deriveConsumerStatus } from "./status";
@@ -29,6 +30,8 @@ export function toDiscoveryMarketCard(market: MarketRecord, categories: Discover
     status,
     closesAt: market.closesAt,
     freshness: classifyFreshness(market.lastSyncedAt, yesPercent != null || noPercent != null, freshnessPolicy),
+    yesLabel: getSelectionLabel(market, "YES"),
+    noLabel: getSelectionLabel(market, "NO"),
   };
 }
 

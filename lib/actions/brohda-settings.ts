@@ -105,6 +105,7 @@ export async function updateMarketSettingsAction(expectedUpdatedAt: string, valu
   const admin = await requireSuperAdmin();
 
   if (values.marketIngestionMinBookmakerCount < 1) return { success: false, error: "Minimum bookmaker count must be at least 1.", conflict: false, settings: null };
+  if (values.feedCompletedGameRetentionHours < 0) return { success: false, error: "Feed completed-game retention hours cannot be negative.", conflict: false, settings: null };
 
   let result;
   try {

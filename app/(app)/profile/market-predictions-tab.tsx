@@ -1,6 +1,8 @@
 import { Compass } from "lucide-react";
 import { listUserPredictions } from "@/lib/predictions/repository";
 import { getPredictionStats } from "@/lib/predictions/streak";
+import { listPriceOutcomeLabelsByMarketIds, type MarketRecord } from "@/lib/prediction-markets/repository";
+import { getSelectionLabel } from "@/lib/prediction-markets/selection-labels";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
 import { Card, CardContent } from "@/components/ui/card";
 import Link from "next/link";
@@ -21,6 +23,7 @@ import Link from "next/link";
 
 export async function MarketPredictionsTab({ userId }: { userId: string }) {
   const [predictions, stats] = await Promise.all([listUserPredictions(userId), getPredictionStats(userId)]);
+  const labelsByMarketId = await listPriceOutcomeLabelsByMarketIds([...new Set(predictions.map((p) => p.marketId))]);
 
   if (predictions.length === 0) {
     return (
@@ -40,7 +43,7 @@ export async function MarketPredictionsTab({ userId }: { userId: string }) {
 
       <div className="space-y-3">
         {predictions.map((prediction) => (
-          <PredictionHistoryRow key={prediction.id} prediction={prediction} />
+          <PredictionHistoryRow key={prediction.id} prediction={prediction} priceOutcomeLabels={labelsByMarketId.get(prediction.marketId) ?? null} />
         ))}
       </div>
     </div>
@@ -49,8 +52,11 @@ export async function MarketPredictionsTab({ userId }: { userId: string }) {
 
 function PredictionHistoryRow({
   prediction,
+  priceOutcomeLabels,
 }: {
   prediction: Awaited<ReturnType<typeof listUserPredictions>>[number];
+  /** Stage 4A remediation (§16 — "You predicted YES" raw-enum leakage): the referenced Market's semantic labels, or null if the Market's own row is no longer resolvable (falls back to a plain "Yes"/"No" via getSelectionLabel). */
+  priceOutcomeLabels: MarketRecord["priceOutcomeLabels"] | undefined;
 }) {
   const predictedPercent = Math.round(
     (prediction.selectedOutcome === "YES" ? prediction.yesProbabilitySnapshot : prediction.noProbabilitySnapshot) * 100,
@@ -60,6 +66,7 @@ function PredictionHistoryRow({
     month: "short",
     day: "numeric",
   });
+  const pickedLabel = getSelectionLabel({ priceOutcomeLabels: priceOutcomeLabels ?? null }, prediction.selectedOutcome);
 
   return (
     <Card>
@@ -68,7 +75,7 @@ function PredictionHistoryRow({
           {prediction.marketQuestionSnapshot}
         </Link>
         <p className="text-xs text-text-muted">
-          You predicted {prediction.selectedOutcome} at {predictedPercent}% · {predictedAt}
+          You picked {pickedLabel} ({predictedPercent}%) · {predictedAt}
         </p>
         <ResultBadge prediction={prediction} />
       </CardContent>

@@ -67,18 +67,18 @@ export async function MarketPredictionCard({ market, userId }: { market: Discove
         <DiscoveryStatusPill status={market.status} />
 
         {market.status === "RESOLVED" && market.resolvedOutcome && (
-          <p className="text-sm font-medium text-text-primary">Result: {market.resolvedOutcome}</p>
+          <p className="text-sm font-medium text-text-primary">{market.resolvedOutcome === "YES" ? market.yesLabel : market.noLabel}</p>
         )}
 
         {hasPrice ? (
           <div className="flex items-center gap-8">
             <div>
               <p className="text-3xl font-bold text-text-primary">{market.yesPercent}%</p>
-              <p className="text-xs font-medium uppercase tracking-wide text-text-muted">Yes</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{market.yesLabel}</p>
             </div>
             <div>
               <p className="text-3xl font-bold text-text-primary">{market.noPercent}%</p>
-              <p className="text-xs font-medium uppercase tracking-wide text-text-muted">No</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{market.noLabel}</p>
             </div>
           </div>
         ) : (
@@ -95,12 +95,18 @@ export async function MarketPredictionCard({ market, userId }: { market: Discove
         {closesLabel && <p className="text-sm text-text-secondary">Closes {closesLabel}</p>}
 
         {isEditable ? (
-          <PredictionActions marketId={market.id} disabledReason={predictionDisabledReason} currentSelection={existingPrediction?.selectedOutcome ?? null} />
+          <PredictionActions
+            marketId={market.id}
+            disabledReason={predictionDisabledReason}
+            currentSelection={existingPrediction?.selectedOutcome ?? null}
+            yesLabel={market.yesLabel}
+            noLabel={market.noLabel}
+          />
         ) : (
-          <YourPredictionCard prediction={existingPrediction!} />
+          <YourPredictionCard prediction={existingPrediction!} yesLabel={market.yesLabel} noLabel={market.noLabel} />
         )}
 
-        {existingPrediction && <MarketParticipants marketId={market.id} viewerId={userId} />}
+        {existingPrediction && <MarketParticipants marketId={market.id} viewerId={userId} yesLabel={market.yesLabel} noLabel={market.noLabel} />}
       </CardContent>
     </Card>
   );

@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { Trophy } from "lucide-react";
 import { requireUser } from "@/lib/auth/session";
+import { isAdminOrAbove } from "@/lib/auth/guards";
+import { getSocialPredictionAccessPolicy } from "@/lib/social/access";
 import { createClient } from "@/lib/supabase/server";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
 import { Podium, type LeaderboardEntry } from "@/components/leaderboard/Podium";
@@ -31,10 +33,15 @@ export default async function LeaderboardPage({
   const user = await requireUser();
   const supabase = await createClient();
 
-  const [{ data: rows }, { data: profile }] = await Promise.all([
+  const [{ data: rows }, { data: profile }, socialPolicy] = await Promise.all([
     supabase.rpc("get_leaderboard", { p_scope: scope, p_range: range, p_caller_id: user.id }),
     supabase.from("user_profiles").select("current_streak, best_streak").eq("id", user.id).single(),
+    getSocialPredictionAccessPolicy(),
   ]);
+  // Stage 4A remediation (Stage 4 audit §18 — "legacy /leaderboard
+  // advertising Predictions Leaderboard while social prediction is
+  // disabled"): same gate as the nav bar's own showSocialPredictionNav.
+  const showPredictionsLeaderboardLink = isAdminOrAbove(user) || socialPolicy.enabled;
 
   const leaderboard: LeaderboardEntry[] = (rows ?? []).map(
     (row: {
@@ -69,13 +76,16 @@ export default async function LeaderboardPage({
       {/* Milestone R11: a separate, wallet-independent prediction-accuracy
           leaderboard lives at its own route rather than folded into this
           (legacy pool) page — one small, additive discoverability link,
-          per the milestone's own "do not hijack this route" instruction. */}
-      <p className="text-xs text-text-muted">
-        Looking for prediction accuracy rankings?{" "}
-        <Link href="/leaderboard/predictions" className="text-accent-primary hover:underline">
-          View the Predictions Leaderboard
-        </Link>
-      </p>
+          per the milestone's own "do not hijack this route" instruction.
+          Stage 4A: only advertised once that route is actually reachable. */}
+      {showPredictionsLeaderboardLink && (
+        <p className="text-xs text-text-muted">
+          Looking for prediction accuracy rankings?{" "}
+          <Link href="/leaderboard/predictions" className="text-accent-primary hover:underline">
+            View the Predictions Leaderboard
+          </Link>
+        </p>
+      )}
       <LeaderboardFilters />
 
       {/* Personal, emotionally-resonant stat leads the page — kept

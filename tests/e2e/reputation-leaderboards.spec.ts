@@ -127,8 +127,8 @@ test.describe("Reputation + Leaderboards", () => {
       await loginAs(page, emailChamp);
       for (const { marketId } of champMarkets) {
         await page.goto(`/markets/${marketId}`);
-        await page.getByRole("button", { name: "Predict YES" }).click();
-        await expect(page.getByText(/You predicted YES/)).toBeVisible();
+        await page.getByRole("button", { name: "Pick: Yes" }).click();
+        await expect(page.getByText(/You picked Yes/)).toBeVisible();
       }
       await page.context().clearCookies();
       for (const { fixtureId, marketId } of champMarkets) {
@@ -146,8 +146,8 @@ test.describe("Reputation + Leaderboards", () => {
       await loginAs(page, emailBelowMin);
       for (const { marketId } of belowMinMarkets) {
         await page.goto(`/markets/${marketId}`);
-        await page.getByRole("button", { name: "Predict YES" }).click();
-        await expect(page.getByText(/You predicted YES/)).toBeVisible();
+        await page.getByRole("button", { name: "Pick: Yes" }).click();
+        await expect(page.getByText(/You picked Yes/)).toBeVisible();
       }
       await page.context().clearCookies();
       for (const { fixtureId, marketId } of belowMinMarkets) {
@@ -161,14 +161,14 @@ test.describe("Reputation + Leaderboards", () => {
       marketIds.push(cbsMarketId);
       await loginAs(page, emailChamp);
       await page.goto(`/markets/${cbsMarketId}`);
-      await page.getByRole("button", { name: "Predict YES" }).click();
-      await expect(page.getByText(/You predicted YES/)).toBeVisible();
+      await page.getByRole("button", { name: "Pick: Yes" }).click();
+      await expect(page.getByText(/You picked Yes/)).toBeVisible();
 
       await page.context().clearCookies();
       await loginAs(page, emailBelowMin);
       await page.goto(`/markets/${cbsMarketId}`);
-      await page.getByRole("button", { name: "Predict NO" }).click();
-      await expect(page.getByText(/You predicted NO/)).toBeVisible();
+      await page.getByRole("button", { name: "Pick: No" }).click();
+      await expect(page.getByText(/You picked No/)).toBeVisible();
       await page.reload();
       await page.getByRole("button", { name: "Call BS" }).click();
       await expect(page.getByText("Pending")).toBeVisible();

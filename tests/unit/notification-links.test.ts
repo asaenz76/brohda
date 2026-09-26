@@ -10,6 +10,7 @@ function makeNotification(overrides: Partial<NotificationRow>): NotificationRow 
     body: "You won this pool.",
     pool_id: "pool-1",
     transaction_id: null,
+    post_id: null,
     read_at: null,
     created_at: new Date().toISOString(),
     ...overrides,
@@ -77,5 +78,19 @@ describe("resolveNotificationHref", () => {
     // via the ledger row it was stamped with, not fall back to /pool/null.
     const n = makeNotification({ type: "SETTLED_WON", pool_id: null, transaction_id: "tx-direct" });
     expect(resolveNotificationHref(n, new Map())).toBe("/activity#tx-tx-direct");
+  });
+
+  // Stage 4A remediation (Stage 4 audit §14 / remediation §17): a graded
+  // Prediction's notification previously resolved to no destination at
+  // all (no case existed for this type). Direct field read, resolved once
+  // at creation time — no pool_id/transaction_id/ledger lookup involved.
+  it("points a graded-prediction notification at its canonical Post", () => {
+    const n = makeNotification({ type: "prediction_graded", pool_id: null, post_id: "post-1" });
+    expect(resolveNotificationHref(n, new Map())).toBe("/post/post-1");
+  });
+
+  it("returns null for a graded-prediction notification with no post_id (data anomaly, or a pre-migration row)", () => {
+    const n = makeNotification({ type: "prediction_graded", pool_id: null, post_id: null });
+    expect(resolveNotificationHref(n, new Map())).toBeNull();
   });
 });

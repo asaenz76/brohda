@@ -29,6 +29,8 @@ import {
 } from "@/lib/predictions/policy";
 import { runGradingJob } from "@/lib/predictions/grading";
 import { recordGradedPredictionResult, getPredictionStats } from "@/lib/predictions/streak";
+import { ensurePostForFixture, publishPost } from "@/lib/posts/repository";
+import { resolveNotificationHref } from "@/lib/notifications/links";
 import { loadCapabilityPolicy, roleHasCapability } from "@/lib/auth/capabilities";
 
 const admin = getTestAdminClient();
@@ -434,6 +436,60 @@ describe("grading", () => {
     // Exactly one notification for this one graded prediction, even after
     // two grading runs — no duplication.
     expect(notificationCount.count).toBe(1);
+  });
+
+  // Stage 4A remediation (Stage 4 audit §14 / remediation §17): the
+  // grading job resolves the canonical Post at the moment of grading and
+  // stamps it on the notification, so it becomes clickable.
+  it("stamps the graded-prediction notification with the canonical Post id, resolving to /post/[id]", async () => {
+    const marketId = await seedMarket({ status: "ACTIVE" });
+    const fixtureId = marketFixtureIds.get(marketId)!;
+    const { id: postId } = await ensurePostForFixture(fixtureId);
+    await publishPost(postId);
+
+    const user = await seedUser();
+    await makePick({
+      userId: user.id,
+      marketId,
+      selectedOutcome: "YES",
+      yesProbabilitySnapshot: 0.62,
+      noProbabilitySnapshot: 0.38,
+      marketQuestionSnapshot: "q",
+      marketCloseAtSnapshot: null,
+      marketStatusSnapshot: "ACTIVE",
+      idempotencyKey: crypto.randomUUID(),
+    });
+
+    await upsertMarket(
+      marketFixture((await admin.from("markets").select("provider_market_id").eq("id", marketId).single()).data!.provider_market_id, fixtureId, {
+        status: "CLOSED",
+        price: { yes: 1, no: 0, outcomeLabels: { yes: "Yes", no: "No" } },
+      }),
+    );
+    await resolveFixtureForMarket(marketId, { homeScore: 1, awayScore: 0 });
+    await runGradingJob(recordGradedPredictionResult);
+
+    const { data: notification } = await admin
+      .from("notifications")
+      .select("post_id")
+      .eq("user_id", user.id)
+      .eq("type", "prediction_graded")
+      .single();
+    expect(notification?.post_id).toBe(postId);
+    expect(
+      resolveNotificationHref(
+        { id: "n", type: "prediction_graded", title: "", body: "", pool_id: null, transaction_id: null, post_id: notification?.post_id ?? null, read_at: null, created_at: "" },
+        new Map(),
+      ),
+    ).toBe(`/post/${postId}`);
+
+    // Self-contained cleanup: this test is the only one in the suite that
+    // creates a `posts` row, and both `notifications.post_id` and
+    // `posts.fixture_id` are real FKs with no cascade — deleting them here
+    // (notification before post, post before the file's own afterAll
+    // deletes the fixture) avoids an FK violation in that afterAll.
+    await admin.from("notifications").delete().eq("user_id", user.id).eq("type", "prediction_graded");
+    await admin.from("posts").delete().eq("id", postId);
   });
 
   it("markPredictionGraded is a safe no-op against a row that's already GRADED", async () => {

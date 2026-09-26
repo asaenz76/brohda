@@ -45,6 +45,8 @@ export async function createPredictionGradedNotification(input: {
   predictionId: string;
   questionSnapshot: string;
   result: PredictionResult;
+  /** Stage 4A remediation (Stage 4 audit §14) — the canonical Post this grading was about, for click-through (lib/notifications/links.ts). Null when the grading job's own fixture->Post lookup came up empty (data anomaly) — the notification is still created, just not clickable. */
+  postId: string | null;
 }): Promise<void> {
   const admin = createAdminClient();
   const copyPolicy = await getPredictionNotificationCopyPolicy();
@@ -56,6 +58,7 @@ export async function createPredictionGradedNotification(input: {
     title,
     body,
     pool_id: null,
+    post_id: input.postId,
   });
   if (error) throw error;
 }
@@ -79,6 +82,7 @@ export async function maybeCreatePredictionGradedNotification(input: {
   predictionId: string;
   questionSnapshot: string;
   result: PredictionResult;
+  postId: string | null;
 }): Promise<void> {
   const policy = await getPredictionNotificationPolicy();
   if (!shouldNotifyForResult(input.result, policy)) return;

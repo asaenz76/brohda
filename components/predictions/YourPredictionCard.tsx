@@ -8,15 +8,16 @@ import type { Prediction } from "@/lib/predictions/types";
 // repeating the current numbers itself (mirrors the FreshnessNote
 // no-duplicated-copy precedent from Milestone 2).
 
-export function YourPredictionCard({ prediction }: { prediction: Prediction }) {
+export function YourPredictionCard({ prediction, yesLabel, noLabel }: { prediction: Prediction; yesLabel: string; noLabel: string }) {
   const predictedPercent = Math.round(
     (prediction.selectedOutcome === "YES" ? prediction.yesProbabilitySnapshot : prediction.noProbabilitySnapshot) * 100,
   );
+  const pickedLabel = prediction.selectedOutcome === "YES" ? yesLabel : noLabel;
 
   return (
     <div className="space-y-1 rounded-lg border-2 border-text-primary bg-secondary p-4">
-      <p className="text-sm font-semibold text-text-primary">Your prediction: {prediction.selectedOutcome}</p>
-      <p className="text-xs text-text-muted">You predicted at {predictedPercent}%.</p>
+      <p className="text-sm font-semibold text-text-primary">You picked: {pickedLabel}</p>
+      <p className="text-xs text-text-muted">Picked at {predictedPercent}%.</p>
       <ResultLine prediction={prediction} />
     </div>
   );

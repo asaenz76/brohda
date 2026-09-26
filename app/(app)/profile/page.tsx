@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/auth/session";
 import { isAdminOrAbove } from "@/lib/auth/guards";
+import { getSocialPredictionAccessPolicy } from "@/lib/social/access";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent } from "@/components/ui/card";
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
@@ -17,7 +18,7 @@ export default async function ProfilePage() {
   const user = await requireUser();
   const supabase = await createClient();
 
-  const [{ data: countsRows }, { data: pickCount }, { data: editableFields }, { data: statsRows }] =
+  const [{ data: countsRows }, { data: pickCount }, { data: editableFields }, { data: statsRows }, socialPolicy] =
     await Promise.all([
       supabase.rpc("get_follow_counts", { p_user_id: user.id }),
       supabase.rpc("get_pick_count", { p_user_id: user.id }),
@@ -29,10 +30,16 @@ export default async function ProfilePage() {
         .eq("id", user.id)
         .single(),
       supabase.rpc("get_profile_stats", { p_user_id: user.id }),
+      getSocialPredictionAccessPolicy(),
     ]);
 
   const counts = Array.isArray(countsRows) ? countsRows[0] : countsRows;
   const stats = Array.isArray(statsRows) ? statsRows[0] : statsRows;
+  // Stage 4A remediation (Stage 4 audit §18) — same gate as the nav bar's
+  // own showSocialPredictionNav (app/(app)/layout.tsx): a UX signal only,
+  // the real enforcement is each Brohda 2.0 page's own
+  // requireSocialPredictionAccess().
+  const showMarketPredictionsTab = isAdminOrAbove(user) || socialPolicy.enabled;
 
   return (
     <div className="space-y-6">
@@ -61,7 +68,7 @@ export default async function ProfilePage() {
             viewer={{ id: user.id, isModerator: isAdminOrAbove(user) }}
           />
         }
-        markets={<MarketPredictionsTab userId={user.id} />}
+        markets={showMarketPredictionsTab ? <MarketPredictionsTab userId={user.id} /> : null}
         following={<FollowedTeamsLeaguesTab />}
         edit={
           <div className="space-y-6">

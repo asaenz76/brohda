@@ -49,7 +49,7 @@ The existing `prediction_cutoff_minutes_before_close` (migration 20260101000142)
 
 ## Game lifecycle and eligibility
 
-`set_pick` requires the Game to be exactly `internal_status = 'NOT_STARTED'` for both creation and continued editing — every other status (`LIVE`, `COMPLETED`, `POSTPONED`, `SUSPENDED`, `ABANDONED`, `CANCELLED`, `AWARDED`, `UNKNOWN`) rejects. This is a deliberately conservative, fail-safe choice, not a fully-resolved product policy — see Open Decisions.
+`set_pick` requires the Game to be exactly `internal_status = 'NOT_STARTED'` for both creation and continued editing — every other status (`LIVE`, `COMPLETED`, `POSTPONED`, `SUSPENDED`, `ABANDONED`, `CANCELLED`, `AWARDED`, `UNKNOWN`) rejects. This is now settled canonical V1 product policy (Milestone R13.10, Stage 4A — see Resolved decisions below), combined with the configured Pick cutoff — not a placeholder awaiting a future decision.
 
 **Kickoff movement**:
 - *Before any lock*, a later kickoff extends eligibility using the new schedule (verified) — the cutoff is never cached, only ever computed live.
@@ -91,12 +91,15 @@ The migration adding `predictions_one_per_user_market` was verified safe against
 |---|---|---|
 | One current Pick per user/Market; lock is one-way; graded Pick is immutable; Pick never migrates Market; user can edit only their own Pick | Schema (constraints/triggers) + RLS/grants | TRUE INVARIANT |
 | Pick cutoff minutes before kickoff | `platform_settings.pick_lock_minutes_before_kickoff` | CONFIGURABLE PRODUCT POLICY |
-| Game-status eligibility (`NOT_STARTED` only) | Hard-coded in `set_pick` | Deliberately conservative fail-safe default — see Open Decisions, not asserted as final product policy |
+| Game-status eligibility (`NOT_STARTED` only) | Hard-coded in `set_pick` | TRUE INVARIANT — a technical categorization of fixture state, not a tunable value (see resolved decision #1 below) |
 | Selection, lock timestamp/reason, result, probability snapshot | Row state | USER/OBJECT STATE |
 | Canonical kickoff, Game status | `fixtures` (provider-derived) | PROVIDER-DERIVED VALUE |
 
+## Resolved decisions
+
+1. **Postponed-but-rescheduled-future Games** (Milestone R13.10, Stage 4A — resolved by explicit product decision after the Stage 4 pre-exposure audit surfaced this exact open question as a real, reachable scenario, not a hypothetical): the canonical V1 rule is that a normal Pick may be created or changed only when **both** are true — (a) `fixture.internal_status = 'NOT_STARTED'`, and (b) the current time is before the configured Pick cutoff relative to the fixture's **current** `scheduled_start_utc`. This is intentionally the existing, unchanged `set_pick` behavior — no special-cased POSTPONED/SUSPENDED handling was added. If a `POSTPONED` fixture's status later reverts to `NOT_STARTED` (the provider confirms a new kickoff), ordinary Pick eligibility reopens automatically under the newly computed cutoff — `set_pick` recomputes both conditions live, from the fixture's current row, on every call; nothing about this decision required or produced a code change. This is now settled product policy, not an open question.
+
 ## Open decisions (genuinely unresolved, not invented)
 
-1. **Postponed-but-rescheduled-future Games**: whether a `POSTPONED` fixture with a confirmed future `scheduled_start_utc` should allow continued Pick editing (using the new schedule) rather than blocking outright the moment status leaves `NOT_STARTED`. R5 chose the conservative "NOT_STARTED only" rule as a safe default per §20's own "fail safe" instruction — this never allows something it shouldn't, but may be more restrictive than a founder ultimately wants. No fixture-rescheduling workflow currently exists in this codebase to observe real behavior from, so this was not silently decided either way.
-2. **SUSPENDED/ABANDONED/AWARDED grading policy** — carried over unresolved from R1, untouched by R5.
-3. **Live countdown UI** — intentionally not built (optional per this milestone); the calculation is ready whenever a future milestone wants it.
+1. **SUSPENDED/ABANDONED/AWARDED grading policy** — carried over unresolved from R1, untouched by R5 or Stage 4A.
+2. **Live countdown UI** — intentionally not built (optional per this milestone); the calculation is ready whenever a future milestone wants it.
