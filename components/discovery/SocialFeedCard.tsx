@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { LocalDateTime } from "@/components/LocalDateTime";
+import { TeamCrest } from "@/components/TeamCrest";
 import { getCommunityTypeLabel } from "@/lib/communities/presentation";
 import type { FeedItem } from "@/lib/communities/feed";
 
@@ -26,8 +27,10 @@ export function SocialFeedCard({ item }: { item: FeedItem }) {
       <Card className="transition-colors hover:border-accent-primary/50">
         <CardContent className="space-y-3 pt-6">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-base font-semibold text-text-primary">
-              {item.awayTeamName} @ {item.homeTeamName}
+            <p className="flex flex-wrap items-center gap-1.5 text-base font-semibold text-text-primary">
+              <TeamCrest logoUrl={item.awayTeamLogoUrl} teamName={item.awayTeamName} />
+              {item.awayTeamName} @ <TeamCrest logoUrl={item.homeTeamLogoUrl} teamName={item.homeTeamName} />
+              {item.homeTeamName}
             </p>
             {item.isFromFollowedCommunity && (
               <span className="shrink-0 rounded-full bg-accent-primary/10 px-2 py-0.5 text-xs font-medium text-accent-primary">Following</span>

@@ -9,6 +9,7 @@ import { getFixtureForPostPresentation } from "@/lib/sports-data/fixture-lookup"
 import { CommunityFollowButton } from "@/components/communities/CommunityFollowButton";
 import { Card, CardContent } from "@/components/ui/card";
 import { LocalDateTime } from "@/components/LocalDateTime";
+import { TeamCrest } from "@/components/TeamCrest";
 
 /**
  * Community detail (Milestone R4, docs/BROHDA_2_0_MILESTONE_MAP.md,
@@ -63,8 +64,10 @@ export default async function CommunityDetailPage({ params }: { params: Promise<
                 <CardContent className="space-y-1 pt-6">
                   {fixture ? (
                     <>
-                      <p className="text-base font-semibold text-text-primary">
-                        {fixture.awayTeamName} @ {fixture.homeTeamName}
+                      <p className="flex flex-wrap items-center gap-1.5 text-base font-semibold text-text-primary">
+                        <TeamCrest logoUrl={fixture.awayTeamLogoUrl} teamName={fixture.awayTeamName} />
+                        {fixture.awayTeamName} @ <TeamCrest logoUrl={fixture.homeTeamLogoUrl} teamName={fixture.homeTeamName} />
+                        {fixture.homeTeamName}
                       </p>
                       <p className="text-sm text-text-secondary">
                         <LocalDateTime iso={fixture.scheduledStartUtc} options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />

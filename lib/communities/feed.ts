@@ -88,6 +88,8 @@ interface FeedFixtureRow {
   updated_at: string;
   home_team_name: string;
   away_team_name: string;
+  home_team_logo_url: string | null;
+  away_team_logo_url: string | null;
   competition_name: string | null;
   home_score: number | null;
   away_score: number | null;
@@ -118,6 +120,8 @@ export interface FeedItem {
   post: Post;
   homeTeamName: string;
   awayTeamName: string;
+  homeTeamLogoUrl: string | null;
+  awayTeamLogoUrl: string | null;
   competitionName: string | null;
   scheduledStartUtc: string;
   internalStatus: string;
@@ -181,7 +185,7 @@ export async function getSocialFeed(userId: string | null, limit = 50): Promise<
   // scan — mirrors getPersonalizedFeed's own prior 5x-overfetch precedent.
   const { data, error } = await admin
     .from("posts")
-    .select("*, fixtures!inner(internal_status, scheduled_start_utc, updated_at, home_team_name, away_team_name, competition_name, home_score, away_score)")
+    .select("*, fixtures!inner(internal_status, scheduled_start_utc, updated_at, home_team_name, away_team_name, home_team_logo_url, away_team_logo_url, competition_name, home_score, away_score)")
     .not("published_at", "is", null)
     .order("published_at", { ascending: false })
     .limit(Math.min(limit * 10, 500));
@@ -223,6 +227,8 @@ export async function getSocialFeed(userId: string | null, limit = 50): Promise<
       post: toPost(row),
       homeTeamName: row.fixtures!.home_team_name,
       awayTeamName: row.fixtures!.away_team_name,
+      homeTeamLogoUrl: row.fixtures!.home_team_logo_url,
+      awayTeamLogoUrl: row.fixtures!.away_team_logo_url,
       competitionName: row.fixtures!.competition_name,
       scheduledStartUtc: row.fixtures!.scheduled_start_utc,
       internalStatus: row.fixtures!.internal_status,

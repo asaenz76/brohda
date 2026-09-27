@@ -50,6 +50,9 @@ export interface FixtureForPostPresentation {
   id: string;
   homeTeamName: string;
   awayTeamName: string;
+  /** Stage 4B remediation — provider-supplied crest image, already populated by NFL ingestion; simply unused by the Post page until now. Null whenever the provider didn't supply one. */
+  homeTeamLogoUrl: string | null;
+  awayTeamLogoUrl: string | null;
   competitionName: string | null;
   scheduledStartUtc: string;
   internalStatus: string;
@@ -61,7 +64,7 @@ export async function getFixtureForPostPresentation(id: string): Promise<Fixture
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("fixtures")
-    .select("id, home_team_name, away_team_name, competition_name, scheduled_start_utc, internal_status, home_score, away_score")
+    .select("id, home_team_name, away_team_name, home_team_logo_url, away_team_logo_url, competition_name, scheduled_start_utc, internal_status, home_score, away_score")
     .eq("id", id)
     .maybeSingle();
   if (error) throw error;
@@ -70,6 +73,8 @@ export async function getFixtureForPostPresentation(id: string): Promise<Fixture
     id: data.id,
     homeTeamName: data.home_team_name,
     awayTeamName: data.away_team_name,
+    homeTeamLogoUrl: data.home_team_logo_url,
+    awayTeamLogoUrl: data.away_team_logo_url,
     competitionName: data.competition_name,
     scheduledStartUtc: data.scheduled_start_utc,
     internalStatus: data.internal_status,

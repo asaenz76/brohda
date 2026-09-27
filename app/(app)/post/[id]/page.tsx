@@ -14,6 +14,7 @@ import { PostConversation } from "@/components/posts/PostConversation";
 import { PostCommunityBadges } from "@/components/communities/PostCommunityBadges";
 import { Card, CardContent } from "@/components/ui/card";
 import { LocalDateTime } from "@/components/LocalDateTime";
+import { TeamCrest } from "@/components/TeamCrest";
 import Link from "next/link";
 
 /**
@@ -60,8 +61,10 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
 
       <Card>
         <CardContent className="space-y-2 pt-6">
-          <p className="text-xl font-semibold text-text-primary">
-            {fixture.awayTeamName} @ {fixture.homeTeamName}
+          <p className="flex flex-wrap items-center gap-1.5 text-xl font-semibold text-text-primary">
+            <TeamCrest logoUrl={fixture.awayTeamLogoUrl} teamName={fixture.awayTeamName} />
+            {fixture.awayTeamName} @ <TeamCrest logoUrl={fixture.homeTeamLogoUrl} teamName={fixture.homeTeamName} />
+            {fixture.homeTeamName}
           </p>
           {fixture.competitionName && <p className="text-sm text-text-secondary">{fixture.competitionName}</p>}
           <p className="text-sm text-text-secondary">
