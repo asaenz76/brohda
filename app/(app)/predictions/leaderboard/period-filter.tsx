@@ -22,7 +22,7 @@ export function PeriodFilter() {
     const params = new URLSearchParams(searchParams.toString());
     params.set("period", value);
     params.delete("page");
-    router.push(`/leaderboard/predictions?${params.toString()}`);
+    router.push(`/predictions/leaderboard?${params.toString()}`);
   }
 
   return (

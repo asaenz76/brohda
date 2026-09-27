@@ -238,7 +238,7 @@ export async function updateReputationSettingsAction(expectedUpdatedAt: string, 
   }
 
   revalidateBrohdaSettings();
-  revalidatePath("/leaderboard/predictions");
+  revalidatePath("/predictions/leaderboard");
   return { success: true, error: null, conflict: false, settings: result.settings };
 }
 

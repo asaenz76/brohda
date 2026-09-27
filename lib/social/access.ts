@@ -24,7 +24,7 @@ export async function getSocialPredictionAccessPolicy(): Promise<{ enabled: bool
 
 /**
  * Page-level gate for every Brohda 2.0 social-product route (/markets,
- * /markets/[id], /post/[id], /community/[slug], /leaderboard/predictions,
+ * /markets/[id], /post/[id], /community/[slug], /predictions/leaderboard,
  * /my-picks) — mirrors requireUser()/requireSuperAdmin()'s own shape
  * exactly (lib/auth/session.ts). Super Admin/Admin always pass, for
  * operational preview and QA, regardless of the flag — the same

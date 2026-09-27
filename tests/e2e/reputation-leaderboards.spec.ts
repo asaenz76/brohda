@@ -222,7 +222,7 @@ test.describe("Reputation + Leaderboards", () => {
       // database may carry other 100%-accuracy users from unrelated test
       // runs, which would otherwise make a page-wide "100.0%"/"7–0" search
       // ambiguous.
-      await page.goto("/leaderboard/predictions");
+      await page.goto("/predictions/leaderboard");
       const champRow = page.locator(`#row-${champ.userId}`);
       await expect(champRow).toContainText("#1");
       await expect(champRow).toContainText("7–0");
@@ -236,7 +236,7 @@ test.describe("Reputation + Leaderboards", () => {
       await expect(page.getByText("2–1")).toBeVisible();
       await expect(page.getByText("Not ranked yet")).toBeVisible();
 
-      await page.goto("/leaderboard/predictions");
+      await page.goto("/predictions/leaderboard");
       const belowMinRow = page.locator(`#row-${belowMin.userId}`);
       await expect(belowMinRow).toHaveCount(0);
     } finally {
