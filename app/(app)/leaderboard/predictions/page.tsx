@@ -42,12 +42,7 @@ export default async function PredictionLeaderboardPage({
     <div className="space-y-6">
       <h1 className="sr-only">Prediction Leaderboard</h1>
 
-      <p className="text-xs text-text-muted">
-        Ranked by prediction accuracy —{" "}
-        <Link href="/leaderboard" className="text-accent-primary hover:underline">
-          view the Pools leaderboard
-        </Link>
-      </p>
+      <p className="text-xs text-text-muted">Ranked by prediction accuracy</p>
 
       <PeriodFilter />
 
