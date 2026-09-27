@@ -175,12 +175,53 @@ can never stack, and one job's lock never affects another job's.
 | `/api/cron/process-results` | none (DB-only) | No | `processAwaitingResults` | Every 1 minute |
 | `/api/cron/sync-fixtures-nfl` | api_nfl | Yes — one request per tick regardless of season size | `runNflFixtureSync` | Every 5 minutes |
 | `/api/cron/prune-provider-request-log` | none (DB-only) | No | `runProviderRequestLogRetention` | Every 5 minutes |
-| `/api/cron/ingest-nfl-markets` | api_nfl | Yes | `runNflMarketIngestion` — no-ops unless `platform_settings.market_ingestion_enabled` | Every 15 minutes (recommended — odds don't need second-level freshness; adjust based on real quota headroom once live) |
+| `/api/cron/ingest-nfl-markets` | api_nfl | Yes | `runNflMarketIngestion` — no-ops unless `platform_settings.market_ingestion_enabled` | **Once daily** (recommended: 09:00 UTC) — see incident note below |
 | `/api/cron/publish-posts` | none (DB-only) | No | `runPostPublication` — no-ops unless `platform_settings.post_publication_enabled` | Every 5 minutes (recommended) |
 | `/api/cron/distribute-posts` | none (DB-only) | No | `runCommunityDistribution` — no-ops unless `platform_settings.community_distribution_enabled` | Every 5-15 minutes (recommended — a full reconciliation scan, not just new Posts) |
 | `/api/cron/grade-predictions` | none (DB-only) | No | `runGradingJob` — batch size from `platform_settings.grading_batch_size` | Every 2 minutes (recommended) |
 | `/api/cron/resolve-challenges` | none (DB-only) | No | `resolveAcceptedChallenges` — batch size from `platform_settings.challenge_resolution_batch_size` | Every 2 minutes, after grading (recommended) |
 | `/api/cron/settle-monetary-positions` | none (DB-only) | No | `runSettlementJob` — batch size from `platform_settings.settlement_batch_size` | Every 2 minutes, after grading (recommended) |
+
+**`ingest-nfl-markets` quota-exhaustion incident (2026-09-25 – 2026-09-27).**
+This job's fixture-eligibility query had no upper bound on
+`scheduled_start_utc` — every not-yet-started fixture for the rest of the
+season (up to ~226 rows, months out) qualified on every tick, and each one
+costs one real `get_odds` provider request. At the (then) 15-minute
+cron-job.org cadence that was ~226 × 96 ≈ 21,700 real requests/day, ~3x the
+entire API-NFL PRO plan's 7,500/day limit — confirmed via
+`provider_request_log` to have exhausted the real quota by ~8am UTC on each
+of three consecutive days. Two independent changes fixed this, and both are
+needed together:
+
+1. **Query bound** (`lib/prediction-markets/ingestion/nfl.ts`'s
+   `listEligibleNflFixtures`, code-level, already deployed): now bounded to
+   the current "sportsbook week" (`lib/sports-data/sportsbook-week.ts` —
+   Monday 00:00 through the following Monday 00:00 exclusive, generalized
+   for future sports, not NFL-specific) — turns an ever-growing,
+   season-wide candidate set into a small, constant one (~14-16 NFL
+   games/week).
+2. **Cadence reduction** (external, cron-job.org dashboard only — **not**
+   a code change, must be applied by hand): 15 minutes → once daily. This
+   product deliberately does not use real market odds for pricing (see
+   product decision behind Milestone R13.10), so daily-refreshed lines are
+   sufficient; there is no reason to re-fetch the same ~15 games' odds 96
+   times a day.
+
+Combined, worst case is now ~15 games × 1 request/day ≈ 15 requests/day for
+this job — down from ~21,700/day, comfortably inside the 7,500/day limit
+even stacked with every other provider-calling job.
+
+`sync-fixtures-nfl` was investigated for the same incident and found **not
+to need any change**: its own cost is flat per tick (`getSeasonFixtures` +
+`getLeagueById`, one request each regardless of season size — confirmed
+live, 328 games in one response, no pagination), so at its existing
+5-minute cadence that's ~2 × 288 ≈ 576 requests/day — confirmed via
+`provider_request_log` to be a negligible fraction of the real exhaustion
+(`get_odds` from the unbounded `ingest-nfl-markets` query was ~99% of
+total volume). Its 5-minute cadence already surfaces a finished game's
+result within 5 minutes of the provider marking it `COMPLETED`, which is
+already "just after the game finishes" for any practical purpose — no
+event-driven/game-window-aware rewrite is warranted for that.
 
 Expected max duration for every job is well under cron-job.org's timeout —
 observed production durations are sub-second to a few seconds.
@@ -216,7 +257,7 @@ cron-job.org's own settings and the Vercel env var):
 | Process results | `https://brohda.com/api/cron/process-results` | Every 1 minute | `Authorization: Bearer <CRON_SECRET>` |
 | Sync NFL fixtures | `https://brohda.com/api/cron/sync-fixtures-nfl` | Every 5 minutes | `Authorization: Bearer <CRON_SECRET>` |
 | Prune provider request log | `https://brohda.com/api/cron/prune-provider-request-log` | Every 5 minutes | `Authorization: Bearer <CRON_SECRET>` |
-| Ingest NFL markets | `https://brohda.com/api/cron/ingest-nfl-markets` | Every 15 minutes | `Authorization: Bearer <CRON_SECRET>` |
+| Ingest NFL markets | `https://brohda.com/api/cron/ingest-nfl-markets` | Once daily (recommended: 09:00 UTC) | `Authorization: Bearer <CRON_SECRET>` |
 | Publish posts | `https://brohda.com/api/cron/publish-posts` | Every 5 minutes | `Authorization: Bearer <CRON_SECRET>` |
 | Distribute posts | `https://brohda.com/api/cron/distribute-posts` | Every 5-15 minutes | `Authorization: Bearer <CRON_SECRET>` |
 | Grade predictions | `https://brohda.com/api/cron/grade-predictions` | Every 2 minutes | `Authorization: Bearer <CRON_SECRET>` |
