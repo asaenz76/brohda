@@ -7,6 +7,7 @@ import type { NormalizedMarket } from "@/lib/prediction-markets/types";
 import type { NflBookmakerOdds } from "@/lib/sports-data/types";
 import { aggregateMoneyline, aggregateTotal } from "./aggregate-nfl-odds";
 import { getMarketIngestionPolicy } from "./policy";
+import { getCurrentSportsbookWeek } from "@/lib/sports-data/sportsbook-week";
 
 // Milestone R2 (docs/BROHDA_2_0_MILESTONE_MAP.md, Sports Market Ingestion) —
 // the real, Brohda-native pipeline:
@@ -142,14 +143,35 @@ async function ingestTotal(fixture: EligibleFixture, bookmakers: NflBookmakerOdd
   return lineMoved ? "line-moved" : outcome;
 }
 
+/**
+ * Real-production incident fix (Stage 4C, R13.10): this previously had no
+ * upper bound on `scheduled_start_utc` at all — every not-yet-started
+ * fixture for the REST OF THE SEASON (up to ~226 rows, months out)
+ * qualified, and each one costs one real `get_odds` provider request per
+ * run. At the job's 15-minute cadence that was ~21,700 requests/day,
+ * ~3x the entire API-NFL PRO plan's 7,500/day limit — confirmed via
+ * provider_request_log to have exhausted the real quota by ~8am UTC for
+ * three consecutive days. Bounding this to the current sportsbook week
+ * (getCurrentSportsbookWeek, lib/sports-data/sportsbook-week.ts) turns an
+ * ever-growing, season-wide candidate set into a small, constant one
+ * (~14-16 NFL games) — the product doesn't need fresh odds for a game
+ * three months out refreshed every 15 minutes; per the explicit product
+ * decision behind this fix, this product isn't using live match odds at
+ * all, so once-a-week-scoped, infrequent refreshes are sufficient.
+ */
 async function listEligibleNflFixtures(): Promise<EligibleFixture[]> {
   const admin = createAdminClient();
+  // Only `weekEndUtc` is needed as an explicit filter: `now` (below) is
+  // always >= weekStartUtc by construction (this instant IS inside its
+  // own current week), so it's already the binding lower bound.
+  const { weekEndUtc } = getCurrentSportsbookWeek();
   const { data, error } = await admin
     .from("fixtures")
     .select("id, external_fixture_id, home_team_name, away_team_name")
     .eq("provider", API_NFL_PROVIDER)
     .eq("internal_status", "NOT_STARTED")
-    .gt("scheduled_start_utc", new Date().toISOString());
+    .gt("scheduled_start_utc", new Date().toISOString())
+    .lt("scheduled_start_utc", weekEndUtc);
   if (error) throw error;
   return (data ?? []).map((row) => ({
     id: row.id,

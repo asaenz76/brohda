@@ -111,6 +111,62 @@ describe("policy gate", () => {
   });
 });
 
+describe("current sportsbook week bounding (Stage 4C real-production incident fix)", () => {
+  // Real-production incident: this eligibility query previously had no
+  // upper bound on scheduled_start_utc at all — every not-yet-started
+  // fixture for the rest of the season qualified (~226 rows, months out),
+  // costing one real get_odds request per fixture per 15-minute run —
+  // ~21,700 requests/day, ~3x the entire provider plan's 7,500/day limit.
+  it("only examines fixtures within the current sportsbook week — a fixture scheduled for next week is never even fetched", async () => {
+    const { getCurrentSportsbookWeek } = await import("@/lib/sports-data/sportsbook-week");
+    const { weekEndUtc } = getCurrentSportsbookWeek();
+
+    // Deterministic regardless of which real day this test runs on: always
+    // strictly inside (now, weekEndUtc) and strictly outside it, rather
+    // than a fixed offset that could accidentally cross the boundary.
+    const inWeekStart = new Date(Math.min(Date.now() + 60 * 60 * 1000, new Date(weekEndUtc).getTime() - 60 * 1000));
+    const nextWeekStart = new Date(new Date(weekEndUtc).getTime() + 60 * 60 * 1000);
+
+    async function createFixtureAt(scheduledStartUtc: Date) {
+      const externalFixtureId = `r2-week-bound-${crypto.randomUUID()}`;
+      const { data, error } = await admin
+        .from("fixtures")
+        .insert({
+          provider: "api_nfl",
+          external_fixture_id: externalFixtureId,
+          home_team_name: "Home Test NFL",
+          away_team_name: "Away Test NFL",
+          scheduled_start_utc: scheduledStartUtc.toISOString(),
+          internal_status: "NOT_STARTED",
+        })
+        .select("id")
+        .single();
+      if (error || !data) throw error ?? new Error("failed to create fixture");
+      createdFixtureIds.push(data.id);
+      return { id: data.id as string, externalFixtureId };
+    }
+
+    const inWeekFixture = await createFixtureAt(inWeekStart);
+    const nextWeekFixture = await createFixtureAt(nextWeekStart);
+
+    await setIngestionPolicy(true);
+    getFixtureRawOddsMock.mockResolvedValue(oddsFixture(inWeekFixture.externalFixtureId));
+
+    const summary = await runNflMarketIngestion();
+
+    const examinedIds = summary.outcomes.map((o) => o.fixtureId);
+    expect(examinedIds).toContain(inWeekFixture.id);
+    expect(examinedIds).not.toContain(nextWeekFixture.id);
+    expect(getFixtureRawOddsMock).toHaveBeenCalledWith(inWeekFixture.externalFixtureId);
+    expect(getFixtureRawOddsMock).not.toHaveBeenCalledWith(nextWeekFixture.externalFixtureId);
+
+    const inWeekMarkets = await marketsFor(inWeekFixture.id);
+    const nextWeekMarkets = await marketsFor(nextWeekFixture.id);
+    expect(inWeekMarkets.length).toBeGreaterThan(0);
+    expect(nextWeekMarkets).toHaveLength(0);
+  });
+});
+
 describe("Market creation", () => {
   it("creates a MONEYLINE and TOTAL Market from sufficient bookmaker data", async () => {
     const fixture = await createFixture();
