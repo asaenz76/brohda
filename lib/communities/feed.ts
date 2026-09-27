@@ -60,16 +60,17 @@ export async function getCommunityFeed(communityId: string, limit = 50): Promise
 // Stage 4A canonical social feed
 // ---------------------------------------------------------------------
 
-/**
- * A technical invariant (which fixture states represent "the game is
- * currently a live, ongoing conversation"), not mutable product policy —
- * unlike the completed-game retention window below, this list never needs
- * an admin toggle: it's the fixed definition of "not yet decided."
- */
-const FEED_LIVE_STATUSES = ["NOT_STARTED", "LIVE", "HALFTIME", "EXTRA_TIME", "PENALTIES"] as const;
-
 export interface FeedPolicy {
-  /** platform_settings.feed_completed_game_retention_hours — mutable product policy (an admin-adjustable window), unlike FEED_LIVE_STATUSES above. */
+  /**
+   * platform_settings.feed_completed_game_retention_hours — column still
+   * exists and remains admin-configurable, but is currently NOT consulted
+   * by isFeedEligible below (Stage 4C real-production feedback: "once a
+   * game has kicked off it should be off the board" — LIVE/HALFTIME/
+   * EXTRA_TIME/PENALTIES/COMPLETED games were all being shown, which is
+   * not what was wanted). Left in place rather than dropped via a
+   * migration, in case a future milestone reintroduces a "recently
+   * finished" view deliberately.
+   */
   completedGameRetentionHours: number;
 }
 
@@ -133,32 +134,27 @@ export interface FeedItem {
   isFromFollowedCommunity: boolean;
 }
 
-function isRecentlyCompleted(fixture: FeedFixtureRow, retentionHours: number): boolean {
-  const completedAt = new Date(fixture.updated_at).getTime();
-  const cutoff = Date.now() - retentionHours * 60 * 60 * 1000;
-  return completedAt >= cutoff;
-}
-
-/** "Appropriate current/relevant sports content" (§4): live-in-progress statuses always qualify; a COMPLETED game qualifies only within the configured retention window; POSTPONED/SUSPENDED/ABANDONED/CANCELLED/AWARDED/UNKNOWN never do — those are exactly the non-standard statuses the Stage 4 audit's R5 finding (§8) already established as "uncertain, not a normal live game." */
-function isFeedEligible(fixture: FeedFixtureRow | null, retentionHours: number): boolean {
+/**
+ * "Appropriate current/relevant sports content" (§4), resolved by real
+ * Stage 4C production feedback: only a Game that hasn't kicked off yet is
+ * "on the board" — once it does (LIVE/HALFTIME/EXTRA_TIME/PENALTIES/
+ * COMPLETED alike), it drops out of Discover. This is a technical
+ * invariant now (a single, exact status check), not the multi-status/
+ * retention-window policy Stage 4A originally shipped. The Post itself is
+ * never deleted or made unreachable by this — only the Discover feed's own
+ * listing query is affected; a direct link (notification, Community page,
+ * shared URL) still opens it.
+ */
+function isFeedEligible(fixture: FeedFixtureRow | null): boolean {
   if (!fixture) return false;
-  if ((FEED_LIVE_STATUSES as readonly string[]).includes(fixture.internal_status)) return true;
-  if (fixture.internal_status === "COMPLETED") return isRecentlyCompleted(fixture, retentionHours);
-  return false;
+  return fixture.internal_status === "NOT_STARTED";
 }
 
-/** Deterministic sort (§7): followed-Community relevance first, then upcoming/live games soonest-first and completed games most-recently-finished-first, then a stable id tie-breaker. No engagement scoring, no ML. */
+/** Deterministic sort (§7): followed-Community relevance first, then soonest-kickoff-first, then a stable id tie-breaker. No engagement scoring, no ML. Every candidate is NOT_STARTED (see isFeedEligible), so there is no live/completed distinction left to order by. */
 function compareFeedItems(a: FeedItem, b: FeedItem): number {
   if (a.isFromFollowedCommunity !== b.isFromFollowedCommunity) return a.isFromFollowedCommunity ? -1 : 1;
 
-  const aLive = (FEED_LIVE_STATUSES as readonly string[]).includes(a.internalStatus);
-  const bLive = (FEED_LIVE_STATUSES as readonly string[]).includes(b.internalStatus);
-  if (aLive !== bLive) return aLive ? -1 : 1;
-
-  const aTime = new Date(a.scheduledStartUtc).getTime();
-  const bTime = new Date(b.scheduledStartUtc).getTime();
-  // Upcoming/live: soonest kickoff first. Completed: most recently finished first.
-  const timeOrder = aLive ? aTime - bTime : bTime - aTime;
+  const timeOrder = new Date(a.scheduledStartUtc).getTime() - new Date(b.scheduledStartUtc).getTime();
   if (timeOrder !== 0) return timeOrder;
 
   return a.post.id.localeCompare(b.post.id);
@@ -173,16 +169,16 @@ function compareFeedItems(a: FeedItem, b: FeedItem): number {
  */
 export async function getSocialFeed(userId: string | null, limit = 50): Promise<FeedItem[]> {
   const admin = createAdminClient();
-  const [policy, followedCommunityIds, publicationPolicy] = await Promise.all([
-    getFeedPolicy(),
+  const [followedCommunityIds, publicationPolicy] = await Promise.all([
     userId ? listFollowedCommunityIds(userId) : Promise.resolve([]),
     getPostPublicationPolicy(),
   ]);
 
   // Over-fetch: some published Posts will be filtered out by isFeedEligible
-  // (postponed/stale/etc.), so a flat `limit` fetch could under-fill the
-  // page. A generous cap (10x, bounded) absorbs that without an unbounded
-  // scan — mirrors getPersonalizedFeed's own prior 5x-overfetch precedent.
+  // (already kicked off, postponed/stale/etc.), so a flat `limit` fetch
+  // could under-fill the page. A generous cap (10x, bounded) absorbs that
+  // without an unbounded scan — mirrors getPersonalizedFeed's own prior
+  // 5x-overfetch precedent.
   const { data, error } = await admin
     .from("posts")
     .select("*, fixtures!inner(internal_status, scheduled_start_utc, updated_at, home_team_name, away_team_name, home_team_logo_url, away_team_logo_url, competition_name, home_score, away_score)")
@@ -191,7 +187,7 @@ export async function getSocialFeed(userId: string | null, limit = 50): Promise<
     .limit(Math.min(limit * 10, 500));
   if (error) throw error;
 
-  const rows = (data as unknown as FeedPostRow[]).filter((row) => isFeedEligible(row.fixtures, policy.completedGameRetentionHours));
+  const rows = (data as unknown as FeedPostRow[]).filter((row) => isFeedEligible(row.fixtures));
 
   const postIds = rows.map((r) => r.id);
   const fixtureIds = [...new Set(rows.map((r) => r.fixture_id))];

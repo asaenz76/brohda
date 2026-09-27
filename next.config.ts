@@ -60,6 +60,21 @@ const nextConfig: NextConfig = {
         ]
       : [],
   },
+  async redirects() {
+    return [
+      // Stage 4C — the prediction leaderboard moved from
+      // /leaderboard/predictions to /predictions/leaderboard (matching
+      // /predictions/* as the Brohda 2.0 information-architecture root,
+      // parallel to /markets, /post, /community). Permanent redirect
+      // covers any link/bookmark to the old path, including the one real
+      // production visit that already happened before this moved.
+      {
+        source: "/leaderboard/predictions",
+        destination: "/predictions/leaderboard",
+        permanent: true,
+      },
+    ];
+  },
   async headers() {
     return [
       {

@@ -537,27 +537,27 @@ describe("social feed (Stage 4A)", () => {
     expect(feed.map((i) => i.post.id)).not.toContain(draftPostId);
   });
 
-  it("(E) a POSTPONED game's Post is excluded, and a COMPLETED game's Post drops out after the configured retention window", async () => {
+  it("(E) a Post is excluded from Discover the moment its Game is no longer NOT_STARTED — POSTPONED, LIVE, or COMPLETED alike (Stage 4C: 'once a game has kicked off it should be off the board')", async () => {
     const postponedFixture = await createFixture({ overrides: { internal_status: "POSTPONED" } });
     const postponedPostId = await createPublishedPost(postponedFixture);
 
-    const staleFixture = await createFixture({
-      overrides: { internal_status: "COMPLETED", updated_at: new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString() },
-    });
-    const stalePostId = await createPublishedPost(staleFixture);
+    const liveFixture = await createFixture({ overrides: { internal_status: "LIVE" } });
+    const livePostId = await createPublishedPost(liveFixture);
 
+    // Stage 4C real-production feedback superseded the retention-window
+    // design: a COMPLETED game (however recently) no longer appears at
+    // all — there is no grace period. feed_completed_game_retention_hours
+    // remains a valid column/setting but is no longer consulted here.
     const recentFixture = await createFixture({
       overrides: { internal_status: "COMPLETED", updated_at: new Date(Date.now() - 60 * 60 * 1000).toISOString() },
     });
     const recentPostId = await createPublishedPost(recentFixture);
 
-    await setPolicy({ feed_completed_game_retention_hours: 24 });
-
     const userId = await createTestUser();
     const feed = await getSocialFeed(userId);
     const feedIds = feed.map((i) => i.post.id);
     expect(feedIds).not.toContain(postponedPostId);
-    expect(feedIds).not.toContain(stalePostId);
-    expect(feedIds).toContain(recentPostId);
+    expect(feedIds).not.toContain(livePostId);
+    expect(feedIds).not.toContain(recentPostId);
   });
 });

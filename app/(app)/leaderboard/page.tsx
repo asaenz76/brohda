@@ -81,7 +81,7 @@ export default async function LeaderboardPage({
       {showPredictionsLeaderboardLink && (
         <p className="text-xs text-text-muted">
           Looking for prediction accuracy rankings?{" "}
-          <Link href="/leaderboard/predictions" className="text-accent-primary hover:underline">
+          <Link href="/predictions/leaderboard" className="text-accent-primary hover:underline">
             View the Predictions Leaderboard
           </Link>
         </p>

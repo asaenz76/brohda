@@ -123,6 +123,14 @@ export function PostConversation({
     e.preventDefault();
     const trimmed = body.trim();
     if (!trimmed) return;
+    // Stage 4C real-production feedback: submitting a comment could land a
+    // subsequent tap on the fixed bottom nav underneath, on mobile — the
+    // on-screen keyboard dismissing at the same moment the comment list
+    // grows shifts the whole page layout, and this composer sits at the
+    // very bottom of it, closest to the nav bar of anything on the page.
+    // Blurring immediately, before the mutation/re-render, dismisses the
+    // keyboard on our own terms rather than mid-tap.
+    composerRef.current?.blur();
     postComment(trimmed, null);
   }
 
