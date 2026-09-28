@@ -11,6 +11,7 @@ function makeNotification(overrides: Partial<NotificationRow>): NotificationRow 
     pool_id: "pool-1",
     transaction_id: null,
     post_id: null,
+    market_id: null,
     read_at: null,
     created_at: new Date().toISOString(),
     ...overrides,
@@ -84,13 +85,27 @@ describe("resolveNotificationHref", () => {
   // Prediction's notification previously resolved to no destination at
   // all (no case existed for this type). Direct field read, resolved once
   // at creation time — no pool_id/transaction_id/ledger lookup involved.
-  it("points a graded-prediction notification at its canonical Post", () => {
-    const n = makeNotification({ type: "prediction_graded", pool_id: null, post_id: "post-1" });
+  it("falls back to the canonical Post when there's no market_id", () => {
+    const n = makeNotification({ type: "prediction_graded", pool_id: null, post_id: "post-1", market_id: null });
     expect(resolveNotificationHref(n, new Map())).toBe("/post/post-1");
   });
 
-  it("returns null for a graded-prediction notification with no post_id (data anomaly, or a pre-migration row)", () => {
-    const n = makeNotification({ type: "prediction_graded", pool_id: null, post_id: null });
+  it("returns null for a graded-prediction notification with neither market_id nor post_id (data anomaly, or a pre-migration row)", () => {
+    const n = makeNotification({ type: "prediction_graded", pool_id: null, post_id: null, market_id: null });
     expect(resolveNotificationHref(n, new Map())).toBeNull();
+  });
+
+  // Stage 4C remediation: a Post can have more than one concurrently
+  // ACTIVE Market — market_id disambiguates which one this specific
+  // notification is about, rather than collapsing every prediction_graded
+  // notification for the same Post to its primary Market.
+  it("points a graded-prediction notification at its specific Market when market_id is present", () => {
+    const n = makeNotification({ type: "prediction_graded", pool_id: null, post_id: "post-1", market_id: "market-1" });
+    expect(resolveNotificationHref(n, new Map())).toBe("/markets/market-1");
+  });
+
+  it("prefers market_id over post_id when both are present", () => {
+    const n = makeNotification({ type: "prediction_graded", pool_id: null, post_id: "post-1", market_id: "market-1" });
+    expect(resolveNotificationHref(n, new Map())).toBe("/markets/market-1");
   });
 });

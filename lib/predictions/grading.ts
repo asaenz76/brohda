@@ -196,6 +196,7 @@ export async function runGradingJob(
         questionSnapshot: prediction.marketQuestionSnapshot,
         result: decision.result,
         postId: post?.id ?? null,
+        marketId: market!.id,
       });
     } catch (error) {
       // Milestone R13.5 (§22, §26): one bad Prediction must not abort the

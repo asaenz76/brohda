@@ -47,6 +47,8 @@ export async function createPredictionGradedNotification(input: {
   result: PredictionResult;
   /** Stage 4A remediation (Stage 4 audit §14) — the canonical Post this grading was about, for click-through (lib/notifications/links.ts). Null when the grading job's own fixture->Post lookup came up empty (data anomaly) — the notification is still created, just not clickable. */
   postId: string | null;
+  /** Stage 4C remediation — the specific Market this grading was about. A Post can have more than one concurrently ACTIVE Market (e.g. MONEYLINE + TOTAL for the same NFL Game); resolveNotificationHref (lib/notifications/links.ts) prefers this over postId so the notification lands on the exact Market it's about, not just the Post's primary Market. Always non-null in practice — grading only reaches this call with a resolved Market in scope — typed nullable only to match postId's own defensive convention. */
+  marketId: string | null;
 }): Promise<void> {
   const admin = createAdminClient();
   const copyPolicy = await getPredictionNotificationCopyPolicy();
@@ -59,6 +61,7 @@ export async function createPredictionGradedNotification(input: {
     body,
     pool_id: null,
     post_id: input.postId,
+    market_id: input.marketId,
   });
   if (error) throw error;
 }
@@ -83,6 +86,7 @@ export async function maybeCreatePredictionGradedNotification(input: {
   questionSnapshot: string;
   result: PredictionResult;
   postId: string | null;
+  marketId: string | null;
 }): Promise<void> {
   const policy = await getPredictionNotificationPolicy();
   if (!shouldNotifyForResult(input.result, policy)) return;
