@@ -7,8 +7,17 @@
 // Renders nothing (not a broken-image icon, not a placeholder circle) when
 // no logo URL was supplied — this is a compact inline context, not the
 // Pools card's big visual anchor, so an empty gray circle would be noise.
-export function TeamCrest({ logoUrl, teamName }: { logoUrl: string | null; teamName: string }) {
+export function TeamCrest({
+  logoUrl,
+  teamName,
+  className,
+}: {
+  logoUrl: string | null;
+  teamName: string;
+  /** Phase B addition — overrides the default `size-5`; every other class stays fixed. Additive, existing call sites (no className) are unaffected. */
+  className?: string;
+}) {
   if (!logoUrl) return null;
   // eslint-disable-next-line @next/next/no-img-element
-  return <img src={logoUrl} alt="" title={teamName} className="size-5 shrink-0 rounded-full object-contain" />;
+  return <img src={logoUrl} alt="" title={teamName} className={className ? `${className} shrink-0 rounded-full object-contain` : "size-5 shrink-0 rounded-full object-contain"} />;
 }

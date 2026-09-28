@@ -28,6 +28,12 @@ export type MarketTemplate = "MONEYLINE" | "SPREAD" | "TOTAL";
 /** Which fixture side the YES outcome refers to. Null only for TOTAL, where YES always means OVER (a fixed template convention, not per-row data). */
 export type MarketYesSide = "HOME" | "AWAY";
 
+/**
+ * ⚠️ SENTIMENT-CORRECTNESS BOUNDARY (Phase B, Brohda 2.0 redesign spec
+ * §22) — this is provider/bookmaker-derived consensus, persisted verbatim
+ * as `markets.yes_price`/`no_price` (see MarketRecord in ./repository.ts
+ * for the consumer-facing guardrail comment). Not Brohda Pick sentiment.
+ */
 export interface NormalizedMarketPrice {
   /** Independently-read YES price, 0-1 range. Null = not available at ingestion time — never a substituted zero. */
   yes: number | null;

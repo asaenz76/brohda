@@ -52,6 +52,20 @@ export interface MarketRecord {
   marketTemplate: MarketTemplate;
   lineValue: number | null;
   yesSide: MarketYesSide | null;
+  /**
+   * ⚠️ SENTIMENT-CORRECTNESS BOUNDARY (Phase B, Brohda 2.0 redesign spec
+   * §22) — `yesPrice`/`noPrice` are the PROVIDER/BOOKMAKER-DERIVED,
+   * vig-removed consensus probability (lib/prediction-markets/ingestion/
+   * aggregate-nfl-odds.ts's `aggregateMoneyline`/`aggregateTotal`). They
+   * are NOT, and must never be rendered as, "% of Brohda users who picked
+   * this side" / community sentiment / social prediction percentage —
+   * that requires a genuinely separate aggregation over `predictions.
+   * selected_outcome` grouped by `market_id` (real Brohda Pick data),
+   * which does not exist yet (Phase D builds it). Any future consumer
+   * component showing a Brohda-sentiment percentage must consume THAT
+   * new aggregation, never these two fields, and must never phrase these
+   * two fields as if they were it.
+   */
   yesPrice: number | null;
   noPrice: number | null;
   /**
