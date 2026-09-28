@@ -78,7 +78,18 @@ export function PredictionActions({
   return (
     <div className="space-y-2" data-testid="prediction-actions">
       <p className="text-sm font-semibold text-text-primary">{selection ? "Change your prediction" : "Make your prediction"}</p>
-      <div className="flex gap-3">
+      {/*
+        Phase C (Brohda 2.0 redesign, spec §39) fix: at 375px, two buttons
+        side by side with long semantic labels ("Home Test NFL do not
+        win") overflowed the card rather than wrapping — Button's own base
+        class is `whitespace-nowrap`, and a plain `flex gap-3` row has
+        nothing to fall back to once both labels' natural widths exceed
+        the container. Stacking full-width below `sm` and reverting to an
+        inline row (auto width) at `sm`+ guarantees no horizontal overflow
+        at any viewport regardless of label length, without truncating or
+        wrapping text inside the button itself.
+      */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
         <Button
           type="button"
           variant={selection === "YES" ? "default" : "outline"}
@@ -87,6 +98,7 @@ export function PredictionActions({
           onClick={() => handleSubmit("YES")}
           aria-label={`Pick: ${yesLabel}`}
           aria-pressed={selection === "YES"}
+          className="w-full sm:w-auto"
         >
           {yesLabel}
         </Button>
@@ -98,6 +110,7 @@ export function PredictionActions({
           onClick={() => handleSubmit("NO")}
           aria-label={`Pick: ${noLabel}`}
           aria-pressed={selection === "NO"}
+          className="w-full sm:w-auto"
         >
           {noLabel}
         </Button>

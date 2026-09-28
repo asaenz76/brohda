@@ -44,4 +44,12 @@ export interface DiscoveryMarketDetail extends DiscoveryMarketCard {
   description: string | null;
   /** Only ever non-null once Brohda's own normalized data genuinely contains a resolution — never fabricated (roadmap STEP 16). Raw "YES"/"NO" — resolve through yesLabel/noLabel for display, never render this directly. */
   resolvedOutcome: string | null;
+  /**
+   * Phase C (Brohda 2.0 redesign) — real Brohda Pick count, and (inherited
+   * from DiscoveryMarketCard) `yesPercent`/`noPercent` are, for this type
+   * ONLY, overridden by getMarketDetail() to be real Pick-share sentiment
+   * (see lib/predictions/sentiment.ts) rather than DiscoveryMarketCard's
+   * own provider-price-derived values — see that function's own comment.
+   */
+  totalPickCount: number;
 }

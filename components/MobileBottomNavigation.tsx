@@ -18,19 +18,23 @@ import { Avatar } from "@/components/Avatar";
 // nothing for an ordinary user to "create" yet; the prior FAB was already
 // superadmin-only, reachable via /admin/pools/new + the separate AdminNav).
 //
-// TEMPORARY ROUTE MAPPINGS (spec §14/§16 — document every one; none of
-// these are the final destination, they're what those 4 concepts point at
-// until their own phase builds the real thing):
-//   Home          -> /feed      (still the legacy Pools feed's content
-//                                today; Phase D repurposes this exact
-//                                route into the real Home timeline)
-//   Discovery     -> /markets   (still Stage 4A's flat social-discovery
-//                                feed today, not yet Sports/Leagues/Teams
-//                                tabs; Phase C builds the real /discovery)
-//   Notifications -> /activity  (still the combined notifications+ledger
-//                                page today; Phase G splits out a real
-//                                /notifications route)
-//   Profile       -> /profile   (already correct, no mapping needed)
+// ROUTE MAPPINGS (spec §14/§16 originally called these all "temporary" —
+// updated per Phase C):
+//   Home          -> /feed      Phase C cutover complete: /feed IS now the
+//                                real Brohda 2.0 Home timeline (canonical
+//                                Game Posts, Pools fully retired from it).
+//                                This mapping is final, not temporary.
+//   Discovery     -> /markets   STILL TEMPORARY — /markets is Stage 4A's
+//                                flat social feed (same content as Home
+//                                right now, see app/(app)/markets/page.tsx's
+//                                own comment for why that's deliberate),
+//                                not yet Sports/Leagues/Teams tabs; a later
+//                                phase builds the real /discovery.
+//   Notifications -> /activity  STILL TEMPORARY — the combined
+//                                notifications+ledger page today; a later
+//                                phase splits out a real /notifications
+//                                route.
+//   Profile       -> /profile   Already correct, no mapping needed.
 interface NavTab {
   href: string;
   label: string;

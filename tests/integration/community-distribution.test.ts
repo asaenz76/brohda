@@ -13,6 +13,7 @@ import { followCommunity, isFollowingCommunity, listFollowedCommunityIds, unfoll
 import { ensurePostForFixture, publishPost } from "@/lib/posts/repository";
 import { upsertMarket } from "@/lib/prediction-markets/repository";
 import type { NormalizedMarket } from "@/lib/prediction-markets/types";
+import { addPostComment } from "@/lib/post-comments/repository";
 
 const admin = getTestAdminClient();
 const PROVIDER = "api_nfl";
@@ -24,6 +25,11 @@ const createdMarketIds: string[] = [];
 const createdPostIds: string[] = [];
 const createdCommunityIds: string[] = [];
 const createdUserIds: string[] = [];
+// Phase C (Brohda 2.0 redesign) additions — predictions/comments created
+// by the new "Home feed sentiment/comments/Pick state" describe block
+// below, cleaned up before their parent markets/posts (FK order).
+const createdPredictionIds: string[] = [];
+const createdCommentIds: string[] = [];
 
 async function createTeam(name: string): Promise<{ id: string; externalId: string }> {
   const externalId = `team-${crypto.randomUUID()}`;
@@ -109,6 +115,43 @@ async function setPolicy(overrides: Record<string, unknown>) {
   await admin.from("platform_settings").update(overrides).eq("id", true);
 }
 
+/**
+ * Phase C — a raw `predictions` insert (not the real setPick() action):
+ * these tests only need real rows for getPickAggregatesForMarkets/
+ * listLatestUserPredictionsForMarkets to read back, not the full pick-
+ * lifecycle validation setPick() itself performs, matching this
+ * codebase's own established convention for aggregate-focused tests
+ * (tests/integration/predictions.test.ts's own makePick helper).
+ */
+async function createPrediction(
+  userId: string,
+  marketId: string,
+  outcome: "YES" | "NO",
+  overrides: { lockedAt?: string | null } = {},
+): Promise<string> {
+  const { data, error } = await admin
+    .from("predictions")
+    .insert({
+      user_id: userId,
+      market_id: marketId,
+      selected_outcome: outcome,
+      yes_probability_snapshot: 0.6,
+      no_probability_snapshot: 0.4,
+      market_question_snapshot: "Will the home team win?",
+      market_close_at_snapshot: null,
+      market_status_snapshot: "ACTIVE",
+      lifecycle_state: "PENDING",
+      locked_at: overrides.lockedAt ?? null,
+      lock_reason: overrides.lockedAt ? "CUTOFF" : null,
+      idempotency_key: crypto.randomUUID(),
+    })
+    .select("id")
+    .single();
+  if (error || !data) throw error ?? new Error("failed to create prediction");
+  createdPredictionIds.push(data.id);
+  return data.id;
+}
+
 async function createTestUser(): Promise<string> {
   const { data, error } = await admin.auth.admin.createUser({ email: `r4-community-${crypto.randomUUID()}@test.local`, password: "integration-test-password-123", email_confirm: true });
   if (error || !data.user) throw error ?? new Error("failed to create user");
@@ -118,6 +161,14 @@ async function createTestUser(): Promise<string> {
 }
 
 afterEach(async () => {
+  if (createdPredictionIds.length > 0) {
+    await admin.from("predictions").delete().in("id", createdPredictionIds);
+    createdPredictionIds.length = 0;
+  }
+  if (createdCommentIds.length > 0) {
+    await admin.from("post_comments").delete().in("id", createdCommentIds);
+    createdCommentIds.length = 0;
+  }
   if (createdCommunityIds.length > 0) {
     await admin.from("post_communities").delete().in("community_id", createdCommunityIds);
     await admin.from("community_follows").delete().in("community_id", createdCommunityIds);
@@ -559,5 +610,108 @@ describe("social feed (Stage 4A)", () => {
     expect(feedIds).not.toContain(postponedPostId);
     expect(feedIds).not.toContain(livePostId);
     expect(feedIds).not.toContain(recentPostId);
+  });
+});
+
+// Phase C (Brohda 2.0 redesign, spec §13-14, §15, §21) — getSocialFeed()'s
+// new batched fields: real Brohda Pick-share sentiment (never provider
+// price), "N predicted", the viewer's own Pick state (editable vs
+// locked), and comment count.
+describe("Home feed sentiment/comments/Pick state (Phase C)", () => {
+  it("primaryMarket sentiment is real Brohda Pick-share, never the market's own provider price", async () => {
+    const fixtureId = await createFixture();
+    const postId = await createPublishedPost(fixtureId);
+    // marketPayload's own default price is 60/40 (see marketPayload above)
+    // — 3 real Picks (2 YES, 1 NO) below produce a DIFFERENT split
+    // (67/33), so a passing assertion against 67/33 here is only possible
+    // if the feed is genuinely reading Predictions, not markets.yes_price/
+    // no_price.
+    const marketId = await createMarket(fixtureId);
+
+    const voter1 = await createTestUser();
+    const voter2 = await createTestUser();
+    const voter3 = await createTestUser();
+    await createPrediction(voter1, marketId, "YES");
+    await createPrediction(voter2, marketId, "YES");
+    await createPrediction(voter3, marketId, "NO");
+
+    const viewerId = await createTestUser();
+    const feed = await getSocialFeed(viewerId);
+    const item = feed.find((i) => i.post.id === postId);
+    expect(item?.primaryMarket?.totalPickCount).toBe(3);
+    expect(item?.primaryMarket?.yesPercent).toBe(67);
+    expect(item?.primaryMarket?.noPercent).toBe(33);
+  });
+
+  it("never fabricates a percentage when nobody has predicted yet", async () => {
+    const fixtureId = await createFixture();
+    const postId = await createPublishedPost(fixtureId);
+    await createMarket(fixtureId);
+
+    const viewerId = await createTestUser();
+    const feed = await getSocialFeed(viewerId);
+    const item = feed.find((i) => i.post.id === postId);
+    expect(item?.primaryMarket?.totalPickCount).toBe(0);
+    expect(item?.primaryMarket?.yesPercent).toBeNull();
+    expect(item?.primaryMarket?.noPercent).toBeNull();
+  });
+
+  it("surfaces the viewer's own unlocked Pick as editable, pre-filled, with no disabled reason", async () => {
+    const fixtureId = await createFixture();
+    const postId = await createPublishedPost(fixtureId);
+    const marketId = await createMarket(fixtureId);
+
+    const viewerId = await createTestUser();
+    await createPrediction(viewerId, marketId, "YES");
+
+    const feed = await getSocialFeed(viewerId);
+    const item = feed.find((i) => i.post.id === postId);
+    expect(item?.primaryMarket?.viewerSelection).toBe("YES");
+    expect(item?.primaryMarket?.isEditable).toBe(true);
+    expect(item?.primaryMarket?.pickDisabledReason).toBeNull();
+  });
+
+  it("surfaces the viewer's own locked Pick as read-only, with a locked reason", async () => {
+    const fixtureId = await createFixture();
+    const postId = await createPublishedPost(fixtureId);
+    const marketId = await createMarket(fixtureId);
+
+    const viewerId = await createTestUser();
+    await createPrediction(viewerId, marketId, "NO", { lockedAt: new Date().toISOString() });
+
+    const feed = await getSocialFeed(viewerId);
+    const item = feed.find((i) => i.post.id === postId);
+    expect(item?.primaryMarket?.viewerSelection).toBe("NO");
+    expect(item?.primaryMarket?.isEditable).toBe(false);
+    expect(item?.primaryMarket?.pickDisabledReason).toBe("Picks are locked for this game.");
+  });
+
+  it("counts real, non-tombstoned comments per Post, batched across the whole feed", async () => {
+    const fixtureId = await createFixture();
+    const postId = await createPublishedPost(fixtureId);
+    await createMarket(fixtureId);
+
+    const commenter = await createTestUser();
+    const c1 = await addPostComment({ postId, userId: commenter, body: "First!", parentCommentId: null });
+    const c2 = await addPostComment({ postId, userId: commenter, body: "Second", parentCommentId: null });
+    const c3 = await addPostComment({ postId, userId: commenter, body: "Removed", parentCommentId: null });
+    createdCommentIds.push(c1.id, c2.id, c3.id);
+    await admin.from("post_comments").update({ deleted_at: new Date().toISOString() }).eq("id", c3.id);
+
+    const viewerId = await createTestUser();
+    const feed = await getSocialFeed(viewerId);
+    const item = feed.find((i) => i.post.id === postId);
+    expect(item?.commentCount).toBe(2);
+  });
+
+  it("a Post with no active Market has a null primaryMarket, never a throw", async () => {
+    const fixtureId = await createFixture();
+    const postId = await createPublishedPost(fixtureId);
+
+    const viewerId = await createTestUser();
+    const feed = await getSocialFeed(viewerId);
+    const item = feed.find((i) => i.post.id === postId);
+    expect(item?.primaryMarket).toBeNull();
+    expect(item?.commentCount).toBe(0);
   });
 });

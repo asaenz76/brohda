@@ -142,11 +142,25 @@ test.describe("social discovery feed", () => {
       // other E2E workers' concurrently-seeded Posts are also visible on
       // this same page; every locator below is anchored to this test's own
       // unique suffix to avoid a strict-mode collision with them.
-      const card = page.locator("a", { hasText: `${awayTeamName} @ ${homeTeamName}` });
-      await expect(card).toBeVisible();
-      await expect(card.getByText(question)).toBeVisible();
+      //
+      // Phase C (Brohda 2.0 redesign) update: GamePostCard's own Link
+      // wraps only the team/status/question block, NOT the interactive
+      // Pick buttons below it (a real <button> can't nest inside an <a> —
+      // see that component's own comment) — so the semantic-label checks
+      // below are scoped to the whole Card container (`data-slot="card"`),
+      // which contains both, while the click-through-to-Post assertion
+      // stays scoped to the actual link so the click can't land on a Pick
+      // button instead.
+      const cardLink = page.locator("a", { hasText: `${awayTeamName} @ ${homeTeamName}` });
+      const card = page.locator('[data-slot="card"]', { hasText: `${awayTeamName} @ ${homeTeamName}` });
+      await expect(cardLink).toBeVisible();
+      await expect(cardLink.getByText(question)).toBeVisible();
 
-      // Semantic selection labels, never the raw YES/NO enum, on the feed card.
+      // Semantic selection labels, never the raw YES/NO enum, on the feed
+      // card — this freshly-seeded Market has zero real Picks yet, so the
+      // labels surface as this card's own Pick buttons (real Brohda
+      // sentiment, not the provider price seedMarket also sets, only
+      // renders once a real Pick exists — see GamePostCard's own comment).
       await expect(card.getByText(yesLabel)).toBeVisible();
       await expect(card.getByText(noLabel)).toBeVisible();
       await expect(card.getByText(/^\s*yes\s*$/i)).toHaveCount(0);
@@ -157,7 +171,7 @@ test.describe("social discovery feed", () => {
       await expect(page.getByText(/put money on it|potential return/i)).toHaveCount(0);
 
       // Opening the Post reaches the canonical Post, not a copy.
-      await card.click();
+      await cardLink.click();
       await expect(page).toHaveURL(/\/post\//);
     } finally {
       await cleanup([fixtureId], []);

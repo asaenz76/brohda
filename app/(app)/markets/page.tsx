@@ -1,29 +1,31 @@
 import { Sparkles } from "lucide-react";
 import { requireSocialPredictionAccess } from "@/lib/social/access";
 import { getSocialFeed } from "@/lib/communities/feed";
-import { SocialFeedCard } from "@/components/discovery/SocialFeedCard";
+import { GamePostCard } from "@/components/posts/GamePostCard";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
 
 /**
- * The canonical Brohda 2.0 social discovery surface (Stage 4A remediation
- * of the Stage 4 audit's P0 finding — an ordinary user previously had no
- * in-app way to reach a Post/Market/Community at all). Route/nav slot
- * (`/markets`, the "Discover" tab) unchanged from Milestone 2's own
- * discovery surface — already gated by requireSocialPredictionAccess()
- * and already hidden while social_prediction_enabled=false, so evolving
- * its content carries no legacy-breakage risk: this route has never been
- * reachable by an ordinary user in production. Milestone 2's own
- * Market-only browse engine (getDiscoveryFeed, discovery_categories, the
- * admin category/sort-rule CRUD) is untouched, just no longer this page's
- * data source — it predates the canonical Post/Community/Comments model
- * (bypasses Posts entirely, links to /markets/[id] rather than /post/[id])
- * and is superseded here, not deleted (still reachable at /markets/[id]
- * as a direct deep link, e.g. from a Post's "other Markets" list).
+ * Phase C (Brohda 2.0 redesign, spec §23) update: /feed is now the
+ * canonical Home timeline (app/(app)/feed/page.tsx) — this route is no
+ * longer the only reachable Brohda 2.0 feed, and its content is
+ * temporarily identical to Home's (same getSocialFeed()/GamePostCard).
+ * This is intentional, not an oversight: the bottom nav's "Discovery" tab
+ * still points here (spec §28 — "Discovery nav may continue using its
+ * documented temporary route mapping until the next phase"; Discovery
+ * itself, Sports/Leagues/Teams tabs into the Community graph, is a later
+ * phase's build). Retiring this route now (e.g. redirecting it to /feed)
+ * would collapse Home and Discovery into the same nav destination, which
+ * is a worse interim state than the current harmless duplication — so
+ * this phase's own "audit and redirect /markets -> /feed if safe" note is
+ * resolved as NOT safe yet, specifically for that reason. Revisit once
+ * real Discovery ships and can take over this nav slot's actual
+ * destination.
  *
- * The legacy money-pools feed at /feed is completely untouched and remains
- * the default entry point for any user this flag doesn't yet cover — no
- * collision, since this route only ever becomes reachable once
- * social_prediction_enabled=true for that specific user.
+ * Milestone 2's own Market-only browse engine (getDiscoveryFeed,
+ * discovery_categories, the admin category/sort-rule CRUD) remains
+ * untouched and dormant — it predates the canonical Post/Community/
+ * Comments model and was never wired to a reachable consumer page; not
+ * this route's data source either, before or after this change.
  */
 export default async function MarketsPage() {
   const user = await requireSocialPredictionAccess();
@@ -38,7 +40,7 @@ export default async function MarketsPage() {
       ) : (
         <div className="space-y-3">
           {feed.map((item) => (
-            <SocialFeedCard key={item.post.id} item={item} />
+            <GamePostCard key={item.post.id} item={item} />
           ))}
         </div>
       )}

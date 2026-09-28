@@ -9,6 +9,7 @@ import type {
   PredictionResult,
   PredictionRevision,
 } from "./types";
+import type { MarketPickAggregate } from "./sentiment";
 
 // Server-side read/write layer for the `predictions` table — the ONLY
 // module allowed to query it directly, matching this codebase's existing
@@ -108,6 +109,48 @@ export async function getPredictionById(id: string): Promise<Prediction | null> 
   const { data, error } = await admin.from("predictions").select("*").eq("id", id).maybeSingle();
   if (error) throw error;
   return data ? toDomain(data as PredictionRow) : null;
+}
+
+/**
+ * Phase C (Brohda 2.0 redesign) — one user's existing Prediction across
+ * many Markets at once, batched for a feed of Posts (avoids the N+1 a
+ * per-item getLatestUserPredictionForMarket call would cause). Same
+ * "at most one row per (user, market)" guarantee as the single-market
+ * version — see that function's own comment.
+ */
+export async function listLatestUserPredictionsForMarkets(userId: string, marketIds: string[]): Promise<Map<string, Prediction>> {
+  const result = new Map<string, Prediction>();
+  if (marketIds.length === 0) return result;
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("predictions").select("*").eq("user_id", userId).in("market_id", marketIds);
+  if (error) throw error;
+  for (const row of data as PredictionRow[]) result.set(row.market_id, toDomain(row));
+  return result;
+}
+
+/**
+ * Phase C (Brohda 2.0 redesign, spec §13-14) — the real Brohda Pick-share
+ * aggregation across many Markets at once, batched for a feed of Posts.
+ * See lib/predictions/sentiment.ts for the documented inclusion rule and
+ * the pure percentage calculation this feeds. NEVER a substitute for/
+ * derived from markets.yes_price/no_price — those are provider odds (see
+ * the guardrail comment on MarketRecord in
+ * lib/prediction-markets/repository.ts).
+ */
+export async function getPickAggregatesForMarkets(marketIds: string[]): Promise<Map<string, MarketPickAggregate>> {
+  const result = new Map<string, MarketPickAggregate>();
+  if (marketIds.length === 0) return result;
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("predictions").select("market_id, selected_outcome").in("market_id", marketIds);
+  if (error) throw error;
+  for (const row of (data ?? []) as { market_id: string; selected_outcome: PredictionOutcome }[]) {
+    const agg = result.get(row.market_id) ?? { marketId: row.market_id, totalPickCount: 0, yesCount: 0, noCount: 0 };
+    agg.totalPickCount += 1;
+    if (row.selected_outcome === "YES") agg.yesCount += 1;
+    else agg.noCount += 1;
+    result.set(row.market_id, agg);
+  }
+  return result;
 }
 
 /**

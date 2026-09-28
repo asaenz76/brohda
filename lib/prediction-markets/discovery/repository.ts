@@ -7,6 +7,8 @@ import { getFreshnessPolicy } from "./policy";
 import type { DiscoveryCategory, DiscoveryCategoryRef, DiscoveryMarketCard, DiscoveryMarketDetail } from "./types";
 import { isDetailReachable, isFeedEligible } from "./eligibility";
 import { toDiscoveryMarketCard, toDiscoveryMarketDetail } from "./view-model";
+import { getPickAggregatesForMarkets } from "@/lib/predictions/repository";
+import { computePickSentiment } from "@/lib/predictions/sentiment";
 
 // Server-side read/write layer for the discovery taxonomy tables
 // (`discovery_categories`, `discovery_category_provider_mappings`) and the
@@ -300,19 +302,40 @@ export async function getDiscoveryFeed(categorySlug?: string): Promise<Discovery
   }));
 }
 
-/** Market detail by Brohda id — reachable for ACTIVE/CLOSED/RESOLVED, honestly absent (null) for anything else, matching a nonexistent id (roadmap STEP 18). */
+/**
+ * Market detail by Brohda id — reachable for ACTIVE/CLOSED/RESOLVED,
+ * honestly absent (null) for anything else, matching a nonexistent id
+ * (roadmap STEP 18).
+ *
+ * Phase C (Brohda 2.0 redesign, spec §13 "do not fake sentiment"):
+ * `toDiscoveryMarketDetail`'s own `yesPercent`/`noPercent` are provider-
+ * price-derived (see that function's own comment) — real, user-facing
+ * surfaces built on this function (MarketPredictionCard, via /post/[id]
+ * and /markets/[id]) must never show those as if they were Brohda
+ * community sentiment. Overridden here, after the fact, with the real
+ * Pick-share aggregation (lib/predictions/sentiment.ts) — deliberately a
+ * targeted override on this one live consumer-facing function rather than
+ * a change to the shared, pure `toDiscoveryMarketCard`/`toDiscoveryMarketDetail`
+ * view-model (which the still-dormant getDiscoveryFeed above also calls;
+ * that engine has never been wired to a reachable consumer page — see
+ * that function's own header comment — so it's out of scope here).
+ */
 export async function getMarketDetail(id: string): Promise<DiscoveryMarketDetail | null> {
   const market = await getMarketById(id);
   if (!market || !isDetailReachable(market)) return null;
 
-  const [mappingRows, categories, freshnessPolicy] = await Promise.all([
+  const [mappingRows, categories, freshnessPolicy, pickAggregates] = await Promise.all([
     listEnabledMappingRows(),
     listEnabledCategories(),
     getFreshnessPolicy(),
+    getPickAggregatesForMarkets([id]),
   ]);
   const categoryById = new Map(categories.map((c) => [c.id, toCategoryRef(c)]));
   const categoryIds = computeMarketCategoryIds(market.provider, market.categoryTags, mappingRows);
   const refs = categoryIds.map((cid) => categoryById.get(cid)).filter((c): c is DiscoveryCategoryRef => c != null);
 
-  return toDiscoveryMarketDetail(market, refs, freshnessPolicy);
+  const detail = toDiscoveryMarketDetail(market, refs, freshnessPolicy);
+  if (!detail) return null;
+  const sentiment = computePickSentiment(pickAggregates.get(id));
+  return { ...detail, yesPercent: sentiment.yesPercent, noPercent: sentiment.noPercent, totalPickCount: sentiment.totalPickCount };
 }
