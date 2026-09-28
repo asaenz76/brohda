@@ -440,8 +440,12 @@ describe("grading", () => {
 
   // Stage 4A remediation (Stage 4 audit §14 / remediation §17): the
   // grading job resolves the canonical Post at the moment of grading and
-  // stamps it on the notification, so it becomes clickable.
-  it("stamps the graded-prediction notification with the canonical Post id, resolving to /post/[id]", async () => {
+  // stamps it on the notification, so it becomes clickable. Stage 4C
+  // remediation: it now also stamps the specific Market, which
+  // resolveNotificationHref prefers over the Post — a Post can have more
+  // than one concurrently ACTIVE Market, and the notification must land on
+  // the exact one it's about, not the Post's primary Market.
+  it("stamps the graded-prediction notification with both the canonical Post id and the specific Market id, resolving to /markets/[id]", async () => {
     const marketId = await seedMarket({ status: "ACTIVE" });
     const fixtureId = marketFixtureIds.get(marketId)!;
     const { id: postId } = await ensurePostForFixture(fixtureId);
@@ -471,17 +475,29 @@ describe("grading", () => {
 
     const { data: notification } = await admin
       .from("notifications")
-      .select("post_id")
+      .select("post_id, market_id")
       .eq("user_id", user.id)
       .eq("type", "prediction_graded")
       .single();
     expect(notification?.post_id).toBe(postId);
+    expect(notification?.market_id).toBe(marketId);
     expect(
       resolveNotificationHref(
-        { id: "n", type: "prediction_graded", title: "", body: "", pool_id: null, transaction_id: null, post_id: notification?.post_id ?? null, read_at: null, created_at: "" },
+        {
+          id: "n",
+          type: "prediction_graded",
+          title: "",
+          body: "",
+          pool_id: null,
+          transaction_id: null,
+          post_id: notification?.post_id ?? null,
+          market_id: notification?.market_id ?? null,
+          read_at: null,
+          created_at: "",
+        },
         new Map(),
       ),
-    ).toBe(`/post/${postId}`);
+    ).toBe(`/markets/${marketId}`);
 
     // Self-contained cleanup: this test is the only one in the suite that
     // creates a `posts` row, and both `notifications.post_id` and
