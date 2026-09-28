@@ -175,7 +175,7 @@ can never stack, and one job's lock never affects another job's.
 | `/api/cron/process-results` | none (DB-only) | No | `processAwaitingResults` | Every 1 minute |
 | `/api/cron/sync-fixtures-nfl` | api_nfl | Yes — one request per tick regardless of season size | `runNflFixtureSync` | Every 5 minutes |
 | `/api/cron/prune-provider-request-log` | none (DB-only) | No | `runProviderRequestLogRetention` | Every 5 minutes |
-| `/api/cron/ingest-nfl-markets` | api_nfl | Yes | `runNflMarketIngestion` — no-ops unless `platform_settings.market_ingestion_enabled` | **Once daily** (recommended: 09:00 UTC) — see incident note below |
+| `/api/cron/ingest-nfl-markets` | api_nfl | Yes | `runNflMarketIngestion` — no-ops unless `platform_settings.market_ingestion_enabled` | **Once daily, 07:00 UTC** — see incident note below |
 | `/api/cron/publish-posts` | none (DB-only) | No | `runPostPublication` — no-ops unless `platform_settings.post_publication_enabled` | Every 5 minutes (recommended) |
 | `/api/cron/distribute-posts` | none (DB-only) | No | `runCommunityDistribution` — no-ops unless `platform_settings.community_distribution_enabled` | Every 5-15 minutes (recommended — a full reconciliation scan, not just new Posts) |
 | `/api/cron/grade-predictions` | none (DB-only) | No | `runGradingJob` — batch size from `platform_settings.grading_batch_size` | Every 2 minutes (recommended) |
@@ -257,7 +257,7 @@ cron-job.org's own settings and the Vercel env var):
 | Process results | `https://brohda.com/api/cron/process-results` | Every 1 minute | `Authorization: Bearer <CRON_SECRET>` |
 | Sync NFL fixtures | `https://brohda.com/api/cron/sync-fixtures-nfl` | Every 5 minutes | `Authorization: Bearer <CRON_SECRET>` |
 | Prune provider request log | `https://brohda.com/api/cron/prune-provider-request-log` | Every 5 minutes | `Authorization: Bearer <CRON_SECRET>` |
-| Ingest NFL markets | `https://brohda.com/api/cron/ingest-nfl-markets` | Once daily (recommended: 09:00 UTC) | `Authorization: Bearer <CRON_SECRET>` |
+| Ingest NFL markets | `https://brohda.com/api/cron/ingest-nfl-markets` | Once daily, 07:00 UTC | `Authorization: Bearer <CRON_SECRET>` |
 | Publish posts | `https://brohda.com/api/cron/publish-posts` | Every 5 minutes | `Authorization: Bearer <CRON_SECRET>` |
 | Distribute posts | `https://brohda.com/api/cron/distribute-posts` | Every 5-15 minutes | `Authorization: Bearer <CRON_SECRET>` |
 | Grade predictions | `https://brohda.com/api/cron/grade-predictions` | Every 2 minutes | `Authorization: Bearer <CRON_SECRET>` |
