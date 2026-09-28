@@ -6,7 +6,7 @@ import { getSocialPredictionAccessPolicy } from "@/lib/social/access";
 
 export default async function AppRouteLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
-  const [{ balanceCents, unreadNotificationCount, createHref }, socialPolicy] = await Promise.all([
+  const [{ balanceCents, unreadNotificationCount }, socialPolicy] = await Promise.all([
     getAppShellProps(user),
     getSocialPredictionAccessPolicy(),
   ]);
@@ -22,7 +22,6 @@ export default async function AppRouteLayout({ children }: { children: React.Rea
       user={user}
       balanceCents={balanceCents}
       unreadNotificationCount={unreadNotificationCount}
-      createHref={createHref}
       showSocialPredictionNav={showSocialPredictionNav}
     >
       {children}

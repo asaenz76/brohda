@@ -1,6 +1,5 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
-import { isSuperAdmin } from "@/lib/auth/guards";
 import { getUnreadCount } from "@/lib/notifications/fetch";
 import type { UserProfile } from "@/lib/auth/session";
 
@@ -27,15 +26,8 @@ export async function getAppShellProps(user: UserProfile) {
     getUnreadCount(user.id),
   ]);
 
-  // Bottom nav's centered Create button only means something for
-  // super_admin, the only role that can author a new pool. Everyone else
-  // (players and plain 'admin') gets no center button at all rather than
-  // one repurposed into an unrelated shortcut.
-  const createHref = isSuperAdmin(user) ? "/admin/pools/new" : null;
-
   return {
     balanceCents: wallet?.balance ?? 0,
     unreadNotificationCount,
-    createHref,
   };
 }

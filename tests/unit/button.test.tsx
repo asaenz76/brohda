@@ -32,4 +32,20 @@ describe("Button", () => {
     expect(button).toHaveClass("w-full");
     expect(button).toHaveClass("mt-4");
   });
+
+  // Phase B (design-system redesign) — regression guard against the
+  // "comic panel" treatment (2px border + hard offset drop-shadow)
+  // identified in Phase A as the single biggest blocker to a restrained,
+  // Mastodon-inspired visual language, and removed in Phase B. Checks the
+  // className string directly rather than a computed style, since jsdom
+  // doesn't apply Tailwind's own CSS.
+  it("no longer carries the retired comic-panel shadow/border treatment on any real variant", () => {
+    for (const variant of ["default", "outline", "secondary", "destructive"] as const) {
+      const { unmount } = render(<Button variant={variant}>Click me</Button>);
+      const button = screen.getByRole("button", { name: "Click me" });
+      expect(button.className).not.toMatch(/shadow-\[/);
+      expect(button.className).not.toMatch(/border-2\b/);
+      unmount();
+    }
+  });
 });
