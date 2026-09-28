@@ -46,5 +46,9 @@ export function toDiscoveryMarketDetail(
     ...card,
     description: market.description,
     resolvedOutcome: market.resolvedOutcome,
+    // Placeholder — getMarketDetail() (the only live caller) always
+    // overrides this, along with yesPercent/noPercent, with the real
+    // Pick-share aggregation. See that function's own comment.
+    totalPickCount: 0,
   };
 }

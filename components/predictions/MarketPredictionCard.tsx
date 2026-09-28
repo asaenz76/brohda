@@ -1,7 +1,7 @@
 import { getMarketById } from "@/lib/prediction-markets/repository";
 import { formatClosesAt } from "@/lib/prediction-markets/discovery/format";
 import type { DiscoveryMarketDetail } from "@/lib/prediction-markets/discovery/types";
-import { DiscoveryStatusPill, FreshnessNote } from "@/components/discovery/DiscoveryStatusPill";
+import { DiscoveryStatusPill } from "@/components/discovery/DiscoveryStatusPill";
 import { Card, CardContent } from "@/components/ui/card";
 import { getLatestUserPredictionForMarket } from "@/lib/predictions/repository";
 import { checkMarketEligibility, getPredictionPolicy } from "@/lib/predictions/policy";
@@ -26,7 +26,11 @@ import { MarketParticipants } from "@/components/predictions/MarketParticipants"
  * copy, exactly as it already did pre-R5.
  */
 export async function MarketPredictionCard({ market, userId }: { market: DiscoveryMarketDetail; userId: string }) {
-  const hasPrice = market.yesPercent != null || market.noPercent != null;
+  // Phase C (Brohda 2.0 redesign): market.yesPercent/noPercent are real
+  // Brohda Pick-share sentiment now, not provider odds — see
+  // getMarketDetail()'s own comment (lib/prediction-markets/discovery/repository.ts).
+  // "hasPicks", not "hasPrice": null here means zero Picks exist yet.
+  const hasPicks = market.yesPercent != null || market.noPercent != null;
   const closesLabel = formatClosesAt(market.closesAt);
 
   const existingPrediction = await getLatestUserPredictionForMarket(userId, market.id);
@@ -70,25 +74,25 @@ export async function MarketPredictionCard({ market, userId }: { market: Discove
           <p className="text-sm font-medium text-text-primary">{market.resolvedOutcome === "YES" ? market.yesLabel : market.noLabel}</p>
         )}
 
-        {hasPrice ? (
-          <div className="flex items-center gap-8">
-            <div>
-              <p className="text-3xl font-bold text-text-primary">{market.yesPercent}%</p>
-              <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{market.yesLabel}</p>
+        {hasPicks ? (
+          <div className="space-y-1">
+            <div className="flex items-center gap-8">
+              <div>
+                <p className="text-3xl font-bold text-text-primary">{market.yesPercent}%</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{market.yesLabel}</p>
+              </div>
+              <div>
+                <p className="text-3xl font-bold text-text-primary">{market.noPercent}%</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{market.noLabel}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-3xl font-bold text-text-primary">{market.noPercent}%</p>
-              <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{market.noLabel}</p>
-            </div>
+            <p className="text-xs text-text-muted">
+              {market.totalPickCount} predicted
+            </p>
           </div>
         ) : (
-          // Freshness is definitionally UNAVAILABLE whenever there's no
-          // usable price — the FreshnessNote below is skipped in this
-          // branch so its own UNAVAILABLE copy never renders twice.
-          <FreshnessNote freshness="UNAVAILABLE" />
+          <p className="text-xs text-text-muted">No one has predicted yet.</p>
         )}
-
-        {hasPrice && <FreshnessNote freshness={market.freshness} />}
 
         {market.description && <p className="text-sm text-text-secondary">{market.description}</p>}
 

@@ -9,6 +9,15 @@ import { getPostPublicationPolicy } from "@/lib/posts/policy";
 import { listActiveMarketsForFixtures } from "@/lib/prediction-markets/repository";
 import { selectPrimaryMarket } from "@/lib/posts/primary-market";
 import { getSelectionLabel } from "@/lib/prediction-markets/selection-labels";
+import { getPickAggregatesForMarkets, listLatestUserPredictionsForMarkets } from "@/lib/predictions/repository";
+import { computePickSentiment } from "@/lib/predictions/sentiment";
+import { checkMarketEligibility, getPredictionPolicy } from "@/lib/predictions/policy";
+import { copyForIneligible } from "@/lib/predictions/copy";
+import { classifyFreshness } from "@/lib/prediction-markets/discovery/policy";
+import { deriveConsumerStatus } from "@/lib/prediction-markets/discovery/status";
+import { getFreshnessPolicy } from "@/lib/prediction-markets/discovery/policy";
+import { getPostCommentCountsForPosts } from "@/lib/post-comments/repository";
+import type { PredictionOutcome } from "@/lib/predictions/types";
 
 // Milestone R4 (§21-22) established the canonical Post-centric discovery
 // queries; Stage 4A (R13.10 remediation of the Stage 4 audit's P0 finding
@@ -105,9 +114,27 @@ export interface FeedMarketSummary {
   question: string;
   yesLabel: string;
   noLabel: string;
+  /**
+   * Phase C (Brohda 2.0 redesign, spec §13-14 "do not fake sentiment") —
+   * real Brohda Pick-share sentiment (lib/predictions/sentiment.ts),
+   * NEVER provider/bookmaker price. Null exactly when totalPickCount is 0.
+   */
   yesPercent: number | null;
   noPercent: number | null;
+  totalPickCount: number;
   status: string;
+  /** The viewer's own current Pick on this Market, if any — for "you picked X" display on the feed card. */
+  viewerSelection: PredictionOutcome | null;
+  /**
+   * Whether the card should show interactive Pick buttons (true — either
+   * no existing Pick, or an existing one still PENDING and unlocked) or a
+   * read-only "You picked X" state (false — locked). Mirrors
+   * MarketPredictionCard's own isEditable branch (PredictionActions vs
+   * YourPredictionCard) for a single Market.
+   */
+  isEditable: boolean;
+  /** Null when the viewer may submit/change a Pick right now; otherwise the consumer-facing reason a feed card's Pick control should show instead of live buttons — either why a NEW pick can't be made (copyForIneligible) or that an existing one is locked. */
+  pickDisabledReason: string | null;
 }
 
 export interface FeedCommunityRef {
@@ -132,6 +159,8 @@ export interface FeedItem {
   communities: FeedCommunityRef[];
   /** Ranking metadata (§6 of the remediation brief), not a second copy of the Post — a Post distributed to several followed Communities is still exactly one FeedItem. */
   isFromFollowedCommunity: boolean;
+  /** Phase C — non-tombstoned comment count, batched (lib/post-comments/repository.ts's getPostCommentCountsForPosts). */
+  commentCount: number;
 }
 
 /**
@@ -169,9 +198,11 @@ function compareFeedItems(a: FeedItem, b: FeedItem): number {
  */
 export async function getSocialFeed(userId: string | null, limit = 50): Promise<FeedItem[]> {
   const admin = createAdminClient();
-  const [followedCommunityIds, publicationPolicy] = await Promise.all([
+  const [followedCommunityIds, publicationPolicy, predictionPolicy, freshnessPolicy] = await Promise.all([
     userId ? listFollowedCommunityIds(userId) : Promise.resolve([]),
     getPostPublicationPolicy(),
+    getPredictionPolicy(),
+    getFreshnessPolicy(),
   ]);
 
   // Over-fetch: some published Posts will be filtered out by isFeedEligible
@@ -192,10 +223,11 @@ export async function getSocialFeed(userId: string | null, limit = 50): Promise<
   const postIds = rows.map((r) => r.id);
   const fixtureIds = [...new Set(rows.map((r) => r.fixture_id))];
 
-  const [followedPostIds, activeMarkets, communitiesByPost] = await Promise.all([
+  const [followedPostIds, activeMarkets, communitiesByPost, commentCounts] = await Promise.all([
     listPostIdsInCommunities(postIds, followedCommunityIds),
     listActiveMarketsForFixtures(fixtureIds),
     listCommunitiesForPosts(postIds),
+    getPostCommentCountsForPosts(postIds),
   ]);
 
   const marketsByFixture = new Map<string, typeof activeMarkets>();
@@ -205,19 +237,66 @@ export async function getSocialFeed(userId: string | null, limit = 50): Promise<
     marketsByFixture.set(market.fixtureId, bucket);
   }
 
+  // Resolve each row's primary Market up front (one pass, pure/in-memory)
+  // so the two remaining batched reads below — Pick aggregates and the
+  // viewer's own Picks — can be scoped to exactly the primary-market ids
+  // actually needed, one query each, regardless of feed size.
+  const primaryByFixture = new Map<string, ReturnType<typeof selectPrimaryMarket>>();
+  for (const fixtureId of fixtureIds) {
+    primaryByFixture.set(fixtureId, selectPrimaryMarket(marketsByFixture.get(fixtureId) ?? [], publicationPolicy.primaryMarketTemplatePriority));
+  }
+  const primaryMarketIds = [...primaryByFixture.values()].filter((m): m is NonNullable<typeof m> => m != null).map((m) => m.id);
+
+  const [pickAggregates, viewerPredictions] = await Promise.all([
+    getPickAggregatesForMarkets(primaryMarketIds),
+    userId ? listLatestUserPredictionsForMarkets(userId, primaryMarketIds) : Promise.resolve(new Map()),
+  ]);
+
+  const now = new Date();
+
   const items: FeedItem[] = rows.map((row) => {
-    const primary = selectPrimaryMarket(marketsByFixture.get(row.fixture_id) ?? [], publicationPolicy.primaryMarketTemplatePriority);
-    const primaryMarket: FeedMarketSummary | null = primary
-      ? {
-          id: primary.id,
-          question: primary.question,
-          yesLabel: getSelectionLabel(primary, "YES"),
-          noLabel: getSelectionLabel(primary, "NO"),
-          yesPercent: primary.yesPrice != null ? Math.round(primary.yesPrice * 100) : null,
-          noPercent: primary.noPrice != null ? Math.round(primary.noPrice * 100) : null,
-          status: primary.status,
-        }
-      : null;
+    const primary = primaryByFixture.get(row.fixture_id) ?? null;
+    let primaryMarket: FeedMarketSummary | null = null;
+
+    if (primary) {
+      const sentiment = computePickSentiment(pickAggregates.get(primary.id));
+      const viewerPrediction = viewerPredictions.get(primary.id);
+
+      // Same eligibility decision MarketPredictionCard makes for a single
+      // Market (lib/predictions/policy.ts's checkMarketEligibility), just
+      // computed in-memory here for every feed item instead of one page
+      // load per Market — no extra query, every input is already in scope.
+      let pickDisabledReason: string | null = null;
+      const isEditable = !viewerPrediction || (viewerPrediction.lockedAt === null && viewerPrediction.lifecycleState === "PENDING");
+      if (isEditable) {
+        const consumerStatus = deriveConsumerStatus(primary.status, primary.resolvedOutcome);
+        const freshness = classifyFreshness(primary.lastSyncedAt, primary.yesPrice != null || primary.noPrice != null, freshnessPolicy);
+        const eligibility = checkMarketEligibility(
+          { consumerStatus, freshness, yesPrice: primary.yesPrice, noPrice: primary.noPrice, closesAt: primary.closesAt, now },
+          predictionPolicy,
+        );
+        pickDisabledReason = eligibility.eligible ? null : copyForIneligible(eligibility.reason);
+      } else {
+        // Existing Pick, but locked — same copy PredictionActions itself
+        // falls back to for a locked Pick (see that component's own
+        // `locked` branch).
+        pickDisabledReason = "Picks are locked for this game.";
+      }
+
+      primaryMarket = {
+        id: primary.id,
+        question: primary.question,
+        yesLabel: getSelectionLabel(primary, "YES"),
+        noLabel: getSelectionLabel(primary, "NO"),
+        yesPercent: sentiment.yesPercent,
+        noPercent: sentiment.noPercent,
+        totalPickCount: sentiment.totalPickCount,
+        status: primary.status,
+        viewerSelection: viewerPrediction?.selectedOutcome ?? null,
+        isEditable,
+        pickDisabledReason,
+      };
+    }
 
     return {
       post: toPost(row),
@@ -233,6 +312,7 @@ export async function getSocialFeed(userId: string | null, limit = 50): Promise<
       primaryMarket,
       communities: communitiesByPost.get(row.id) ?? [],
       isFromFollowedCommunity: followedPostIds.has(row.id),
+      commentCount: commentCounts.get(row.id) ?? 0,
     };
   });
 

@@ -144,3 +144,19 @@ export async function getPostCommentCount(postId: string): Promise<number> {
   if (error) throw error;
   return count ?? 0;
 }
+
+/**
+ * Phase C (Brohda 2.0 redesign) — the same non-tombstoned count, batched
+ * across many Posts at once for a feed (avoids the N+1 a per-item
+ * getPostCommentCount call would cause). A Post absent from the returned
+ * map has zero comments.
+ */
+export async function getPostCommentCountsForPosts(postIds: string[]): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  if (postIds.length === 0) return result;
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("post_comments").select("post_id").in("post_id", postIds).is("deleted_at", null);
+  if (error) throw error;
+  for (const row of data ?? []) result.set(row.post_id, (result.get(row.post_id) ?? 0) + 1);
+  return result;
+}
