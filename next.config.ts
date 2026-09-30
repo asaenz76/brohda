@@ -73,6 +73,27 @@ const nextConfig: NextConfig = {
         destination: "/predictions/leaderboard",
         permanent: true,
       },
+      // Phase D (Brohda 2.0 redesign) — /markets was Stage 4A's temporary
+      // social-discovery feed, kept alive through Phase C only because
+      // the "Discovery" nav tab still pointed at it (documented in
+      // app/(app)/markets/page.tsx's own now-removed comment, and
+      // components/MobileBottomNavigation.tsx's route-mapping comment).
+      // Now that the real /discovery exists and the nav points there,
+      // /markets' own content (the same GamePostCard feed Home already
+      // shows) is fully redundant — redirect rather than leave two
+      // competing Home-shaped feeds live. Audited: the only remaining
+      // references to the bare "/markets" path are the still-dormant
+      // Milestone-2 discovery engine's own internal link
+      // (components/discovery/CategoryTabs.tsx, never reachable from any
+      // live page) and admin cache-revalidation calls (revalidatePath,
+      // harmless against a redirect target). /markets/[id] (Market
+      // detail) is explicitly NOT touched — notifications and Post "other
+      // Markets" links still depend on it.
+      {
+        source: "/markets",
+        destination: "/feed",
+        permanent: true,
+      },
     ];
   },
   async headers() {
