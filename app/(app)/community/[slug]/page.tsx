@@ -1,26 +1,41 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
+import { Rss } from "lucide-react";
 import { requireSocialPredictionAccess } from "@/lib/social/access";
 import { getCommunityBySlug } from "@/lib/communities/repository";
-import { getCommunityDisplayName, getCommunityTypeLabel } from "@/lib/communities/presentation";
+import { getCommunityIdentity, getCommunityTypeLabel } from "@/lib/communities/presentation";
 import { isFollowingCommunity } from "@/lib/communities/follows";
-import { getCommunityFeed } from "@/lib/communities/feed";
-import { getFixtureForPostPresentation } from "@/lib/sports-data/fixture-lookup";
+import { getCommunityTimeline } from "@/lib/communities/feed";
 import { CommunityFollowButton } from "@/components/communities/CommunityFollowButton";
 import { Card, CardContent } from "@/components/ui/card";
-import { LocalDateTime } from "@/components/LocalDateTime";
 import { TeamCrest } from "@/components/TeamCrest";
+import { GamePostCard } from "@/components/posts/GamePostCard";
+import { EmptyFeedState } from "@/components/EmptyFeedState";
 
 /**
- * Community detail (Milestone R4, docs/BROHDA_2_0_MILESTONE_MAP.md,
- * Community + Distribution) — the minimum surface proving the domain
- * works: Community identity, follow/unfollow, and the canonical Posts
- * distributed to it. Every Post here links to its one canonical
- * `/post/[id]` — entering a Post through a Community never creates or
- * routes to a copy (§27).
+ * Community detail (Phase E, Brohda 2.0 redesign) — the canonical
+ * Community experience: a social topic/profile timeline (spec §0), not a
+ * sports-data dashboard, market browser, team stats page, or directory.
+ * Identity → Follow state → relevant Game Posts → conversation (spec §1) —
+ * never stats/odds/markets/standings/money.
  *
- * No Comments, no Community chat, no user-created Posts, no moderators —
- * this is affinity + distribution only (§26).
+ * Community remains affinity/distribution, never Post ownership (spec
+ * §2): the timeline below reuses the exact same canonical Post/Market data
+ * and GamePostCard presentation as Home, via getCommunityTimeline (spec
+ * §27 — one shared enrichment core, not a second Community-specific Game
+ * Post design). Every Post here still links to its one canonical
+ * `/post/[id]` — entering a Post through a Community never creates or
+ * routes to a copy.
+ *
+ * No follower count (spec §23 — omitted by default; no existing product
+ * reason to add one) and no description (spec §24 — no such field/system
+ * exists on `communities`; none invented). League context for a TEAM
+ * Community, and Sport context for a LEAGUE Community, are also omitted at
+ * the header level: `teams`/`leagues` carry no canonical relation to a
+ * parent league/sport today (confirmed against the schema), so showing one
+ * here would mean guessing from a fixture's own `competition_name` rather
+ * than genuine identity data — the per-Post Community badges (league,
+ * sport, opposing team) already surface that context where it IS canonical
+ * (spec §13), so the header doesn't need to invent it.
  */
 export default async function CommunityDetailPage({ params }: { params: Promise<{ slug: string }> }) {
   const user = await requireSocialPredictionAccess();
@@ -29,58 +44,33 @@ export default async function CommunityDetailPage({ params }: { params: Promise<
   const community = await getCommunityBySlug(slug);
   if (!community || !community.active) notFound();
 
-  const [displayName, following, posts] = await Promise.all([
-    getCommunityDisplayName(community),
+  const [identity, following, timeline] = await Promise.all([
+    getCommunityIdentity(community),
     isFollowingCommunity(user.id, community.id),
-    getCommunityFeed(community.id),
+    getCommunityTimeline(community.id, user.id),
   ]);
-
-  const fixtures = await Promise.all(posts.map((post) => getFixtureForPostPresentation(post.fixtureId)));
 
   return (
     <div className="space-y-4">
-      <h1 className="sr-only">Community detail</h1>
+      <h1 className="sr-only">Community</h1>
 
       <Card>
-        <CardContent className="space-y-3 pt-6">
-          <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{getCommunityTypeLabel(community.type)}</p>
-          <p className="text-xl font-semibold text-text-primary">{displayName}</p>
+        <CardContent className="flex items-center justify-between gap-3 pt-6">
+          <div className="flex items-center gap-3">
+            <TeamCrest logoUrl={identity.logoUrl} teamName={identity.displayName} className="size-10" />
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{getCommunityTypeLabel(community.type)}</p>
+              <p className="text-xl font-semibold text-text-primary">{identity.displayName}</p>
+            </div>
+          </div>
           <CommunityFollowButton communityId={community.id} initiallyFollowing={following} />
         </CardContent>
       </Card>
 
-      {posts.length === 0 ? (
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-text-secondary">No games are posted to this community yet.</p>
-          </CardContent>
-        </Card>
+      {timeline.length === 0 ? (
+        <EmptyFeedState icon={Rss} title="Nothing happening here right now." description="Check back soon — this fills up as Brohda covers more games." />
       ) : (
-        posts.map((post, i) => {
-          const fixture = fixtures[i];
-          return (
-            <Link key={post.id} href={`/post/${post.id}`}>
-              <Card className="transition hover:border-text-muted">
-                <CardContent className="space-y-1 pt-6">
-                  {fixture ? (
-                    <>
-                      <p className="flex flex-wrap items-center gap-1.5 text-base font-semibold text-text-primary">
-                        <TeamCrest logoUrl={fixture.awayTeamLogoUrl} teamName={fixture.awayTeamName} />
-                        {fixture.awayTeamName} @ <TeamCrest logoUrl={fixture.homeTeamLogoUrl} teamName={fixture.homeTeamName} />
-                        {fixture.homeTeamName}
-                      </p>
-                      <p className="text-sm text-text-secondary">
-                        <LocalDateTime iso={fixture.scheduledStartUtc} options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
-                      </p>
-                    </>
-                  ) : (
-                    <p className="text-sm text-text-secondary">Game details unavailable.</p>
-                  )}
-                </CardContent>
-              </Card>
-            </Link>
-          );
-        })
+        timeline.map((item) => <GamePostCard key={item.post.id} item={item} />)
       )}
     </div>
   );

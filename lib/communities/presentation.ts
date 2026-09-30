@@ -34,3 +34,32 @@ export async function getCommunityDisplayName(community: Community): Promise<str
   }
   return "Community";
 }
+
+export interface CommunityIdentity {
+  displayName: string;
+  /** From teams.logo_url / leagues.logo_url — always null for SPORT (no logo concept exists for it; spec §5). Never a hard-coded URL. */
+  logoUrl: string | null;
+}
+
+/**
+ * Phase E (Brohda 2.0 redesign) — the Community page header's own single-
+ * Community identity read (name + logo together, one query, instead of
+ * getCommunityDisplayName's name-only). The batched list-sized sibling is
+ * lib/communities/discovery.ts's private resolveNamesAndLogos — this
+ * function is that same resolution rule for exactly one Community, which a
+ * page header never needs batched.
+ */
+export async function getCommunityIdentity(community: Community): Promise<CommunityIdentity> {
+  if (community.type === "SPORT") return { displayName: community.displayName ?? community.sportKey ?? "Sport", logoUrl: null };
+
+  const admin = createAdminClient();
+  if (community.type === "TEAM" && community.teamId) {
+    const { data } = await admin.from("teams").select("name, logo_url").eq("id", community.teamId).maybeSingle();
+    return { displayName: data?.name ?? "Team", logoUrl: data?.logo_url ?? null };
+  }
+  if (community.type === "LEAGUE" && community.leagueId) {
+    const { data } = await admin.from("leagues").select("name, logo_url").eq("id", community.leagueId).maybeSingle();
+    return { displayName: data?.name ?? "League", logoUrl: data?.logo_url ?? null };
+  }
+  return { displayName: "Community", logoUrl: null };
+}
