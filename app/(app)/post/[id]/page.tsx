@@ -34,6 +34,13 @@ import Link from "next/link";
  * (R13.10 remediation of the Stage 4 audit's §11 finding) — no Challenge
  * controls, no monetary controls, still deferred to later milestones
  * (R7/R9).
+ *
+ * Product feedback: a single Post used to render as four separately-
+ * bordered Cards (Game header, primary Market, other Markets, comments) —
+ * visually reading as unrelated boxes rather than one Post. All of that
+ * content is now one Card, with a plain `border-t` between sections
+ * (the same divider convention CardFooter already uses) instead of a
+ * second outer border per section.
  */
 export default async function PostDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireSocialPredictionAccess();
@@ -60,60 +67,56 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
       <h1 className="sr-only">Post detail</h1>
 
       <Card>
-        <CardContent className="space-y-2 pt-6">
-          <p className="flex flex-wrap items-center gap-1.5 text-xl font-semibold text-text-primary">
-            <TeamCrest logoUrl={fixture.awayTeamLogoUrl} teamName={fixture.awayTeamName} />
-            {fixture.awayTeamName} @ <TeamCrest logoUrl={fixture.homeTeamLogoUrl} teamName={fixture.homeTeamName} />
-            {fixture.homeTeamName}
-          </p>
-          {fixture.competitionName && <p className="text-sm text-text-secondary">{fixture.competitionName}</p>}
-          <p className="text-sm text-text-secondary">
-            <LocalDateTime iso={fixture.scheduledStartUtc} options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
-          </p>
-          {fixture.internalStatus === "COMPLETED" && fixture.homeScore != null && fixture.awayScore != null && (
-            <p className="text-sm font-medium text-text-primary">
-              Final: {fixture.awayTeamName} {fixture.awayScore} — {fixture.homeTeamName} {fixture.homeScore}
+        <CardContent className="space-y-4 pt-6">
+          <div className="space-y-2">
+            <p className="flex flex-wrap items-center gap-1.5 text-xl font-semibold text-text-primary">
+              <TeamCrest logoUrl={fixture.awayTeamLogoUrl} teamName={fixture.awayTeamName} />
+              {fixture.awayTeamName} @ <TeamCrest logoUrl={fixture.homeTeamLogoUrl} teamName={fixture.homeTeamName} />
+              {fixture.homeTeamName}
             </p>
+            {fixture.competitionName && <p className="text-sm text-text-secondary">{fixture.competitionName}</p>}
+            <p className="text-sm text-text-secondary">
+              <LocalDateTime iso={fixture.scheduledStartUtc} options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
+            </p>
+            {fixture.internalStatus === "COMPLETED" && fixture.homeScore != null && fixture.awayScore != null && (
+              <p className="text-sm font-medium text-text-primary">
+                Final: {fixture.awayTeamName} {fixture.awayScore} — {fixture.homeTeamName} {fixture.homeScore}
+              </p>
+            )}
+            {fixture.internalStatus === "CANCELLED" && <p className="text-sm font-medium text-text-primary">This game was cancelled.</p>}
+            <PostCommunityBadges communities={communities} />
+          </div>
+
+          <div className="border-t border-border-subtle pt-4">
+            {primaryMarketDetail ? (
+              <MarketPredictionCard market={primaryMarketDetail} userId={user.id} />
+            ) : (
+              <p className="text-sm text-text-secondary">No markets are available for this game yet.</p>
+            )}
+          </div>
+
+          {otherMarkets.length > 0 && (
+            <div className="space-y-2 border-t border-border-subtle pt-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-text-muted">More markets for this game</p>
+              <ul className="space-y-1">
+                {otherMarkets.map((m) => (
+                  <li key={m.id}>
+                    <Link href={`/markets/${m.id}`} className="text-sm text-text-primary underline">
+                      {m.question}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
-          {fixture.internalStatus === "CANCELLED" && <p className="text-sm font-medium text-text-primary">This game was cancelled.</p>}
-          <PostCommunityBadges communities={communities} />
-        </CardContent>
-      </Card>
 
-      {primaryMarketDetail ? (
-        <MarketPredictionCard market={primaryMarketDetail} userId={user.id} />
-      ) : (
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-text-secondary">No markets are available for this game yet.</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {otherMarkets.length > 0 && (
-        <Card>
-          <CardContent className="space-y-2 pt-6">
-            <p className="text-xs font-medium uppercase tracking-wide text-text-muted">More markets for this game</p>
-            <ul className="space-y-1">
-              {otherMarkets.map((m) => (
-                <li key={m.id}>
-                  <Link href={`/markets/${m.id}`} className="text-sm text-text-primary underline">
-                    {m.question}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardContent className="pt-6">
-          <PostConversation
-            postId={post.id}
-            viewer={{ id: user.id, isModerator: isAdminOrAbove(user) }}
-            initialComments={conversation}
-          />
+          <div className="border-t border-border-subtle pt-4">
+            <PostConversation
+              postId={post.id}
+              viewer={{ id: user.id, isModerator: isAdminOrAbove(user) }}
+              initialComments={conversation}
+            />
+          </div>
         </CardContent>
       </Card>
     </div>
