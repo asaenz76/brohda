@@ -47,14 +47,14 @@ describe("MobileBottomNavigation", () => {
     expect(screen.queryByRole("link", { name: /create/i })).toBeNull();
   });
 
-  it("Home is temporarily mapped to /feed", () => {
+  it("Home is mapped to /feed (final since Phase C)", () => {
     render(<MobileBottomNavigation profile={profile} />);
     expect(screen.getByRole("link", { name: /home/i })).toHaveAttribute("href", "/feed");
   });
 
-  it("Discovery is temporarily mapped to /markets", () => {
+  it("Discovery is mapped to /discovery (final since Phase D)", () => {
     render(<MobileBottomNavigation profile={profile} />);
-    expect(screen.getByRole("link", { name: /discovery/i })).toHaveAttribute("href", "/markets");
+    expect(screen.getByRole("link", { name: /discovery/i })).toHaveAttribute("href", "/discovery");
   });
 
   it("Notifications is temporarily mapped to /activity", () => {
@@ -63,7 +63,7 @@ describe("MobileBottomNavigation", () => {
   });
 
   it("marks exactly one destination active via aria-current, matching the current path", () => {
-    currentPathname = "/markets";
+    currentPathname = "/discovery";
     render(<MobileBottomNavigation profile={profile} />);
     expect(activeLabel()).toBe("Discovery");
     const activeCount = screen.getAllByRole("link").filter((el) => el.getAttribute("aria-current") === "page").length;

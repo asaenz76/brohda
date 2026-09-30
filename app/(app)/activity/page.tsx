@@ -28,7 +28,7 @@ export default async function ActivityPage() {
         <EmptyFeedState
           icon={Bell}
           title="Nothing here yet"
-          description="Ledger activity and notifications will show up here once pools are live."
+          description="Notifications and wallet activity will show up here."
         />
       </>
     );

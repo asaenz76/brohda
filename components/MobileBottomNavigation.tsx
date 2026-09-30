@@ -19,17 +19,17 @@ import { Avatar } from "@/components/Avatar";
 // superadmin-only, reachable via /admin/pools/new + the separate AdminNav).
 //
 // ROUTE MAPPINGS (spec §14/§16 originally called these all "temporary" —
-// updated per Phase C):
-//   Home          -> /feed      Phase C cutover complete: /feed IS now the
-//                                real Brohda 2.0 Home timeline (canonical
-//                                Game Posts, Pools fully retired from it).
-//                                This mapping is final, not temporary.
-//   Discovery     -> /markets   STILL TEMPORARY — /markets is Stage 4A's
-//                                flat social feed (same content as Home
-//                                right now, see app/(app)/markets/page.tsx's
-//                                own comment for why that's deliberate),
-//                                not yet Sports/Leagues/Teams tabs; a later
-//                                phase builds the real /discovery.
+// updated per Phase C, then Phase D):
+//   Home          -> /feed      Final since Phase C: the real Brohda 2.0
+//                                Home timeline (canonical Game Posts,
+//                                Pools fully retired from it).
+//   Discovery     -> /discovery Final since Phase D: the real Sports/
+//                                Leagues/Teams Discovery surface
+//                                (app/(app)/discovery/page.tsx). Replaces
+//                                the temporary /markets mapping — /markets
+//                                itself now redirects to /feed (see that
+//                                route's own comment); /markets/[id]
+//                                (Market detail) is untouched.
 //   Notifications -> /activity  STILL TEMPORARY — the combined
 //                                notifications+ledger page today; a later
 //                                phase splits out a real /notifications
@@ -44,7 +44,7 @@ interface NavTab {
 
 const NAV_TABS: NavTab[] = [
   { href: "/feed", label: "Home", icon: Home },
-  { href: "/markets", label: "Discovery", icon: Compass, socialPredictionGated: true },
+  { href: "/discovery", label: "Discovery", icon: Compass, socialPredictionGated: true },
   { href: "/activity", label: "Notifications", icon: Bell },
 ];
 

@@ -1,20 +1,17 @@
 /**
- * E2E coverage for the canonical Brohda 2.0 social discovery feed at
- * `/markets` (Milestone R13.10, Stage 4A remediation of the Stage 4
- * pre-exposure audit's P0 finding — an ordinary user previously had no
- * in-app way to discover a Post/Market/Community at all). Read-only browse
- * surface — no prediction submission, no order, no wallet. Requires the
- * local Supabase stack (`pnpm supabase:start`) — `pnpm test:e2e` handles
- * the rest.
+ * E2E coverage for the canonical Brohda 2.0 Home timeline at `/feed`
+ * (originally Stage 4A's social discovery feed at `/markets`; Phase C
+ * cut `/feed` over to this exact content, retiring Pools from it; Phase D
+ * then redirected the now-redundant `/markets` index here — see
+ * next.config.ts's own redirect comment). Renamed from
+ * discovery-markets.spec.ts to home-feed.spec.ts to match. Read-only
+ * browse assertions — no prediction submission, no order, no wallet.
+ * Requires the local Supabase stack (`pnpm supabase:start`) — `pnpm
+ * test:e2e` handles the rest.
  *
- * This spec replaces the prior Milestone-2-era coverage of `/markets` as a
- * raw Market-browse page with category tabs — that engine
- * (getDiscoveryFeed/discovery_categories) is untouched and still covered
- * at the repository/RLS level by tests/integration/discovery-categories.test.ts;
- * it simply no longer backs this route, which now serves the canonical
- * Post-centric feed instead (see app/(app)/markets/page.tsx's own header
- * comment for the full architecture decision). `/markets/[id]` (Market
- * detail) is unchanged and still covered here as a direct deep link.
+ * `/markets/[id]` (Market detail) is unchanged and still covered here as
+ * a direct deep link — Phase D explicitly does not retire it (notification
+ * and Post "other Markets" links still depend on it).
  *
  * Every seeded fixture's team names embed this test's unique suffix — not
  * just its external id — because Playwright's text matchers match by
@@ -119,7 +116,15 @@ async function cleanup(fixtureIds: string[], teamIds: string[]) {
   if (teamIds.length > 0) await admin.from("teams").delete().in("id", teamIds);
 }
 
-test.describe("social discovery feed", () => {
+test.describe("Home timeline", () => {
+  test("/markets redirects to /feed (Phase D — no competing Home feed left)", async ({ page }) => {
+    const email = `e2e-markets-redirect-${randomUUID()}@example.com`;
+    await createPlayer(email);
+    await loginAs(page, email);
+    await page.goto("/markets");
+    await expect(page).toHaveURL(/\/feed$/);
+  });
+
   test("a brand-new user with zero Community follows still sees eligible published Posts, with semantic Market labels and no raw enum leakage", async ({ page }) => {
     const suffix = randomUUID();
     const homeTeamName = `E2E Home ${suffix}`;
@@ -136,7 +141,7 @@ test.describe("social discovery feed", () => {
 
     try {
       await loginAs(page, email);
-      await page.goto("/markets");
+      await page.goto("/feed");
 
       // Scoped to this test's own card — the shared feed is global, so
       // other E2E workers' concurrently-seeded Posts are also visible on
@@ -211,7 +216,7 @@ test.describe("social discovery feed", () => {
 
     try {
       await loginAs(page, email);
-      await page.goto("/markets");
+      await page.goto("/feed");
 
       // Scoped to each test's own card — see the previous test's own note
       // on why (the shared feed is global across concurrently-running
