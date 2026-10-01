@@ -2,7 +2,6 @@ import { getMarketById } from "@/lib/prediction-markets/repository";
 import { formatClosesAt } from "@/lib/prediction-markets/discovery/format";
 import type { DiscoveryMarketDetail } from "@/lib/prediction-markets/discovery/types";
 import { DiscoveryStatusPill } from "@/components/discovery/DiscoveryStatusPill";
-import { Card, CardContent } from "@/components/ui/card";
 import { getLatestUserPredictionForMarket } from "@/lib/predictions/repository";
 import { checkMarketEligibility, getPredictionPolicy } from "@/lib/predictions/policy";
 import { copyForIneligible } from "@/lib/predictions/copy";
@@ -24,6 +23,13 @@ import { MarketParticipants } from "@/components/predictions/MarketParticipants"
  * set_pick() itself on every submit — this component only pre-computes
  * Market-level eligibility (price/freshness/status) for the disabled-state
  * copy, exactly as it already did pre-R5.
+ *
+ * Deliberately does NOT own its own Card wrapper — a caller with a single
+ * Market as its whole page (markets/[id]) wraps this in one; the Post
+ * detail page instead composes this content into one Card alongside the
+ * Game header and comments, rather than stacking several separately-
+ * bordered Cards (product feedback: the Post detail page should read as
+ * one coherent Post, not four boxes).
  */
 export async function MarketPredictionCard({ market, userId }: { market: DiscoveryMarketDetail; userId: string }) {
   // Phase C (Brohda 2.0 redesign): market.yesPercent/noPercent are real
@@ -58,60 +64,56 @@ export async function MarketPredictionCard({ market, userId }: { market: Discove
   }
 
   return (
-    <Card>
-      <CardContent className="space-y-4 pt-6">
-        {market.categories.length > 0 && (
-          <p className="text-xs font-medium uppercase tracking-wide text-text-muted">
-            {market.categories.map((c) => c.displayName).join(" · ")}
-          </p>
-        )}
+    <div className="space-y-4">
+      {market.categories.length > 0 && (
+        <p className="text-xs font-medium uppercase tracking-wide text-text-muted">
+          {market.categories.map((c) => c.displayName).join(" · ")}
+        </p>
+      )}
 
-        <p className="text-xl font-semibold text-text-primary">{market.question}</p>
+      <p className="text-xl font-semibold text-text-primary">{market.question}</p>
 
-        <DiscoveryStatusPill status={market.status} />
+      <DiscoveryStatusPill status={market.status} />
 
-        {market.status === "RESOLVED" && market.resolvedOutcome && (
-          <p className="text-sm font-medium text-text-primary">{market.resolvedOutcome === "YES" ? market.yesLabel : market.noLabel}</p>
-        )}
+      {market.status === "RESOLVED" && market.resolvedOutcome && (
+        <p className="text-sm font-medium text-text-primary">{market.resolvedOutcome === "YES" ? market.yesLabel : market.noLabel}</p>
+      )}
 
-        {hasPicks ? (
-          <div className="space-y-1">
-            <div className="flex items-center gap-8">
-              <div>
-                <p className="text-3xl font-bold text-text-primary">{market.yesPercent}%</p>
-                <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{market.yesLabel}</p>
-              </div>
-              <div>
-                <p className="text-3xl font-bold text-text-primary">{market.noPercent}%</p>
-                <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{market.noLabel}</p>
-              </div>
+      {hasPicks ? (
+        <div className="space-y-1">
+          <div className="flex items-center gap-8">
+            <div>
+              <p className="text-3xl font-bold text-text-primary">{market.yesPercent}%</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{market.yesLabel}</p>
             </div>
-            <p className="text-xs text-text-muted">
-              {market.totalPickCount} predicted
-            </p>
+            <div>
+              <p className="text-3xl font-bold text-text-primary">{market.noPercent}%</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{market.noLabel}</p>
+            </div>
           </div>
-        ) : (
-          <p className="text-xs text-text-muted">No one has predicted yet.</p>
-        )}
+          <p className="text-xs text-text-muted">{market.totalPickCount} predicted</p>
+        </div>
+      ) : (
+        <p className="text-xs text-text-muted">No one has predicted yet.</p>
+      )}
 
-        {market.description && <p className="text-sm text-text-secondary">{market.description}</p>}
+      {market.description && <p className="text-sm text-text-secondary">{market.description}</p>}
 
-        {closesLabel && <p className="text-sm text-text-secondary">Closes {closesLabel}</p>}
+      {closesLabel && <p className="text-sm text-text-secondary">Closes {closesLabel}</p>}
 
-        {isEditable ? (
-          <PredictionActions
-            marketId={market.id}
-            disabledReason={predictionDisabledReason}
-            currentSelection={existingPrediction?.selectedOutcome ?? null}
-            yesLabel={market.yesLabel}
-            noLabel={market.noLabel}
-          />
-        ) : (
-          <YourPredictionCard prediction={existingPrediction!} yesLabel={market.yesLabel} noLabel={market.noLabel} />
-        )}
+      {isEditable ? (
+        <PredictionActions
+          marketId={market.id}
+          disabledReason={predictionDisabledReason}
+          currentSelection={existingPrediction?.selectedOutcome ?? null}
+          yesLabel={market.yesLabel}
+          noLabel={market.noLabel}
+        />
+      ) : (
+        <YourPredictionCard prediction={existingPrediction!} yesLabel={market.yesLabel} noLabel={market.noLabel} />
+      )}
 
-        {existingPrediction && <MarketParticipants marketId={market.id} viewerId={userId} yesLabel={market.yesLabel} noLabel={market.noLabel} />}
-      </CardContent>
-    </Card>
+      {existingPrediction && <MarketParticipants marketId={market.id} viewerId={userId} yesLabel={market.yesLabel} noLabel={market.noLabel} />}
+    </div>
   );
 }
