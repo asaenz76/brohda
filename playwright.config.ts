@@ -82,45 +82,34 @@ export default defineConfig({
       NEXT_PUBLIC_SENTRY_DSN: "",
     },
   },
-  // Three projects, not a global fullyParallel:false — every other spec
-  // (paid-entry-flow, free-entry-flow, invite-flow, and any future one)
-  // stays fully parallel-eligible in "chromium". platform-capability-
-  // toggle-flow.spec.ts and (Milestone R12) admin-brohda-settings.spec.ts
-  // both mutate the platform_settings singleton — a real cross-test shared
-  // resource, the same class of problem vitest.integration.config.ts
-  // already solves for the integration suite via fileParallelism:false —
-  // so each gets pulled into its own project. `dependencies` is
-  // Playwright's own ordering primitive ("List of projects that need to
-  // run before any test in this project runs" — @playwright/test's own
-  // type doc): it guarantees zero time-overlap between projects, so the
-  // canonical `playwright test` command is deterministic with no manual
-  // --workers=1, no test ordering flags, and no sleeps. The R12 project
-  // depends on BOTH "chromium" and "chromium-capability-toggle" — not just
-  // "chromium" — because two projects that share no dependency edge can
-  // still run concurrently with each other; depending on both is what
-  // stops admin-brohda-settings.spec.ts from ever overlapping the toggle
-  // spec's own singleton mutations, not just the main suite's. Each
-  // project's own fullyParallel:false is belt-and-suspenders on top of
-  // its file's existing test.describe.configure({ mode: "serial" }).
+  // Two projects, not a global fullyParallel:false — every other spec
+  // (invite-flow and any future one) stays fully parallel-eligible in
+  // "chromium". (Milestone R12) admin-brohda-settings.spec.ts mutates the
+  // platform_settings singleton — a real cross-test shared resource, the
+  // same class of problem vitest.integration.config.ts already solves for
+  // the integration suite via fileParallelism:false — so it gets pulled
+  // into its own project. `dependencies` is Playwright's own ordering
+  // primitive ("List of projects that need to run before any test in this
+  // project runs" — @playwright/test's own type doc): it guarantees zero
+  // time-overlap between projects, so the canonical `playwright test`
+  // command is deterministic with no manual --workers=1, no test ordering
+  // flags, and no sleeps. (Phase H retired the paid/free Pool-entry flow
+  // and its platform-capability-toggle-flow.spec.ts — that third project
+  // existed solely for that now-deleted file.) The project's own
+  // fullyParallel:false is belt-and-suspenders on top of its file's
+  // existing test.describe.configure({ mode: "serial" }).
   projects: [
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
-      testIgnore: /platform-capability-toggle|admin-brohda-settings/,
-    },
-    {
-      name: "chromium-capability-toggle",
-      use: { ...devices["Desktop Chrome"] },
-      testMatch: /platform-capability-toggle/,
-      fullyParallel: false,
-      dependencies: ["chromium"],
+      testIgnore: /admin-brohda-settings/,
     },
     {
       name: "chromium-admin-settings",
       use: { ...devices["Desktop Chrome"] },
       testMatch: /admin-brohda-settings/,
       fullyParallel: false,
-      dependencies: ["chromium", "chromium-capability-toggle"],
+      dependencies: ["chromium"],
     },
   ],
 });

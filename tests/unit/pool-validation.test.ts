@@ -3,7 +3,6 @@ import {
   createPoolFromTemplateSchema,
   createPoolsForFixturesSchema,
   updatePoolSchema,
-  enterPoolSchema,
   voidEntrySchema,
   MINIMUM_LOCK_LEAD_MINUTES,
 } from "@/lib/validations/pools";
@@ -305,29 +304,6 @@ describe("updatePoolSchema", () => {
     const { poolId, ...rest } = validUpdate;
     void poolId;
     expect(updatePoolSchema.safeParse(rest).success).toBe(false);
-  });
-});
-
-describe("enterPoolSchema", () => {
-  const valid = {
-    poolId: "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    optionId: "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
-    amountCents: 1000,
-    idempotencyKey: "6ba7b811-9dad-11d1-80b4-00c04fd430c8",
-  };
-
-  it("accepts a valid entry", () => {
-    expect(enterPoolSchema.safeParse(valid).success).toBe(true);
-  });
-
-  it("rejects a zero amount", () => {
-    expect(enterPoolSchema.safeParse({ ...valid, amountCents: 0 }).success).toBe(false);
-  });
-
-  it("rejects a non-uuid idempotency key", () => {
-    expect(enterPoolSchema.safeParse({ ...valid, idempotencyKey: "not-a-uuid" }).success).toBe(
-      false,
-    );
   });
 });
 

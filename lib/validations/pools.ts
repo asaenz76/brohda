@@ -241,21 +241,6 @@ export const updatePoolSchema = z
 
 export type UpdatePoolInput = z.infer<typeof updatePoolSchema>;
 
-export const enterPoolSchema = z
-  .object({
-    poolId: z.string().uuid(),
-    optionId: z.string().uuid(),
-    // Nullable, not just optional-with-a-default: a FREE entry's canonical
-    // request supplies amountCents = null explicitly (Decision 3, §7). The
-    // server never infers "no amount sent" as "amount is 0" — create_pool_entry
-    // rejects any non-null amount against a FREE pool outright.
-    amountCents: z.number().int().positive().nullable(),
-    idempotencyKey: z.string().uuid(),
-  })
-  .strict();
-
-export type EnterPoolInput = z.infer<typeof enterPoolSchema>;
-
 export const voidEntrySchema = z
   .object({
     entryId: z.string().uuid(),

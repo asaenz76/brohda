@@ -1,4 +1,4 @@
-import { PoolCardSkeleton } from "@/components/pools/PoolCardSkeleton";
+import { GamePostCardSkeleton } from "@/components/posts/GamePostCardSkeleton";
 
 // Next.js route-segment loading state: automatically wraps FeedPage in a
 // Suspense boundary since it's a pure async Server Component. Mirrors the
@@ -13,7 +13,7 @@ export default function FeedLoading() {
         <div className="h-8 w-28 animate-pulse rounded-lg bg-surface-elevated" />
       </div>
       {Array.from({ length: 4 }).map((_, i) => (
-        <PoolCardSkeleton key={i} />
+        <GamePostCardSkeleton key={i} />
       ))}
     </div>
   );

@@ -4,7 +4,7 @@ const STEPS = [
   {
     icon: ClipboardCheck,
     title: "Pick",
-    description: "Choose an outcome before the pool locks.",
+    description: "Choose an outcome before the game starts.",
   },
   {
     icon: Users2,
@@ -14,7 +14,7 @@ const STEPS = [
   {
     icon: Trophy,
     title: "Prove it",
-    description: "Track your record, build streaks, and climb the leaderboard.",
+    description: "Track your record and build your reputation.",
   },
 ];
 

@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef } from "react";
-import Link from "next/link";
 import { formatCents } from "@/lib/utils/money";
 import { voidReasonLabel } from "@/lib/pools/notices";
 import type { LedgerEntry } from "@/lib/wallet/ledger";
@@ -87,14 +86,6 @@ export function TransactionDetailSheet({ entry, onClose }: TransactionDetailShee
               <p className="mt-1 text-xs text-text-muted">
                 You picked <span className="text-text-primary">{entry.optionLabel}</span>
               </p>
-            )}
-            {entry.poolId && (
-              <Link
-                href={`/pool/${entry.poolId}`}
-                className="mt-1 inline-block text-sm text-accent-primary underline-offset-2 hover:underline"
-              >
-                View pool
-              </Link>
             )}
           </div>
         )}

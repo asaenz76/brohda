@@ -1,7 +1,7 @@
 const ROWS: Array<[string, string]> = [
   ["Bet alone", "Predict with friends"],
   ["Repeated odds screens", "Community feed"],
-  ["House-focused pricing", "Participant pools"],
+  ["House-focused pricing", "Social predictions"],
   ["One-off tickets", "Public track record"],
   ["Transaction first", "Conversation first"],
 ];
@@ -14,7 +14,7 @@ export function ComparisonSection() {
       </h2>
       <p className="mt-2 text-center text-text-secondary">
         Brohda brings predictions into a community feed. Make your call, see where your friends
-        stand, compete in pools, and build a track record over time.
+        stand, join the conversation, and build a track record over time.
       </p>
       <div className="mt-8 overflow-x-auto rounded-2xl border-2 border-text-primary shadow-[4px_4px_0_0_var(--text-primary)]">
         <table className="w-full min-w-[420px] text-left text-sm">

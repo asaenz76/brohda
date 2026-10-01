@@ -36,3 +36,28 @@ export async function listPostIdsForMarkets(marketIds: string[]): Promise<Map<st
   }
   return result;
 }
+
+/**
+ * fixtureId -> its published Post id, for every fixture id given. A fixture
+ * id is absent from the returned Map if it has no Post yet, or that Post
+ * isn't published — callers drop those rather than linking to a dead end
+ * (Phase H, search no longer sends results into the retired Pool/fixture
+ * browsing page).
+ */
+export async function listPostIdsForFixtures(fixtureIds: string[]): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  if (fixtureIds.length === 0) return result;
+
+  const admin = createAdminClient();
+  const { data: posts, error } = await admin
+    .from("posts")
+    .select("id, fixture_id")
+    .in("fixture_id", fixtureIds)
+    .not("published_at", "is", null);
+  if (error) throw error;
+
+  for (const post of posts ?? []) {
+    result.set(post.fixture_id as string, post.id as string);
+  }
+  return result;
+}

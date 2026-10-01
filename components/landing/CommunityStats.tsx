@@ -4,7 +4,7 @@ export function CommunityStats({ stats }: { stats: LandingStats }) {
   const items = [
     { label: "players", value: stats.betaTesters },
     { label: "predictions made", value: stats.predictionsMade },
-    { label: "pools completed", value: stats.poolsCompleted },
+    { label: "games tracked", value: stats.gamesTracked },
   ];
 
   // Only real, currently-true counts — no fabricated testimonials or
