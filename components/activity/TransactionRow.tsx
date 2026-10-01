@@ -1,7 +1,6 @@
 "use client";
 
 import { formatCents } from "@/lib/utils/money";
-import { voidReasonLabel } from "@/lib/pools/notices";
 import { cn } from "@/lib/utils";
 
 export interface TransactionRowProps {
@@ -65,7 +64,7 @@ export function TransactionRow({
               {optionLabel && <span className="text-text-muted"> · Picked: {optionLabel}</span>}
             </div>
           )}
-          {reason && <div className="text-xs text-text-muted">{voidReasonLabel(reason)}</div>}
+          {reason && <div className="text-xs text-text-muted">{reason}</div>}
           <div className="text-xs text-text-muted">{new Date(createdAt).toLocaleString()}</div>
         </div>
         <span className={cn("shrink-0 font-semibold", isCredit ? "text-credit" : "text-debit")}>

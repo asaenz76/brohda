@@ -20,7 +20,7 @@ export async function getLandingPageData(): Promise<LandingPageData> {
       .select("id", { count: "exact", head: true })
       .eq("role", "player")
       .eq("is_active", true),
-    admin.from("entries").select("id", { count: "exact", head: true }),
+    admin.from("predictions").select("id", { count: "exact", head: true }),
     admin.from("posts").select("id", { count: "exact", head: true }).not("published_at", "is", null),
   ]);
 

@@ -2,8 +2,7 @@
 
 // Phase 4 (Unified Events Admin Experience): the one data-fetching entry
 // point normal /admin/events browsing calls. queryLocalEventsByDateWindow
-// (lib/fixtures/local-browse.ts) only ever touches the local `fixtures`,
-// `pools`, `fixtures_available_for_pool_creation`, and
+// (lib/fixtures/local-browse.ts) only ever touches the local `fixtures` and
 // `league_season_imports` tables — no import of the provider client,
 // directly or transitively. That is what makes "zero live sports-provider
 // requests during ordinary Events browsing" true by construction, not by

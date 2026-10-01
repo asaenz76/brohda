@@ -5,10 +5,9 @@ import type { NotificationRow } from "@/lib/notifications/fetch";
 function makeNotification(overrides: Partial<NotificationRow>): NotificationRow {
   return {
     id: "notif-1",
-    type: "SETTLED_WON",
-    title: "You won!",
-    body: "You won this pool.",
-    pool_id: "pool-1",
+    type: "prediction_graded",
+    title: "You were right",
+    body: 'Your prediction on "Who wins?" was correct.',
     transaction_id: null,
     post_id: null,
     market_id: null,
@@ -19,80 +18,23 @@ function makeNotification(overrides: Partial<NotificationRow>): NotificationRow 
 }
 
 describe("resolveNotificationHref", () => {
-  it("always points a reply at its pool, ignoring any ledger match", () => {
-    const n = makeNotification({ type: "COMMENT_REPLY", pool_id: "pool-1" });
-    const transactionIdByPoolId = new Map([["pool-1", "tx-1"]]);
-    expect(resolveNotificationHref(n, transactionIdByPoolId)).toBe("/pool/pool-1");
-  });
-
-  it("returns null for a reply with no pool_id", () => {
-    const n = makeNotification({ type: "COMMENT_REPLY", pool_id: null });
-    expect(resolveNotificationHref(n, new Map())).toBeNull();
-  });
-
-  it("points a payout notification at its ledger row when one is found", () => {
-    const n = makeNotification({ type: "SETTLED_WON", pool_id: "pool-1" });
-    const transactionIdByPoolId = new Map([["pool-1", "tx-42"]]);
-    expect(resolveNotificationHref(n, transactionIdByPoolId)).toBe("/wallet#tx-tx-42");
-  });
-
-  it("points a void/refund notification at its ledger row when one is found", () => {
-    const n = makeNotification({ type: "MATCH_POSTPONED_NOT_COMPLETED_SAME_DAY", pool_id: "pool-1" });
-    const transactionIdByPoolId = new Map([["pool-1", "tx-99"]]);
-    expect(resolveNotificationHref(n, transactionIdByPoolId)).toBe("/wallet#tx-tx-99");
-  });
-
-  it("falls back to the pool page when no ledger row exists (e.g. SETTLED_LOST)", () => {
-    const n = makeNotification({ type: "SETTLED_LOST", pool_id: "pool-1" });
-    expect(resolveNotificationHref(n, new Map())).toBe("/pool/pool-1");
-  });
-
-  it("returns null when there's no pool_id and no ledger match", () => {
-    const n = makeNotification({ type: "SETTLED_LOST", pool_id: null });
-    expect(resolveNotificationHref(n, new Map())).toBeNull();
-  });
-
-  it("points a followed-user-entered notification at its pool, ignoring a coincidental ledger match", () => {
-    // The recipient could independently have their own payout/refund on
-    // this same pool_id — that transaction has nothing to do with someone
-    // else's entry, so it must never be picked up here.
-    const n = makeNotification({ type: "FOLLOWED_USER_ENTERED_POOL", pool_id: "pool-1" });
-    const transactionIdByPoolId = new Map([["pool-1", "tx-1"]]);
-    expect(resolveNotificationHref(n, transactionIdByPoolId)).toBe("/pool/pool-1");
-  });
-
-  it("always points a mention at its pool, ignoring any ledger match", () => {
-    const n = makeNotification({ type: "COMMENT_MENTION", pool_id: "pool-1" });
-    const transactionIdByPoolId = new Map([["pool-1", "tx-1"]]);
-    expect(resolveNotificationHref(n, transactionIdByPoolId)).toBe("/pool/pool-1");
-  });
-
-  it("prefers a stamped transaction_id over the pool_id-keyed lookup", () => {
-    const n = makeNotification({ type: "SETTLED_WON", pool_id: "pool-1", transaction_id: "tx-direct" });
-    const transactionIdByPoolId = new Map([["pool-1", "tx-from-lookup"]]);
-    expect(resolveNotificationHref(n, transactionIdByPoolId)).toBe("/wallet#tx-tx-direct");
-  });
-
-  it("uses the stamped transaction_id even once its pool has been detached (pool_id null)", () => {
-    // Mirrors delete_terminal_pool nulling notifications.pool_id when a
-    // SETTLED pool is hard-deleted — the notification must stay clickable
-    // via the ledger row it was stamped with, not fall back to /pool/null.
-    const n = makeNotification({ type: "SETTLED_WON", pool_id: null, transaction_id: "tx-direct" });
-    expect(resolveNotificationHref(n, new Map())).toBe("/wallet#tx-tx-direct");
+  it("always points a wallet request submission at the admin queue", () => {
+    const n = makeNotification({ type: "WALLET_REQUEST_SUBMITTED" });
+    expect(resolveNotificationHref(n)).toBe("/admin/wallet-requests");
   });
 
   // Stage 4A remediation (Stage 4 audit §14 / remediation §17): a graded
   // Prediction's notification previously resolved to no destination at
   // all (no case existed for this type). Direct field read, resolved once
-  // at creation time — no pool_id/transaction_id/ledger lookup involved.
+  // at creation time.
   it("falls back to the canonical Post when there's no market_id", () => {
-    const n = makeNotification({ type: "prediction_graded", pool_id: null, post_id: "post-1", market_id: null });
-    expect(resolveNotificationHref(n, new Map())).toBe("/post/post-1");
+    const n = makeNotification({ post_id: "post-1", market_id: null });
+    expect(resolveNotificationHref(n)).toBe("/post/post-1");
   });
 
-  it("returns null for a graded-prediction notification with neither market_id nor post_id (data anomaly, or a pre-migration row)", () => {
-    const n = makeNotification({ type: "prediction_graded", pool_id: null, post_id: null, market_id: null });
-    expect(resolveNotificationHref(n, new Map())).toBeNull();
+  it("returns null for a graded-prediction notification with neither market_id nor post_id (data anomaly)", () => {
+    const n = makeNotification({ post_id: null, market_id: null });
+    expect(resolveNotificationHref(n)).toBeNull();
   });
 
   // Stage 4C remediation: a Post can have more than one concurrently
@@ -100,12 +42,22 @@ describe("resolveNotificationHref", () => {
   // notification is about, rather than collapsing every prediction_graded
   // notification for the same Post to its primary Market.
   it("points a graded-prediction notification at its specific Market when market_id is present", () => {
-    const n = makeNotification({ type: "prediction_graded", pool_id: null, post_id: "post-1", market_id: "market-1" });
-    expect(resolveNotificationHref(n, new Map())).toBe("/markets/market-1");
+    const n = makeNotification({ post_id: "post-1", market_id: "market-1" });
+    expect(resolveNotificationHref(n)).toBe("/markets/market-1");
   });
 
   it("prefers market_id over post_id when both are present", () => {
-    const n = makeNotification({ type: "prediction_graded", pool_id: null, post_id: "post-1", market_id: "market-1" });
-    expect(resolveNotificationHref(n, new Map())).toBe("/markets/market-1");
+    const n = makeNotification({ post_id: "post-1", market_id: "market-1" });
+    expect(resolveNotificationHref(n)).toBe("/markets/market-1");
+  });
+
+  it("falls back to the stamped transaction_id's wallet entry when there's no post/market", () => {
+    const n = makeNotification({ type: "DEPOSIT_APPROVED", transaction_id: "tx-direct" });
+    expect(resolveNotificationHref(n)).toBe("/wallet#tx-tx-direct");
+  });
+
+  it("returns null when there's nothing to resolve to", () => {
+    const n = makeNotification({ type: "DEPOSIT_APPROVED" });
+    expect(resolveNotificationHref(n)).toBeNull();
   });
 });

@@ -28,7 +28,7 @@ export default async function NotificationsPage() {
   const user = await requireUser();
 
   const rawNotifications = await getNotifications(user.id);
-  const notifications = await attachNotificationHrefs(user.id, rawNotifications);
+  const notifications = attachNotificationHrefs(rawNotifications);
   const hasUnread = notifications.some((n) => n.read_at == null);
 
   return (

@@ -482,21 +482,17 @@ describe("grading", () => {
     expect(notification?.post_id).toBe(postId);
     expect(notification?.market_id).toBe(marketId);
     expect(
-      resolveNotificationHref(
-        {
-          id: "n",
-          type: "prediction_graded",
-          title: "",
-          body: "",
-          pool_id: null,
-          transaction_id: null,
-          post_id: notification?.post_id ?? null,
-          market_id: notification?.market_id ?? null,
-          read_at: null,
-          created_at: "",
-        },
-        new Map(),
-      ),
+      resolveNotificationHref({
+        id: "n",
+        type: "prediction_graded",
+        title: "",
+        body: "",
+        transaction_id: null,
+        post_id: notification?.post_id ?? null,
+        market_id: notification?.market_id ?? null,
+        read_at: null,
+        created_at: "",
+      }),
     ).toBe(`/markets/${marketId}`);
 
     // Self-contained cleanup: this test is the only one in the suite that
@@ -598,15 +594,6 @@ describe("prediction policy — configurable without a deployment", () => {
       updatedPolicy,
     );
     expect(permittedAfter).toEqual({ eligible: true });
-  });
-});
-
-describe("legacy coexistence", () => {
-  it("legacy pool/entry tables remain queryable and untouched by this domain's writes", async () => {
-    const { error } = await admin.from("pools").select("id").limit(1);
-    expect(error).toBeNull();
-    const { error: entriesError } = await admin.from("entries").select("id").limit(1);
-    expect(entriesError).toBeNull();
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { devig2Way } from "@/lib/pools/templates/odds-devig";
+import { devig2Way } from "@/lib/prediction-markets/ingestion/odds-devig";
 
 describe("devig2Way", () => {
   it("removes the overround using both sides, never 1 - impliedYes", () => {

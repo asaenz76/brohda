@@ -284,13 +284,6 @@ describe("discovery taxonomy", () => {
     });
   });
 
-  describe("legacy isolation", () => {
-    it("does not touch legacy pool tables — a spot check that pools remains queryable and unaffected", async () => {
-      const { error } = await admin.from("pools").select("id").limit(1);
-      expect(error).toBeNull();
-    });
-  });
-
   describe("discovery sort policy (hard-coding remediation Finding 1)", () => {
     // discovery_sort_policy has exactly 3 rows total (one per fixed
     // criterion) and is shared across the whole suite — same class of

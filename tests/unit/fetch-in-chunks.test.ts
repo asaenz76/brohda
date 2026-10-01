@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fetchInChunks } from "@/lib/pools/fetch";
+import { fetchInChunks } from "@/lib/utils/batch";
 
 describe("fetchInChunks", () => {
   it("returns an empty array without calling fetchChunk when given no ids", async () => {

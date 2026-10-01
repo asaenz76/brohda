@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canCreatePool, defaultEventFilters, filterEvents, matchesEventFilters } from "@/lib/fixtures/event-filters";
+import { defaultEventFilters, filterEvents, matchesEventFilters } from "@/lib/fixtures/event-filters";
 import type { LocalFixture } from "@/lib/fixtures/local-browse";
 
 function fixture(overrides: Partial<LocalFixture> = {}): LocalFixture {
@@ -19,12 +19,9 @@ function fixture(overrides: Partial<LocalFixture> = {}): LocalFixture {
     scheduledStartUtc: "2026-08-15T18:00:00.000Z",
     internalStatus: "NOT_STARTED",
     statusBucket: "UPCOMING",
-    hiddenFromPoolCreation: false,
     isSupported: true,
     hasWorkspace: true,
     hasOdds: null,
-    poolCount: 0,
-    eligibility: "ELIGIBLE",
     localDateKey: "2026-08-15",
     ...overrides,
   };
@@ -52,18 +49,6 @@ describe("matchesEventFilters", () => {
     expect(matchesEventFilters(f, { ...filters, status: "LIVE" as const })).toBe(true);
   });
 
-  it("filters by pool status: has_pool / no_pool", () => {
-    const withPool = fixture({ poolCount: 2 });
-    const withoutPool = fixture({ poolCount: 0 });
-    const hasPoolFilters = { ...defaultEventFilters(["american_football"]), poolStatus: "has_pool" as const };
-    expect(matchesEventFilters(withPool, hasPoolFilters)).toBe(true);
-    expect(matchesEventFilters(withoutPool, hasPoolFilters)).toBe(false);
-
-    const noPoolFilters = { ...defaultEventFilters(["american_football"]), poolStatus: "no_pool" as const };
-    expect(matchesEventFilters(withPool, noPoolFilters)).toBe(false);
-    expect(matchesEventFilters(withoutPool, noPoolFilters)).toBe(true);
-  });
-
   it("search matches home team, away team, competition name, and round — case-insensitive", () => {
     const f = fixture({ homeTeamName: "Arsenal", awayTeamName: "Chelsea", competitionName: "NFL", round: "Round 3" });
     const filters = defaultEventFilters(["american_football"]);
@@ -78,20 +63,11 @@ describe("matchesEventFilters", () => {
 describe("filterEvents", () => {
   it("applies all active filters together", () => {
     const events = [
-      fixture({ id: "a", poolCount: 1 }),
-      fixture({ id: "b", poolCount: 0 }),
-      fixture({ id: "c", poolCount: 0 }),
+      fixture({ id: "a", statusBucket: "LIVE" }),
+      fixture({ id: "b", statusBucket: "UPCOMING" }),
+      fixture({ id: "c", statusBucket: "UPCOMING" }),
     ];
-    const result = filterEvents(events, { ...defaultEventFilters(["american_football"]), poolStatus: "has_pool" });
+    const result = filterEvents(events, { ...defaultEventFilters(["american_football"]), status: "LIVE" });
     expect(result.map((f) => f.id)).toEqual(["a"]);
-  });
-});
-
-describe("canCreatePool", () => {
-  it("is true only for ELIGIBLE", () => {
-    expect(canCreatePool("ELIGIBLE")).toBe(true);
-    expect(canCreatePool("COMPLETED")).toBe(false);
-    expect(canCreatePool("LOCKED")).toBe(false);
-    expect(canCreatePool("INELIGIBLE")).toBe(false);
   });
 });

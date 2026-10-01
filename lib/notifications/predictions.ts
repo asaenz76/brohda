@@ -18,10 +18,6 @@ import type { PredictionNotificationCopyPolicy, PredictionResult } from "@/lib/p
  * calling this exactly once per newly-graded Prediction — see
  * lib/predictions/grading.ts).
  *
- * No `pool_id` — this is not a legacy pool event; `notifications.pool_id`
- * stays null, matching that column's existing nullable, optional
- * convention (it names a legacy business entity, not every notification).
- *
  * Milestone 3 final notification-policy remediation — correcting the
  * prior remediation's own classification: "no other notification type in
  * this codebase is configurable either" is existing precedent, not proof
@@ -59,7 +55,6 @@ export async function createPredictionGradedNotification(input: {
     type: "prediction_graded",
     title,
     body,
-    pool_id: null,
     post_id: input.postId,
     market_id: input.marketId,
   });

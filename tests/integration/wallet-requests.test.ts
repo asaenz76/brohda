@@ -10,51 +10,6 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { getTestAdminClient, getTestSupabaseConfig } from "./helpers/test-env";
 import { createWalletRequestSubmittedNotification } from "@/lib/notifications/create";
 
-const createdPoolIds: string[] = [];
-
-async function getAdminId(): Promise<string> {
-  const { data } = await admin
-    .from("user_profiles")
-    .select("id")
-    .eq("role", "super_admin")
-    .eq("is_active", true)
-    .limit(1)
-    .single();
-  return data!.id as string;
-}
-
-async function createTestPool(entryFee: number) {
-  const { data: pool, error } = await admin
-    .from("pools")
-    .insert({
-      fixture_id: null,
-      created_by: await getAdminId(),
-      pool_type: "CUSTOM",
-      question: "Quick top-up test pool",
-      entry_fee: entryFee,
-      house_fee_bps: 1000,
-      min_total_entries: 2,
-      open_at: new Date().toISOString(),
-      locks_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-      status: "OPEN",
-    })
-    .select("id")
-    .single();
-  if (error || !pool) throw error ?? new Error("failed to create test pool");
-  createdPoolIds.push(pool.id as string);
-
-  const { data: optionRows, error: optionsError } = await admin
-    .from("pool_options")
-    .insert([
-      { pool_id: pool.id, label: "Yes", sort_order: 0 },
-      { pool_id: pool.id, label: "No", sort_order: 1 },
-    ])
-    .select("id");
-  if (optionsError || !optionRows) throw optionsError ?? new Error("failed to create test pool options");
-
-  return { poolId: pool.id as string, optionId: optionRows[0].id as string };
-}
-
 const { url: SUPABASE_URL, anonKey: ANON_KEY, serviceRoleKey: SERVICE_ROLE_KEY } = getTestSupabaseConfig();
 
 const admin = getTestAdminClient();
@@ -126,8 +81,6 @@ async function insertRequest(params: {
   userId: string;
   type: "deposit" | "withdrawal";
   amount: number;
-  intendedPoolId?: string;
-  intendedOptionId?: string;
 }) {
   const { data, error } = await admin
     .from("wallet_requests")
@@ -136,38 +89,11 @@ async function insertRequest(params: {
       type: params.type,
       amount: params.amount,
       idempotency_key: randomUUID(),
-      intended_pool_id: params.intendedPoolId ?? null,
-      intended_option_id: params.intendedOptionId ?? null,
     })
     .select("*")
     .single();
   if (error) throw error;
   return data;
-}
-
-// Mirrors what approveWalletRequestAction's completeQuickTopUpEntry helper
-// does after a quick-top-up deposit is credited: attempt the intended
-// entry using the pool's own entry_fee (never the client-supplied amount)
-// and a deterministic idempotency key derived from the request id.
-async function attemptQuickTopUpEntry(request: {
-  id: string;
-  user_id: string;
-  intended_pool_id: string;
-  intended_option_id: string;
-}) {
-  const { data: pool } = await admin
-    .from("pools")
-    .select("entry_fee")
-    .eq("id", request.intended_pool_id)
-    .single();
-
-  return admin.rpc("create_pool_entry", {
-    p_pool_id: request.intended_pool_id,
-    p_user_id: request.user_id,
-    p_option_id: request.intended_option_id,
-    p_amount: pool!.entry_fee,
-    p_idempotency_key: `quick_topup:${request.id}`,
-  });
 }
 
 async function getBalance(userId: string): Promise<number> {
@@ -180,26 +106,6 @@ describe.skipIf(!SERVICE_ROLE_KEY)("wallet requests", () => {
 
   afterAll(async () => {
     await Promise.all(createdUserIds.map(deactivate));
-
-    if (createdPoolIds.length > 0) {
-      // wallet_requests.intended_pool_id/intended_option_id FK these test
-      // pools/options — must clear before pool_options/pools can go. Nulling
-      // the FKs (rather than deleting the rows outright, which the DELETE
-      // grant added in 20260101000103 now permits) keeps this cleanup
-      // symmetric with the deposit/withdrawal rows other tests leave behind
-      // for manual inspection.
-      let result = await admin
-        .from("wallet_requests")
-        .update({ intended_pool_id: null, intended_option_id: null })
-        .in("intended_pool_id", createdPoolIds);
-      if (result.error) throw result.error;
-      result = await admin.from("entries").delete().in("pool_id", createdPoolIds);
-      if (result.error) throw result.error;
-      result = await admin.from("pool_options").delete().in("pool_id", createdPoolIds);
-      if (result.error) throw result.error;
-      result = await admin.from("pools").delete().in("id", createdPoolIds);
-      if (result.error) throw result.error;
-    }
   });
 
   // Regression test for the missing service_role DELETE grant (Phase 8
@@ -300,109 +206,6 @@ describe.skipIf(!SERVICE_ROLE_KEY)("wallet requests", () => {
       .eq("id", request.id);
 
     expect(await getBalance(userId)).toBe(500);
-  });
-
-  it("quick top-up: approving a deposit with an intended entry auto-completes that entry", async () => {
-    const { userId } = await createTestPlayer(`wallet-req-topup-ok-${Date.now()}@example.com`, 0);
-    createdUserIds.push(userId);
-    const { poolId, optionId } = await createTestPool(1000);
-
-    // Player is short the full entry fee — a real shortfall, matching what
-    // TopUpAndJoinModal would compute and submit.
-    const request = await insertRequest({
-      userId,
-      type: "deposit",
-      amount: 1000,
-      intendedPoolId: poolId,
-      intendedOptionId: optionId,
-    });
-
-    const { error: rpcError } = await admin.rpc("apply_wallet_transaction", {
-      p_account_type: "user",
-      p_user_id: userId,
-      p_type: "manual_deposit",
-      p_direction: "credit",
-      p_amount: request.amount,
-      p_admin_id: null,
-      p_reason: "wallet request approved",
-      p_idempotency_key: `wallet_request:${request.id}`,
-    });
-    expect(rpcError).toBeNull();
-    await admin
-      .from("wallet_requests")
-      .update({ status: "approved", reviewed_at: new Date().toISOString() })
-      .eq("id", request.id);
-
-    const { error: entryError } = await attemptQuickTopUpEntry({
-      id: request.id,
-      user_id: userId,
-      intended_pool_id: poolId,
-      intended_option_id: optionId,
-    });
-    expect(entryError).toBeNull();
-
-    expect(await getBalance(userId)).toBe(0);
-    const { data: entry } = await admin
-      .from("entries")
-      .select("option_id, amount")
-      .eq("pool_id", poolId)
-      .eq("user_id", userId)
-      .single();
-    expect(entry?.option_id).toBe(optionId);
-    expect(entry?.amount).toBe(1000);
-  });
-
-  it("quick top-up: if the pool locks before approval, the deposit still lands but the entry doesn't", async () => {
-    const { userId } = await createTestPlayer(`wallet-req-topup-locked-${Date.now()}@example.com`, 0);
-    createdUserIds.push(userId);
-    const { poolId, optionId } = await createTestPool(1000);
-
-    const request = await insertRequest({
-      userId,
-      type: "deposit",
-      amount: 1000,
-      intendedPoolId: poolId,
-      intendedOptionId: optionId,
-    });
-
-    // Simulate the pool locking in the gap between the top-up request and
-    // an admin getting to it.
-    await admin.from("pools").update({ status: "LOCKED" }).eq("id", poolId);
-
-    await admin.rpc("apply_wallet_transaction", {
-      p_account_type: "user",
-      p_user_id: userId,
-      p_type: "manual_deposit",
-      p_direction: "credit",
-      p_amount: request.amount,
-      p_admin_id: null,
-      p_reason: "wallet request approved",
-      p_idempotency_key: `wallet_request:${request.id}`,
-    });
-    await admin
-      .from("wallet_requests")
-      .update({ status: "approved", reviewed_at: new Date().toISOString() })
-      .eq("id", request.id);
-
-    const { error: entryError } = await attemptQuickTopUpEntry({
-      id: request.id,
-      user_id: userId,
-      intended_pool_id: poolId,
-      intended_option_id: optionId,
-    });
-    expect(entryError?.message).toContain("pool_not_open");
-
-    // The credit already landed and must stay — completeQuickTopUpEntry
-    // only decides which notification to send on this failure, it never
-    // reverses the deposit.
-    expect(await getBalance(userId)).toBe(1000);
-    const { data: entry } = await admin
-      .from("entries")
-      .select("id")
-      .eq("pool_id", poolId)
-      .eq("user_id", userId)
-      .maybeSingle();
-    expect(entry).toBeNull();
   });
 
   it("stores the currency/transaction-ref/other-method fields and they round-trip unchanged", async () => {
