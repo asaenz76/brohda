@@ -1,26 +1,26 @@
 import Link from "next/link";
 
-// Instagram-style "Posts / Followers / Following" row, renamed to fit a
-// prediction app — Picks isn't a link (there's nowhere else to send you,
-// the picks are already right below on both profile pages), Followers/
-// Following each link to their own list page.
+// Instagram-style "Followers / Following" row. Phase F (Brohda 2.0
+// redesign) dropped the third "picks" stat this row used to show first —
+// that number came from get_pick_count, which counts legacy Pool
+// `entries`, not anything in the canonical Brohda 2.0 domain (predictions
+// or reputation); it's gone from Profile now, not relabeled or replaced,
+// per the same "no Pool stats on the redesigned Profile" rule as the
+// removed legacy tabs. Real prediction counts live in the reputation line
+// (UserIdentity's own "N predicted") instead — spec §21 keeps follower
+// counts and prediction reputation as two distinct, never-conflated
+// numbers, which is exactly what keeping this row separate preserves.
 export function ProfileStatsRow({
-  picksCount,
   followerCount,
   followingCount,
   profileHref,
 }: {
-  picksCount: number;
   followerCount: number;
   followingCount: number;
   profileHref: string;
 }) {
   return (
     <div className="flex items-center gap-6 text-sm text-text-secondary">
-      <div className="flex flex-col items-center">
-        <span className="text-base font-bold text-text-primary">{picksCount}</span>
-        <span>picks</span>
-      </div>
       <Link href={`${profileHref}/followers`} className="flex flex-col items-center">
         <span className="text-base font-bold text-text-primary">{followerCount}</span>
         <span>followers</span>

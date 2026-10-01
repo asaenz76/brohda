@@ -140,10 +140,10 @@ test.describe("Brohda Prediction layer", () => {
       await page.reload();
       await expect(page.getByRole("button", { name: "Pick: Home Test FC does not win" })).toHaveAttribute("aria-pressed", "true");
 
-      // Profile's Market Predictions tab shows the latest (NO) selection —
-      // not the original YES — matching "the final selection is the
-      // permanent record" (§7).
-      await page.goto("/profile?tab=markets");
+      // Profile's Predictions tab shows the latest (NO) selection — not
+      // the original YES — matching "the final selection is the permanent
+      // record" (§7).
+      await page.goto("/profile?tab=predictions");
       await expect(page.getByText("You picked Home Test FC does not win", { exact: false })).toBeVisible();
     } finally {
       await cleanup(provider, userIds);
@@ -221,7 +221,7 @@ test.describe("Brohda Prediction layer", () => {
       await expect(page.getByText("Home Test FC wins", { exact: true }).first()).toBeVisible();
       await expect(page.getByText("Result: Correct")).toBeVisible();
 
-      await page.goto("/profile?tab=markets");
+      await page.goto("/profile?tab=predictions");
       await expect(page.getByText("Correct", { exact: true })).toBeVisible();
     } finally {
       await cleanup(provider, userIds);
