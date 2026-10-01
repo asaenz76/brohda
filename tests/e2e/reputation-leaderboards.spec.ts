@@ -204,16 +204,19 @@ test.describe("Reputation + Leaderboards", () => {
       expect(champPredictionId).toBeTruthy();
       expect(belowMinPredictionId).toBeTruthy();
 
-      // The champion's Profile shows the full, correct record: 7 correct
-      // (6 + the Call BS market), 0 incorrect, 100% accuracy, and a 1-0
-      // Call BS record.
+      // The champion's Profile shows the canonical reputation line: 100%
+      // accuracy (6 graded Picks + the Call BS market's own Pick, all
+      // correct), 7 predicted. Phase F (Brohda 2.0 redesign) replaced the
+      // old ReputationSummary's separate "7–0"/Call-BS-record stat blocks
+      // with this one canonical UserIdentity-formatted string everywhere
+      // (spec §3, §24) — reputation replaces ranking, so a disabled
+      // feature's own record (Call BS) and leaderboard-eligibility framing
+      // ("Not ranked yet") are deliberately no longer shown on Profile at
+      // all (spec §33-34), not merely reformatted.
       await page.context().clearCookies();
       await loginAs(page, emailChamp);
       await page.goto("/profile");
-      await expect(page.getByText("7–0")).toBeVisible();
-      await expect(page.getByText("100.0%")).toBeVisible();
-      await expect(page.getByText("1–0")).toBeVisible();
-      await expect(page.getByText("Not ranked yet")).toHaveCount(0);
+      await expect(page.getByText("100% prediction accuracy · 7 predicted")).toBeVisible();
 
       // The Prediction Leaderboard shows the champion at #1 with a
       // matching record. Scoped to the champion's own row (identified by
@@ -228,13 +231,14 @@ test.describe("Reputation + Leaderboards", () => {
       await expect(champRow).toContainText("7–0");
       await expect(champRow).toContainText("100.0%");
 
-      // The below-minimum user's own Profile shows their real record but
-      // is explicitly unranked, and they are absent from the leaderboard.
+      // The below-minimum user's own Profile shows their real reputation
+      // regardless of leaderboard eligibility (reputation is never gated
+      // on a ranking threshold, spec §2-5) — and they are absent from the
+      // leaderboard itself below.
       await page.context().clearCookies();
       await loginAs(page, emailBelowMin);
       await page.goto("/profile");
-      await expect(page.getByText("2–1")).toBeVisible();
-      await expect(page.getByText("Not ranked yet")).toBeVisible();
+      await expect(page.getByText("67% prediction accuracy · 3 predicted")).toBeVisible();
 
       await page.goto("/predictions/leaderboard");
       const belowMinRow = page.locator(`#row-${belowMin.userId}`);

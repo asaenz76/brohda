@@ -53,14 +53,31 @@ interface UserIdentityBaseProps {
   className?: string;
 }
 
-/** Full treatment: avatar, display name, @handle, reputation on its own line. For a Post/Comment author header, a profile page, or anywhere identity is the primary content. */
-export function UserIdentity({ displayName, username, avatarUrl, reputation, href, size = "md", className }: UserIdentityBaseProps & { size?: "sm" | "md" }) {
+const AVATAR_SIZE: Record<"sm" | "md" | "lg", "sm" | "md" | "lg"> = { sm: "sm", md: "md", lg: "lg" };
+
+/**
+ * Full treatment: avatar, display name, @handle, reputation on its own
+ * line. For a Post/Comment author header, a profile page, or anywhere
+ * identity is the primary content. `size="lg"` (Phase F addition — a
+ * Profile header is the one context prominent enough to warrant a bigger
+ * avatar than a comment byline or feed card ever needs) scales the avatar
+ * and name text up a step; reputation/handle stay the same size at every
+ * size, since they're secondary to the name at any scale.
+ */
+export function UserIdentity({ displayName, username, avatarUrl, reputation, href, size = "md", className }: UserIdentityBaseProps & { size?: "sm" | "md" | "lg" }) {
   const rep = reputation ? formatReputation(reputation) : null;
   const body = (
-    <div className={cn("flex items-center gap-2.5", className)}>
-      <Avatar displayName={displayName} avatarUrl={avatarUrl} size={size === "sm" ? "sm" : "md"} />
+    // min-w-0 here (not just on the inner flex-col below) is load-bearing:
+    // this div is itself a flex ITEM wherever a caller places it inside
+    // another flex row (e.g. ProfileHeader's identity+action row) — a flex
+    // item's default min-width is `auto`, which silently overrides any
+    // descendant `truncate` and lets a long display name overflow the row
+    // instead of actually shrinking. Found via a real long-display-name
+    // E2E check against the Phase F Profile header, not a hypothetical.
+    <div className={cn("flex min-w-0 items-center gap-2.5", className)}>
+      <Avatar displayName={displayName} avatarUrl={avatarUrl} size={AVATAR_SIZE[size]} />
       <div className="flex min-w-0 flex-col">
-        <span className="truncate text-sm font-semibold text-text-primary">{displayName}</span>
+        <span className={cn("truncate font-semibold text-text-primary", size === "lg" ? "text-base" : "text-sm")}>{displayName}</span>
         {username && <span className="truncate text-xs text-text-muted">@{username}</span>}
         {rep && <span className="truncate text-xs text-text-muted">{fullReputationLabel(rep)}</span>}
       </div>
