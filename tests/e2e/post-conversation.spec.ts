@@ -151,4 +151,82 @@ test.describe("Post Conversation", () => {
       await cleanup(fixtureId, postId, userIds);
     }
   });
+
+  test("a zero-history commenter shows no reputation suffix, and a commenter with a real graded record shows the canonical compact format", async ({ page }) => {
+    const suffix = randomUUID();
+    const newcomerEmail = `e2e-post-comment-newcomer-${suffix}@test.local`;
+    const veteranEmail = `e2e-post-comment-veteran-${suffix}@test.local`;
+    const userIds: string[] = [];
+    const { fixtureId, postId } = await seedPublishedPost();
+
+    try {
+      const newcomerId = await createPlayer(newcomerEmail, "e2epostnew");
+      const veteranId = await createPlayer(veteranEmail, "e2epostvet");
+      userIds.push(newcomerId, veteranId);
+
+      // A real graded Market+Prediction for the veteran — 1 correct, 100%.
+      const { data: vetFixture } = await admin
+        .from("fixtures")
+        .insert({ external_fixture_id: `e2e-rep-comment-${suffix}`, home_team_name: "Rep Home", away_team_name: "Rep Away", scheduled_start_utc: new Date(Date.now() + 86_400_000).toISOString(), internal_status: "NOT_STARTED" })
+        .select("id")
+        .single();
+      const { data: vetMarket } = await admin
+        .from("markets")
+        .insert({
+          provider: "e2e_post_comment_rep",
+          provider_market_id: `m-${suffix}`,
+          question: "Rep question",
+          status: "ACTIVE",
+          fixture_id: vetFixture!.id,
+          market_template: "MONEYLINE",
+          yes_side: "HOME",
+          price_outcome_labels: { yes: "Yes", no: "No" },
+          last_synced_at: new Date().toISOString(),
+          ingestion_source: "e2e_test",
+          provider_metadata: {},
+        })
+        .select("id")
+        .single();
+      await admin.from("predictions").insert({
+        user_id: veteranId,
+        market_id: vetMarket!.id,
+        selected_outcome: "YES",
+        yes_probability_snapshot: 0.6,
+        no_probability_snapshot: 0.4,
+        market_question_snapshot: "Rep question",
+        market_close_at_snapshot: null,
+        market_status_snapshot: "ACTIVE",
+        lifecycle_state: "GRADED",
+        result: "CORRECT",
+        resolved_outcome_snapshot: "YES",
+        graded_at: new Date().toISOString(),
+        idempotency_key: randomUUID(),
+      });
+
+      await loginAs(page, newcomerEmail);
+      await page.goto(`/post/${postId}`);
+      await page.getByPlaceholder("Add a comment…").fill("First comment, no history yet");
+      await page.getByRole("button", { name: "Post" }).click();
+      await expect(page.getByText("First comment, no history yet")).toBeVisible();
+      // No fabricated "0 predicted"/"unranked" text anywhere for the newcomer.
+      await expect(page.getByText(/predicted/)).toHaveCount(0);
+
+      await page.context().clearCookies();
+      await loginAs(page, veteranEmail);
+      await page.goto(`/post/${postId}`);
+      await page.getByPlaceholder("Add a comment…").fill("Second comment, real record");
+      await page.getByRole("button", { name: "Post" }).click();
+      await expect(page.getByText("100% · 1 predicted")).toBeVisible();
+
+      // The identity byline still links to the canonical public profile.
+      await page.getByRole("link", { name: new RegExp(veteranEmail.split("@")[0]) }).first().click();
+      await expect(page).toHaveURL(/\/profile\//);
+
+      await admin.from("predictions").delete().eq("market_id", vetMarket!.id);
+      await admin.from("markets").delete().eq("id", vetMarket!.id);
+      await admin.from("fixtures").delete().eq("id", vetFixture!.id);
+    } finally {
+      await cleanup(fixtureId, postId, userIds);
+    }
+  });
 });

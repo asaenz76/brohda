@@ -92,17 +92,33 @@ export function UserIdentity({ displayName, username, avatarUrl, reputation, hre
   );
 }
 
-/** Compact treatment: no avatar, single inline line — "André · 67% · 42 predicted". For a comment-thread byline or any dense list row where the full block is too heavy. */
-export function CompactUserIdentity({ displayName, reputation, href, className }: Omit<UserIdentityBaseProps, "username" | "avatarUrl">) {
+/**
+ * Compact treatment: a small avatar plus a single inline text line —
+ * "André · 67% · 42 predicted". For a comment-thread byline or any dense
+ * list row where the full stacked UserIdentity block is too heavy.
+ *
+ * Phase G addition: `avatarUrl` (required, matching the full UserIdentity
+ * above — `null` is a normal, handled value, rendering Avatar's own
+ * initials fallback). The original Phase B version of this component had
+ * no avatar slot at all; it had zero real callers anywhere in the app
+ * until this phase's Post conversation redesign needed exactly this
+ * shape (name + compact reputation, but WITH an avatar — unlike the
+ * avatar-less original), so the prop was added rather than inventing a
+ * third, parallel compact variant.
+ */
+export function CompactUserIdentity({ displayName, avatarUrl, reputation, href, className }: Omit<UserIdentityBaseProps, "username">) {
   const rep = reputation ? formatReputation(reputation) : null;
   const body = (
-    <span className={cn("text-sm text-text-primary", className)}>
-      <span className="font-semibold">{displayName}</span>
-      {rep && <span className="text-text-muted"> · {compactReputationLabel(rep)}</span>}
+    <span className={cn("inline-flex items-center gap-2", className)}>
+      <Avatar displayName={displayName} avatarUrl={avatarUrl} size="sm" />
+      <span className="text-sm text-text-primary">
+        <span className="font-semibold">{displayName}</span>
+        {rep && <span className="text-text-muted"> · {compactReputationLabel(rep)}</span>}
+      </span>
     </span>
   );
   return href ? (
-    <Link href={href} className="rounded-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50">
+    <Link href={href} className="inline-flex rounded-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50">
       {body}
     </Link>
   ) : (

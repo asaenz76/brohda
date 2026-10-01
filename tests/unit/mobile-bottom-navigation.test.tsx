@@ -57,9 +57,9 @@ describe("MobileBottomNavigation", () => {
     expect(screen.getByRole("link", { name: /discovery/i })).toHaveAttribute("href", "/discovery");
   });
 
-  it("Notifications is temporarily mapped to /activity", () => {
+  it("Notifications is mapped to /notifications (final since Phase G)", () => {
     render(<MobileBottomNavigation profile={profile} />);
-    expect(screen.getByRole("link", { name: /notifications/i })).toHaveAttribute("href", "/activity");
+    expect(screen.getByRole("link", { name: /notifications/i })).toHaveAttribute("href", "/notifications");
   });
 
   it("marks exactly one destination active via aria-current, matching the current path", () => {

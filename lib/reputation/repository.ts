@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { UserPredictionRecord, UserCallBsRecord, LeaderboardEntry, LeaderboardPeriod } from "./types";
 
 // Milestone R11 — the ONE canonical query/service layer for reputation
@@ -39,6 +40,60 @@ export async function getUserPredictionRecord(userId: string): Promise<UserPredi
     minDecidedForLeaderboard: row.min_decided_for_leaderboard,
     eligibleForLeaderboard: row.eligible_for_leaderboard,
   };
+}
+
+/**
+ * Phase G (spec §32) — the batched, many-users sibling of
+ * getUserPredictionRecord above, for exactly the "many comments, many
+ * commenters" case this file's own header comment anticipated ("any
+ * future Post/participant surface"). Mirrors
+ * lib/predictions/repository.ts's getPickAggregatesForMarkets — one query
+ * via the admin client (predictions' own RLS is own-row-only, the same
+ * reason get_user_prediction_record itself needs SECURITY DEFINER to read
+ * across users), computing the exact same math as that RPC in memory
+ * rather than adding a second SQL function for what's already a trivial
+ * GROUP BY: decided = correct + incorrect, VOID counted but excluded from
+ * the denominator, accuracy null exactly when decided === 0. A requested
+ * userId with no GRADED predictions at all still gets a full
+ * zero-everything record in the returned Map (never omitted), matching
+ * formatReputation's own "omit the reputation line entirely" handling for
+ * that exact shape.
+ */
+export async function getUserPredictionRecords(userIds: string[]): Promise<Map<string, UserPredictionRecord>> {
+  const result = new Map<string, UserPredictionRecord>();
+  if (userIds.length === 0) return result;
+
+  const admin = createAdminClient();
+  const [{ data, error }, { data: policyRow }] = await Promise.all([
+    admin.from("predictions").select("user_id, result").in("user_id", userIds).eq("lifecycle_state", "GRADED"),
+    admin.from("platform_settings").select("leaderboard_min_decided_picks").eq("id", true).single(),
+  ]);
+  if (error) throw error;
+  const minDecided = policyRow?.leaderboard_min_decided_picks ?? 5;
+
+  const tally = new Map<string, { correct: number; incorrect: number; void: number }>();
+  for (const row of (data ?? []) as { user_id: string; result: "CORRECT" | "INCORRECT" | "VOID" }[]) {
+    const bucket = tally.get(row.user_id) ?? { correct: 0, incorrect: 0, void: 0 };
+    if (row.result === "CORRECT") bucket.correct += 1;
+    else if (row.result === "INCORRECT") bucket.incorrect += 1;
+    else bucket.void += 1;
+    tally.set(row.user_id, bucket);
+  }
+
+  for (const userId of userIds) {
+    const bucket = tally.get(userId) ?? { correct: 0, incorrect: 0, void: 0 };
+    const decided = bucket.correct + bucket.incorrect;
+    result.set(userId, {
+      correct: bucket.correct,
+      incorrect: bucket.incorrect,
+      void: bucket.void,
+      decided,
+      accuracy: decided > 0 ? bucket.correct / decided : null,
+      minDecidedForLeaderboard: minDecided,
+      eligibleForLeaderboard: decided > 0 && decided >= minDecided,
+    });
+  }
+  return result;
 }
 
 export async function getUserCallBsRecord(userId: string): Promise<UserCallBsRecord> {

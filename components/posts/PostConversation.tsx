@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import Link from "next/link";
 import { Trash2 } from "lucide-react";
 import { addPostCommentAction, removePostCommentAction } from "@/lib/actions/post-comments";
 import type { PostCommentWithAuthor } from "@/lib/post-comments/types";
-import { Avatar } from "@/components/Avatar";
+import { CompactUserIdentity, type UserIdentityReputation } from "@/components/identity/UserIdentity";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -16,6 +15,14 @@ import { Textarea } from "@/components/ui/textarea";
 // a normal page section instead of a modal. Deliberately no MentionInput
 // (R6 has no @mention engine) and no follow-toggle (not part of this
 // milestone's scope) — a plain Textarea and author link are enough.
+//
+// Phase G (Brohda 2.0 redesign) — each comment's byline now uses the
+// canonical identity system (CompactUserIdentity, Phase B/F) instead of a
+// hand-built Avatar+Link+name, so a person "looks like the same person"
+// in conversation as they do on their own Profile (spec §4, §23, §33).
+// Reputation is context, never ranking (spec §5) — a zero-history
+// commenter shows no reputation suffix at all (CompactUserIdentity's own
+// formatter already omits it rather than showing "0 predicted").
 
 function relativeTime(iso: string): string {
   const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
@@ -28,12 +35,15 @@ function relativeTime(iso: string): string {
 
 function CommentRow({
   comment,
+  reputation,
   viewer,
   isPending,
   onDelete,
   onReply,
 }: {
   comment: PostCommentWithAuthor;
+  /** This commenter's canonical reputation, or null for a genuinely zero-history user — CompactUserIdentity already omits the reputation suffix entirely in that case, never a fabricated "0 predicted" (spec §6). */
+  reputation: UserIdentityReputation | null;
   viewer: { id: string; isModerator: boolean };
   isPending: boolean;
   onDelete: (commentId: string) => void;
@@ -47,14 +57,14 @@ function CommentRow({
 
   return (
     <div className="flex items-start gap-3">
-      <Link href={profileHref}>
-        <Avatar displayName={comment.author.displayName} avatarUrl={comment.author.avatarUrl} size="sm" />
-      </Link>
-      <div className="flex-1 space-y-0.5">
+      <div className="flex-1 space-y-1">
         <div className="flex items-center gap-2">
-          <Link href={profileHref} className="text-sm font-semibold text-text-primary hover:underline">
-            {comment.author.displayName}
-          </Link>
+          <CompactUserIdentity
+            displayName={comment.author.displayName}
+            avatarUrl={comment.author.avatarUrl}
+            reputation={reputation}
+            href={profileHref}
+          />
           <p className="text-xs text-text-muted">{relativeTime(comment.createdAt)}</p>
         </div>
         <p className={isRemoved ? "text-sm italic text-text-muted" : "text-sm text-text-secondary"}>
@@ -79,10 +89,13 @@ export function PostConversation({
   postId,
   viewer,
   initialComments,
+  reputationByUserId,
 }: {
   postId: string;
   viewer: { id: string; isModerator: boolean };
   initialComments: PostCommentWithAuthor[];
+  /** Keyed by user id, batched server-side for every commenter in this thread (lib/reputation/repository.ts's getUserPredictionRecords) — a plain object, not a Map, since this crosses the Server->Client Component boundary as a prop. */
+  reputationByUserId: Record<string, UserIdentityReputation>;
 }) {
   const [, forceTick] = useState(0);
   useEffect(() => {
@@ -174,6 +187,7 @@ export function PostConversation({
             <div key={comment.id} className="space-y-3">
               <CommentRow
                 comment={comment}
+                reputation={reputationByUserId[comment.author.id] ?? null}
                 viewer={viewer}
                 isPending={isPending}
                 onDelete={handleDelete}
@@ -184,8 +198,12 @@ export function PostConversation({
               />
 
               {comment.replies.map((reply) => (
-                <div key={reply.id} className="ml-9">
-                  <CommentRow comment={reply} viewer={viewer} isPending={isPending} onDelete={handleDelete} />
+                // Subtle indentation + a thin left border (spec §8) — just
+                // enough to read as "a reply to the comment above," never a
+                // deep Reddit-style tree (one level is all the backend
+                // allows anyway).
+                <div key={reply.id} className="ml-9 border-l border-border-subtle pl-3">
+                  <CommentRow comment={reply} reputation={reputationByUserId[reply.author.id] ?? null} viewer={viewer} isPending={isPending} onDelete={handleDelete} />
                 </div>
               ))}
 

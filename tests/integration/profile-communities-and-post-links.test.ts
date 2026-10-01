@@ -7,11 +7,13 @@
  * Real local Supabase throughout.
  */
 import { afterEach, describe, expect, it } from "vitest";
-import { getTestAdminClient } from "./helpers/test-env";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { getTestAdminClient, getTestSupabaseConfig } from "./helpers/test-env";
 import { listFollowedCommunitiesForProfile } from "@/lib/communities/profile";
 import { listPostIdsForMarkets } from "@/lib/predictions/post-links";
 
 const admin = getTestAdminClient();
+const { url: SUPABASE_URL, anonKey: ANON_KEY } = getTestSupabaseConfig();
 const PROVIDER = "f_profile_test";
 
 const createdTeamIds: string[] = [];
@@ -28,6 +30,21 @@ async function createUser(): Promise<string> {
   await admin.from("user_profiles").insert({ id: data.user.id, display_name: "F Profile Test", role: "player", is_active: true });
   createdUserIds.push(data.user.id);
   return data.user.id;
+}
+
+/** Same as createUser, but also returns a real signed-in (anon-key, authenticated-role) client — for proving an RLS/view privacy boundary with a genuinely unprivileged client, not the admin/service-role one every other helper here uses. */
+async function createUserWithClient() {
+  const email = `g-privacy-${crypto.randomUUID()}@test.local`;
+  const password = "integration-test-password-123";
+  const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
+  if (error || !data.user) throw error ?? new Error("failed to create user");
+  await admin.from("user_profiles").insert({ id: data.user.id, display_name: "G Privacy Test", role: "player", is_active: true });
+  createdUserIds.push(data.user.id);
+
+  const client = createSupabaseClient(SUPABASE_URL, ANON_KEY);
+  const { error: signInError } = await client.auth.signInWithPassword({ email, password });
+  if (signInError) throw signInError;
+  return { userId: data.user.id, client };
 }
 
 async function createTeamCommunity(name: string): Promise<string> {
@@ -163,6 +180,52 @@ describe("listFollowedCommunitiesForProfile", () => {
         expect(["TEAM", "LEAGUE", "SPORT"]).not.toContain(item.displayName);
       }
     }
+  });
+});
+
+/**
+ * Phase G (spec §15 audit) — proves the actual privacy contract, not just
+ * that listFollowedCommunitiesForProfile works. A genuinely unprivileged,
+ * signed-in-as-someone-else client (anon key, not service-role) must be
+ * able to read another user's row via the new public_community_follows
+ * view (that's the whole point — Community follows are declared-public
+ * affinity, spec §15), while the underlying community_follows TABLE must
+ * remain exactly as restricted as before this migration (RLS still scopes
+ * direct table reads to the caller's own rows only).
+ */
+describe("public_community_follows privacy boundary", () => {
+  it("an unrelated signed-in user CAN read another user's row via the public view", async () => {
+    const owner = await createUser();
+    const team = await createTeamCommunity("Privacy Boundary Team");
+    await follow(owner, team);
+
+    const { client: viewerClient } = await createUserWithClient();
+    const { data, error } = await viewerClient.from("public_community_follows").select("community_id").eq("user_id", owner);
+    expect(error).toBeNull();
+    expect(data?.map((r) => r.community_id)).toContain(team);
+  });
+
+  it("the underlying community_follows TABLE remains restricted to the caller's own rows (unchanged by this migration)", async () => {
+    const owner = await createUser();
+    const team = await createTeamCommunity("Still Private Table Team");
+    await follow(owner, team);
+
+    const { client: viewerClient } = await createUserWithClient();
+    const { data, error } = await viewerClient.from("community_follows").select("community_id").eq("user_id", owner);
+    expect(error).toBeNull();
+    expect(data).toEqual([]);
+  });
+
+  it("omits a deactivated account's follows from the public view (same convention as public_profiles)", async () => {
+    const owner = await createUser();
+    const team = await createTeamCommunity("Deactivated Owner Team");
+    await follow(owner, team);
+    await admin.from("user_profiles").update({ is_active: false }).eq("id", owner);
+
+    const { client: viewerClient } = await createUserWithClient();
+    const { data, error } = await viewerClient.from("public_community_follows").select("community_id").eq("user_id", owner);
+    expect(error).toBeNull();
+    expect(data).toEqual([]);
   });
 });
 

@@ -9,6 +9,8 @@ import { listActiveMarketsForFixture } from "@/lib/prediction-markets/repository
 import { getMarketDetail } from "@/lib/prediction-markets/discovery/repository";
 import { getPostConversation } from "@/lib/post-comments/repository";
 import { getCommunityRefsForPost } from "@/lib/communities/feed";
+import { getUserPredictionRecords } from "@/lib/reputation/repository";
+import type { UserIdentityReputation } from "@/components/identity/UserIdentity";
 import { MarketPredictionCard } from "@/components/predictions/MarketPredictionCard";
 import { PostConversation } from "@/components/posts/PostConversation";
 import { PostCommunityBadges } from "@/components/communities/PostCommunityBadges";
@@ -61,6 +63,14 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
   const primaryMarket = selectPrimaryMarket(activeMarkets, policy.primaryMarketTemplatePriority);
   const primaryMarketDetail = primaryMarket ? await getMarketDetail(primaryMarket.id) : null;
   const otherMarkets = activeMarkets.filter((m) => m.id !== primaryMarket?.id);
+
+  // Phase G — every commenter's canonical reputation, batched in one query
+  // regardless of thread size (lib/reputation/repository.ts's
+  // getUserPredictionRecords), never one getUserPredictionRecord() call
+  // per comment (spec §31-32).
+  const commenterIds = [...new Set(conversation.flatMap((c) => [c.author.id, ...c.replies.map((r) => r.author.id)]))];
+  const reputationMap = await getUserPredictionRecords(commenterIds);
+  const reputationByUserId: Record<string, UserIdentityReputation> = Object.fromEntries(reputationMap);
 
   return (
     <div className="space-y-4">
@@ -115,6 +125,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
               postId={post.id}
               viewer={{ id: user.id, isModerator: isAdminOrAbove(user) }}
               initialComments={conversation}
+              reputationByUserId={reputationByUserId}
             />
           </div>
         </CardContent>

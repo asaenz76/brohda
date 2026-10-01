@@ -33,13 +33,13 @@ describe("resolveNotificationHref", () => {
   it("points a payout notification at its ledger row when one is found", () => {
     const n = makeNotification({ type: "SETTLED_WON", pool_id: "pool-1" });
     const transactionIdByPoolId = new Map([["pool-1", "tx-42"]]);
-    expect(resolveNotificationHref(n, transactionIdByPoolId)).toBe("/activity#tx-tx-42");
+    expect(resolveNotificationHref(n, transactionIdByPoolId)).toBe("/wallet#tx-tx-42");
   });
 
   it("points a void/refund notification at its ledger row when one is found", () => {
     const n = makeNotification({ type: "MATCH_POSTPONED_NOT_COMPLETED_SAME_DAY", pool_id: "pool-1" });
     const transactionIdByPoolId = new Map([["pool-1", "tx-99"]]);
-    expect(resolveNotificationHref(n, transactionIdByPoolId)).toBe("/activity#tx-tx-99");
+    expect(resolveNotificationHref(n, transactionIdByPoolId)).toBe("/wallet#tx-tx-99");
   });
 
   it("falls back to the pool page when no ledger row exists (e.g. SETTLED_LOST)", () => {
@@ -70,7 +70,7 @@ describe("resolveNotificationHref", () => {
   it("prefers a stamped transaction_id over the pool_id-keyed lookup", () => {
     const n = makeNotification({ type: "SETTLED_WON", pool_id: "pool-1", transaction_id: "tx-direct" });
     const transactionIdByPoolId = new Map([["pool-1", "tx-from-lookup"]]);
-    expect(resolveNotificationHref(n, transactionIdByPoolId)).toBe("/activity#tx-tx-direct");
+    expect(resolveNotificationHref(n, transactionIdByPoolId)).toBe("/wallet#tx-tx-direct");
   });
 
   it("uses the stamped transaction_id even once its pool has been detached (pool_id null)", () => {
@@ -78,7 +78,7 @@ describe("resolveNotificationHref", () => {
     // SETTLED pool is hard-deleted — the notification must stay clickable
     // via the ledger row it was stamped with, not fall back to /pool/null.
     const n = makeNotification({ type: "SETTLED_WON", pool_id: null, transaction_id: "tx-direct" });
-    expect(resolveNotificationHref(n, new Map())).toBe("/activity#tx-tx-direct");
+    expect(resolveNotificationHref(n, new Map())).toBe("/wallet#tx-tx-direct");
   });
 
   // Stage 4A remediation (Stage 4 audit §14 / remediation §17): a graded

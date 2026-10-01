@@ -30,10 +30,14 @@ import { Avatar } from "@/components/Avatar";
 //                                itself now redirects to /feed (see that
 //                                route's own comment); /markets/[id]
 //                                (Market detail) is untouched.
-//   Notifications -> /activity  STILL TEMPORARY — the combined
-//                                notifications+ledger page today; a later
-//                                phase splits out a real /notifications
-//                                route.
+//   Notifications -> /notifications  Final since Phase G: the real
+//                                notifications-only center
+//                                (app/(app)/notifications/page.tsx).
+//                                Replaces the temporary /activity mapping
+//                                — /activity itself now redirects to
+//                                /notifications (see that route's own
+//                                comment); wallet ledger history lives at
+//                                /wallet, untouched.
 //   Profile       -> /profile   Already correct, no mapping needed.
 interface NavTab {
   href: string;
@@ -45,7 +49,7 @@ interface NavTab {
 const NAV_TABS: NavTab[] = [
   { href: "/feed", label: "Home", icon: Home },
   { href: "/discovery", label: "Discovery", icon: Compass, socialPredictionGated: true },
-  { href: "/activity", label: "Notifications", icon: Bell },
+  { href: "/notifications", label: "Notifications", icon: Bell },
 ];
 
 function NavLink({
@@ -125,7 +129,7 @@ export function MobileBottomNavigation({
               label={label}
               Icon={Icon}
               active={isActive(href)}
-              badgeCount={href === "/activity" ? unreadNotificationCount : undefined}
+              badgeCount={href === "/notifications" ? unreadNotificationCount : undefined}
             />
           </li>
         ))}

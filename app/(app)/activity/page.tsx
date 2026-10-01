@@ -1,126 +1,15 @@
-import { Bell } from "lucide-react";
-import { requireUser } from "@/lib/auth/session";
-import { EmptyFeedState } from "@/components/EmptyFeedState";
-import { getNotifications } from "@/lib/notifications/fetch";
-import { attachNotificationHrefs } from "@/lib/notifications/links";
-import { getNotificationTier } from "@/lib/notifications/tiers";
-import { markNotificationsReadAction } from "@/lib/actions/notifications";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { getLedgerEntries } from "@/lib/wallet/ledger";
-import { TransactionList } from "@/components/activity/TransactionList";
+import { redirect } from "next/navigation";
 
-export default async function ActivityPage() {
-  const user = await requireUser();
-
-  const [entries, rawNotifications] = await Promise.all([
-    getLedgerEntries(user.id),
-    getNotifications(user.id),
-  ]);
-  const notifications = await attachNotificationHrefs(user.id, rawNotifications);
-
-  const hasUnread = notifications.some((n) => n.read_at == null);
-
-  if (entries.length === 0 && notifications.length === 0) {
-    return (
-      <>
-        <h1 className="sr-only">Activity</h1>
-        <EmptyFeedState
-          icon={Bell}
-          title="Nothing here yet"
-          description="Notifications and wallet activity will show up here."
-        />
-      </>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      <h1 className="sr-only">Activity</h1>
-      {notifications.length > 0 && (
-        <section className="space-y-2">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-text-primary">Notifications</h2>
-            {hasUnread && (
-              <form action={markNotificationsReadAction}>
-                <Button type="submit" variant="outline" size="sm">
-                  Mark all read
-                </Button>
-              </form>
-            )}
-          </div>
-          {/* Chronological order, unchanged — emphasis by tier (below) is
-              how emotionally significant events stand out, not by
-              reordering the timeline. */}
-          <ul className="space-y-2">
-            {notifications.map((n) => {
-              const tier = getNotificationTier(n.type);
-              const isWin = n.type === "SETTLED_WON";
-              const isLoss = n.type === "SETTLED_LOST";
-
-              const content = (
-                <>
-                  <div className="flex items-center gap-2">
-                    {n.read_at == null && (
-                      <span className="size-1.5 rounded-full bg-accent-primary" aria-hidden="true" />
-                    )}
-                    <span
-                      className={cn(
-                        tier === 1 && "text-base font-bold",
-                        tier === 1 && isWin && "text-pool-win",
-                        tier === 1 && isLoss && "text-pool-loss",
-                        tier === 2 && "text-sm font-medium text-text-primary",
-                        tier === 3 && "text-sm font-medium text-text-secondary",
-                        tier === 4 && "text-xs font-medium text-text-muted",
-                      )}
-                    >
-                      {n.title}
-                    </span>
-                  </div>
-                  <p className={cn("mt-0.5", tier === 4 ? "text-xs text-text-muted" : "text-sm text-text-secondary")}>
-                    {n.body}
-                  </p>
-                  <div className="mt-1 text-xs text-text-muted">
-                    {new Date(n.created_at).toLocaleString()}
-                  </div>
-                </>
-              );
-
-              return (
-                <li
-                  key={n.id}
-                  className={cn(
-                    "rounded-xl border border-border-subtle bg-surface-primary",
-                    tier === 1 && isWin && "bg-pool-win/10",
-                    tier === 1 && isLoss && "bg-pool-loss/10",
-                  )}
-                >
-                  {n.href ? (
-                    // Plain <a>, not next/link: a hash-only href to this
-                    // same page (e.g. /activity#tx-{id}) needs a real
-                    // in-page anchor navigation so the browser fires a
-                    // native "hashchange" event — next/link's
-                    // history.pushState-based routing never does, which
-                    // would silently break TransactionList's auto-open.
-                    <a href={n.href} className="block px-4 py-3">
-                      {content}
-                    </a>
-                  ) : (
-                    <div className="px-4 py-3">{content}</div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
-
-      {entries.length > 0 && (
-        <section className="space-y-4">
-          <h2 className="text-sm font-semibold text-text-primary">Ledger activity</h2>
-          <TransactionList entries={entries} />
-        </section>
-      )}
-    </div>
-  );
+/**
+ * Phase G (Brohda 2.0 redesign, spec §20) — /activity used to combine
+ * notifications and wallet ledger activity on one page; the two are now
+ * split (notifications are social, wallet history is account
+ * infrastructure, spec §18-19). /wallet already showed the complete
+ * ledger independently before this phase (confirmed via audit — nothing
+ * unique lived only on /activity), so nothing is lost by redirecting the
+ * whole page straight to the new canonical /notifications center rather
+ * than keeping two competing notification surfaces around.
+ */
+export default function ActivityPage() {
+  redirect("/notifications");
 }
