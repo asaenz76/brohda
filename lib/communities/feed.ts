@@ -179,6 +179,55 @@ function isFeedEligible(fixture: FeedFixtureRow | null): boolean {
   return fixture.internal_status === "NOT_STARTED";
 }
 
+const IN_PLAY_STATUSES = new Set(["LIVE", "HALFTIME", "EXTRA_TIME", "PENALTIES"]);
+
+/**
+ * Phase E (Brohda 2.0 redesign, Community spec §9-10) — deliberately
+ * BROADER than Home's isFeedEligible above. A Community page is framed as
+ * a "social topic/profile timeline" (spec §0), not a Pick-taking board, so
+ * it reintroduces exactly the "recently finished" view isFeedEligible's own
+ * comment anticipated a future milestone might want: active/upcoming
+ * (NOT_STARTED or in-play) always eligible, COMPLETED eligible only within
+ * the existing, already-admin-configurable feed_completed_game_retention_hours
+ * window (getFeedPolicy — previously unused; this is that future
+ * milestone), POSTPONED never eligible (no meaningful "recent" or
+ * "upcoming" framing applies to it). This is a deliberate, documented
+ * divergence from Home, not an oversight — see this function's own
+ * docstring at the call site in getCommunityTimeline.
+ */
+export function isCommunityTimelineEligible(fixture: { internalStatus: string; updatedAt: string } | null, now: Date, completedGameRetentionHours: number): boolean {
+  if (!fixture) return false;
+  if (fixture.internalStatus === "NOT_STARTED" || IN_PLAY_STATUSES.has(fixture.internalStatus)) return true;
+  if (fixture.internalStatus === "COMPLETED") {
+    const ageMs = now.getTime() - new Date(fixture.updatedAt).getTime();
+    return ageMs <= completedGameRetentionHours * 60 * 60 * 1000;
+  }
+  return false;
+}
+
+/**
+ * Ordering rule (spec §9, documented, no opaque ranking): active/upcoming
+ * relevance first, then recent completed content, then a deterministic
+ * tie-break — never engagement/comment-count/Pick-count ranking. Within
+ * the active/upcoming bucket, soonest-kickoff-first (matching Home's own
+ * compareFeedItems); within the completed bucket, most-recent-kickoff-first
+ * is used as the recency signal (a reasonable proxy for "most recently
+ * completed" without adding a field to the shared FeedItem shape purely
+ * for this one ordering decision — a single game's kickoff and completion
+ * times are tightly correlated).
+ */
+export function compareCommunityTimelineItems(a: FeedItem, b: FeedItem): number {
+  const aActive = a.internalStatus !== "COMPLETED";
+  const bActive = b.internalStatus !== "COMPLETED";
+  if (aActive !== bActive) return aActive ? -1 : 1;
+
+  const timeOrder = new Date(a.scheduledStartUtc).getTime() - new Date(b.scheduledStartUtc).getTime();
+  const orderedTimeOrder = aActive ? timeOrder : -timeOrder;
+  if (orderedTimeOrder !== 0) return orderedTimeOrder;
+
+  return a.post.id.localeCompare(b.post.id);
+}
+
 /** Deterministic sort (§7): followed-Community relevance first, then soonest-kickoff-first, then a stable id tie-breaker. No engagement scoring, no ML. Every candidate is NOT_STARTED (see isFeedEligible), so there is no live/completed distinction left to order by. */
 function compareFeedItems(a: FeedItem, b: FeedItem): number {
   if (a.isFromFollowedCommunity !== b.isFromFollowedCommunity) return a.isFromFollowedCommunity ? -1 : 1;
@@ -219,12 +268,38 @@ export async function getSocialFeed(userId: string | null, limit = 50): Promise<
   if (error) throw error;
 
   const rows = (data as unknown as FeedPostRow[]).filter((row) => isFeedEligible(row.fixtures));
+  const postIds = rows.map((r) => r.id);
 
+  const followedPostIds = await listPostIdsInCommunities(postIds, followedCommunityIds);
+
+  const items = await enrichFeedRows(rows, userId, followedPostIds, publicationPolicy, predictionPolicy, freshnessPolicy);
+  items.sort(compareFeedItems);
+  return items.slice(0, limit);
+}
+
+/**
+ * The batched Post→FeedItem enrichment core (Market/sentiment/viewer-Pick/
+ * comment-count/Community-badges), shared by getSocialFeed (Home) and
+ * getCommunityTimeline (Phase E) — spec §26-27's "reuse the Home feed
+ * enrichment architecture... avoid maintaining separate duplicate
+ * enrichment code." Callers differ only in how `rows` was sourced
+ * (globally vs. scoped to one Community) and in eligibility/ordering,
+ * which stay caller-side (isFeedEligible/compareFeedItems vs.
+ * isCommunityTimelineEligible/compareCommunityTimelineItems) since those
+ * are the one deliberate behavioral difference between the two surfaces.
+ */
+async function enrichFeedRows(
+  rows: FeedPostRow[],
+  userId: string | null,
+  followedPostIds: Set<string>,
+  publicationPolicy: Awaited<ReturnType<typeof getPostPublicationPolicy>>,
+  predictionPolicy: Awaited<ReturnType<typeof getPredictionPolicy>>,
+  freshnessPolicy: Awaited<ReturnType<typeof getFreshnessPolicy>>,
+): Promise<FeedItem[]> {
   const postIds = rows.map((r) => r.id);
   const fixtureIds = [...new Set(rows.map((r) => r.fixture_id))];
 
-  const [followedPostIds, activeMarkets, communitiesByPost, commentCounts] = await Promise.all([
-    listPostIdsInCommunities(postIds, followedCommunityIds),
+  const [activeMarkets, communitiesByPost, commentCounts] = await Promise.all([
     listActiveMarketsForFixtures(fixtureIds),
     listCommunitiesForPosts(postIds),
     getPostCommentCountsForPosts(postIds),
@@ -254,7 +329,7 @@ export async function getSocialFeed(userId: string | null, limit = 50): Promise<
 
   const now = new Date();
 
-  const items: FeedItem[] = rows.map((row) => {
+  return rows.map((row) => {
     const primary = primaryByFixture.get(row.fixture_id) ?? null;
     let primaryMarket: FeedMarketSummary | null = null;
 
@@ -315,9 +390,76 @@ export async function getSocialFeed(userId: string | null, limit = 50): Promise<
       commentCount: commentCounts.get(row.id) ?? 0,
     };
   });
+}
 
-  items.sort(compareFeedItems);
-  return items.slice(0, limit);
+/**
+ * Phase E (Brohda 2.0 redesign) — the Community page's own timeline: every
+ * canonical Game Post distributed to this one Community (spec §7), enriched
+ * with the SAME real sentiment/viewer-Pick/comment-count data Home shows
+ * for the identical Post/Market (spec §12 — "Community and Home must show
+ * consistent values for the same Post/Market"), via the shared
+ * enrichFeedRows core. Two deliberate differences from getSocialFeed:
+ *
+ * 1. Scoped to one Community (via post_communities.community_id) rather
+ *    than global — inherits the composite-PK no-duplicate-Post guarantee
+ *    getCommunityFeed's own doc comment already documents, so no
+ *    additional dedup step is needed here either.
+ * 2. Broader eligibility (isCommunityTimelineEligible) and different
+ *    ordering (compareCommunityTimelineItems) — see those functions' own
+ *    doc comments for why a "social timeline" surface deliberately diverges
+ *    from Home's narrower Pick-taking-board eligibility.
+ *
+ * `isFromFollowedCommunity` and each item's own reference back to the
+ * CURRENT Community are both stripped below (spec §13 — "reduce redundant
+ * identity noise": the viewer already sees this Community's own follow
+ * state at the page header, so repeating it per-Post, and repeating a
+ * badge back to the very Community the viewer is already on, would just be
+ * noise). Other Communities the Post also belongs to (opposing team,
+ * league, sport) are left visible — that context remains useful.
+ */
+export async function getCommunityTimeline(communityId: string, userId: string | null, limit = 50): Promise<FeedItem[]> {
+  const admin = createAdminClient();
+  const [publicationPolicy, predictionPolicy, freshnessPolicy, feedPolicy, postCommunityRows] = await Promise.all([
+    getPostPublicationPolicy(),
+    getPredictionPolicy(),
+    getFreshnessPolicy(),
+    getFeedPolicy(),
+    admin
+      .from("post_communities")
+      .select("post_id")
+      .eq("community_id", communityId)
+      .order("created_at", { ascending: false })
+      .limit(Math.min(limit * 10, 500))
+      .then((r) => {
+        if (r.error) throw r.error;
+        return r.data ?? [];
+      }),
+  ]);
+
+  const candidatePostIds = postCommunityRows.map((r) => r.post_id);
+  if (candidatePostIds.length === 0) return [];
+
+  const { data, error } = await admin
+    .from("posts")
+    .select("*, fixtures!inner(internal_status, scheduled_start_utc, updated_at, home_team_name, away_team_name, home_team_logo_url, away_team_logo_url, competition_name, home_score, away_score)")
+    .in("id", candidatePostIds)
+    .not("published_at", "is", null);
+  if (error) throw error;
+
+  const now = new Date();
+  const rows = (data as unknown as FeedPostRow[]).filter((row) =>
+    isCommunityTimelineEligible({ internalStatus: row.fixtures!.internal_status, updatedAt: row.fixtures!.updated_at }, now, feedPolicy.completedGameRetentionHours),
+  );
+
+  const items = await enrichFeedRows(rows, userId, new Set(), publicationPolicy, predictionPolicy, freshnessPolicy);
+
+  const deNoised = items.map((item) => ({
+    ...item,
+    communities: item.communities.filter((c) => c.id !== communityId),
+  }));
+
+  deNoised.sort(compareCommunityTimelineItems);
+  return deNoised.slice(0, limit);
 }
 
 async function listPostIdsInCommunities(postIds: string[], communityIds: string[]): Promise<Set<string>> {
