@@ -62,15 +62,29 @@ const nextConfig: NextConfig = {
   },
   async redirects() {
     return [
-      // Stage 4C — the prediction leaderboard moved from
-      // /leaderboard/predictions to /predictions/leaderboard (matching
-      // /predictions/* as the Brohda 2.0 information-architecture root,
-      // parallel to /markets, /post, /community). Permanent redirect
-      // covers any link/bookmark to the old path, including the one real
-      // production visit that already happened before this moved.
+      // Phase H (Brohda 2.0 redesign, consumer V1 decommission) — the
+      // legacy Pool leaderboard (/leaderboard), the Brohda 2.0 prediction
+      // leaderboard (/predictions/leaderboard), and its older
+      // /leaderboard/predictions alias (Stage 4C) are all retired as
+      // consumer destinations: none ever had a primary-nav entry, and
+      // reputation/ranking now lives on the profile itself
+      // (lib/reputation/*, ProfileHeader) rather than a dedicated page.
+      // Redirecting to /profile rather than /feed or a 404 — the thing a
+      // visitor to any of these three paths was looking for (their
+      // standing) is exactly what /profile now shows.
       {
         source: "/leaderboard/predictions",
-        destination: "/predictions/leaderboard",
+        destination: "/profile",
+        permanent: true,
+      },
+      {
+        source: "/predictions/leaderboard",
+        destination: "/profile",
+        permanent: true,
+      },
+      {
+        source: "/leaderboard",
+        destination: "/profile",
         permanent: true,
       },
       // Phase D (Brohda 2.0 redesign) — /markets was Stage 4A's temporary
@@ -81,12 +95,10 @@ const nextConfig: NextConfig = {
       // Now that the real /discovery exists and the nav points there,
       // /markets' own content (the same GamePostCard feed Home already
       // shows) is fully redundant — redirect rather than leave two
-      // competing Home-shaped feeds live. Audited: the only remaining
-      // references to the bare "/markets" path are the still-dormant
-      // Milestone-2 discovery engine's own internal link
-      // (components/discovery/CategoryTabs.tsx, never reachable from any
-      // live page) and admin cache-revalidation calls (revalidatePath,
-      // harmless against a redirect target). /markets/[id] (Market
+      // competing Home-shaped feeds live. The dormant Milestone-2
+      // discovery engine's own internal link to this path
+      // (components/discovery/CategoryTabs.tsx) no longer exists either —
+      // that dead component was deleted in Phase H. /markets/[id] (Market
       // detail) is explicitly NOT touched — notifications and Post "other
       // Markets" links still depend on it.
       {

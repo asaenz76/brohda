@@ -4,9 +4,7 @@
  * behavior... do not make precision a per-component choice").
  *
  * Rounding rule: standard round-half-up to the nearest whole percent
- * (`Math.round`), matching this codebase's existing convention for
- * consumer-facing percentages (components/pools/CommunitySplit.tsx renders
- * pre-computed whole-number percentages the same way). Never fabricates a
+ * (`Math.round`). Never fabricates a
  * value — null in, null out; the two sides are never forced to sum to 100
  * if the underlying prices don't (each side is read independently, never
  * derived as `1 - other`).

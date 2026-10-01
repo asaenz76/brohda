@@ -16,14 +16,6 @@ export function formatSignedCents(cents: number): string {
   return cents > 0 ? `+${formatted}` : formatted;
 }
 
-// timeZone must be the user's chosen analytics_timezone, not the viewer's
-// device zone — a chart bucketed by "Jul 31 in America/Costa_Rica" must
-// label that same point "Jul 31", never re-derive the label in whatever
-// zone the browser happens to be running in.
-export function formatChartDate(iso: string, timeZone: string): string {
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone });
-}
-
 // Recharts invokes axis tickFormatter as (value, index) and Tooltip
 // formatter/labelFormatter with several positional args beyond the raw
 // value — handing it a bare formatter reference (e.g. formatCents, whose

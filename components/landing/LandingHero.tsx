@@ -1,18 +1,16 @@
 import Link from "next/link";
 import { Users2, ShieldCheck, Trophy } from "lucide-react";
-import type { SocialPoolCardViewModel } from "@/lib/pools/view-model";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { PoolPreviewCard } from "./PoolPreviewCard";
 import { PhoneFrame } from "./PhoneFrame";
 
 const BULLETS = [
   { icon: Users2, label: "Compete with people, not against the house" },
-  { icon: ShieldCheck, label: "Real matches" },
-  { icon: Trophy, label: "Real pools" },
+  { icon: ShieldCheck, label: "Real games" },
+  { icon: Trophy, label: "No money, ever" },
 ];
 
-export function LandingHero({ heroPool }: { heroPool: SocialPoolCardViewModel | null }) {
+export function LandingHero() {
   return (
     <section className="mx-auto grid max-w-6xl gap-10 px-4 py-12 sm:px-6 sm:py-16 lg:grid-cols-2 lg:items-center lg:py-24">
       <div className="space-y-6">
@@ -24,7 +22,7 @@ export function LandingHero({ heroPool }: { heroPool: SocialPoolCardViewModel | 
           Make the call. <span className="text-accent-primary">Challenge your friends.</span>
         </h1>
         <p className="max-w-md text-lg text-text-secondary">
-          Predict NFL outcomes, join match pools, and prove you know the game
+          Predict NFL outcomes, join the conversation, and prove you know the game
           better than your friends.
         </p>
         <div className="flex flex-wrap items-center gap-3">
@@ -53,20 +51,13 @@ export function LandingHero({ heroPool }: { heroPool: SocialPoolCardViewModel | 
         </p>
       </div>
 
-      {heroPool && (
-        <div className="mx-auto w-full max-w-sm lg:mx-0 lg:ml-auto">
-          <PoolPreviewCard viewModel={heroPool} />
-        </div>
-      )}
-      {!heroPool && (
-        <div className="hidden lg:block">
-          <PhoneFrame>
-            <div className="flex h-64 items-center justify-center text-sm text-text-muted">
-              New pools open soon.
-            </div>
-          </PhoneFrame>
-        </div>
-      )}
+      <div className="hidden lg:block">
+        <PhoneFrame>
+          <div className="flex h-64 items-center justify-center text-sm text-text-muted">
+            New games open soon.
+          </div>
+        </PhoneFrame>
+      </div>
     </section>
   );
 }

@@ -9,11 +9,7 @@ import { cn } from "@/lib/utils";
 // Discovery data wiring happens here (Phase C/E). TeamCrest already
 // degrades gracefully (renders nothing) when `logoUrl` is missing — this
 // wrapper doesn't need its own fallback logic, the team name alone still
-// reads fine without a crest. Not to be confused with the pre-existing,
-// unrelated `components/pools/TeamIdentity.tsx` — that one is the legacy
-// Pools product's own larger crest-first layout with team-follow logic
-// baked in; this file lives in `components/identity/` specifically to
-// stay distinct from it.
+// reads fine without a crest.
 export function TeamIdentity({
   teamName,
   logoUrl,

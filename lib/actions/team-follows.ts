@@ -9,17 +9,6 @@ import { checkTeamFollowRateLimit } from "@/lib/rate-limit/team-follows";
 
 export type ToggleTeamFollowResult = { error: string | null; following: boolean };
 
-// TeamFollowToggle is already fully optimistic locally (flips its own icon
-// on click, rolls back only on error) — /feed and /profile aren't
-// revalidated here since that would just force an expensive
-// getPoolCardViewModels recomputation to patch in state the client already
-// shows correctly. /pool/[id] (note: the real route segment is [id], not
-// [poolId] — this used to silently no-op) is kept as a cheap,
-// single-pool eventual-consistency safety net.
-function revalidateTeamFollowSurfaces() {
-  revalidatePath("/pool/[id]", "page");
-}
-
 // requireUser() scopes this to the caller's own id server-side. Written via
 // the service role, not a direct RLS INSERT/DELETE policy, matching
 // lib/actions/follows.ts's toggleFollowAction — team_follows grants
@@ -53,7 +42,6 @@ export async function toggleTeamFollowAction(
       return { error: "Could not unfollow this team.", following: true };
     }
 
-    revalidateTeamFollowSurfaces();
     return { error: null, following: false };
   }
 
@@ -68,7 +56,6 @@ export async function toggleTeamFollowAction(
     return { error: "Could not follow this team.", following: false };
   }
 
-  revalidateTeamFollowSurfaces();
   return { error: null, following: true };
 }
 

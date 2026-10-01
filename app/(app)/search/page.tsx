@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Avatar } from "@/components/Avatar";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
 import { LocalDateTime } from "@/components/LocalDateTime";
-import { resolveCategoriesFromSearchTerm } from "@/lib/pools/templates/category-labels";
+import { listPostIdsForFixtures } from "@/lib/predictions/post-links";
 import { getMatchupSeparator, orderTeamsForDisplay } from "@/lib/sports-data/team-display-order";
 import { SearchInput } from "./search-input";
 
@@ -18,6 +18,7 @@ type SearchProfile = {
 
 type SearchFixture = {
   id: string;
+  postId: string;
   sport: string;
   homeTeamName: string;
   awayTeamName: string;
@@ -47,34 +48,14 @@ export default async function SearchPage({
     // filter clauses via its comma/paren syntax. .ilike()'s pattern
     // argument is passed as a normal bound value, no such risk.
     const pattern = `%${query}%`;
-    // "Market" search (beta feedback: find pools by "goals", "cards",
-    // "result", etc., not just team/league names) resolves the query to
-    // pools.analytics_category values via a synonym map, then pulls in
-    // whichever fixtures those pools belong to — merged into the same
-    // fixture list below, same as any other match source.
-    const matchedCategories = resolveCategoriesFromSearchTerm(query);
-    const [
-      { data: byName },
-      { data: byUsername },
-      { data: byHomeTeam },
-      { data: byAwayTeam },
-      { data: byCompetition },
-      { data: poolsByCategory },
-    ] = await Promise.all([
-      supabase.from("public_profiles").select("*").ilike("display_name", pattern).limit(20),
-      supabase.from("public_profiles").select("*").ilike("username", pattern).limit(20),
-      supabase.from("fixtures").select(FIXTURE_SELECT).ilike("home_team_name", pattern).limit(20),
-      supabase.from("fixtures").select(FIXTURE_SELECT).ilike("away_team_name", pattern).limit(20),
-      supabase.from("fixtures").select(FIXTURE_SELECT).ilike("competition_name", pattern).limit(20),
-      matchedCategories.length > 0
-        ? supabase
-            .from("pools")
-            .select("fixture_id")
-            .in("analytics_category", matchedCategories)
-            .not("fixture_id", "is", null)
-            .limit(50)
-        : Promise.resolve({ data: [] as { fixture_id: string | null }[] }),
-    ]);
+    const [{ data: byName }, { data: byUsername }, { data: byHomeTeam }, { data: byAwayTeam }, { data: byCompetition }] =
+      await Promise.all([
+        supabase.from("public_profiles").select("*").ilike("display_name", pattern).limit(20),
+        supabase.from("public_profiles").select("*").ilike("username", pattern).limit(20),
+        supabase.from("fixtures").select(FIXTURE_SELECT).ilike("home_team_name", pattern).limit(20),
+        supabase.from("fixtures").select(FIXTURE_SELECT).ilike("away_team_name", pattern).limit(20),
+        supabase.from("fixtures").select(FIXTURE_SELECT).ilike("competition_name", pattern).limit(20),
+      ]);
 
     const merged = new Map<string, SearchProfile>();
     for (const profile of [...(byName ?? []), ...(byUsername ?? [])]) {
@@ -97,34 +78,17 @@ export default async function SearchPage({
       mergedFixtures.set(fixture.id, fixture);
     }
 
-    const categoryFixtureIds = [
-      ...new Set((poolsByCategory ?? []).map((p) => p.fixture_id).filter((id): id is string => id != null)),
-    ].filter((id) => !mergedFixtures.has(id));
-    if (categoryFixtureIds.length > 0) {
-      const { data: byCategory } = await supabase
-        .from("fixtures")
-        .select(FIXTURE_SELECT)
-        .in("id", categoryFixtureIds)
-        .limit(20);
-      for (const fixture of byCategory ?? []) {
-        mergedFixtures.set(fixture.id, fixture);
-      }
-    }
-
-    // Only surface fixtures that actually have a pool to enter — landing on
-    // an empty fixture page from a search result would be a dead end.
-    const fixtureIds = [...mergedFixtures.keys()];
-    const { data: poolsForFixtures } =
-      fixtureIds.length > 0
-        ? await supabase.from("pools").select("fixture_id").in("fixture_id", fixtureIds)
-        : { data: [] as { fixture_id: string | null }[] };
-    const fixtureIdsWithPools = new Set((poolsForFixtures ?? []).map((p) => p.fixture_id));
+    // Only surface fixtures that resolve to a canonical, published Post —
+    // the legacy Pool-browsing fixture page is retired (Phase H), and
+    // linking to a fixture with nothing to show would be a dead end.
+    const postIdByFixtureId = await listPostIdsForFixtures([...mergedFixtures.keys()]);
 
     fixtures = [...mergedFixtures.values()]
-      .filter((f) => fixtureIdsWithPools.has(f.id))
+      .filter((f) => postIdByFixtureId.has(f.id))
       .slice(0, 20)
       .map((f) => ({
         id: f.id,
+        postId: postIdByFixtureId.get(f.id) as string,
         sport: f.sport,
         homeTeamName: f.home_team_name,
         awayTeamName: f.away_team_name,
@@ -143,8 +107,8 @@ export default async function SearchPage({
       {query.length === 0 ? (
         <EmptyFeedState
           icon={SearchIcon}
-          title="Search for players, fixtures, or markets"
-          description="Find people by name or username, a match by team or league, or pools by market — goals, cards, result, and more."
+          title="Search for players or games"
+          description="Find people by name or username, or a game by team or league."
         />
       ) : !hasResults ? (
         <EmptyFeedState
@@ -189,7 +153,7 @@ export default async function SearchPage({
           {fixtures.length > 0 && (
             <section className="space-y-1">
               <h2 className="px-3 text-xs font-semibold uppercase tracking-wide text-text-muted">
-                Fixtures
+                Games
               </h2>
               <ul className="space-y-1">
                 {fixtures.map((fixture) => {
@@ -201,7 +165,7 @@ export default async function SearchPage({
                   return (
                     <li key={fixture.id}>
                       <Link
-                        href={`/fixture/${fixture.id}`}
+                        href={`/post/${fixture.postId}`}
                         className="flex flex-col rounded-xl px-3 py-2 hover:bg-surface-secondary"
                       >
                         <span className="text-sm font-medium text-text-primary">

@@ -95,8 +95,8 @@ async function getPredictionId(userId: string, marketId: string): Promise<string
   return data!.id as string;
 }
 
-test.describe("Reputation + Leaderboards", () => {
-  test("graded Picks and a resolved Call BS Challenge produce a matching Leaderboard rank and Profile record", async ({ page }) => {
+test.describe("Reputation", () => {
+  test("graded Picks and a resolved Call BS Challenge produce a matching Profile reputation record", async ({ page }) => {
     await admin.from("platform_settings").update({ leaderboard_min_decided_picks: 5, call_bs_enabled: true }).eq("id", true);
     const suffix = randomUUID();
     const userIds: string[] = [];
@@ -212,37 +212,23 @@ test.describe("Reputation + Leaderboards", () => {
       // (spec §3, §24) — reputation replaces ranking, so a disabled
       // feature's own record (Call BS) and leaderboard-eligibility framing
       // ("Not ranked yet") are deliberately no longer shown on Profile at
-      // all (spec §33-34), not merely reformatted.
+      // all (spec §33-34), not merely reformatted. Phase H retired both
+      // the legacy Pool leaderboard and /predictions/leaderboard as
+      // consumer destinations (they now redirect to /profile) — the
+      // reputation line on Profile is the only consumer-facing ranking
+      // signal left, so that's what this test asserts.
       await page.context().clearCookies();
       await loginAs(page, emailChamp);
       await page.goto("/profile");
       await expect(page.getByText("100% prediction accuracy · 7 predicted")).toBeVisible();
 
-      // The Prediction Leaderboard shows the champion at #1 with a
-      // matching record. Scoped to the champion's own row (identified by
-      // its stable #row-{userId} id) rather than a bare page-wide text
-      // search — this leaderboard is global and the shared local test
-      // database may carry other 100%-accuracy users from unrelated test
-      // runs, which would otherwise make a page-wide "100.0%"/"7–0" search
-      // ambiguous.
-      await page.goto("/predictions/leaderboard");
-      const champRow = page.locator(`#row-${champ.userId}`);
-      await expect(champRow).toContainText("#1");
-      await expect(champRow).toContainText("7–0");
-      await expect(champRow).toContainText("100.0%");
-
       // The below-minimum user's own Profile shows their real reputation
       // regardless of leaderboard eligibility (reputation is never gated
-      // on a ranking threshold, spec §2-5) — and they are absent from the
-      // leaderboard itself below.
+      // on a ranking threshold, spec §2-5).
       await page.context().clearCookies();
       await loginAs(page, emailBelowMin);
       await page.goto("/profile");
       await expect(page.getByText("67% prediction accuracy · 3 predicted")).toBeVisible();
-
-      await page.goto("/predictions/leaderboard");
-      const belowMinRow = page.locator(`#row-${belowMin.userId}`);
-      await expect(belowMinRow).toHaveCount(0);
     } finally {
       if (challengeIds.length > 0) {
         await admin.from("notifications").delete().in("challenge_id", challengeIds);
