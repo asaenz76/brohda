@@ -26,12 +26,6 @@ describe("AdminNav active-tab highlighting", () => {
     expect(activeLabel()).toBe("Events");
   });
 
-  it("/admin/pools -> Pools active", () => {
-    currentPathname = "/admin/pools";
-    render(<AdminNav role="super_admin" />);
-    expect(activeLabel()).toBe("Pools");
-  });
-
   it("/admin/data/fixtures -> Data active", () => {
     currentPathname = "/admin/data/fixtures";
     render(<AdminNav role="super_admin" />);

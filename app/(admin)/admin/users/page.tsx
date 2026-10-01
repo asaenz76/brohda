@@ -45,9 +45,9 @@ export default async function AdminUsersPage({
   // super_admin keeps seeing everyone, matching every other is_super_admin
   // vs is_admin_or_above split in this app (wallet visibility, role
   // management, etc.). Scoped here at the query level rather than in RLS:
-  // select_all_profiles_as_admin is also relied on by admin/pools,
-  // admin/pools/[id], and admin/wallet-requests to resolve arbitrary
-  // users' display names, so narrowing that policy would break them.
+  // select_all_profiles_as_admin is also relied on by admin/wallet-requests
+  // to resolve arbitrary users' display names, so narrowing that policy
+  // would break it.
   if (!isSuperAdmin) {
     usersQuery = usersQuery.eq("invited_by", viewer.id);
   }
@@ -69,35 +69,12 @@ export default async function AdminUsersPage({
   const ownerIds = [
     ...new Set((users ?? []).map((u) => u.invited_by).filter((id): id is string => id != null)),
   ];
-  const pageUserIds = (users ?? []).map((u) => u.id);
 
-  const [{ data: owners }, { data: activeEntries }] = await Promise.all([
+  const { data: owners } =
     ownerIds.length > 0
-      ? supabase.from("user_profiles").select("id, display_name").in("id", ownerIds)
-      : Promise.resolve({ data: [] }),
-    // "Pending" column — money still at risk in pools that haven't settled
-    // yet. Fetched alongside wallet_balances, same super_admin-only gating
-    // (this is money visibility, same as Balance). Filtered to ACTIVE here
-    // (a plain column on entries, safe to filter server-side); OPEN/LOCKED
-    // is checked in JS below since it's on the joined pools row, not
-    // entries itself.
-    isSuperAdmin && pageUserIds.length > 0
-      ? supabase.from("entries").select("user_id, amount, pools(status)").eq("status", "ACTIVE").in("user_id", pageUserIds)
-      : Promise.resolve({ data: null }),
-  ]);
+      ? await supabase.from("user_profiles").select("id, display_name").in("id", ownerIds)
+      : { data: [] };
   const ownerNameById = new Map((owners ?? []).map((o) => [o.id, o.display_name]));
-
-  const pendingByUserId = new Map<string, number>();
-  for (const e of activeEntries ?? []) {
-    // Without generated DB types, Supabase infers a to-one embed like this
-    // as an array — actual shape at runtime is a single row, since each
-    // entry belongs to exactly one pool.
-    const poolsField = e.pools as unknown as { status: string } | { status: string }[] | null;
-    const poolStatus = Array.isArray(poolsField) ? poolsField[0]?.status : poolsField?.status;
-    if (poolStatus === "OPEN" || poolStatus === "LOCKED") {
-      pendingByUserId.set(e.user_id, (pendingByUserId.get(e.user_id) ?? 0) + e.amount);
-    }
-  }
 
   const totalPages = Math.max(1, Math.ceil((count ?? 0) / PAGE_SIZE));
   const statusQuery = status === "active" ? "" : `status=${status}&`;
@@ -123,14 +100,12 @@ export default async function AdminUsersPage({
               <th className="px-3 py-2 font-medium">Status</th>
               <th className="px-3 py-2 font-medium">Created by</th>
               {isSuperAdmin && <th className="px-3 py-2 font-medium">Balance</th>}
-              {isSuperAdmin && <th className="px-3 py-2 font-medium">Pending</th>}
               <th className="px-3 py-2 font-medium"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border-subtle">
             {(users ?? []).map((u) => {
               const balance = balanceByUserId.get(u.id) ?? 0;
-              const pending = pendingByUserId.get(u.id) ?? 0;
               const isSelf = u.id === viewer.id;
               return (
                 <tr key={u.id}>
@@ -157,11 +132,6 @@ export default async function AdminUsersPage({
                   </td>
                   {isSuperAdmin && (
                     <td className="px-3 py-2 text-text-primary">{formatCents(balance)}</td>
-                  )}
-                  {isSuperAdmin && (
-                    <td className="px-3 py-2 text-text-secondary">
-                      {pending > 0 ? formatCents(pending) : "—"}
-                    </td>
                   )}
                   <td className="px-3 py-2">
                     <div className="flex flex-col items-end gap-2">

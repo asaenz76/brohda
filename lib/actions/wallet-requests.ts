@@ -7,90 +7,12 @@ import { writeAuditLog } from "@/lib/audit/log";
 import { parseDollarsToCents } from "@/lib/utils/money";
 import { walletRequestSchema, walletRequestReviewSchema } from "@/lib/validations/wallet";
 import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "@/lib/payment-methods/constants";
-import { broadcastPoolEntryAdded } from "@/lib/realtime/pool-updates";
 import { reserveFunds, releaseReservation, consumeReservation } from "@/lib/wallet/reservations";
 import {
-  createFollowerEntryNotifications,
-  createQuickTopUpEntrySuccessNotification,
-  createQuickTopUpFundsAvailableNotification,
   createWalletRequestApprovedNotification,
   createWalletRequestRejectedNotification,
   createWalletRequestSubmittedNotification,
 } from "@/lib/notifications/create";
-
-type ApprovedWalletRequest = {
-  id: string;
-  user_id: string;
-  intended_pool_id: string;
-  intended_option_id: string;
-};
-
-// Called only for a deposit whose request recorded which entry it was meant
-// to unlock (the "quick top-up" flow off EntryConfirmationSheet's
-// insufficient-balance branch). The deposit has already been credited and
-// the request already marked approved by the time this runs, so any
-// failure here — pool locked in the meantime, balance changed by other
-// activity, etc. — must never bubble up and undo that: it only decides
-// which notification the player gets.
-async function completeQuickTopUpEntry(
-  adminClient: ReturnType<typeof createAdminClient>,
-  request: ApprovedWalletRequest,
-) {
-  try {
-    const { data: pool } = await adminClient
-      .from("pools")
-      .select("entry_fee, question")
-      .eq("id", request.intended_pool_id)
-      .single();
-
-    if (!pool) {
-      await createQuickTopUpFundsAvailableNotification({
-        userId: request.user_id,
-        poolId: request.intended_pool_id,
-      });
-      return;
-    }
-
-    const { error } = await adminClient.rpc("create_pool_entry", {
-      p_pool_id: request.intended_pool_id,
-      p_user_id: request.user_id,
-      p_option_id: request.intended_option_id,
-      p_amount: pool.entry_fee,
-      p_idempotency_key: `quick_topup:${request.id}`,
-    });
-
-    if (error) {
-      await createQuickTopUpFundsAvailableNotification({
-        userId: request.user_id,
-        poolId: request.intended_pool_id,
-      });
-      return;
-    }
-
-    const { data: profile } = await adminClient
-      .from("user_profiles")
-      .select("display_name")
-      .eq("id", request.user_id)
-      .single();
-
-    await broadcastPoolEntryAdded(request.intended_pool_id);
-    await createFollowerEntryNotifications({
-      poolId: request.intended_pool_id,
-      enteredUserId: request.user_id,
-      enteredDisplayName: profile?.display_name ?? "A player",
-    });
-    await createQuickTopUpEntrySuccessNotification({
-      userId: request.user_id,
-      poolId: request.intended_pool_id,
-      question: pool.question,
-    });
-  } catch {
-    await createQuickTopUpFundsAvailableNotification({
-      userId: request.user_id,
-      poolId: request.intended_pool_id,
-    });
-  }
-}
 
 export type WalletRequestState = {
   error: string | null;
@@ -121,8 +43,6 @@ export async function submitWalletRequestAction(
     amountCents,
     note: formData.get("note") || undefined,
     idempotencyKey,
-    intendedPoolId: formData.get("intendedPoolId") || undefined,
-    intendedOptionId: formData.get("intendedOptionId") || undefined,
     paymentMethod: formData.get("paymentMethod") || undefined,
     otherMethodNote: formData.get("otherMethodNote") || undefined,
     transactionRef: formData.get("transactionRef") || undefined,
@@ -178,8 +98,6 @@ export async function submitWalletRequestAction(
     amount: parsed.data.amountCents,
     note: parsed.data.note ?? null,
     idempotency_key: parsed.data.idempotencyKey,
-    intended_pool_id: parsed.data.intendedPoolId ?? null,
-    intended_option_id: parsed.data.intendedOptionId ?? null,
     payment_method: parsed.data.paymentMethod ?? null,
     other_method_note: parsed.data.otherMethodNote ?? null,
     transaction_ref: parsed.data.transactionRef ?? null,
@@ -327,21 +245,12 @@ export async function approveWalletRequestAction(
     reason: parsed.data.adminNote,
   });
 
-  if (request.type === "deposit" && request.intended_pool_id && request.intended_option_id) {
-    await completeQuickTopUpEntry(adminClient, {
-      id: request.id,
-      user_id: request.user_id,
-      intended_pool_id: request.intended_pool_id,
-      intended_option_id: request.intended_option_id,
-    });
-  } else {
-    await createWalletRequestApprovedNotification({
-      userId: request.user_id,
-      requestType: request.type as "deposit" | "withdrawal",
-      amountCents: request.amount,
-      transactionId: transaction?.id ?? null,
-    });
-  }
+  await createWalletRequestApprovedNotification({
+    userId: request.user_id,
+    requestType: request.type as "deposit" | "withdrawal",
+    amountCents: request.amount,
+    transactionId: transaction?.id ?? null,
+  });
 
   revalidatePath("/admin/wallet-requests");
   revalidatePath("/wallet");

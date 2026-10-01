@@ -25,32 +25,26 @@ export default async function AdminDataFixturesPage({
   const fixturesQuery = supabase
     .from("fixtures")
     .select(
-      "id, external_fixture_id, sport, home_team_name, away_team_name, competition_name, competition_country, scheduled_start_utc, hidden_from_pool_creation",
+      "id, external_fixture_id, sport, home_team_name, away_team_name, competition_name, competition_country, scheduled_start_utc",
     )
     .order("scheduled_start_utc", { ascending: false });
 
-  const [fixturesResult, poolsResult] = await Promise.all([
+  const [fixturesResult, postsResult] = await Promise.all([
     showArchived
       ? fixturesQuery.in("internal_status", TERMINAL_STATUSES)
       : fixturesQuery.not("internal_status", "in", `(${TERMINAL_STATUSES.join(",")})`),
-    supabase.from("pools").select("fixture_id").not("fixture_id", "is", null),
+    supabase.from("posts").select("fixture_id"),
   ]);
   // This page exists specifically to answer "is this fixture actually
   // missing" — a query failure rendering as an empty list would tell the
   // admin exactly the wrong thing (spec §9/§10: a DB failure must never
   // masquerade as "there are no fixtures").
-  if (fixturesResult.error || poolsResult.error) {
-    console.error("[AdminDataFixturesPage] failed to load fixtures/pools", { fixturesError: fixturesResult.error, poolsError: poolsResult.error });
+  if (fixturesResult.error || postsResult.error) {
+    console.error("[AdminDataFixturesPage] failed to load fixtures/posts", { fixturesError: fixturesResult.error, postsError: postsResult.error });
   }
-  const loadFailed = Boolean(fixturesResult.error || poolsResult.error);
+  const loadFailed = Boolean(fixturesResult.error || postsResult.error);
   const fixtures = fixturesResult.data;
-  const pools = poolsResult.data;
-
-  const poolCountByFixtureId = new Map<string, number>();
-  for (const pool of pools ?? []) {
-    const fixtureId = pool.fixture_id as string;
-    poolCountByFixtureId.set(fixtureId, (poolCountByFixtureId.get(fixtureId) ?? 0) + 1);
-  }
+  const postFixtureIds = new Set((postsResult.data ?? []).map((p) => p.fixture_id as string));
 
   const importedFixtures = (fixtures ?? []).map((f) => ({
     id: f.id as string,
@@ -61,8 +55,7 @@ export default async function AdminDataFixturesPage({
     competitionName: f.competition_name as string | null,
     competitionCountry: f.competition_country as string | null,
     scheduledStartUtc: f.scheduled_start_utc as string,
-    poolCount: poolCountByFixtureId.get(f.id as string) ?? 0,
-    hidden: f.hidden_from_pool_creation as boolean,
+    hasPost: postFixtureIds.has(f.id as string),
   }));
 
   const archivedToggleParams = new URLSearchParams(Object.entries(params).filter((entry): entry is [string, string] => entry[1] !== undefined));

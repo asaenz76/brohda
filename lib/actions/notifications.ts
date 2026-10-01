@@ -23,7 +23,7 @@ export async function getNotificationPollStateAction(): Promise<NotificationPoll
     getUnreadCount(user.id),
     getNotifications(user.id),
   ]);
-  const [latest] = await attachNotificationHrefs(user.id, notifications.slice(0, 1));
+  const [latest] = attachNotificationHrefs(notifications.slice(0, 1));
 
   return {
     unreadCount,

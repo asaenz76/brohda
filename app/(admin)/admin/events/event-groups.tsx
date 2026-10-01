@@ -2,15 +2,10 @@
 
 // Phase 4 primary browsing display — local date -> sport -> competition ->
 // events (spec §7/§8). Every event here is already imported (DB-only
-// view), so the only action is "Create Pool", and only when eligible
-// (spec §12/§30: a completed event visible through a custom range must
-// never present a normal Create Pool action). Deliberately does not show
-// provider name, external id, sync timestamps, or raw status codes (spec
-// §7) — those live in Data Management, not here.
-import Link from "next/link";
+// view). Deliberately does not show provider name, external id, sync
+// timestamps, or raw status codes (spec §7) — those live in Data
+// Management, not here.
 import type { LocalEventDateGroup } from "@/lib/fixtures/local-event-grouping";
-import type { PoolEligibilityStatus } from "@/lib/fixtures/local-browse";
-import { canCreatePool } from "@/lib/fixtures/event-filters";
 import { EVENT_STATUS_LABEL, isLiveStatus } from "@/lib/fixtures/status-labels";
 import { SPORT_META } from "@/lib/fixtures/sport-meta";
 import { cn } from "@/lib/utils";
@@ -39,19 +34,6 @@ function StatusBadge({ status }: { status: FixtureInternalStatus }) {
       {label}
     </span>
   );
-}
-
-function EligibilityHint({ status }: { status: PoolEligibilityStatus }) {
-  switch (status) {
-    case "ELIGIBLE":
-      return null; // the "Create Pool" button itself is the signal
-    case "COMPLETED":
-      return null; // the status badge already says "Final" — no need to repeat it
-    case "LOCKED":
-      return <span className="shrink-0 text-[11px] text-text-muted">Locked</span>;
-    case "INELIGIBLE":
-      return <span className="shrink-0 text-[11px] text-text-muted">Not eligible</span>;
-  }
 }
 
 export function EventDateGroups({ dateGroups, timeZone }: { dateGroups: LocalEventDateGroup[]; timeZone: string }) {
@@ -95,25 +77,10 @@ export function EventDateGroups({ dateGroups, timeZone }: { dateGroups: LocalEve
                                 </span>
                                 <span className="block text-xs text-text-muted">
                                   {fixture.round ? `${fixture.round}` : ""}
-                                  {fixture.poolCount > 0 && (
-                                    <Link href={`/admin/pools?fixtureId=${fixture.id}`} className={cn("ml-1.5 font-medium hover:underline", "text-accent-primary")}>
-                                      {fixture.round ? "· " : ""}
-                                      {fixture.poolCount} pool{fixture.poolCount > 1 ? "s" : ""}
-                                    </Link>
-                                  )}
                                 </span>
                               </span>
                               <span className="flex shrink-0 items-center gap-2">
                                 <StatusBadge status={fixture.internalStatus} />
-                                <EligibilityHint status={fixture.eligibility} />
-                                {canCreatePool(fixture.eligibility) && (
-                                  <Link
-                                    href={`/admin/pools/new?fixtureId=${fixture.id}`}
-                                    className="shrink-0 rounded-full bg-accent-primary/10 px-2.5 py-1 text-[11px] font-medium text-accent-primary hover:bg-accent-primary/20"
-                                  >
-                                    Create Pool
-                                  </Link>
-                                )}
                               </span>
                             </div>
                           ))}

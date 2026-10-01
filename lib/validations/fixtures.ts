@@ -39,10 +39,3 @@ export type TeamSearchInput = z.infer<typeof teamSearchSchema>;
 export const importFixturesSchema = z.array(z.string().trim().min(1)).min(1).max(50);
 
 export type ImportFixturesInput = z.infer<typeof importFixturesSchema>;
-
-// Bulk hide/unhide from the "Create a pool" dropdown — a sanity bound sized
-// for clearing out a backlog of leftover test/abandoned fixtures in one go,
-// not a real expected volume of legitimate imports.
-export const setFixturesHiddenSchema = z.array(z.string().uuid()).min(1).max(500);
-
-export type SetFixturesHiddenInput = z.infer<typeof setFixturesHiddenSchema>;

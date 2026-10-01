@@ -2,29 +2,21 @@
 // pure multi-bookmaker aggregation for the two NFL Market templates R2
 // ingests automatically (MONEYLINE, TOTAL — see the R2 completion report
 // for why SPREAD is deliberately excluded). Reuses `devig2Way`
-// (lib/pools/templates/odds-devig.ts, already generic/shared) for vig
-// removal; does NOT import lib/pools/templates/nfl-odds.ts itself — that
-// module is legacy-pool-scoped (backs the pool-creation wizard's
-// best-effort prefill, including a half-point-rounding convention specific
-// to avoiding pari-mutuel pushes), and R0/R0.5 established the Prediction
-// domain must not depend on the legacy pool engine's own template code.
-// The underlying methodology (median-of-de-vigged-prices across every
-// bookmaker offering a usable price; no curated allowlist, since API-NFL's
-// bookmaker catalog has no reputability metadata to curate from) is the
-// same, proven approach — reimplemented here as a handful of lines rather
-// than cross-importing, since the two modules' outputs mean different
-// things (a wizard prefill estimate vs. a canonical, gradeable Market).
+// (./odds-devig.ts, generic/shared) for vig removal. The underlying
+// methodology (median-of-de-vigged-prices across every bookmaker offering a
+// usable price; no curated allowlist, since API-NFL's bookmaker catalog has
+// no reputability metadata to curate from) is a handful of lines, not a
+// larger shared engine.
 //
 // No SPREAD/Asian-Handicap parsing exists in this file. Live verification
 // against the real API-NFL /odds endpoint (2026-09-21, read-only, no
-// Supabase involved — see the R2 completion report) reproduced the exact
-// ambiguity nfl-odds.ts's own header already documents: a bookmaker's
-// "Home -1" entry priced identically to that same bookmaker's moneyline
-// "Home" price, which is not a coherent spread quote. R2 does not attempt
-// to resolve that ambiguity — it simply never ingests SPREAD until a
-// future milestone does.
+// Supabase involved — see the R2 completion report) reproduced a real
+// ambiguity: a bookmaker's "Home -1" entry priced identically to that same
+// bookmaker's moneyline "Home" price, which is not a coherent spread quote.
+// R2 does not attempt to resolve that ambiguity — it simply never ingests
+// SPREAD until a future milestone does.
 
-import { devig2Way } from "@/lib/pools/templates/odds-devig";
+import { devig2Way } from "./odds-devig";
 import type { NflBookmakerOdds } from "@/lib/sports-data/types";
 
 function median(values: number[]): number {

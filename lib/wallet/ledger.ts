@@ -1,6 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
-import { fetchInChunks } from "@/lib/pools/fetch";
+import { fetchInChunks } from "@/lib/utils/batch";
 import { walletTransactionLabel } from "./transaction-copy";
 
 export interface LedgerEntrySettlement {

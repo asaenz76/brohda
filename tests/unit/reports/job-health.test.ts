@@ -82,7 +82,7 @@ describe("getJobHealth", () => {
     const now = new Date();
     backgroundJobsRows = [
       {
-        job_name: "lock-pools",
+        job_name: "resolve-challenges",
         status: "error",
         result: null,
         error: "connection refused",
@@ -92,7 +92,7 @@ describe("getJobHealth", () => {
       },
     ];
     const health = await getJobHealth();
-    const entry = health.jobs.find((j) => j.job.id === "lock-pools")!;
+    const entry = health.jobs.find((j) => j.job.id === "resolve-challenges")!;
     expect(entry.status).toBe("failed");
     expect(entry.lastError).toBe("connection refused");
   });

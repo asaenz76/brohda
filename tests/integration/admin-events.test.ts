@@ -83,7 +83,6 @@ function footballFixtureRow(externalId: string, scheduledStartUtc: string, overr
     away_team_name: "Local Away FC",
     scheduled_start_utc: scheduledStartUtc,
     internal_status: "NOT_STARTED",
-    hidden_from_pool_creation: false,
     ...overrides,
   };
 }
@@ -103,15 +102,11 @@ function nflFixtureRow(externalId: string, scheduledStartUtc: string, overrides:
     away_team_name: "Local Away Team",
     scheduled_start_utc: scheduledStartUtc,
     internal_status: "NOT_STARTED",
-    hidden_from_pool_creation: false,
     ...overrides,
   };
 }
 
 async function cleanupTestData() {
-  const { data: fixtureRows } = await admin.from("fixtures").select("id").or(`season.eq.${TEST_SEASON},external_fixture_id.like.tlev-%`);
-  const fixtureIds = (fixtureRows ?? []).map((f) => f.id as string);
-  if (fixtureIds.length > 0) await admin.from("pools").delete().in("fixture_id", fixtureIds);
   await admin.from("fixtures").delete().eq("season", TEST_SEASON);
   await admin.from("fixtures").delete().like("external_fixture_id", "tlev-%");
   await admin.from("league_season_imports").delete().eq("season", TEST_SEASON);
@@ -250,45 +245,13 @@ describe.skipIf(!SERVICE_ROLE_KEY)("Phase 4 Events browsing (browseEventsAction)
     expect(ids).not.toContain("tlev-100011");
   });
 
-  it("a completed event stays visible through a wide range but is never pool-eligible (spec §30)", async () => {
+  it("a completed event stays visible through a wide range, with the right status bucket", async () => {
     await admin.from("fixtures").insert(nflFixtureRow("tlev-100012", iso(3_600_000), { internal_status: "COMPLETED" }));
     const result = await browseEventsAction({ preset: "next_7_days" });
     expect(result.success).toBe(true);
     if (!result.success) return;
     const fixture = result.result.fixtures.find((f) => f.externalFixtureId === "tlev-100012");
     expect(fixture?.statusBucket).toBe("COMPLETED");
-    expect(fixture?.eligibility).toBe("COMPLETED");
-  });
-
-  it("counts pools on an event and reflects it in poolCount", async () => {
-    const { data: fixture } = await admin.from("fixtures").insert(nflFixtureRow("tlev-100013", iso(3_600_000))).select("id").single();
-
-    const before = await browseEventsAction({ preset: "next_7_days" });
-    expect(before.success).toBe(true);
-    if (before.success) {
-      const f = before.result.fixtures.find((x) => x.externalFixtureId === "tlev-100013");
-      expect(f?.poolCount).toBe(0);
-    }
-
-    await admin.from("pools").insert({
-      fixture_id: fixture!.id,
-      created_by: FAKE_ADMIN_ID,
-      pool_type: "CUSTOM",
-      question: "Events test question",
-      entry_fee: 100,
-      house_fee_bps: 500,
-      min_total_entries: 2,
-      open_at: new Date().toISOString(),
-      locks_at: iso(3_600_000),
-      status: "OPEN",
-    });
-
-    const after = await browseEventsAction({ preset: "next_7_days" });
-    expect(after.success).toBe(true);
-    if (after.success) {
-      const f = after.result.fixtures.find((x) => x.externalFixtureId === "tlev-100013");
-      expect(f?.poolCount).toBe(1);
-    }
   });
 
   it("zero provider calls happen for ordinary Events browsing, for either provider, no matter the preset/sport/filter (spec §6)", async () => {

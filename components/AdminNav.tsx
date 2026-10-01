@@ -15,13 +15,11 @@ import { cn } from "@/lib/utils";
 // both at once.
 const TABS: Array<{ href: string; label: string; superAdminOnly?: boolean; activePrefixes?: string[] }> = [
   { href: "/admin/events", label: "Events" },
-  { href: "/admin/pools", label: "Pools" },
   { href: "/admin/users", label: "Users" },
   { href: "/admin/invitations", label: "Invitations" },
   { href: "/admin/data", label: "Data" },
   { href: "/admin/wallet-requests", label: "Ledger Requests", superAdminOnly: true },
   { href: "/admin/reports", label: "Reports", superAdminOnly: true },
-  { href: "/admin/analytics", label: "Analytics", superAdminOnly: true },
   { href: "/admin/audit-log", label: "Audit Log", superAdminOnly: true },
   { href: "/admin/settings", label: "Settings", superAdminOnly: true },
   { href: "/admin/discovery-categories", label: "Discovery Categories", superAdminOnly: true },

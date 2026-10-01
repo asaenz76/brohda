@@ -18,7 +18,7 @@
  * applied uniformly against every job's own cadence here.
  */
 
-export type JobCategory = "legacy" | "infra" | "brohda-social" | "brohda-monetary";
+export type JobCategory = "infra" | "brohda-social" | "brohda-monetary";
 export type JobCriticality = "critical" | "standard";
 
 export interface JobDefinition {
@@ -33,22 +33,6 @@ export interface JobDefinition {
 }
 
 export const JOB_REGISTRY: readonly JobDefinition[] = [
-  {
-    id: "lock-pools",
-    displayName: "Lock pools",
-    route: "/api/cron/lock-pools",
-    category: "legacy",
-    criticality: "critical",
-    expectedCadenceMinutes: 1,
-  },
-  {
-    id: "process-results",
-    displayName: "Process pool results",
-    route: "/api/cron/process-results",
-    category: "legacy",
-    criticality: "critical",
-    expectedCadenceMinutes: 1,
-  },
   {
     id: "sync-fixtures-nfl",
     displayName: "Sync NFL fixtures",

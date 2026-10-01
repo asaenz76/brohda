@@ -19,12 +19,9 @@ function fixture(overrides: Partial<LocalFixture> = {}): LocalFixture {
     scheduledStartUtc: "2026-08-15T18:00:00.000Z",
     internalStatus: "NOT_STARTED",
     statusBucket: "UPCOMING",
-    hiddenFromPoolCreation: false,
     isSupported: true,
     hasWorkspace: true,
     hasOdds: null,
-    poolCount: 0,
-    eligibility: "ELIGIBLE",
     localDateKey: "2026-08-15",
     ...overrides,
   };

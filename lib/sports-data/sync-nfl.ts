@@ -225,15 +225,14 @@ export async function runNflFixtureSync(): Promise<NflSyncResult> {
     }
   }
 
-  // fixtures_available_for_pool_creation (the view every pool-creation
-  // wizard query reads) requires a matching league_season_imports row
-  // with import_status = 'IMPORTED' and pool_creation_enabled = true —
-  // without this, upsertFixture above already wrote correct fixtures/
-  // teams/leagues rows, but none of them would ever be selectable for a
-  // pool. Football maintains this via the full competition-import job
-  // system; NFL's equivalent is this one small upsert, since there's
-  // only ever one row to maintain (a single competition, no import-job
-  // queue needed for it).
+  // league_season_imports also backs the Events admin surface's "has odds
+  // coverage" display (lib/fixtures/local-browse.ts reads its
+  // coverage_snapshot) — without this upsert, upsertFixture above already
+  // wrote correct fixtures/teams/leagues rows, but none of them would show
+  // workspace/coverage metadata there. Football maintains this via the
+  // full competition-import job system; NFL's equivalent is this one small
+  // upsert, since there's only ever one row to maintain (a single
+  // competition, no import-job queue needed for it).
   const { data: leagueRow } = await admin
     .from("leagues")
     .select("id")
@@ -268,7 +267,6 @@ export async function runNflFixtureSync(): Promise<NflSyncResult> {
           sync_status: "IDLE",
           last_synced_at: new Date().toISOString(),
           fixture_count_imported: result.refreshed,
-          pool_creation_enabled: true,
           is_active: true,
         },
         { onConflict: "provider,external_league_id,season" },

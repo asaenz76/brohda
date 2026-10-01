@@ -5,8 +5,8 @@ import { EventsBrowser } from "./events-browser";
 import { parseSportParam } from "./sport-param";
 
 // Phase 4 (Unified Events Admin Experience): the primary place for
-// finding sporting events and starting pool creation — spec §2/§3.
-// "Events" not "Fixtures" as the visible admin concept; the underlying
+// finding sporting events — spec §2/§3. "Events" not "Fixtures" as the
+// visible admin concept; the underlying
 // `fixtures` table and its query layer are unchanged (spec §34), this
 // page is a new front door onto them. Server-side param parsing mirrors
 // /admin/fixtures/page.tsx's own convention (malformed input degrades to
@@ -27,7 +27,6 @@ export default async function AdminEventsPage({
   const initialCompetitionExternalId = params.competition ?? "";
   const initialSearch = params.q ?? "";
   const initialStatus = params.status ?? "all";
-  const initialPoolStatus = params.pool ?? "all";
 
   return (
     <div className="space-y-6">
@@ -46,7 +45,6 @@ export default async function AdminEventsPage({
         initialCompetitionExternalId={initialCompetitionExternalId}
         initialSearch={initialSearch}
         initialStatus={initialStatus}
-        initialPoolStatus={initialPoolStatus}
       />
     </div>
   );

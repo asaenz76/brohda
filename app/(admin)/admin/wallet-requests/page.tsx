@@ -17,7 +17,7 @@ export default async function AdminWalletRequestsPage() {
   const { data: requests } = await supabase
     .from("wallet_requests")
     .select(
-      "id, user_id, type, amount, status, note, admin_note, intended_pool_id, payment_method, other_method_note, transaction_ref, created_at",
+      "id, user_id, type, amount, status, note, admin_note, payment_method, other_method_note, transaction_ref, created_at",
     )
     .order("created_at", { ascending: false });
 
@@ -29,20 +29,6 @@ export default async function AdminWalletRequestsPage() {
 
   const userName = (userId: string) =>
     (users ?? []).find((u) => u.id === userId)?.display_name ?? "Unknown";
-
-  // Quick top-ups (a deposit requested to unlock a specific pool entry) get
-  // a "For: <question>" hint below the note, so an admin knows approving
-  // this will auto-place that entry, not just credit a balance.
-  const intendedPoolIds = [
-    ...new Set((requests ?? []).map((r) => r.intended_pool_id).filter((id): id is string => id != null)),
-  ];
-  const { data: intendedPools } =
-    intendedPoolIds.length > 0
-      ? await supabase.from("pools").select("id, question").in("id", intendedPoolIds)
-      : { data: [] };
-
-  const poolQuestion = (poolId: string | null) =>
-    poolId ? ((intendedPools ?? []).find((p) => p.id === poolId)?.question ?? null) : null;
 
   return (
     <div className="space-y-4">
@@ -81,11 +67,6 @@ export default async function AdminWalletRequestsPage() {
                   )}
                   {request.transaction_ref && (
                     <p className="text-xs text-text-muted">Txn ID: {request.transaction_ref}</p>
-                  )}
-                  {poolQuestion(request.intended_pool_id) && (
-                    <p className="text-xs text-text-muted">
-                      Quick top-up for: {poolQuestion(request.intended_pool_id)}
-                    </p>
                   )}
                 </td>
                 <td className={`px-3 py-2 font-medium capitalize ${STATUS_STYLE[request.status]}`}>

@@ -1,10 +1,10 @@
 // The DB-only local browse layer backing the Events admin surface. Every
-// function here queries only the local `fixtures` table (plus `pools`,
-// `fixtures_available_for_pool_creation`, and `league_season_imports` for
-// enrichment) — never a live provider call. Normal admin browsing (page
-// load, date/preset/competition/filter changes) must never call the
-// provider; this module is the boundary that guarantees that by
-// construction — it has no dependency on SportsDataProvider at all.
+// function here queries only the local `fixtures` table (plus
+// `league_season_imports` for enrichment) — never a live provider call.
+// Normal admin browsing (page load, date/preset/competition/filter changes)
+// must never call the provider; this module is the boundary that
+// guarantees that by construction — it has no dependency on
+// SportsDataProvider at all.
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupportedNflCompetition } from "@/lib/sports-data/supported-nfl-competitions";
@@ -63,14 +63,6 @@ export function statusBucketFor(status: FixtureInternalStatus): StatusBucket {
   return "OTHER"; // POSTPONED, SUSPENDED, UNKNOWN
 }
 
-/** The four states the UI needs to distinguish. Derived, never duplicated:
- * "ELIGIBLE" comes straight from membership in
- * fixtures_available_for_pool_creation (the one canonical eligibility
- * view — no rule from that view's WHERE clause is reimplemented here),
- * "COMPLETED"/"LOCKED" are read directly off columns already on the
- * fixture row. */
-export type PoolEligibilityStatus = "ELIGIBLE" | "COMPLETED" | "LOCKED" | "INELIGIBLE";
-
 export interface LocalFixture {
   id: string;
   externalFixtureId: string;
@@ -87,19 +79,15 @@ export interface LocalFixture {
   scheduledStartUtc: string;
   internalStatus: FixtureInternalStatus;
   statusBucket: StatusBucket;
-  hiddenFromPoolCreation: boolean;
   isSupported: boolean;
   hasWorkspace: boolean;
   hasOdds: boolean | null;
-  poolCount: number;
-  eligibility: PoolEligibilityStatus;
   localDateKey: string;
 }
 
 export interface LocalFixtureBrowseCounts {
   total: number;
   competitions: number;
-  withPools: number;
   upcoming: number;
   live: number;
   completed: number;
@@ -111,7 +99,7 @@ export interface LocalFixtureBrowseResult {
 }
 
 const RAW_FIXTURE_COLUMNS =
-  "id, external_fixture_id, provider, sport, competition_external_id, competition_name, competition_country, competition_type, season, round, home_team_name, away_team_name, scheduled_start_utc, internal_status, hidden_from_pool_creation";
+  "id, external_fixture_id, provider, sport, competition_external_id, competition_name, competition_country, competition_type, season, round, home_team_name, away_team_name, scheduled_start_utc, internal_status";
 
 interface RawFixtureRow {
   id: string;
@@ -128,14 +116,12 @@ interface RawFixtureRow {
   away_team_name: string;
   scheduled_start_utc: string;
   internal_status: FixtureInternalStatus;
-  hidden_from_pool_creation: boolean;
 }
 
 function computeCounts(fixtures: LocalFixture[]): LocalFixtureBrowseCounts {
   return {
     total: fixtures.length,
     competitions: new Set(fixtures.map((f) => f.competitionExternalId)).size,
-    withPools: fixtures.filter((f) => f.poolCount > 0).length,
     upcoming: fixtures.filter((f) => f.statusBucket === "UPCOMING").length,
     live: fixtures.filter((f) => f.statusBucket === "LIVE").length,
     completed: fixtures.filter((f) => f.statusBucket === "COMPLETED").length,
@@ -143,32 +129,14 @@ function computeCounts(fixtures: LocalFixture[]): LocalFixtureBrowseCounts {
 }
 
 /** Cross-references an already-fetched, bounded batch of local fixture rows
- * against pools/eligibility/workspace state — every lookup here is one
- * batched (chunked) query, never N+1. */
+ * against workspace state — every lookup here is one batched (chunked)
+ * query, never N+1. */
 function isRowSupported(row: Pick<RawFixtureRow, "sport" | "competition_external_id">): boolean {
   return isSupportedNflCompetition(row.competition_external_id);
 }
 
 async function enrichLocalRows(rows: RawFixtureRow[], timeZone: string): Promise<LocalFixture[]> {
   const adminClient = createAdminClient();
-  const ids = rows.map((r) => r.id);
-
-  const poolCountById = new Map<string, number>();
-  for (const idChunk of chunk(ids, IN_CLAUSE_CHUNK_SIZE)) {
-    if (idChunk.length === 0) continue;
-    const { data } = await adminClient.from("pools").select("fixture_id").in("fixture_id", idChunk);
-    for (const row of data ?? []) {
-      const fixtureId = row.fixture_id as string;
-      poolCountById.set(fixtureId, (poolCountById.get(fixtureId) ?? 0) + 1);
-    }
-  }
-
-  const eligibleIds = new Set<string>();
-  for (const idChunk of chunk(ids, IN_CLAUSE_CHUNK_SIZE)) {
-    if (idChunk.length === 0) continue;
-    const { data } = await adminClient.from("fixtures_available_for_pool_creation").select("id").in("id", idChunk);
-    for (const row of data ?? []) eligibleIds.add(row.id as string);
-  }
 
   const competitionExternalIds = [...new Set(rows.map((r) => r.competition_external_id).filter((id): id is string => Boolean(id)))];
   const workspaceByCompetition = new Map<string, { season: string; coverageSnapshot: unknown }[]>();
@@ -192,15 +160,6 @@ async function enrichLocalRows(rows: RawFixtureRow[], timeZone: string): Promise
     const coverage = matchingWorkspace?.coverageSnapshot as { odds?: boolean } | null | undefined;
     if (coverage && typeof coverage.odds === "boolean") hasOdds = coverage.odds;
 
-    const isEligible = eligibleIds.has(row.id);
-    const eligibility: PoolEligibilityStatus = isEligible
-      ? "ELIGIBLE"
-      : isTerminalStatus(row.internal_status)
-        ? "COMPLETED"
-        : row.hidden_from_pool_creation
-          ? "LOCKED"
-          : "INELIGIBLE";
-
     return {
       id: row.id,
       externalFixtureId: row.external_fixture_id,
@@ -217,12 +176,9 @@ async function enrichLocalRows(rows: RawFixtureRow[], timeZone: string): Promise
       scheduledStartUtc: row.scheduled_start_utc,
       internalStatus: row.internal_status,
       statusBucket: statusBucketFor(row.internal_status),
-      hiddenFromPoolCreation: row.hidden_from_pool_creation,
       isSupported: isRowSupported(row),
       hasWorkspace: matchingWorkspace != null,
       hasOdds,
-      poolCount: poolCountById.get(row.id) ?? 0,
-      eligibility,
       localDateKey: localDateKeyFor(row.scheduled_start_utc, timeZone),
     };
   });

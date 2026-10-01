@@ -15,8 +15,7 @@ const fixtures: ImportedFixture[] = [
     competitionName: "Premier League",
     competitionCountry: "England",
     scheduledStartUtc: new Date().toISOString(),
-    poolCount: 0,
-    hidden: false,
+    hasPost: false,
   },
   {
     id: "f2",
@@ -27,8 +26,7 @@ const fixtures: ImportedFixture[] = [
     competitionName: "Copa Argentina",
     competitionCountry: "Argentina",
     scheduledStartUtc: new Date().toISOString(),
-    poolCount: 0,
-    hidden: false,
+    hasPost: false,
   },
 ];
 

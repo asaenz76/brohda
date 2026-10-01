@@ -1,7 +1,6 @@
 /**
  * Integration tests for the wallet ledger (spec §8) against a real local
- * Supabase instance. This is the explicit gate spec §23 calls out: "No pool
- * features until wallet concurrency tests pass."
+ * Supabase instance.
  *
  * Run with: pnpm test:integration (requires `pnpm supabase:start`).
  */
@@ -155,105 +154,6 @@ describe.skipIf(!SERVICE_ROLE_KEY)("wallet ledger", () => {
     expect(failed.length).toBe(5);
     failed.forEach((r) => expect(r.error!.message).toContain("insufficient_balance"));
     expect(await getBalance(userId)).toBe(0);
-  });
-
-  it("stamps pool/fixture/option context onto the transaction at write time, surviving the pool's later deletion", async () => {
-    const { data: adminUser } = await admin
-      .from("user_profiles")
-      .select("id")
-      .eq("role", "super_admin")
-      .eq("is_active", true)
-      .limit(1)
-      .single();
-
-    const { data: fixture } = await admin
-      .from("fixtures")
-      .insert({
-        external_fixture_id: `wallet-ctx-test-${randomUUID()}`,
-        home_team_name: "Ledger FC",
-        away_team_name: "Context United",
-        competition_name: "Test League",
-        scheduled_start_utc: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        internal_status: "NOT_STARTED",
-      })
-      .select("id")
-      .single();
-
-    const { data: pool } = await admin
-      .from("pools")
-      .insert({
-        fixture_id: fixture!.id,
-        created_by: adminUser!.id,
-        pool_type: "CUSTOM",
-        question: "Who will advance?",
-        entry_fee: 1000,
-        house_fee_bps: 1000,
-        min_total_entries: 1,
-        open_at: new Date().toISOString(),
-        locks_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-        status: "OPEN",
-      })
-      .select("id")
-      .single();
-
-    const { data: option } = await admin
-      .from("pool_options")
-      .insert({ pool_id: pool!.id, label: "Ledger FC", sort_order: 0 })
-      .select("id")
-      .single();
-
-    const { data: entry } = await admin
-      .from("entries")
-      .insert({
-        pool_id: pool!.id,
-        user_id: userId,
-        option_id: option!.id,
-        amount: 1000,
-        idempotency_key: randomUUID(),
-      })
-      .select("id")
-      .single();
-
-    // Fund the entry fee regardless of whatever balance earlier tests in
-    // this file left behind — this test only cares about the stamped
-    // context, not the debit succeeding off pre-existing state.
-    await applyTransaction({ userId, type: "manual_deposit", direction: "credit", amount: 1000 });
-
-    const { data: transaction, error } = await admin.rpc("apply_wallet_transaction", {
-      p_account_type: "user",
-      p_user_id: userId,
-      p_type: "pool_entry_debit",
-      p_direction: "debit",
-      p_amount: 1000,
-      p_admin_id: null,
-      p_reason: null,
-      p_idempotency_key: randomUUID(),
-      p_pool_id: pool!.id,
-      p_entry_id: entry!.id,
-    });
-    expect(error).toBeNull();
-    expect(transaction.pool_question).toBe("Who will advance?");
-    expect(transaction.fixture_label).toBe("Ledger FC vs Context United");
-    expect(transaction.competition_name).toBe("Test League");
-    expect(transaction.option_label).toBe("Ledger FC");
-
-    // Hard-delete the pool the same way delete_terminal_pool does (cascades
-    // entries/pool_options) — the whole point of stamping this at write
-    // time is that the transaction's own copy doesn't care.
-    await admin.from("entries").delete().eq("pool_id", pool!.id);
-    await admin.from("pool_options").delete().eq("pool_id", pool!.id);
-    await admin.from("pools").delete().eq("id", pool!.id);
-    await admin.from("fixtures").delete().eq("id", fixture!.id);
-
-    const { data: afterDelete } = await admin
-      .from("wallet_transactions")
-      .select("pool_question, fixture_label, competition_name, option_label")
-      .eq("id", transaction.id)
-      .single();
-    expect(afterDelete?.pool_question).toBe("Who will advance?");
-    expect(afterDelete?.fixture_label).toBe("Ledger FC vs Context United");
-    expect(afterDelete?.competition_name).toBe("Test League");
-    expect(afterDelete?.option_label).toBe("Ledger FC");
   });
 
   it("credits and debits the house account the same way as a user account", async () => {

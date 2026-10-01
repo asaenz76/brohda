@@ -35,7 +35,6 @@ export function EventsBrowser({
   initialCompetitionExternalId,
   initialSearch,
   initialStatus,
-  initialPoolStatus,
 }: {
   initialPreset: DateRangePreset;
   initialCustomFrom: string;
@@ -44,7 +43,6 @@ export function EventsBrowser({
   initialCompetitionExternalId: string;
   initialSearch: string;
   initialStatus: string;
-  initialPoolStatus: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -71,7 +69,6 @@ export function EventsBrowser({
     competitionExternalId: initialCompetitionExternalId,
     search: initialSearch,
     status: (initialStatus as EventFilters["status"]) || "all",
-    poolStatus: (initialPoolStatus as EventFilters["poolStatus"]) || "all",
   }));
   const effectiveFilters: EventFilters = useMemo(() => ({ ...filters, sports }), [filters, sports]);
 
@@ -124,11 +121,9 @@ export function EventsBrowser({
     else params.delete("q");
     if (filters.status !== "all") params.set("status", filters.status);
     else params.delete("status");
-    if (filters.poolStatus !== "all") params.set("pool", filters.poolStatus);
-    else params.delete("pool");
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately excludes router/pathname/searchParams to avoid a sync loop.
-  }, [preset, customFrom, customTo, sports, filters.competitionExternalId, filters.search, filters.status, filters.poolStatus]);
+  }, [preset, customFrom, customTo, sports, filters.competitionExternalId, filters.search, filters.status]);
 
   const dateGroups = useMemo(() => {
     if (!result) return [];
@@ -145,7 +140,7 @@ export function EventsBrowser({
     return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   }, [result]);
 
-  const filtersActive = filters.search !== "" || filters.competitionExternalId !== "" || filters.status !== "all" || filters.poolStatus !== "all";
+  const filtersActive = filters.search !== "" || filters.competitionExternalId !== "" || filters.status !== "all";
 
   function resetFilters() {
     const { sports: _sports, ...rest } = defaultEventFilters([...sports]);
@@ -202,7 +197,7 @@ export function EventsBrowser({
           <div className="rounded-lg border border-border-subtle p-3 text-xs text-text-secondary">
             <p>
               {result.counts.total} event{result.counts.total === 1 ? "" : "s"} · {result.counts.competitions} competition{result.counts.competitions === 1 ? "" : "s"} ·{" "}
-              {result.counts.withPools} with pools · {result.counts.upcoming} upcoming · {result.counts.live} live · {result.counts.completed} final
+              {result.counts.upcoming} upcoming · {result.counts.live} live · {result.counts.completed} final
             </p>
             <p className="mt-0.5 text-text-muted">After filters: {visibleCount} visible event{visibleCount === 1 ? "" : "s"}</p>
           </div>
@@ -238,11 +233,6 @@ export function EventsBrowser({
               <option value="UPCOMING">Upcoming</option>
               <option value="LIVE">Live</option>
               <option value="COMPLETED">Final</option>
-            </select>
-            <select value={filters.poolStatus} onChange={(e) => setFilters((f) => ({ ...f, poolStatus: e.target.value as EventFilters["poolStatus"] }))} className="h-8 rounded-md border border-border-subtle bg-transparent px-2 text-xs">
-              <option value="all">Any pool status</option>
-              <option value="has_pool">Has pools</option>
-              <option value="no_pool">No pools yet</option>
             </select>
             {filtersActive && (
               <button type="button" onClick={resetFilters} className="text-xs font-medium text-accent-primary hover:underline">

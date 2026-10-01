@@ -23,16 +23,10 @@ export const walletRequestSchema = z
     amountCents: z.number().int().positive(),
     note: z.string().trim().max(500).optional(),
     idempotencyKey: z.string().uuid(),
-    // Set only by the "quick top-up" flow on EntryConfirmationSheet's
-    // insufficient-balance branch — records which entry this deposit is
-    // for, so approveWalletRequestAction can auto-complete it once funds
-    // land. Left undefined for every ordinary deposit/withdrawal request.
-    intendedPoolId: z.string().uuid().optional(),
-    intendedOptionId: z.string().uuid().optional(),
     // paymentMethod stays optional at the schema level — WalletRequestForm
-    // and TopUpAndJoinModal (both via DepositFields) require it via plain
-    // HTML `required` on their own inputs instead, and older/partial
-    // submissions should still parse rather than hard-failing. transactionRef
+    // requires it via plain HTML `required` on its own inputs instead, and
+    // older/partial submissions should still parse rather than hard-failing.
+    // transactionRef
     // is method-aware (see the superRefine below): required and
     // format-checked for crypto rails, required for Venmo/Cash App/Zelle,
     // genuinely optional only for OTHER.

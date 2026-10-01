@@ -2,7 +2,6 @@
 
 import { useRef } from "react";
 import { formatCents } from "@/lib/utils/money";
-import { voidReasonLabel } from "@/lib/pools/notices";
 import type { LedgerEntry } from "@/lib/wallet/ledger";
 import { Button } from "@/components/ui/button";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
@@ -50,7 +49,7 @@ export function TransactionDetailSheet({ entry, onClose }: TransactionDetailShee
           {entry.reason && (
             <div className="flex justify-between gap-4">
               <dt className="text-text-secondary">Reason</dt>
-              <dd className="text-right text-text-primary">{voidReasonLabel(entry.reason)}</dd>
+              <dd className="text-right text-text-primary">{entry.reason}</dd>
             </div>
           )}
           {entry.destination && (
