@@ -86,18 +86,23 @@ describe("UserIdentity", () => {
 
 describe("CompactUserIdentity", () => {
   it("renders the exact compact-treatment canonical example", () => {
-    render(<CompactUserIdentity displayName="André" reputation={{ accuracy: 0.67, decided: 42, void: 0 }} />);
+    render(<CompactUserIdentity displayName="André" avatarUrl={null} reputation={{ accuracy: 0.67, decided: 42, void: 0 }} />);
     expect(screen.getByText("André")).toBeInTheDocument();
     expect(screen.getByText(/· 67% · 42 predicted/)).toBeInTheDocument();
   });
 
   it('never renders the word "decided"', () => {
-    const { container } = render(<CompactUserIdentity displayName="André" reputation={{ accuracy: 0.51, decided: 186, void: 0 }} />);
+    const { container } = render(<CompactUserIdentity displayName="André" avatarUrl={null} reputation={{ accuracy: 0.51, decided: 186, void: 0 }} />);
     expect(container.textContent?.toLowerCase()).not.toContain("decided");
   });
 
   it('shows "unranked" rather than a fabricated percentage when accuracy is null but there is some (void-only) history', () => {
-    render(<CompactUserIdentity displayName="André" reputation={{ accuracy: null, decided: 0, void: 1 }} />);
+    render(<CompactUserIdentity displayName="André" avatarUrl={null} reputation={{ accuracy: null, decided: 0, void: 1 }} />);
     expect(screen.getByText(/· unranked · 1 predicted/)).toBeInTheDocument();
+  });
+
+  it("renders an avatar (Phase G addition — the original avatar-less compact treatment had no real caller)", () => {
+    render(<CompactUserIdentity displayName="André" avatarUrl={null} reputation={null} />);
+    expect(screen.getByRole("img", { name: "André" })).toBeInTheDocument();
   });
 });

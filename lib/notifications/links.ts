@@ -68,14 +68,21 @@ export function resolveNotificationHref(
   // pool_id (delete_terminal_pool nulls that out to satisfy the FK, since
   // even a SETTLED pool is deletable). Only notifications created before
   // that column existed fall through to the pool_id-keyed lookup below.
-  if (n.transaction_id) return `/activity#tx-${n.transaction_id}`;
+  //
+  // Phase G — /activity no longer renders the ledger (it redirects to the
+  // new /notifications center); /wallet already showed the complete
+  // ledger independently before this phase and still does, via the same
+  // TransactionList component (and its own identical hash-anchor
+  // auto-open behavior), so these links repoint there rather than at a
+  // page that no longer has anything for the anchor to scroll to.
+  if (n.transaction_id) return `/wallet#tx-${n.transaction_id}`;
 
   // Everything else (SETTLED_WON, SETTLED_LOST, and every void/cancel
   // reason string) is about a pool's outcome. If that outcome moved money
   // (a payout or a refund), link straight to that ledger row; SETTLED_LOST
   // has no wallet movement at all, so it falls back to the pool page.
   const transactionId = n.pool_id ? transactionIdByPoolId.get(n.pool_id) : undefined;
-  if (transactionId) return `/activity#tx-${transactionId}`;
+  if (transactionId) return `/wallet#tx-${transactionId}`;
   return n.pool_id ? `/pool/${n.pool_id}` : null;
 }
 

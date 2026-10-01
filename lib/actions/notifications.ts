@@ -48,5 +48,5 @@ export async function markNotificationsReadAction() {
     .eq("user_id", user.id)
     .is("read_at", null);
 
-  revalidatePath("/activity");
+  revalidatePath("/notifications");
 }

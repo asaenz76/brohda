@@ -13,12 +13,30 @@ import type { CommunityListItem } from "./discovery";
 // Discovery/Community pages a public-facing feature at all, and
 // explicitly says declared Community affinity was "not implemented" as a
 // public "I am a fan" statement. Phase F's own spec explicitly asks for
-// exactly this surface, so this supersedes that stance — flagged in the
-// Phase F report's Privacy section rather than silently added. RLS on
-// community_follows still restricts direct client reads to the owning
-// row (`user_id = auth.uid()`); this reads via the service-role admin
-// client, the same privilege level every other lib/communities/* query
-// already uses — no new capability, only a new consumer of it.
+// exactly this surface, so this supersedes that stance.
+//
+// Phase G (spec §15 audit) hardened the boundary this created: the
+// profile OWNER's follow list — the thing actually being shown to a
+// possibly-unrelated viewer — now reads from the new
+// public_community_follows view (migration 20260101000170) instead of
+// the raw table, the same public_profiles pattern already established
+// for bio/pronouns/gender. That view is granted directly to
+// `authenticated` (filtered to active accounts), so the "this is public"
+// boundary is now an explicit, narrow, database-level contract any future
+// consumer can rely on — not just "this one function happens to never
+// take an arbitrary filter." Still read via the admin client here (not
+// the request-scoped one): this module already runs outside real Next.js
+// request scope in integration tests, where the cookie-based client
+// cannot be constructed at all, and reading a view through the
+// service-role client carries no additional exposure beyond what every
+// other lib/communities/* query already has — the hardening this
+// migration adds is the view/grant existing in the schema, not which
+// already-trusted server-only caller happens to read it.
+//
+// The VIEWER's own follow state below (`isFollowing`) is a different,
+// non-sensitive read (your own rows are already selectable under
+// community_follows' normal RLS) and stays on the existing admin-client
+// listFollowedCommunityIds — narrowing that too would add nothing.
 
 export interface ProfileCommunityGroup {
   type: CommunityType;
@@ -26,6 +44,14 @@ export interface ProfileCommunityGroup {
 }
 
 const GROUP_ORDER: CommunityType[] = ["SPORT", "LEAGUE", "TEAM"];
+
+/** Reads the new public_community_follows view (migration 20260101000170) rather than the raw community_follows table — see this file's own header comment for why the admin client is still correct here. */
+async function listPublicFollowedCommunityIds(profileUserId: string): Promise<string[]> {
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("public_community_follows").select("community_id").eq("user_id", profileUserId);
+  if (error) throw error;
+  return (data ?? []).map((row) => row.community_id);
+}
 
 /** Same batched name/logo resolution rule as lib/communities/discovery.ts's own private resolveNamesAndLogos (2 queries total regardless of list size) — a small, intentional duplication of that established pattern rather than exporting a private helper across file boundaries. */
 async function resolveIdentities(communities: Community[]): Promise<Map<string, { displayName: string; logoUrl: string | null }>> {
@@ -68,7 +94,7 @@ async function resolveIdentities(communities: Community[]): Promise<Map<string, 
  */
 export async function listFollowedCommunitiesForProfile(profileUserId: string, viewerId: string | null): Promise<ProfileCommunityGroup[]> {
   const [ownedCommunityIds, viewerFollowedIds] = await Promise.all([
-    listFollowedCommunityIds(profileUserId),
+    listPublicFollowedCommunityIds(profileUserId),
     viewerId ? listFollowedCommunityIds(viewerId) : Promise.resolve([]),
   ]);
   if (ownedCommunityIds.length === 0) return [];
