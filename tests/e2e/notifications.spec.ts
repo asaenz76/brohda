@@ -51,7 +51,7 @@ async function cleanup(userIds: string[]) {
 }
 
 test.describe("Notifications", () => {
-  test("shows only the Brohda 2.0 social types (prediction_graded, POST_COMMENT_REPLY), never legacy Pool or disabled-feature types", async ({ page }) => {
+  test("shows only the Brohda 2.0 social types (prediction_graded, POST_COMMENT_REPLY, CALL_BS_*), never legacy Pool or disabled-feature types", async ({ page }) => {
     const suffix = randomUUID();
     const email = `e2e-notif-filter-${suffix}@example.com`;
     const userIds: string[] = [];
@@ -63,7 +63,7 @@ test.describe("Notifications", () => {
       await createNotification(userId, "prediction_graded", { title: "You were right", body: "Allowed prediction row" });
       await createNotification(userId, "POST_COMMENT_REPLY", { title: "New reply", body: "Allowed reply row" });
       await createNotification(userId, "SETTLED_WON", { title: "Hidden Pool win", body: "Should never render" });
-      await createNotification(userId, "CALL_BS_RECEIVED", { title: "Hidden Call BS", body: "Should never render" });
+      await createNotification(userId, "CALL_BS_RECEIVED", { title: "Someone called BS", body: "Allowed Call BS row" });
       await createNotification(userId, "MONETARY_PROPOSAL_RECEIVED", { title: "Hidden money", body: "Should never render" });
       await createNotification(userId, "DEPOSIT_APPROVED", { title: "Hidden deposit", body: "Should never render" });
 
@@ -72,13 +72,13 @@ test.describe("Notifications", () => {
 
       await expect(page.getByText("You were right")).toBeVisible();
       await expect(page.getByText("New reply")).toBeVisible();
+      await expect(page.getByText("Someone called BS")).toBeVisible();
       await expect(page.getByText("Hidden Pool win")).toHaveCount(0);
-      await expect(page.getByText("Hidden Call BS")).toHaveCount(0);
       await expect(page.getByText("Hidden money")).toHaveCount(0);
       await expect(page.getByText("Hidden deposit")).toHaveCount(0);
 
       const bodyText = (await page.locator("main").innerText()).toLowerCase();
-      expect(bodyText).not.toMatch(/\bpool\b|\bcall bs\b|\bstake\b|\bpayout\b/);
+      expect(bodyText).not.toMatch(/\bpool\b|\bstake\b|\bpayout\b/);
     } finally {
       await cleanup(userIds);
     }
