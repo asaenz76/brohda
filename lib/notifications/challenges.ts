@@ -1,6 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { listPostIdsForMarkets } from "@/lib/predictions/post-links";
+import { getMarketNotificationContext } from "./market-context";
 import type { Challenge } from "@/lib/challenges/types";
 
 // Milestone R7 (docs/BROHDA_2_0_MILESTONE_MAP.md, Free Call BS Challenges),
@@ -22,15 +22,6 @@ import type { Challenge } from "@/lib/challenges/types";
 // already handles them, rather than resolving a Post lookup per
 // notification row at read time.
 
-async function getMarketContext(marketId: string): Promise<{ question: string; postId: string | null }> {
-  const admin = createAdminClient();
-  const [{ data }, postIdByMarketId] = await Promise.all([
-    admin.from("markets").select("question").eq("id", marketId).maybeSingle(),
-    listPostIdsForMarkets([marketId]),
-  ]);
-  return { question: data?.question ?? "a market", postId: postIdByMarketId.get(marketId) ?? null };
-}
-
 async function getDisplayName(userId: string): Promise<string> {
   const admin = createAdminClient();
   const { data } = await admin.from("user_profiles").select("display_name").eq("id", userId).maybeSingle();
@@ -40,7 +31,7 @@ async function getDisplayName(userId: string): Promise<string> {
 /** §40 "Sent": the recipient learns a specific user called BS on their Pick. */
 export async function createChallengeReceivedNotification(challenge: Challenge): Promise<void> {
   const admin = createAdminClient();
-  const [challengerName, { question, postId }] = await Promise.all([getDisplayName(challenge.challengerUserId), getMarketContext(challenge.marketId)]);
+  const [challengerName, { question, postId }] = await Promise.all([getDisplayName(challenge.challengerUserId), getMarketNotificationContext(challenge.marketId)]);
 
   await admin.from("notifications").insert({
     user_id: challenge.recipientUserId,
@@ -56,7 +47,7 @@ export async function createChallengeReceivedNotification(challenge: Challenge):
 /** §40 "Accepted": the challenger learns the recipient accepted. */
 export async function createChallengeAcceptedNotification(challenge: Challenge): Promise<void> {
   const admin = createAdminClient();
-  const [recipientName, { question, postId }] = await Promise.all([getDisplayName(challenge.recipientUserId), getMarketContext(challenge.marketId)]);
+  const [recipientName, { question, postId }] = await Promise.all([getDisplayName(challenge.recipientUserId), getMarketNotificationContext(challenge.marketId)]);
 
   await admin.from("notifications").insert({
     user_id: challenge.challengerUserId,
@@ -72,7 +63,7 @@ export async function createChallengeAcceptedNotification(challenge: Challenge):
 /** §40 "Declined": the challenger learns the recipient declined. No penalty, no locking — purely informational. */
 export async function createChallengeDeclinedNotification(challenge: Challenge): Promise<void> {
   const admin = createAdminClient();
-  const [recipientName, { question, postId }] = await Promise.all([getDisplayName(challenge.recipientUserId), getMarketContext(challenge.marketId)]);
+  const [recipientName, { question, postId }] = await Promise.all([getDisplayName(challenge.recipientUserId), getMarketNotificationContext(challenge.marketId)]);
 
   await admin.from("notifications").insert({
     user_id: challenge.challengerUserId,
@@ -91,7 +82,7 @@ export async function createChallengeResolvedNotifications({ challenge }: { chal
   const [challengerName, recipientName, { question, postId }] = await Promise.all([
     getDisplayName(challenge.challengerUserId),
     getDisplayName(challenge.recipientUserId),
-    getMarketContext(challenge.marketId),
+    getMarketNotificationContext(challenge.marketId),
   ]);
 
   if (challenge.result === "VOID") {

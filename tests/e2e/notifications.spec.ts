@@ -51,7 +51,7 @@ async function cleanup(userIds: string[]) {
 }
 
 test.describe("Notifications", () => {
-  test("shows only the Brohda 2.0 social types (prediction_graded, POST_COMMENT_REPLY, CALL_BS_*), never legacy Pool or disabled-feature types", async ({ page }) => {
+  test("shows only the Brohda 2.0 social types (prediction_graded, POST_COMMENT_REPLY, CALL_BS_*, MONETARY_*), never legacy Pool or wallet-admin types", async ({ page }) => {
     const suffix = randomUUID();
     const email = `e2e-notif-filter-${suffix}@example.com`;
     const userIds: string[] = [];
@@ -64,7 +64,7 @@ test.describe("Notifications", () => {
       await createNotification(userId, "POST_COMMENT_REPLY", { title: "New reply", body: "Allowed reply row" });
       await createNotification(userId, "SETTLED_WON", { title: "Hidden Pool win", body: "Should never render" });
       await createNotification(userId, "CALL_BS_RECEIVED", { title: "Someone called BS", body: "Allowed Call BS row" });
-      await createNotification(userId, "MONETARY_PROPOSAL_RECEIVED", { title: "Hidden money", body: "Should never render" });
+      await createNotification(userId, "MONETARY_PROPOSAL_RECEIVED", { title: "Someone put money on it", body: "Allowed monetary row" });
       await createNotification(userId, "DEPOSIT_APPROVED", { title: "Hidden deposit", body: "Should never render" });
 
       await loginAs(page, email);
@@ -73,8 +73,8 @@ test.describe("Notifications", () => {
       await expect(page.getByText("You were right")).toBeVisible();
       await expect(page.getByText("New reply")).toBeVisible();
       await expect(page.getByText("Someone called BS")).toBeVisible();
+      await expect(page.getByText("Someone put money on it")).toBeVisible();
       await expect(page.getByText("Hidden Pool win")).toHaveCount(0);
-      await expect(page.getByText("Hidden money")).toHaveCount(0);
       await expect(page.getByText("Hidden deposit")).toHaveCount(0);
 
       const bodyText = (await page.locator("main").innerText()).toLowerCase();

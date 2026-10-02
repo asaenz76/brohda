@@ -38,9 +38,16 @@
 //     hiding the notification row duplicates nothing a user can't already
 //     see there.
 //
-//   MONETARY_POSITION_SETTLED_*, MONETARY_PROPOSAL_*       D — hidden.
-//     monetary_p2p_enabled is false; spec §41 explicitly forbids exposing
-//     stake/payout/monetary-position activity in the redesigned center.
+//   MONETARY_PROPOSAL_RECEIVED, _ACCEPTED, _DECLINED, _WITHDRAWN,
+//   MONETARY_POSITION_SETTLED_WIN, _SETTLED_LOSS, _VOIDED  A — shown.
+//     These were hidden while monetary_p2p_enabled was false (spec §41).
+//     P2P is now switched on, and these are the only way a person learns
+//     someone put money on their pick, that it was accepted, or how it
+//     settled. They are social activity between two users on a shared
+//     disagreement, so they belong here rather than only on /wallet. Each
+//     row carries post_id/market_id, so lib/notifications/links.ts lands on
+//     the Post (falling back to the Market). Rows can only exist once the
+//     flag has been on: propose_money() refuses while it's off.
 //
 //   CALL_BS_RECEIVED, CALL_BS_ACCEPTED,
 //   CALL_BS_DECLINED, CALL_BS_RESOLVED                     A — shown.
@@ -64,6 +71,13 @@ export const NOTIFICATION_CENTER_TYPES = [
   "CALL_BS_ACCEPTED",
   "CALL_BS_DECLINED",
   "CALL_BS_RESOLVED",
+  "MONETARY_PROPOSAL_RECEIVED",
+  "MONETARY_PROPOSAL_ACCEPTED",
+  "MONETARY_PROPOSAL_DECLINED",
+  "MONETARY_PROPOSAL_WITHDRAWN",
+  "MONETARY_POSITION_SETTLED_WIN",
+  "MONETARY_POSITION_SETTLED_LOSS",
+  "MONETARY_POSITION_VOIDED",
 ] as const;
 
 export type NotificationCenterType = (typeof NOTIFICATION_CENTER_TYPES)[number];
