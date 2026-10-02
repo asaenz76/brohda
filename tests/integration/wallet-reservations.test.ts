@@ -29,9 +29,20 @@ async function createUser(label = "r8") {
   return { userId: data.user.id, client };
 }
 
+// A self-contained test super_admin, not a lookup of whatever happens to be
+// active in the shared local DB at this point in the run — the latter made
+// this file's own pass/fail depend on which other test files had run (and
+// deactivated their own admins) first.
 async function getAdminId(): Promise<string> {
-  const { data } = await admin.from("user_profiles").select("id").eq("role", "super_admin").eq("is_active", true).limit(1).single();
-  return data!.id as string;
+  const { data, error } = await admin.auth.admin.createUser({
+    email: `r8-admin-${randomUUID()}@test.local`,
+    password: "integration-test-password-123",
+    email_confirm: true,
+  });
+  if (error || !data.user) throw error ?? new Error("failed to create admin");
+  await admin.from("user_profiles").insert({ id: data.user.id, display_name: "r8-admin", role: "super_admin", is_active: true });
+  createdUserIds.push(data.user.id);
+  return data.user.id;
 }
 
 async function deposit(userId: string, amount: number, idempotencyKey = randomUUID()) {

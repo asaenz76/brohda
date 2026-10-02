@@ -9,37 +9,46 @@
 -- Zero wallet mutation ever happened during or after the pivot, and P2P
 -- (monetary_positions, monetary_proposals, challenges) has zero rows at
 -- every point in this history. There is no current/post-pivot wallet state
--- to preserve, and no per-user balance reconciliation is required — this
--- is a full reset of disposable pre-pivot test data, not a partial-delete
--- requiring replay.
+-- to preserve, and no per-user balance reconciliation is required.
+--
+-- Correction from this migration's first (rejected) revision: it is not
+-- possible to delete wallet_transactions rows at all, under any role —
+-- wallet_transactions_no_delete (forbid_audit_log_mutation(), the same
+-- append-only guard protecting audit_logs) rejects every DELETE
+-- unconditionally. This was never exercised against a real `supabase db
+-- reset` (an empty table fires zero per-row triggers), only surfaced on
+-- the real `supabase db push --linked` attempt against production's
+-- actual 639 rows. The 639 pre-pivot rows therefore stay in place
+-- permanently, by design — this is a real, deliberate ledger-immutability
+-- guarantee, not a gap to route around. lib/wallet/ledger.ts's live
+-- /wallet history query now excludes the pre-pivot transaction types
+-- instead, so no user sees these stale, now-unreconciled-against-their-
+-- zeroed-balance entries — the rows remain queryable in the database,
+-- just not surfaced in the product.
 --
 -- What this migration does NOT touch: the wallet_balances and
 -- wallet_transactions TABLES themselves, wallet_reservations, the
 -- apply_wallet_transaction RPC, or any P2P/monetary infrastructure — all
 -- of that is shared infrastructure Brohda 2.0 needs going forward. Only
--- the disposable test DATA is removed, and only the two FK columns whose
--- sole purpose (unlocking a Pool entry from a wallet top-up) has no
--- Brohda 2.0 role are dropped.
+-- the disposable test DATA that can actually be removed is removed, and
+-- only the two FK columns whose sole purpose (unlocking a Pool entry from
+-- a wallet top-up) has no Brohda 2.0 role are dropped.
 
--- 1. Purge all wallet transaction history (639 rows, 100% pre-pivot test
---    data — pool_entry_debit, pool_refund_credit, pool_payout_credit,
---    house_fee_credit, rounding_remainder_credit, manual_deposit,
---    manual_withdrawal).
-delete from public.wallet_transactions;
-
--- 2. Reset every wallet balance to zero — the house account's entire
---    balance was itself 100% derived from the Pool house-fee/rounding
---    credits just deleted above; every user balance was built from the
---    same disposable pre-pivot activity.
+-- 1. Reset every wallet balance to zero — a flat reset of current state,
+--    independent of whatever the (permanently immutable) ledger rows say;
+--    every existing balance was built entirely from disposable pre-pivot
+--    activity.
 update public.wallet_balances set balance = 0;
 
--- 3. Purge wallet_requests history (2 rows, both pre-pivot, both already
+-- 2. Purge wallet_requests history (2 rows, both pre-pivot, both already
 --    "approved" with no pending state, both already carrying a null
 --    intended_pool_id/intended_option_id — this was never a live
---    quick-top-up-into-a-pool request).
+--    quick-top-up-into-a-pool request). Unlike wallet_transactions,
+--    wallet_requests carries no append-only guard — confirmed directly
+--    against the live schema.
 delete from public.wallet_requests;
 
--- 4. The "quick top-up unlocks a specific Pool entry" columns have no
+-- 3. The "quick top-up unlocks a specific Pool entry" columns have no
 --    Brohda 2.0 role (verified: the only app code that ever read/wrote
 --    them, lib/actions/wallet-requests.ts's completeQuickTopUpEntry, has
 --    been removed — no current UI sets these fields, and the general
