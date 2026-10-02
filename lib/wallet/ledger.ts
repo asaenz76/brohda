@@ -44,6 +44,22 @@ export interface LedgerEntry {
 const LEDGER_COLUMNS =
   "id, type, direction, amount, reason, created_at, pool_id, settlement_id, admin_id, balance_before, balance_after, pool_question, fixture_label, competition_name, option_label, destination";
 
+// Phase I: every V1 Pool backend table/RPC that could ever write one of
+// these types is gone (wallet_transactions itself is a permanently
+// append-only ledger — these historical rows can't be deleted, only
+// hidden from the live UI, see 20260101000171's own comment), so this
+// list can never need a new entry — no code path can ever produce
+// another row of these types again. manual_deposit/manual_withdrawal are
+// deliberately NOT here: those are the same, still-live wallet top-up/
+// withdrawal feature, not a retired Pool concept.
+const PRE_PIVOT_POOL_TRANSACTION_TYPES = [
+  "pool_entry_debit",
+  "pool_payout_credit",
+  "pool_refund_credit",
+  "house_fee_credit",
+  "rounding_remainder_credit",
+] as const;
+
 type LedgerRow = {
   id: string;
   type: string;
@@ -143,6 +159,7 @@ export async function getLedgerEntries(userId: string): Promise<LedgerEntry[]> {
     .from("wallet_transactions")
     .select(LEDGER_COLUMNS)
     .eq("user_id", userId)
+    .not("type", "in", `(${PRE_PIVOT_POOL_TRANSACTION_TYPES.join(",")})`)
     .order("created_at", { ascending: false });
 
   return shapeLedgerRows(data ?? []);
@@ -157,6 +174,7 @@ export async function getHouseLedgerEntries(): Promise<LedgerEntry[]> {
     .from("wallet_transactions")
     .select(LEDGER_COLUMNS)
     .eq("account_type", "house")
+    .not("type", "in", `(${PRE_PIVOT_POOL_TRANSACTION_TYPES.join(",")})`)
     .order("created_at", { ascending: false });
 
   return shapeLedgerRows(data ?? []);

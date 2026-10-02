@@ -156,6 +156,48 @@ describe.skipIf(!SERVICE_ROLE_KEY)("wallet ledger", () => {
     expect(await getBalance(userId)).toBe(0);
   });
 
+  // getLedgerEntries/getHouseLedgerEntries (lib/wallet/ledger.ts) can't be
+  // called directly from this Vitest process — createClient() needs a real
+  // Next.js request/cookie context, the same limitation every other
+  // Server-Action-adjacent function in this suite already works around
+  // (see pool-deletion.test.ts's historical note). This proves the exact
+  // filter those functions apply — `.not("type", "in", "(...)")` — against
+  // real rows instead: a pre-pivot Pool-era type is excluded, an ordinary
+  // manual_deposit is not.
+  it("the pre-pivot-pool-type exclusion filter hides Pool-era rows but keeps manual_deposit/withdrawal visible", async () => {
+    const poolRowKey = randomUUID();
+    const depositKey = randomUUID();
+    await applyTransaction({ userId, type: "manual_deposit", direction: "credit", amount: 100, idempotencyKey: depositKey });
+    await admin.rpc("apply_wallet_transaction", {
+      p_account_type: "user",
+      p_user_id: userId,
+      p_type: "pool_entry_debit",
+      p_direction: "debit",
+      p_amount: 1,
+      p_admin_id: null,
+      p_reason: "integration test",
+      p_idempotency_key: poolRowKey,
+    });
+
+    const PRE_PIVOT_POOL_TRANSACTION_TYPES = [
+      "pool_entry_debit",
+      "pool_payout_credit",
+      "pool_refund_credit",
+      "house_fee_credit",
+      "rounding_remainder_credit",
+    ];
+    const { data, error } = await admin
+      .from("wallet_transactions")
+      .select("type, idempotency_key")
+      .eq("user_id", userId)
+      .not("type", "in", `(${PRE_PIVOT_POOL_TRANSACTION_TYPES.join(",")})`);
+
+    expect(error).toBeNull();
+    const idempotencyKeys = (data ?? []).map((r) => r.idempotency_key);
+    expect(idempotencyKeys).toContain(depositKey);
+    expect(idempotencyKeys).not.toContain(poolRowKey);
+  });
+
   it("credits and debits the house account the same way as a user account", async () => {
     const { data: houseBefore } = await admin
       .from("wallet_balances")
