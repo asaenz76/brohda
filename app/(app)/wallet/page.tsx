@@ -48,24 +48,26 @@ export default async function WalletPage() {
     <div className="space-y-6">
       <h1 className="sr-only">Ledger</h1>
 
-      {/* Confidence starts with clearly seeing what you have — the balance
-          is deliberately the loudest number on the page, bigger than any
-          button or heading below it. */}
+      {/* Confidence starts with clearly seeing what you can use — the
+          available amount is deliberately the loudest number on the page,
+          bigger than any button or heading below it. Money on hold is
+          still yours (it comes back if a Position voids), so the total
+          stays visible, but it's never the headline: it can't all be put
+          on something at once. */}
       <div className="rounded-2xl border border-border-subtle bg-surface-primary p-5">
-        <p className="text-sm text-text-muted">Current balance</p>
-        <p className="text-4xl font-bold text-text-primary">{formatCents(summary.total)}</p>
-        {/* Milestone R8: only shown once something actually holds funds —
-            a pending withdrawal request today — so the common case (no
-            holds) stays exactly as simple as before this milestone. */}
+        <p className="text-sm text-text-muted">Available</p>
+        <p className="text-4xl font-bold text-text-primary">{formatCents(summary.available)}</p>
+        {/* Only shown once something actually holds funds, so the common
+            case (no holds) stays as simple as it was before holds existed. */}
         {summary.reserved > 0 && (
           <div className="mt-3 flex items-center gap-4 border-t border-border-subtle pt-3 text-sm">
             <div>
-              <p className="text-text-muted">Available</p>
-              <p className="font-medium text-text-primary">{formatCents(summary.available)}</p>
-            </div>
-            <div>
               <p className="text-text-muted">On hold</p>
               <p className="font-medium text-text-primary">{formatCents(summary.reserved)}</p>
+            </div>
+            <div>
+              <p className="text-text-muted">Total</p>
+              <p className="font-medium text-text-primary">{formatCents(summary.total)}</p>
             </div>
           </div>
         )}

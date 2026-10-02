@@ -9,12 +9,13 @@ import { getAppShellProps } from "@/lib/app-shell-props";
 // AppShell's content area rather than replacing its header entirely.
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const user = await requireAdminOrAbove();
-  const { balanceCents, unreadNotificationCount } = await getAppShellProps(user);
+  const { availableCents, heldCents, unreadNotificationCount } = await getAppShellProps(user);
 
   return (
     <AppShell
       user={user}
-      balanceCents={balanceCents}
+      availableCents={availableCents}
+      heldCents={heldCents}
       unreadNotificationCount={unreadNotificationCount}
       wide
     >
