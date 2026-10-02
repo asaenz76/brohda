@@ -1,7 +1,7 @@
 import "server-only";
 import { getPredictionById } from "@/lib/predictions/repository";
 import { listUnresolvedAcceptedChallenges, markChallengeResolved } from "./repository";
-import { createChallengeResolvedNotifications } from "@/lib/notifications/challenges";
+import { createChallengeResolvedNotifications, deliverChallengeNotification } from "@/lib/notifications/challenges";
 import type { Prediction } from "@/lib/predictions/types";
 import type { Challenge, ChallengeResult } from "./types";
 
@@ -108,7 +108,17 @@ export async function resolveAcceptedChallenges(): Promise<ChallengeResolutionRu
       else if (decision.result === "RECIPIENT_WON") summary.recipientWon += 1;
       else summary.voided += 1;
 
-      await createChallengeResolvedNotifications({ challenge: { ...challenge, result: decision.result, resolvedAt, status: "RESOLVED" } as Challenge });
+      // The Challenge is already RESOLVED (and can never be re-run, so this
+      // notification can't be retried by a later tick). A delivery failure
+      // must not undo that or be lost: record it on the run summary so the
+      // job reads "degraded" in admin job health, with the challenge id
+      // needed to re-send by hand.
+      const delivery = await deliverChallengeNotification("CALL_BS_RESOLVED", challenge.id, () =>
+        createChallengeResolvedNotifications({ challenge: { ...challenge, result: decision.result, resolvedAt, status: "RESOLVED" } as Challenge }),
+      );
+      if (!delivery.delivered) {
+        summary.failures.push({ challengeId: challenge.id, error: `resolved, but CALL_BS_RESOLVED notification failed: ${delivery.error}` });
+      }
     } catch (error) {
       // Milestone R13.5 (§23, §26): one bad Challenge must not abort the
       // rest of an automated batch — left ACCEPTED for the next run.

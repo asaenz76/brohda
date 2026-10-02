@@ -254,7 +254,8 @@ test.describe("Call BS Challenges", () => {
 
       // Marco's still-visible row must stop offering Accept/Decline —
       // never a stale control — and must not read as an explicit Decline.
-      await page.reload();
+      // Deliberately no page.reload(): the Accept action revalidates the
+      // page and the row follows the refreshed server state on its own.
       await expect(marcoRow.getByRole("button", { name: "Accept" })).not.toBeVisible();
       await expect(marcoRow.getByText("Declined")).not.toBeVisible();
       await expect(marcoRow.getByText("No longer available")).toBeVisible();

@@ -1,58 +1,80 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { callBSAction, acceptChallengeAction, declineChallengeAction } from "@/lib/actions/challenges";
 import { Button } from "@/components/ui/button";
+import type { ChallengeActionState } from "@/lib/challenges/action-state";
 
 // Milestone R7 (docs/BROHDA_2_0_MILESTONE_MAP.md, Free Call BS Challenges).
 // The one interactive control for a single opposing participant row —
 // which of Call BS / Pending / Accept-or-Decline / Accepted it renders is
-// entirely decided server-side by MarketParticipants.tsx (§47: no
-// financial controls, no stake fields, ever).
+// entirely decided server-side (lib/challenges/action-state.ts, via
+// MarketParticipants.tsx) (§47: no financial controls, no stake fields,
+// ever).
 
-type ChallengeActionState =
-  | { kind: "call_bs"; recipientPredictionId: string }
-  | { kind: "outgoing_pending" }
-  | { kind: "incoming_pending"; challengeId: string }
-  | { kind: "accepted" }
-  | { kind: "declined" }
-  // Exclusivity addendum: a PENDING challenge this viewer was tracking
-  // became EXPIRED without ever being declined or hitting cutoff from
-  // THIS viewer's own action — most commonly because one of its two
-  // participants accepted a different Call BS on this Market first. The
-  // exact reason is never fabricated (EXPIRED alone doesn't distinguish
-  // cutoff/edit-invalidation/displacement — see accept_call_bs()'s own
-  // comment), so this one generic state covers all of them.
-  | { kind: "unavailable" };
+type StatusKind = "outgoing_pending" | "accepted" | "declined" | "unavailable";
+
+const STATUS: Record<StatusKind, { label: string; className: string }> = {
+  outgoing_pending: { label: "Pending", className: "text-text-muted" },
+  accepted: { label: "Accepted", className: "text-text-secondary" },
+  declined: { label: "Declined", className: "text-text-muted" },
+  unavailable: { label: "No longer available", className: "text-text-muted" },
+};
 
 export function ChallengeAction({ marketId, state }: { marketId: string; state: ChallengeActionState }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [resolvedState, setResolvedState] = useState(state);
+  // What THIS viewer just did on this row (Call BS / Accept / Decline),
+  // kept locally so the row reads "Accepted"/"Declined" the instant the
+  // action returns and keeps doing so after the server re-renders.
+  // Everything else follows the server-rendered `state` prop, so a SIBLING
+  // row updates itself when another row's Accept expires it — seeding
+  // useState from the prop would freeze every row at its first render and
+  // leave a displaced row offering Accept/Decline until a manual reload.
+  const [localOutcome, setLocalOutcome] = useState<ChallengeActionState | null>(null);
+  // The server's verdict always wins once it is terminal for the pair.
+  const current = state.kind === "accepted" || state.kind === "unavailable" ? state : (localOutcome ?? state);
 
-  if (resolvedState.kind === "outgoing_pending") {
-    return <span className="text-xs font-medium text-text-muted">Pending</span>;
+  // Accept/Decline/Call BS unmount the buttons they were triggered from,
+  // which would otherwise drop keyboard focus to <body>. After a user
+  // action, move focus to the status text that replaces them (it is a
+  // role="status" node, so it is also read out). Server-driven changes to a
+  // sibling row never steal focus.
+  const statusRef = useRef<HTMLSpanElement>(null);
+  const focusStatusNext = useRef(false);
+  useEffect(() => {
+    if (focusStatusNext.current && statusRef.current) {
+      statusRef.current.focus();
+      focusStatusNext.current = false;
+    }
+  }, [localOutcome]);
+
+  function settle(next: ChallengeActionState) {
+    focusStatusNext.current = true;
+    setLocalOutcome(next);
   }
 
-  if (resolvedState.kind === "accepted") {
-    return <span className="text-xs font-medium text-text-secondary">Accepted</span>;
-  }
-
-  if (resolvedState.kind === "declined") {
-    return <span className="text-xs font-medium text-text-muted">Declined</span>;
-  }
-
-  if (resolvedState.kind === "unavailable") {
-    return <span className="text-xs font-medium text-text-muted">No longer available</span>;
-  }
-
-  if (resolvedState.kind === "call_bs") {
-    const { recipientPredictionId } = resolvedState;
+  if (current.kind === "outgoing_pending" || current.kind === "accepted" || current.kind === "declined" || current.kind === "unavailable") {
+    const { label, className } = STATUS[current.kind];
     return (
-      <div className="flex flex-col items-end gap-1">
+      <span
+        ref={statusRef}
+        tabIndex={-1}
+        role="status"
+        className={`rounded-sm text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring ${className}`}
+      >
+        {label}
+      </span>
+    );
+  }
+
+  if (current.kind === "call_bs") {
+    const { recipientPredictionId } = current;
+    return (
+      <div className="flex flex-col items-start gap-1 sm:items-end">
         <Button
           type="button"
-          size="sm"
+          size="lg"
           variant="outline"
           disabled={isPending}
           onClick={() => {
@@ -63,7 +85,7 @@ export function ChallengeAction({ marketId, state }: { marketId: string; state: 
                 setError(result.error);
                 return;
               }
-              setResolvedState({ kind: "outgoing_pending" });
+              settle({ kind: "outgoing_pending" });
             });
           }}
         >
@@ -79,13 +101,13 @@ export function ChallengeAction({ marketId, state }: { marketId: string; state: 
   }
 
   // incoming_pending
-  const { challengeId } = resolvedState;
+  const { challengeId } = current;
   return (
-    <div className="flex flex-col items-end gap-1">
+    <div className="flex flex-col items-start gap-1 sm:items-end">
       <div className="flex items-center gap-2">
         <Button
           type="button"
-          size="sm"
+          size="lg"
           disabled={isPending}
           onClick={() => {
             setError(null);
@@ -101,13 +123,13 @@ export function ChallengeAction({ marketId, state }: { marketId: string; state: 
                 // A null challenge means a real client/permission error
                 // (e.g. a malformed id) with nothing to transition to.
                 if (result.challenge) {
-                  setResolvedState({ kind: "unavailable" });
+                  settle({ kind: "unavailable" });
                   return;
                 }
                 setError(result.error);
                 return;
               }
-              setResolvedState({ kind: "accepted" });
+              settle({ kind: "accepted" });
             });
           }}
         >
@@ -115,7 +137,7 @@ export function ChallengeAction({ marketId, state }: { marketId: string; state: 
         </Button>
         <Button
           type="button"
-          size="sm"
+          size="lg"
           variant="ghost"
           disabled={isPending}
           onClick={() => {
@@ -124,13 +146,13 @@ export function ChallengeAction({ marketId, state }: { marketId: string; state: 
               const result = await declineChallengeAction(challengeId, marketId);
               if (result.error) {
                 if (result.challenge) {
-                  setResolvedState({ kind: "unavailable" });
+                  settle({ kind: "unavailable" });
                   return;
                 }
                 setError(result.error);
                 return;
               }
-              setResolvedState({ kind: "declined" });
+              settle({ kind: "declined" });
             });
           }}
         >
@@ -142,7 +164,7 @@ export function ChallengeAction({ marketId, state }: { marketId: string; state: 
           {error}
         </p>
       )}
-      <p className="text-[11px] text-text-muted">Accepting locks both predictions for this game.</p>
+      <p className="max-w-[18rem] text-xs text-text-secondary sm:text-right">Accepting locks both predictions for this game.</p>
     </div>
   );
 }

@@ -1,7 +1,10 @@
 import type { ComponentProps } from "react";
 import Link from "next/link";
 import { getMarketParticipants } from "@/lib/challenges/discovery";
+import { deriveChallengeActionState } from "@/lib/challenges/action-state";
 import { listChallengesForMarketAndUser } from "@/lib/challenges/repository";
+import { isPastEffectiveLock } from "@/lib/predictions/lock";
+import { getPickLockPolicy } from "@/lib/predictions/policy";
 import { getMonetaryParticipants } from "@/lib/monetary/discovery";
 import { listMonetaryProposalsForMarketAndUser, listMonetaryPositionsByIds, listMonetaryPositionSettlementsByPositionIds } from "@/lib/monetary/repository";
 import { getWalletBalanceSummary } from "@/lib/wallet/reservations";
@@ -47,13 +50,18 @@ export async function MarketParticipants({
   const scheduledStartUtc = await getFixtureScheduledStart(rawMarket.fixtureId);
   if (scheduledStartUtc === null) return null;
 
-  const [participants, relevantChallenges, monetaryParticipants, relevantProposals, walletSummary] = await Promise.all([
+  const [participants, relevantChallenges, monetaryParticipants, relevantProposals, walletSummary, lockPolicy] = await Promise.all([
     getMarketParticipants(marketId, viewerId, scheduledStartUtc),
     listChallengesForMarketAndUser(marketId, viewerId),
     getMonetaryParticipants(marketId, viewerId, scheduledStartUtc),
     listMonetaryProposalsForMarketAndUser(marketId, viewerId),
     getWalletBalanceSummary(viewerId),
+    getPickLockPolicy(),
   ]);
+  // Same cutoff formula the Call BS discovery query and accept_call_bs()
+  // use. A PENDING Challenge is only expired lazily in the database, so
+  // the row has to be told about cutoff here rather than trusting status.
+  const pastCutoff = isPastEffectiveLock(scheduledStartUtc, lockPolicy.lockMinutesBeforeKickoff, new Date());
   const monetaryByUserId = new Map(monetaryParticipants.map((p) => [p.userId, p]));
 
   // Milestone R10 (§55): resolve every ACCEPTED proposal's Position (and,
@@ -74,34 +82,13 @@ export async function MarketParticipants({
       <p className="text-xs font-medium uppercase tracking-wide text-text-muted">Other picks</p>
       <ul className="space-y-2">
         {others.map((participant) => {
-          // A terminal-state Challenge between this exact pair never blocks
-          // a fresh one later (existing R7 behavior, unchanged) — so more
-          // than one Challenge can match this pair at once (one EXPIRED,
-          // one newly PENDING). ACCEPTED/PENDING take priority over a
-          // stale EXPIRED row for display purposes; DECLINED/RESOLVED are
-          // deliberately never matched here (unchanged from before this
-          // addendum — those only ever show via the client's own ephemeral
-          // post-action state, never a fresh server render).
-          const pairChallenges = relevantChallenges.filter(
-            (c) =>
-              (c.status === "PENDING" || c.status === "ACCEPTED" || c.status === "EXPIRED") &&
-              ((c.challengerUserId === viewerId && c.recipientPredictionId === participant.predictionId) ||
-                (c.recipientUserId === viewerId && c.challengerPredictionId === participant.predictionId)),
-          );
-          const active =
-            pairChallenges.find((c) => c.status === "ACCEPTED") ??
-            pairChallenges.find((c) => c.status === "PENDING") ??
-            pairChallenges.find((c) => c.status === "EXPIRED");
-
-          let action: ComponentProps<typeof ChallengeAction>["state"] | null = null;
-          if (active) {
-            if (active.status === "ACCEPTED") action = { kind: "accepted" };
-            else if (active.status === "EXPIRED") action = { kind: "unavailable" };
-            else if (active.challengerUserId === viewerId) action = { kind: "outgoing_pending" };
-            else action = { kind: "incoming_pending", challengeId: active.id };
-          } else if (participant.canCallBs) {
-            action = { kind: "call_bs", recipientPredictionId: participant.predictionId };
-          }
+          const action = deriveChallengeActionState({
+            viewerId,
+            participantPredictionId: participant.predictionId,
+            canCallBs: participant.canCallBs,
+            challenges: relevantChallenges,
+            pastCutoff,
+          });
 
           const monetaryParticipant = monetaryByUserId.get(participant.userId);
           const activeProposal = relevantProposals.find(
@@ -140,19 +127,24 @@ export async function MarketParticipants({
 
           const profileHref = `/profile/${participant.username ?? participant.userId}`;
           return (
-            <li key={participant.userId} className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <Link href={profileHref}>
+            <li key={participant.userId} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+              {/* min-w-0 + truncate: a long display name must shrink inside
+                  the row instead of pushing the actions off a 375px screen. */}
+              <div className="flex min-w-0 items-center gap-2">
+                <Link href={profileHref} className="shrink-0">
                   <Avatar displayName={participant.displayName} avatarUrl={participant.avatarUrl} size="sm" />
                 </Link>
-                <div>
-                  <Link href={profileHref} className="text-sm font-medium text-text-primary hover:underline">
+                <div className="min-w-0">
+                  <Link href={profileHref} className="block truncate text-sm font-medium text-text-primary hover:underline">
                     {participant.displayName}
                   </Link>
-                  <p className="text-xs text-text-muted">Picked {participant.selectedOutcome === "YES" ? yesLabel : noLabel}</p>
+                  <p className="break-words text-xs text-text-muted">Picked {participant.selectedOutcome === "YES" ? yesLabel : noLabel}</p>
                 </div>
               </div>
-              <div className="flex flex-col items-end gap-1">
+              {/* Below sm the controls drop under the identity (aligned with
+                  it) instead of competing with it for width; from sm up they
+                  sit to its right as before. */}
+              <div className="flex shrink-0 flex-col items-start gap-2 pl-8 sm:items-end sm:gap-1 sm:pl-0">
                 {action && <ChallengeAction marketId={marketId} state={action} />}
                 {monetaryAction && <MonetaryProposalAction marketId={marketId} state={monetaryAction} />}
               </div>
