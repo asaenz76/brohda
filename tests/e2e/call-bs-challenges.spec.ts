@@ -4,6 +4,11 @@
  * MarketPredictionCard on /markets/[id] (and, unchanged, /post/[id] via the
  * same shared component). Requires the local Supabase stack
  * (`pnpm supabase:start`) — `pnpm test:e2e` handles the rest.
+ *
+ * call_bs_enabled is turned on once for the whole run by
+ * tests/e2e/helpers/global-setup.ts (and restored by its teardown) — never
+ * toggled per test here, since these specs run in parallel and a per-test
+ * restore would switch the flag off under whichever test is still running.
  */
 import { test, expect, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
@@ -72,18 +77,6 @@ async function seedMarket() {
   return { fixtureId: fixture.id as string, marketId: market.id as string };
 }
 
-/** Flips call_bs_enabled on for this test and returns a restore function —
- *  without this, the flag stays true for the rest of the suite/run,
- *  making later tests' behavior depend on run order. */
-async function enableCallBs(): Promise<() => Promise<void>> {
-  const { data } = await admin.from("platform_settings").select("call_bs_enabled").eq("id", true).single();
-  const previousValue = data?.call_bs_enabled ?? false;
-  await admin.from("platform_settings").update({ call_bs_enabled: true }).eq("id", true);
-  return async () => {
-    await admin.from("platform_settings").update({ call_bs_enabled: previousValue }).eq("id", true);
-  };
-}
-
 async function cleanup(fixtureId: string, marketId: string, userIds: string[]) {
   await admin.from("notifications").delete().in("challenge_id", (await admin.from("challenges").select("id").eq("market_id", marketId)).data?.map((r) => r.id) ?? []);
   await admin.from("challenges").delete().eq("market_id", marketId);
@@ -95,7 +88,6 @@ async function cleanup(fixtureId: string, marketId: string, userIds: string[]) {
 
 test.describe("Call BS Challenges", () => {
   test("one user calls BS on an opposing pick, the other accepts, and both see the accepted state", async ({ page }) => {
-    const restoreCallBsFlag = await enableCallBs();
     const suffix = randomUUID();
     const emailA = `e2e-call-bs-a-${suffix}@test.local`;
     const emailB = `e2e-call-bs-b-${suffix}@test.local`;
@@ -144,12 +136,10 @@ test.describe("Call BS Challenges", () => {
       expect(challenge?.status).toBe("ACCEPTED");
     } finally {
       await cleanup(fixtureId, marketId, userIds);
-      await restoreCallBsFlag();
     }
   });
 
   test("the recipient can decline a Call BS", async ({ page }) => {
-    const restoreCallBsFlag = await enableCallBs();
     const suffix = randomUUID();
     const emailA = `e2e-call-bs-decline-a-${suffix}@test.local`;
     const emailB = `e2e-call-bs-decline-b-${suffix}@test.local`;
@@ -187,12 +177,17 @@ test.describe("Call BS Challenges", () => {
       expect(predictions?.every((p) => p.locked_at === null)).toBe(true);
     } finally {
       await cleanup(fixtureId, marketId, userIds);
-      await restoreCallBsFlag();
     }
   });
 
   test("exclusivity: accepting one Call BS displaces every other pending challenge for either participant, and already-paired users show no Call BS action", async ({ page }) => {
-    const restoreCallBsFlag = await enableCallBs();
+    // Four users, seven logins and roughly fifteen page loads against a
+    // `next dev` server that compiles routes on demand and is shared with
+    // other workers: ~30s alone, but over the default 60s once contended
+    // (seen in CI with 2 workers, and locally with 3). The page was
+    // mid-login and mid-compile at the timeout — slow, not stuck — so this
+    // triples this one test's budget instead of trimming what it proves.
+    test.slow();
     const suffix = randomUUID();
     const emailAndre = `e2e-excl-andre-${suffix}@test.local`;
     const emailCarlos = `e2e-excl-carlos-${suffix}@test.local`;
@@ -296,7 +291,6 @@ test.describe("Call BS Challenges", () => {
       expect(marcoChallenge?.status).toBe("EXPIRED");
     } finally {
       await cleanup(fixtureId, marketId, userIds);
-      await restoreCallBsFlag();
     }
   });
 });
