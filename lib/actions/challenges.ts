@@ -9,7 +9,9 @@ import {
   createChallengeReceivedNotification,
   createChallengeAcceptedNotification,
   createChallengeDeclinedNotification,
+  deliverChallengeNotification,
 } from "@/lib/notifications/challenges";
+import { listPostIdsForMarkets } from "@/lib/predictions/post-links";
 import type { Challenge } from "@/lib/challenges/types";
 
 // Milestone R7 (docs/BROHDA_2_0_MILESTONE_MAP.md, Free Call BS Challenges).
@@ -18,6 +20,24 @@ import type { Challenge } from "@/lib/challenges/types";
 // identity, every write through a SECURITY DEFINER RPC via the service
 // role, never trusting a client-supplied challenger/recipient/Market/Pick
 // id where the server can derive it instead (§9, §52).
+
+/**
+ * The Post is the primary social surface for a Call BS (the Market page is
+ * the fallback), so both must be refreshed: accepting one Challenge
+ * expires its siblings, and their rows only update on screen if the page
+ * the viewer is actually on is revalidated. Exact paths only — no broad
+ * revalidation. A failed Post lookup is logged and never fails the action
+ * the user just completed.
+ */
+async function revalidateCallBsSurfaces(marketId: string): Promise<void> {
+  revalidatePath(`/markets/${marketId}`);
+  try {
+    const postId = (await listPostIdsForMarkets([marketId])).get(marketId);
+    if (postId) revalidatePath(`/post/${postId}`);
+  } catch (error) {
+    console.error(`[call-bs] could not resolve the Post to revalidate for market ${marketId}:`, error instanceof Error ? error.message : error);
+  }
+}
 
 export type CallBsActionResult = { error: string | null; challenge: Challenge | null };
 
@@ -57,9 +77,9 @@ export async function callBSAction(recipientPredictionId: string, marketId: stri
     return { error: copyForCallBsError(outcome.error), challenge: null };
   }
 
-  await createChallengeReceivedNotification(outcome.challenge);
+  await deliverChallengeNotification("CALL_BS_RECEIVED", outcome.challenge.id, () => createChallengeReceivedNotification(outcome.challenge));
 
-  revalidatePath(`/markets/${marketId}`);
+  await revalidateCallBsSurfaces(marketId);
   return { error: null, challenge: outcome.challenge };
 }
 
@@ -103,9 +123,9 @@ export async function acceptChallengeAction(challengeId: string, marketId: strin
     return { error: "This Call BS is no longer available.", challenge: result.challenge };
   }
 
-  await createChallengeAcceptedNotification(result.challenge);
+  await deliverChallengeNotification("CALL_BS_ACCEPTED", result.challenge.id, () => createChallengeAcceptedNotification(result.challenge));
 
-  revalidatePath(`/markets/${marketId}`);
+  await revalidateCallBsSurfaces(marketId);
   return { error: null, challenge: result.challenge };
 }
 
@@ -125,8 +145,8 @@ export async function declineChallengeAction(challengeId: string, marketId: stri
     return { error: RESPOND_ERROR_COPY[message] ?? "Could not decline this Call BS.", challenge: null };
   }
 
-  await createChallengeDeclinedNotification(challenge);
+  await deliverChallengeNotification("CALL_BS_DECLINED", challenge.id, () => createChallengeDeclinedNotification(challenge));
 
-  revalidatePath(`/markets/${marketId}`);
+  await revalidateCallBsSurfaces(marketId);
   return { error: null, challenge };
 }

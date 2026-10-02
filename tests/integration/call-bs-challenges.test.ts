@@ -4,7 +4,7 @@
  * Challenge resolution, notifications, rate limiting, and security. Real
  * local Supabase throughout.
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { getTestAdminClient, getTestAnonClient, getTestSupabaseConfig } from "./helpers/test-env";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { setPick, getPredictionById } from "@/lib/predictions/repository";
@@ -13,7 +13,13 @@ import type { NormalizedMarket } from "@/lib/prediction-markets/types";
 import { callBS, acceptCallBS, declineCallBS, getChallengeById, getChallengeRecordForUser, listChallengesForMarketAndUser } from "@/lib/challenges/repository";
 import { resolveAcceptedChallenges } from "@/lib/challenges/resolution";
 import { getMarketParticipants } from "@/lib/challenges/discovery";
-import { createChallengeReceivedNotification } from "@/lib/notifications/challenges";
+import {
+  createChallengeReceivedNotification,
+  createChallengeAcceptedNotification,
+  createChallengeDeclinedNotification,
+  deliverChallengeNotification,
+} from "@/lib/notifications/challenges";
+import { ensurePostForFixture, publishPost } from "@/lib/posts/repository";
 
 const { url: SUPABASE_URL, anonKey: ANON_KEY } = getTestSupabaseConfig();
 const admin = getTestAdminClient();
@@ -1362,5 +1368,251 @@ describe("Discovery / participant presentation", () => {
 
     const forA = await listChallengesForMarketAndUser(marketId, a.userId);
     expect(forA.map((c) => c.id)).toContain(created.challenge.id);
+  });
+});
+
+describe("Account eligibility", () => {
+  it("rejects sending a Call BS to an inactive recipient, server-side", async () => {
+    const fixtureId = await createFixture();
+    const marketId = await createMarket(fixtureId);
+    const a = await createUser("a");
+    const b = await createUser("b");
+    await pick(a.userId, marketId, "YES");
+    const bPick = await pick(b.userId, marketId, "NO");
+    await admin.from("user_profiles").update({ is_active: false }).eq("id", b.userId);
+
+    const outcome = await callBS(a.userId, bPick);
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.error).toBe("recipient_inactive");
+    const { data: rows } = await admin.from("challenges").select("id").eq("market_id", marketId);
+    expect(rows ?? []).toHaveLength(0);
+  });
+
+  it("rejects an inactive challenger, server-side", async () => {
+    const fixtureId = await createFixture();
+    const marketId = await createMarket(fixtureId);
+    const a = await createUser("a");
+    const b = await createUser("b");
+    await pick(a.userId, marketId, "YES");
+    const bPick = await pick(b.userId, marketId, "NO");
+    await admin.from("user_profiles").update({ is_active: false }).eq("id", a.userId);
+
+    const outcome = await callBS(a.userId, bPick);
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.error).toBe("challenger_inactive");
+  });
+
+  for (const deactivated of ["challenger", "recipient"] as const) {
+    it(`rejects acceptance when the ${deactivated} became inactive after the Call BS was sent — EXPIRED, no Pick locked`, async () => {
+      const fixtureId = await createFixture();
+      const marketId = await createMarket(fixtureId);
+      const a = await createUser("a");
+      const b = await createUser("b");
+      const aPick = await pick(a.userId, marketId, "YES");
+      const bPick = await pick(b.userId, marketId, "NO");
+      const created = await callBS(a.userId, bPick);
+      if (!created.ok) throw new Error("setup failed");
+
+      await admin.from("user_profiles").update({ is_active: false }).eq("id", deactivated === "challenger" ? a.userId : b.userId);
+
+      const result = await acceptCallBS(created.challenge.id, b.userId);
+      expect(result.outcome).toBe("rejected_ineligible_account");
+      expect(result.challenge.status).toBe("EXPIRED");
+      expect((await getPredictionById(aPick))?.lockedAt).toBeNull();
+      expect((await getPredictionById(bPick))?.lockedAt).toBeNull();
+    });
+  }
+});
+
+describe("Discovery — accepted-pairing eligibility", () => {
+  async function startOf(fixtureId: string): Promise<string> {
+    const { data } = await admin.from("fixtures").select("scheduled_start_utc").eq("id", fixtureId).single();
+    return data!.scheduled_start_utc as string;
+  }
+
+  it("a viewer who already holds an accepted Call BS on the Market is offered no Call BS against anyone else", async () => {
+    const fixtureId = await createFixture();
+    const marketId = await createMarket(fixtureId);
+    const a = await createUser("a");
+    const b = await createUser("b");
+    const c = await createUser("c");
+    await pick(a.userId, marketId, "YES");
+    const bPick = await pick(b.userId, marketId, "NO");
+    await pick(c.userId, marketId, "NO");
+    const start = await startOf(fixtureId);
+
+    const before = await getMarketParticipants(marketId, a.userId, start);
+    expect(before.find((p) => p.userId === c.userId)?.canCallBs).toBe(true);
+
+    const created = await callBS(a.userId, bPick);
+    if (!created.ok) throw new Error("setup failed");
+    expect((await acceptCallBS(created.challenge.id, b.userId)).outcome).toBe("accepted");
+
+    const after = await getMarketParticipants(marketId, a.userId, start);
+    expect(after.find((p) => p.userId === c.userId)?.canCallBs).toBe(false);
+    expect(after.find((p) => p.userId === b.userId)?.canCallBs).toBe(false);
+  });
+
+  it("a third party is offered no Call BS against a target who already holds an accepted Call BS — but still against an unpaired one", async () => {
+    const fixtureId = await createFixture();
+    const marketId = await createMarket(fixtureId);
+    const a = await createUser("a");
+    const b = await createUser("b");
+    const c = await createUser("c");
+    const d = await createUser("d");
+    await pick(a.userId, marketId, "YES");
+    const bPick = await pick(b.userId, marketId, "NO");
+    await pick(c.userId, marketId, "YES"); // third party, opposes b and d
+    await pick(d.userId, marketId, "NO"); // unpaired opponent
+    const start = await startOf(fixtureId);
+
+    const created = await callBS(a.userId, bPick);
+    if (!created.ok) throw new Error("setup failed");
+    expect((await acceptCallBS(created.challenge.id, b.userId)).outcome).toBe("accepted");
+
+    const forC = await getMarketParticipants(marketId, c.userId, start);
+    expect(forC.find((p) => p.userId === b.userId)?.canCallBs).toBe(false); // target b is paired with a
+    expect(forC.find((p) => p.userId === d.userId)?.canCallBs).toBe(true); // d is not
+  });
+
+  it("a PENDING Challenge alone never suppresses eligibility against other targets", async () => {
+    const fixtureId = await createFixture();
+    const marketId = await createMarket(fixtureId);
+    const a = await createUser("a");
+    const b = await createUser("b");
+    const c = await createUser("c");
+    await pick(a.userId, marketId, "YES");
+    const bPick = await pick(b.userId, marketId, "NO");
+    await pick(c.userId, marketId, "NO");
+    const start = await startOf(fixtureId);
+
+    const created = await callBS(a.userId, bPick);
+    if (!created.ok) throw new Error("setup failed");
+
+    const participants = await getMarketParticipants(marketId, a.userId, start);
+    expect(participants.find((p) => p.userId === c.userId)?.canCallBs).toBe(true);
+  });
+});
+
+describe("Notification stamping and delivery", () => {
+  it("every Call BS notification type carries challenge_id, market_id and the published Post", async () => {
+    const fixtureId = await createFixture();
+    const marketId = await createMarket(fixtureId);
+    const { id: postId } = await ensurePostForFixture(fixtureId);
+    await publishPost(postId);
+
+    try {
+      const a = await createUser("a");
+      const b = await createUser("b");
+      const c = await createUser("c");
+      const d = await createUser("d");
+      const aPick = await pick(a.userId, marketId, "YES");
+      const bPick = await pick(b.userId, marketId, "NO");
+      await pick(c.userId, marketId, "NO");
+      const dPick = await pick(d.userId, marketId, "YES");
+      const cPickRow = (await admin.from("predictions").select("id").eq("market_id", marketId).eq("user_id", c.userId).single()).data!.id as string;
+
+      // a → b: RECEIVED, ACCEPTED, then RESOLVED. d → c: RECEIVED, DECLINED.
+      const accepted = await callBS(a.userId, bPick);
+      const declined = await callBS(d.userId, cPickRow);
+      if (!accepted.ok || !declined.ok) throw new Error("setup failed");
+
+      await createChallengeReceivedNotification(accepted.challenge);
+      const acceptResult = await acceptCallBS(accepted.challenge.id, b.userId);
+      await createChallengeAcceptedNotification(acceptResult.challenge);
+      const declineChallenge = await declineCallBS(declined.challenge.id, c.userId);
+      await createChallengeReceivedNotification(declined.challenge);
+      await createChallengeDeclinedNotification(declineChallenge);
+
+      await admin.from("predictions").update({ lifecycle_state: "GRADED", result: "CORRECT", resolved_outcome_snapshot: "YES", graded_at: new Date().toISOString() }).eq("id", aPick);
+      await admin.from("predictions").update({ lifecycle_state: "GRADED", result: "INCORRECT", resolved_outcome_snapshot: "YES", graded_at: new Date().toISOString() }).eq("id", bPick);
+      await resolveAcceptedChallenges();
+      expect(dPick).toBeTruthy();
+
+      const { data: rows } = await admin
+        .from("notifications")
+        .select("type, user_id, challenge_id, market_id, post_id")
+        .in("challenge_id", [accepted.challenge.id, declined.challenge.id]);
+
+      expect([...new Set((rows ?? []).map((r) => r.type as string))].sort()).toEqual([
+        "CALL_BS_ACCEPTED",
+        "CALL_BS_DECLINED",
+        "CALL_BS_RECEIVED",
+        "CALL_BS_RESOLVED",
+      ]);
+      for (const row of rows ?? []) {
+        expect(row.challenge_id).toBeTruthy();
+        expect(row.market_id).toBe(marketId);
+        expect(row.post_id).toBe(postId);
+      }
+      // RESOLVED goes to both participants of the accepted pair.
+      const resolvedFor = (rows ?? []).filter((r) => r.type === "CALL_BS_RESOLVED").map((r) => r.user_id).sort();
+      expect(resolvedFor).toEqual([a.userId, b.userId].sort());
+    } finally {
+      // notifications.post_id and posts.fixture_id are real FKs: detach them before the shared afterEach removes the fixture.
+      await admin.from("notifications").delete().eq("post_id", postId);
+      await admin.from("posts").delete().eq("id", postId);
+    }
+  });
+
+  it("stamps market_id with a null post_id when the Game has no published Post yet", async () => {
+    const fixtureId = await createFixture();
+    const marketId = await createMarket(fixtureId);
+    const a = await createUser("a");
+    const b = await createUser("b");
+    await pick(a.userId, marketId, "YES");
+    const bPick = await pick(b.userId, marketId, "NO");
+    const created = await callBS(a.userId, bPick);
+    if (!created.ok) throw new Error("setup failed");
+
+    await createChallengeReceivedNotification(created.challenge);
+    const { data: row } = await admin.from("notifications").select("market_id, post_id").eq("challenge_id", created.challenge.id).single();
+    expect(row?.market_id).toBe(marketId);
+    expect(row?.post_id).toBeNull();
+  });
+
+  it("a failed notification insert is never silent: the creator throws, and the safe wrapper logs and reports it without throwing", async () => {
+    const fixtureId = await createFixture();
+    const marketId = await createMarket(fixtureId);
+    const a = await createUser("a");
+    const b = await createUser("b");
+    await pick(a.userId, marketId, "YES");
+    const bPick = await pick(b.userId, marketId, "NO");
+    const created = await callBS(a.userId, bPick);
+    if (!created.ok) throw new Error("setup failed");
+
+    // A recipient that doesn't exist violates notifications.user_id's foreign key — a real insert failure.
+    const broken = { ...created.challenge, recipientUserId: crypto.randomUUID() };
+    await expect(createChallengeReceivedNotification(broken)).rejects.toThrow(/CALL_BS_RECEIVED notification insert failed/);
+
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const delivery = await deliverChallengeNotification("CALL_BS_RECEIVED", created.challenge.id, () => createChallengeReceivedNotification(broken));
+      expect(delivery.delivered).toBe(false);
+      if (!delivery.delivered) expect(delivery.error).toMatch(/notification insert failed/);
+      expect(logged).toHaveBeenCalledTimes(1);
+      expect(String(logged.mock.calls[0][0])).toContain(created.challenge.id);
+    } finally {
+      logged.mockRestore();
+    }
+
+    // The Challenge itself is unaffected by the failed notification.
+    expect((await getChallengeById(created.challenge.id))?.status).toBe("PENDING");
+  });
+
+  it("the safe wrapper reports success for a normal delivery", async () => {
+    const fixtureId = await createFixture();
+    const marketId = await createMarket(fixtureId);
+    const a = await createUser("a");
+    const b = await createUser("b");
+    await pick(a.userId, marketId, "YES");
+    const bPick = await pick(b.userId, marketId, "NO");
+    const created = await callBS(a.userId, bPick);
+    if (!created.ok) throw new Error("setup failed");
+
+    const delivery = await deliverChallengeNotification("CALL_BS_RECEIVED", created.challenge.id, () => createChallengeReceivedNotification(created.challenge));
+    expect(delivery).toEqual({ delivered: true });
   });
 });

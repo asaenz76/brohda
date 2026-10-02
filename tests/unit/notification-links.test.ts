@@ -61,6 +61,25 @@ describe("resolveNotificationHref", () => {
     expect(resolveNotificationHref(n)).toBe("/markets/market-1");
   });
 
+  describe("Call BS notifications", () => {
+    const CALL_BS_TYPES = ["CALL_BS_RECEIVED", "CALL_BS_ACCEPTED", "CALL_BS_DECLINED", "CALL_BS_RESOLVED"];
+
+    it.each(CALL_BS_TYPES)("%s prefers the canonical Post over the Market", (type) => {
+      const n = makeNotification({ type, post_id: "post-1", market_id: "market-1" });
+      expect(resolveNotificationHref(n)).toBe("/post/post-1");
+    });
+
+    it.each(CALL_BS_TYPES)("%s falls back to the Market when the Game has no published Post", (type) => {
+      const n = makeNotification({ type, post_id: null, market_id: "market-1" });
+      expect(resolveNotificationHref(n)).toBe("/markets/market-1");
+    });
+
+    it.each(CALL_BS_TYPES)("%s resolves to nothing (never a dead link) with neither Post nor Market", (type) => {
+      const n = makeNotification({ type, post_id: null, market_id: null });
+      expect(resolveNotificationHref(n)).toBeNull();
+    });
+  });
+
   it("falls back to the stamped transaction_id's wallet entry when there's no post/market", () => {
     const n = makeNotification({ type: "DEPOSIT_APPROVED", transaction_id: "tx-direct" });
     expect(resolveNotificationHref(n)).toBe("/wallet#tx-tx-direct");
