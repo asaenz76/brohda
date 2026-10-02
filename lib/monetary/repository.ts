@@ -193,7 +193,8 @@ export type AcceptMonetaryProposalOutcome =
   | "rejected_cutoff"
   | "rejected_invalidated"
   | "proposer_reservation_invalid"
-  | "insufficient_recipient_balance";
+  | "insufficient_recipient_balance"
+  | "rejected_ineligible_account";
 
 export interface AcceptMonetaryProposalResult {
   proposal: MonetaryProposal;
@@ -216,6 +217,18 @@ export async function acceptMonetaryProposal(proposalId: string, recipientUserId
   if (error) throw error;
   const row = data as AcceptMonetaryProposalRpcRow;
   return { proposal: toProposalDomain(row.proposal), position: row.position ? toPositionDomain(row.position) : null, outcome: row.outcome };
+}
+
+/**
+ * Wraps expire_stale_monetary_proposals() — expires every PENDING proposal whose Game is past the Pick cutoff (or whose Market is
+ * gone) and releases each proposer's reservation in the same transaction. Idempotent and safe to run concurrently with
+ * accept/decline/withdraw (row locks, SKIP LOCKED). Returns exactly the proposals this call expired, for notification.
+ */
+export async function expireStaleMonetaryProposals(limit = 100): Promise<MonetaryProposal[]> {
+  const admin = createAdminClient();
+  const { data, error } = await admin.rpc("expire_stale_monetary_proposals", { p_limit: limit });
+  if (error) throw error;
+  return ((data ?? []) as MonetaryProposalRow[]).map(toProposalDomain);
 }
 
 /** Wraps decline_monetary_proposal() (§27) — plain PENDING -> DECLINED, releasing the proposer's reservation atomically. Throws for every rejection (`not_recipient`, `not_pending`, `proposal_not_found`) — nothing partial to preserve on rejection. */

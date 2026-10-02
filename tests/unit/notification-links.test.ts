@@ -56,6 +56,11 @@ describe("resolveNotificationHref", () => {
     expect(resolveNotificationHref(n)).toBe("/post/post-1");
   });
 
+  it("routes an expired monetary proposal to the Post, then the Market", () => {
+    expect(resolveNotificationHref(makeNotification({ type: "MONETARY_PROPOSAL_EXPIRED", post_id: "post-1", market_id: "market-1" }))).toBe("/post/post-1");
+    expect(resolveNotificationHref(makeNotification({ type: "MONETARY_PROPOSAL_EXPIRED", post_id: null, market_id: "market-1" }))).toBe("/markets/market-1");
+  });
+
   it("falls back to the Market for a monetary settlement when the Game has no Post yet", () => {
     const n = makeNotification({ type: "MONETARY_POSITION_SETTLED_WIN", post_id: null, market_id: "market-1" });
     expect(resolveNotificationHref(n)).toBe("/markets/market-1");

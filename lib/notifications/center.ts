@@ -38,7 +38,7 @@
 //     hiding the notification row duplicates nothing a user can't already
 //     see there.
 //
-//   MONETARY_PROPOSAL_RECEIVED, _ACCEPTED, _DECLINED, _WITHDRAWN,
+//   MONETARY_PROPOSAL_RECEIVED, _ACCEPTED, _DECLINED, _WITHDRAWN, _EXPIRED,
 //   MONETARY_POSITION_SETTLED_WIN, _SETTLED_LOSS, _VOIDED  A — shown.
 //     These were hidden while monetary_p2p_enabled was false (spec §41).
 //     P2P is now switched on, and these are the only way a person learns
@@ -75,6 +75,7 @@ export const NOTIFICATION_CENTER_TYPES = [
   "MONETARY_PROPOSAL_ACCEPTED",
   "MONETARY_PROPOSAL_DECLINED",
   "MONETARY_PROPOSAL_WITHDRAWN",
+  "MONETARY_PROPOSAL_EXPIRED",
   "MONETARY_POSITION_SETTLED_WIN",
   "MONETARY_POSITION_SETTLED_LOSS",
   "MONETARY_POSITION_VOIDED",

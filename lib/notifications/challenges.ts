@@ -1,6 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getMarketNotificationContext } from "./market-context";
+import { deliverNotification, insertNotificationRows, type NotificationDelivery } from "./deliver";
 import type { Challenge } from "@/lib/challenges/types";
 
 // Milestone R7 (docs/BROHDA_2_0_MILESTONE_MAP.md, Free Call BS Challenges),
@@ -22,45 +23,17 @@ import type { Challenge } from "@/lib/challenges/types";
 // already handles them, rather than resolving a Post lookup per
 // notification row at read time.
 
-// Delivery failures are never silent (final hardening). The create*
-// functions below THROW if a notification insert fails — Supabase reports
-// insert failures in the result object rather than throwing, so every
-// insert result is checked explicitly. Callers choose the policy:
-//   - Server actions go through deliverChallengeNotification(), which logs
-//     the failure and lets the already-committed Challenge action stand
-//     (the same "optional, best-effort notification must never make a
-//     successful domain mutation look like a failure" policy as
-//     maybeCreatePredictionGradedNotification in ./predictions.ts).
-//   - The resolver records the failure on its run summary so job health
-//     shows "degraded" instead of a quietly missing CALL_BS_RESOLVED.
+// Delivery is never silent: inserts go through ./deliver.ts, which checks
+// every insert result, and deliverChallengeNotification() is the
+// non-throwing wrapper the server actions and the resolver use.
 
-async function insertNotifications(label: string, rows: Record<string, unknown> | Record<string, unknown>[]): Promise<void> {
-  const admin = createAdminClient();
-  const { error } = await admin.from("notifications").insert(rows);
-  if (error) throw new Error(`${label} notification insert failed: ${error.message}`);
-}
+const insertNotifications = insertNotificationRows;
 
-export type ChallengeNotificationDelivery = { delivered: true } | { delivered: false; error: string };
+export type ChallengeNotificationDelivery = NotificationDelivery;
 
-/**
- * Runs one Challenge notification without ever throwing. A failure is
- * logged with the Challenge id (enough to diagnose or re-send by hand) and
- * returned to the caller; the Challenge action that triggered it has
- * already been committed and is unaffected.
- */
-export async function deliverChallengeNotification(
-  label: string,
-  challengeId: string,
-  send: () => Promise<void>,
-): Promise<ChallengeNotificationDelivery> {
-  try {
-    await send();
-    return { delivered: true };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`[call-bs] ${label} notification failed for challenge ${challengeId} — the Challenge action itself is unaffected:`, message);
-    return { delivered: false, error: message };
-  }
+/** Runs one Challenge notification without ever throwing; see ./deliver.ts. */
+export function deliverChallengeNotification(label: string, challengeId: string, send: () => Promise<void>): Promise<ChallengeNotificationDelivery> {
+  return deliverNotification("call-bs", label, `challenge ${challengeId}`, send);
 }
 
 async function getDisplayName(userId: string): Promise<string> {

@@ -161,6 +161,9 @@ test.describe("Monetary Challenge + Position", () => {
 
       await expect(page.getByRole("button", { name: "Accept" })).toBeVisible();
       await page.getByRole("button", { name: "Accept" }).click();
+      // Accepting real money takes an explicit confirmation naming the stake and the consequence.
+      await expect(page.getByText(/This is real money/)).toBeVisible();
+      await page.getByRole("button", { name: /^Confirm/ }).click();
       await expect(page.getByText("$10.00 on the line")).toBeVisible();
 
       const { data: proposal } = await admin.from("monetary_proposals").select("status, position_id").eq("market_id", marketId).single();

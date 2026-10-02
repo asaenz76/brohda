@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth/session";
 import { proposeMoney, acceptMonetaryProposal, declineMonetaryProposal, withdrawMonetaryProposal } from "@/lib/monetary/repository";
 import { proposeMoneySchema, respondToMonetaryProposalSchema } from "@/lib/validations/monetary-proposals";
@@ -11,6 +10,8 @@ import {
   createMonetaryProposalDeclinedNotification,
   createMonetaryProposalWithdrawnNotification,
 } from "@/lib/notifications/monetary-proposals";
+import { deliverNotification } from "@/lib/notifications/deliver";
+import { revalidateMarketSurfaces } from "@/lib/revalidate/market-surfaces";
 import type { MonetaryProposal, MonetaryPosition } from "@/lib/monetary/types";
 
 // Milestone R9. Mirrors lib/actions/challenges.ts's own shape exactly:
@@ -41,6 +42,8 @@ const PROPOSE_MONEY_ERROR_COPY: Record<string, string> = {
   source_challenge_pick_mismatch: "That Call BS doesn't match these picks.",
   duplicate_pending_proposal: "You already have a pending proposal with this pick.",
   insufficient_available_balance: "You don't have enough available balance to cover this stake.",
+  proposer_inactive: "Your account can't put money on picks right now.",
+  recipient_inactive: "That account is no longer active.",
 };
 
 function copyForProposeMoneyError(message: string): string {
@@ -71,9 +74,10 @@ export async function proposeMoneyAction(
     return { error: copyForProposeMoneyError(outcome.error), proposal: null };
   }
 
-  await createMonetaryProposalReceivedNotification(outcome.proposal);
+  await deliverNotification("monetary", "MONETARY_PROPOSAL_RECEIVED", `proposal ${outcome.proposal.id}`, () => createMonetaryProposalReceivedNotification(outcome.proposal));
 
-  revalidatePath(`/markets/${marketId}`);
+  // The proposer's available balance just dropped by the stake (it is on hold).
+  await revalidateMarketSurfaces(marketId, ["/wallet"]);
   return { error: null, proposal: outcome.proposal };
 }
 
@@ -115,14 +119,16 @@ export async function acceptMonetaryProposalAction(proposalId: string, marketId:
   if (result.outcome === "proposer_reservation_invalid") {
     return { error: "This proposal can't be accepted right now. Please try again later.", proposal: result.proposal, position: null };
   }
+  if (result.outcome === "rejected_ineligible_account") {
+    return { error: "This proposal is no longer available.", proposal: result.proposal, position: null };
+  }
   if (result.outcome === "insufficient_recipient_balance") {
     return { error: "You don't have enough available balance to cover this stake.", proposal: result.proposal, position: null };
   }
 
-  await createMonetaryProposalAcceptedNotification(result.proposal);
+  await deliverNotification("monetary", "MONETARY_PROPOSAL_ACCEPTED", `proposal ${result.proposal.id}`, () => createMonetaryProposalAcceptedNotification(result.proposal));
 
-  revalidatePath(`/markets/${marketId}`);
-  revalidatePath("/wallet");
+  await revalidateMarketSurfaces(marketId, ["/wallet"]);
   return { error: null, proposal: result.proposal, position: result.position };
 }
 
@@ -142,9 +148,9 @@ export async function declineMonetaryProposalAction(proposalId: string, marketId
     return { error: RESPOND_ERROR_COPY[message] ?? "Could not decline this proposal.", proposal: null, position: null };
   }
 
-  await createMonetaryProposalDeclinedNotification(proposal);
+  await deliverNotification("monetary", "MONETARY_PROPOSAL_DECLINED", `proposal ${proposal.id}`, () => createMonetaryProposalDeclinedNotification(proposal));
 
-  revalidatePath(`/markets/${marketId}`);
+  await revalidateMarketSurfaces(marketId);
   return { error: null, proposal, position: null };
 }
 
@@ -164,9 +170,8 @@ export async function withdrawMonetaryProposalAction(proposalId: string, marketI
     return { error: RESPOND_ERROR_COPY[message] ?? "Could not withdraw this proposal.", proposal: null, position: null };
   }
 
-  await createMonetaryProposalWithdrawnNotification(proposal);
+  await deliverNotification("monetary", "MONETARY_PROPOSAL_WITHDRAWN", `proposal ${proposal.id}`, () => createMonetaryProposalWithdrawnNotification(proposal));
 
-  revalidatePath(`/markets/${marketId}`);
-  revalidatePath("/wallet");
+  await revalidateMarketSurfaces(marketId, ["/wallet"]);
   return { error: null, proposal, position: null };
 }
