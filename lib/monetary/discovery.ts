@@ -23,14 +23,16 @@ interface ParticipantRow {
 /**
  * Every user's current Pick on a Market, safe-presentation only, with a
  * server-computed `canProposeMoney` for the current viewer. Deliberately
- * does NOT check `locked_at` — a locked Pick may still gain further free
- * Challenges or monetary Positions (multiplicity, R7 + R9 both preserve
- * this), so only `lifecycle_state` (GRADED) and the effective cutoff gate
- * eligibility, exactly mirroring canCallBs's own reasoning. Does NOT check
- * the viewer's own wallet balance either — that's enforced inside
- * propose_money() at creation time, not here (§ recipient-does-not-need-
- * funds-to-receive applies symmetrically: discovery never depends on
- * either side's funding state).
+ * does NOT check `locked_at` — a locked Pick may still gain further
+ * monetary Positions (R9's own multiplicity, untouched by the Call BS
+ * exclusivity addendum, which is Call-BS-only — see
+ * lib/challenges/discovery.ts's own canCallBs, which DOES now check
+ * whether either side already holds an ACCEPTED Call BS on this Market),
+ * so only `lifecycle_state` (GRADED) and the effective cutoff gate
+ * eligibility here. Does NOT check the viewer's own wallet balance either
+ * — that's enforced inside propose_money() at creation time, not here (§
+ * recipient-does-not-need-funds-to-receive applies symmetrically:
+ * discovery never depends on either side's funding state).
  */
 export async function getMonetaryParticipants(
   marketId: string,

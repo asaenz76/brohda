@@ -24,6 +24,8 @@ export type CallBsActionResult = { error: string | null; challenge: Challenge | 
 const CALL_BS_ERROR_COPY: Record<string, string> = {
   call_bs_disabled: "Call BS isn't available right now.",
   recipient_pick_not_found: "That pick couldn't be found.",
+  recipient_inactive: "That account is no longer active.",
+  challenger_inactive: "Your account can't call BS right now.",
   challenger_pick_not_found: "Make your own pick on this market before calling BS.",
   self_challenge: "You can't call BS on your own pick.",
   picks_not_opposing: "You can only call BS on someone with the opposite pick.",
@@ -93,6 +95,12 @@ export async function acceptChallengeAction(challengeId: string, marketId: strin
   }
   if (result.outcome === "rejected_invalidated") {
     return { error: "One of the picks changed since this Call BS was sent, so it can no longer be accepted.", challenge: result.challenge };
+  }
+  if (result.outcome === "rejected_already_paired") {
+    return { error: "This Call BS is no longer available.", challenge: result.challenge };
+  }
+  if (result.outcome === "rejected_ineligible_account") {
+    return { error: "This Call BS is no longer available.", challenge: result.challenge };
   }
 
   await createChallengeAcceptedNotification(result.challenge);

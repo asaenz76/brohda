@@ -15,7 +15,15 @@ type ChallengeActionState =
   | { kind: "outgoing_pending" }
   | { kind: "incoming_pending"; challengeId: string }
   | { kind: "accepted" }
-  | { kind: "declined" };
+  | { kind: "declined" }
+  // Exclusivity addendum: a PENDING challenge this viewer was tracking
+  // became EXPIRED without ever being declined or hitting cutoff from
+  // THIS viewer's own action — most commonly because one of its two
+  // participants accepted a different Call BS on this Market first. The
+  // exact reason is never fabricated (EXPIRED alone doesn't distinguish
+  // cutoff/edit-invalidation/displacement — see accept_call_bs()'s own
+  // comment), so this one generic state covers all of them.
+  | { kind: "unavailable" };
 
 export function ChallengeAction({ marketId, state }: { marketId: string; state: ChallengeActionState }) {
   const [isPending, startTransition] = useTransition();
@@ -32,6 +40,10 @@ export function ChallengeAction({ marketId, state }: { marketId: string; state: 
 
   if (resolvedState.kind === "declined") {
     return <span className="text-xs font-medium text-text-muted">Declined</span>;
+  }
+
+  if (resolvedState.kind === "unavailable") {
+    return <span className="text-xs font-medium text-text-muted">No longer available</span>;
   }
 
   if (resolvedState.kind === "call_bs") {
@@ -80,6 +92,18 @@ export function ChallengeAction({ marketId, state }: { marketId: string; state: 
             startTransition(async () => {
               const result = await acceptChallengeAction(challengeId, marketId);
               if (result.error) {
+                // A non-null challenge means the server actually evaluated
+                // this specific row and found it no longer acceptable
+                // (displaced by another Accept, past cutoff, invalidated,
+                // or an account became ineligible) — the row's state
+                // genuinely changed, so stop offering Accept/Decline
+                // rather than leaving a stale, retry-doomed control.
+                // A null challenge means a real client/permission error
+                // (e.g. a malformed id) with nothing to transition to.
+                if (result.challenge) {
+                  setResolvedState({ kind: "unavailable" });
+                  return;
+                }
                 setError(result.error);
                 return;
               }
@@ -99,6 +123,10 @@ export function ChallengeAction({ marketId, state }: { marketId: string; state: 
             startTransition(async () => {
               const result = await declineChallengeAction(challengeId, marketId);
               if (result.error) {
+                if (result.challenge) {
+                  setResolvedState({ kind: "unavailable" });
+                  return;
+                }
                 setError(result.error);
                 return;
               }
@@ -114,6 +142,7 @@ export function ChallengeAction({ marketId, state }: { marketId: string; state: 
           {error}
         </p>
       )}
+      <p className="text-[11px] text-text-muted">Accepting locks both predictions for this game.</p>
     </div>
   );
 }

@@ -72,6 +72,18 @@ async function seedMarket() {
   return { fixtureId: fixture.id as string, marketId: market.id as string };
 }
 
+/** Flips call_bs_enabled on for this test and returns a restore function —
+ *  without this, the flag stays true for the rest of the suite/run,
+ *  making later tests' behavior depend on run order. */
+async function enableCallBs(): Promise<() => Promise<void>> {
+  const { data } = await admin.from("platform_settings").select("call_bs_enabled").eq("id", true).single();
+  const previousValue = data?.call_bs_enabled ?? false;
+  await admin.from("platform_settings").update({ call_bs_enabled: true }).eq("id", true);
+  return async () => {
+    await admin.from("platform_settings").update({ call_bs_enabled: previousValue }).eq("id", true);
+  };
+}
+
 async function cleanup(fixtureId: string, marketId: string, userIds: string[]) {
   await admin.from("notifications").delete().in("challenge_id", (await admin.from("challenges").select("id").eq("market_id", marketId)).data?.map((r) => r.id) ?? []);
   await admin.from("challenges").delete().eq("market_id", marketId);
@@ -83,7 +95,7 @@ async function cleanup(fixtureId: string, marketId: string, userIds: string[]) {
 
 test.describe("Call BS Challenges", () => {
   test("one user calls BS on an opposing pick, the other accepts, and both see the accepted state", async ({ page }) => {
-    await admin.from("platform_settings").update({ call_bs_enabled: true }).eq("id", true);
+    const restoreCallBsFlag = await enableCallBs();
     const suffix = randomUUID();
     const emailA = `e2e-call-bs-a-${suffix}@test.local`;
     const emailB = `e2e-call-bs-b-${suffix}@test.local`;
@@ -132,11 +144,12 @@ test.describe("Call BS Challenges", () => {
       expect(challenge?.status).toBe("ACCEPTED");
     } finally {
       await cleanup(fixtureId, marketId, userIds);
+      await restoreCallBsFlag();
     }
   });
 
   test("the recipient can decline a Call BS", async ({ page }) => {
-    await admin.from("platform_settings").update({ call_bs_enabled: true }).eq("id", true);
+    const restoreCallBsFlag = await enableCallBs();
     const suffix = randomUUID();
     const emailA = `e2e-call-bs-decline-a-${suffix}@test.local`;
     const emailB = `e2e-call-bs-decline-b-${suffix}@test.local`;
@@ -174,6 +187,116 @@ test.describe("Call BS Challenges", () => {
       expect(predictions?.every((p) => p.locked_at === null)).toBe(true);
     } finally {
       await cleanup(fixtureId, marketId, userIds);
+      await restoreCallBsFlag();
+    }
+  });
+
+  test("exclusivity: accepting one Call BS displaces every other pending challenge for either participant, and already-paired users show no Call BS action", async ({ page }) => {
+    const restoreCallBsFlag = await enableCallBs();
+    const suffix = randomUUID();
+    const emailAndre = `e2e-excl-andre-${suffix}@test.local`;
+    const emailCarlos = `e2e-excl-carlos-${suffix}@test.local`;
+    const emailMarco = `e2e-excl-marco-${suffix}@test.local`;
+    const emailPriya = `e2e-excl-priya-${suffix}@test.local`;
+    const userIds: string[] = [];
+    const { fixtureId, marketId } = await seedMarket();
+
+    try {
+      userIds.push(await createPlayer(emailAndre, "e2eexclandre"));
+      userIds.push(await createPlayer(emailCarlos, "e2eexclcarlos"));
+      userIds.push(await createPlayer(emailMarco, "e2eexclmarco"));
+      userIds.push(await createPlayer(emailPriya, "e2eexclpriya"));
+
+      await loginAs(page, emailAndre);
+      await page.goto(`/markets/${marketId}`);
+      await page.getByRole("button", { name: "Pick: Yes" }).click();
+      await expect(page.getByText(/You picked Yes/)).toBeVisible();
+
+      // Carlos and Marco both pick the opposing side and both send Andre
+      // a Call BS — two independent PENDING challenges against the same
+      // recipient, which must coexist.
+      await page.context().clearCookies();
+      await loginAs(page, emailCarlos);
+      await page.goto(`/markets/${marketId}`);
+      await page.getByRole("button", { name: "Pick: No" }).click();
+      await expect(page.getByText(/You picked No/)).toBeVisible();
+      await page.reload();
+      await page.getByRole("button", { name: "Call BS" }).click();
+      await expect(page.getByText("Pending")).toBeVisible();
+
+      await page.context().clearCookies();
+      await loginAs(page, emailMarco);
+      await page.goto(`/markets/${marketId}`);
+      await page.getByRole("button", { name: "Pick: No" }).click();
+      await expect(page.getByText(/You picked No/)).toBeVisible();
+      await page.reload();
+      await page.getByRole("button", { name: "Call BS" }).click();
+      await expect(page.getByText("Pending")).toBeVisible();
+
+      // Priya also picks the opposing side but sends no challenge — used
+      // below to prove Call BS disappears for an already-paired target.
+      await page.context().clearCookies();
+      await loginAs(page, emailPriya);
+      await page.goto(`/markets/${marketId}`);
+      await page.getByRole("button", { name: "Pick: No" }).click();
+      await expect(page.getByText(/You picked No/)).toBeVisible();
+
+      // Andre sees both Carlos's and Marco's incoming Call BS, each with
+      // its own Accept/Decline — scoped per row so accepting one doesn't
+      // accidentally target the other.
+      await page.context().clearCookies();
+      await loginAs(page, emailAndre);
+      await page.goto(`/markets/${marketId}`);
+      const carlosRow = page.locator("li", { hasText: "e2e-excl-carlos" });
+      const marcoRow = page.locator("li", { hasText: "e2e-excl-marco" });
+      await expect(carlosRow.getByRole("button", { name: "Accept" })).toBeVisible();
+      await expect(marcoRow.getByRole("button", { name: "Accept" })).toBeVisible();
+      // The lock consequence is visible before Andre ever clicks Accept.
+      await expect(carlosRow.getByText(/locks both predictions/i)).toBeVisible();
+
+      await carlosRow.getByRole("button", { name: "Accept" }).click();
+      await expect(carlosRow.getByText("Accepted")).toBeVisible();
+
+      // Marco's still-visible row must stop offering Accept/Decline —
+      // never a stale control — and must not read as an explicit Decline.
+      await page.reload();
+      await expect(marcoRow.getByRole("button", { name: "Accept" })).not.toBeVisible();
+      await expect(marcoRow.getByText("Declined")).not.toBeVisible();
+      await expect(marcoRow.getByText("No longer available")).toBeVisible();
+
+      // Priya's row (never challenged, opposing, previously eligible) no
+      // longer offers Call BS either — Andre is already exclusively
+      // paired with Carlos on this Market.
+      const priyaRow = page.locator("li", { hasText: "e2e-excl-priya" });
+      await expect(priyaRow.getByRole("button", { name: "Call BS" })).not.toBeVisible();
+
+      // From Marco's own side: no longer available too, and his Pick is
+      // still ordinarily editable (never locked — he was displaced, not
+      // paired).
+      await page.context().clearCookies();
+      await loginAs(page, emailMarco);
+      await page.goto(`/markets/${marketId}`);
+      await expect(page.getByText("No longer available")).toBeVisible();
+
+      const { data: predictions } = await admin.from("predictions").select("user_id, locked_at, lock_reason").eq("market_id", marketId);
+      const byUser = new Map((predictions ?? []).map((p) => [p.user_id as string, p]));
+      const andreId = userIds[0];
+      const carlosId = userIds[1];
+      const marcoId = userIds[2];
+      expect(byUser.get(andreId)?.lock_reason).toBe("CHALLENGE_ACCEPTED");
+      expect(byUser.get(carlosId)?.lock_reason).toBe("CHALLENGE_ACCEPTED");
+      expect(byUser.get(marcoId)?.locked_at).toBeNull();
+
+      const { data: marcoChallenge } = await admin
+        .from("challenges")
+        .select("status")
+        .eq("market_id", marketId)
+        .eq("challenger_user_id", marcoId)
+        .single();
+      expect(marcoChallenge?.status).toBe("EXPIRED");
+    } finally {
+      await cleanup(fixtureId, marketId, userIds);
+      await restoreCallBsFlag();
     }
   });
 });

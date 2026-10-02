@@ -8,9 +8,9 @@ export interface NotificationRow {
   title: string;
   body: string;
   transaction_id: string | null;
-  /** Stage 4A remediation — populated only for type=prediction_graded (lib/notifications/predictions.ts), the canonical Post this notification is about. See lib/notifications/links.ts's resolveNotificationHref. */
+  /** Populated for type=prediction_graded (lib/notifications/predictions.ts) and, as of the Call BS exclusivity addendum, every CALL_BS_* type (lib/notifications/challenges.ts) — the canonical Post this notification is about. See lib/notifications/links.ts's resolveNotificationHref, which prefers market_id over this for prediction_graded but prefers this over market_id for CALL_BS_* types. */
   post_id: string | null;
-  /** Stage 4C remediation — populated only for type=prediction_graded, the specific Market this notification is about. See lib/notifications/links.ts's resolveNotificationHref, which prefers this over post_id. */
+  /** Populated for type=prediction_graded and every CALL_BS_* type — the specific Market this notification is about. See lib/notifications/links.ts's resolveNotificationHref for the per-type priority between this and post_id. */
   market_id: string | null;
   read_at: string | null;
   created_at: string;

@@ -72,7 +72,13 @@ export async function callBS(challengerUserId: string, recipientPredictionId: st
   return { ok: true, challenge: toDomain(data as ChallengeRow) };
 }
 
-export type AcceptCallBsOutcome = "accepted" | "not_pending" | "rejected_cutoff" | "rejected_invalidated";
+export type AcceptCallBsOutcome =
+  | "accepted"
+  | "not_pending"
+  | "rejected_cutoff"
+  | "rejected_invalidated"
+  | "rejected_already_paired"
+  | "rejected_ineligible_account";
 
 export interface AcceptCallBsResult {
   challenge: Challenge;
