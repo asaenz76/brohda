@@ -315,6 +315,63 @@ test.describe("Call BS final hardening", () => {
   });
 });
 
+test.describe("Call BS missing-state hints", () => {
+  async function acceptVia(challengeId: string, recipientId: string) {
+    const { error } = await admin.rpc("accept_call_bs", { p_challenge_id: challengeId, p_recipient_user_id: recipientId }).single();
+    if (error) throw error;
+  }
+
+  test("explains why there is no Call BS: a paired target, a paired viewer, and a viewer who has not picked", async ({ page }) => {
+    test.slow();
+    const suffix = randomUUID();
+    const emails = {
+      paira: `e2e-hint-paira-${suffix}@test.local`,
+      pairb: `e2e-hint-pairb-${suffix}@test.local`,
+      viewer: `e2e-hint-viewer-${suffix}@test.local`,
+      lurker: `e2e-hint-lurker-${suffix}@test.local`,
+    };
+    const userIds: string[] = [];
+    const { fixtureId, marketId, postId } = await seedMarket();
+
+    try {
+      const pairA = await createPlayer(emails.paira, "e2ehintpa");
+      const pairB = await createPlayer(emails.pairb, "e2ehintpb");
+      const viewer = await createPlayer(emails.viewer, "e2ehintv");
+      const lurker = await createPlayer(emails.lurker, "e2ehintl");
+      userIds.push(pairA, pairB, viewer, lurker);
+
+      await pickVia(pairA, marketId, "YES");
+      const pairBPick = await pickVia(pairB, marketId, "NO");
+      await pickVia(viewer, marketId, "NO");
+      await acceptVia(await callBsVia(pairA, pairBPick), pairB);
+
+      // A viewer who opposes a paired participant is told why there is no button.
+      await loginAs(page, emails.viewer);
+      await page.goto(`/post/${postId}`);
+      const pairARow = rowFor(page, "e2e-hint-paira");
+      await expect(pairARow.getByText("In a Call BS")).toBeVisible();
+      await expect(pairARow.getByRole("button", { name: "Call BS" })).toHaveCount(0);
+      // Same-side participants are never labelled — it would be noise.
+      await expect(rowFor(page, "e2e-hint-pairb").getByText("In a Call BS")).toHaveCount(0);
+
+      // A paired viewer is told they cannot call BS on anyone else; their partner's row reads Accepted.
+      await loginAs(page, emails.paira);
+      await page.goto(`/post/${postId}`);
+      await expect(rowFor(page, "e2e-hint-pairb").getByText("Accepted")).toBeVisible();
+      await expect(page.getByText("You're already in a Call BS on this game")).toBeVisible();
+
+      // Someone who hasn't picked sees a hint, and nobody's name or pick.
+      await loginAs(page, emails.lurker);
+      await page.goto(`/post/${postId}`);
+      await expect(page.getByText("Make a pick to call BS on anyone who picked the other side.")).toBeVisible();
+      await expect(page.getByText("Other picks")).toHaveCount(0);
+      await expect(page.getByText("e2e-hint-paira")).toHaveCount(0);
+    } finally {
+      await cleanup(fixtureId, marketId, postId, userIds);
+    }
+  });
+});
+
 test.describe("Call BS at 375px", () => {
   test.use({ viewport: { width: 375, height: 812 } });
 

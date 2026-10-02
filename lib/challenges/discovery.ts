@@ -104,6 +104,18 @@ export async function getMarketParticipants(
         !acceptedPairedUserIds.has(viewerId) &&
         !acceptedPairedUserIds.has(row.user_id),
     );
+    // Why a Call BS isn't offered, for the UI: the target is exclusively paired already. acceptedPairedUserIds is only populated
+    // while the viewer could still act (enabled, before cutoff, viewer picked and not graded), so this is false otherwise.
+    const pairedInCallBs = Boolean(
+      viewerRow &&
+        enabled &&
+        !pastCutoff &&
+        row.user_id !== viewerId &&
+        row.selected_outcome !== viewerRow.selected_outcome &&
+        row.lifecycle_state !== "GRADED" &&
+        viewerRow.lifecycle_state !== "GRADED" &&
+        acceptedPairedUserIds.has(row.user_id),
+    );
     return {
       userId: row.user_id,
       displayName: profile?.display_name ?? "Unknown",
@@ -112,6 +124,7 @@ export async function getMarketParticipants(
       predictionId: row.id,
       selectedOutcome: row.selected_outcome,
       canCallBs,
+      pairedInCallBs,
     };
   });
 }

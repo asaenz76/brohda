@@ -19,7 +19,10 @@ export type ChallengeActionState =
   // exact reason is never fabricated (EXPIRED alone doesn't distinguish
   // cutoff/edit-invalidation/displacement — see accept_call_bs()'s own
   // comment), so this one generic state covers all of them.
-  | { kind: "unavailable" };
+  | { kind: "unavailable" }
+  // No Call BS exists between this pair, and none can: the participant is already in an accepted Call BS with someone else on
+  // this Market (the 1-v-1 rule). Shown instead of silence so a missing button reads as a rule, not a bug.
+  | { kind: "in_call_bs" };
 
 /**
  * The pure per-row decision behind MarketParticipants' Call BS control —
@@ -44,12 +47,14 @@ export function deriveChallengeActionState({
   viewerId,
   participantPredictionId,
   canCallBs,
+  pairedInCallBs = false,
   challenges,
   pastCutoff,
 }: {
   viewerId: string;
   participantPredictionId: string;
   canCallBs: boolean;
+  pairedInCallBs?: boolean;
   challenges: Challenge[];
   pastCutoff: boolean;
 }): ChallengeActionState | null {
@@ -73,5 +78,6 @@ export function deriveChallengeActionState({
   }
 
   if (canCallBs) return { kind: "call_bs", recipientPredictionId: participantPredictionId };
+  if (pairedInCallBs) return { kind: "in_call_bs" };
   return null;
 }

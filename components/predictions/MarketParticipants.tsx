@@ -1,6 +1,7 @@
 import type { ComponentProps } from "react";
 import Link from "next/link";
 import { getMarketParticipants } from "@/lib/challenges/discovery";
+import { isCallBsEnabled } from "@/lib/challenges/policy";
 import { deriveChallengeActionState } from "@/lib/challenges/action-state";
 import { listChallengesForMarketAndUser } from "@/lib/challenges/repository";
 import { isPastEffectiveLock } from "@/lib/predictions/lock";
@@ -37,9 +38,12 @@ export async function MarketParticipants({
   viewerId,
   yesLabel,
   noLabel,
+  viewerHasPick,
 }: {
   marketId: string;
   viewerId: string;
+  /** Participants (and Call BS) only appear once the viewer has picked; before that, a one-line hint says so. */
+  viewerHasPick: boolean;
   /** Stage 4A remediation (§13): semantic per-side labels, so "Picked X" never renders the raw YES/NO enum. */
   yesLabel: string;
   noLabel: string;
@@ -49,6 +53,19 @@ export async function MarketParticipants({
 
   const scheduledStartUtc = await getFixtureScheduledStart(rawMarket.fixtureId);
   if (scheduledStartUtc === null) return null;
+
+  if (!viewerHasPick) {
+    // No names, picks or controls before the viewer has picked — only why
+    // there is no Call BS yet, shown when there is someone to call BS on.
+    const [participants, enabled, lockPolicy] = await Promise.all([
+      getMarketParticipants(marketId, viewerId, scheduledStartUtc),
+      isCallBsEnabled(),
+      getPickLockPolicy(),
+    ]);
+    const open = !isPastEffectiveLock(scheduledStartUtc, lockPolicy.lockMinutesBeforeKickoff, new Date());
+    if (!enabled || !open || participants.length === 0) return null;
+    return <p className="text-xs text-text-muted">Make a pick to call BS on anyone who picked the other side.</p>;
+  }
 
   const [participants, relevantChallenges, monetaryParticipants, relevantProposals, walletSummary, lockPolicy] = await Promise.all([
     getMarketParticipants(marketId, viewerId, scheduledStartUtc),
@@ -77,18 +94,34 @@ export async function MarketParticipants({
   const others = participants.filter((p) => p.userId !== viewerId);
   if (others.length === 0) return null;
 
+  const actionByUserId = new Map(
+    others.map((participant) => [
+      participant.userId,
+      deriveChallengeActionState({
+        viewerId,
+        participantPredictionId: participant.predictionId,
+        canCallBs: participant.canCallBs,
+        pairedInCallBs: participant.pairedInCallBs,
+        challenges: relevantChallenges,
+        pastCutoff,
+      }),
+    ]),
+  );
+  // The 1-v-1 rule from the viewer's side: once the viewer is in an
+  // accepted Call BS, no other row offers one — say so rather than leave a
+  // list of opposing picks with no button and no reason.
+  const viewerOutcome = participants.find((p) => p.userId === viewerId)?.selectedOutcome;
+  const viewerPaired = relevantChallenges.some((c) => c.status === "ACCEPTED");
+  const showViewerPairedNote =
+    viewerPaired && !pastCutoff && others.some((p) => p.selectedOutcome !== viewerOutcome && actionByUserId.get(p.userId)?.kind !== "accepted");
+
   return (
     <div className="space-y-3">
       <p className="text-xs font-medium uppercase tracking-wide text-text-muted">Other picks</p>
+      {showViewerPairedNote && <p className="text-xs text-text-muted">You&apos;re already in a Call BS on this game, so you can&apos;t call BS on anyone else.</p>}
       <ul className="space-y-2">
         {others.map((participant) => {
-          const action = deriveChallengeActionState({
-            viewerId,
-            participantPredictionId: participant.predictionId,
-            canCallBs: participant.canCallBs,
-            challenges: relevantChallenges,
-            pastCutoff,
-          });
+          const action = actionByUserId.get(participant.userId) ?? null;
 
           const monetaryParticipant = monetaryByUserId.get(participant.userId);
           const activeProposal = relevantProposals.find(
