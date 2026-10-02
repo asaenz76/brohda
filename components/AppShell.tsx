@@ -26,7 +26,8 @@ import type { UserProfile } from "@/lib/auth/session";
 // its final Wallet/History position comes in a later phase.
 export function AppShell({
   user,
-  balanceCents,
+  availableCents,
+  heldCents,
   unreadNotificationCount,
   wide = false,
   // Milestone R13.10 (Stage 0) — defaults true so AdminLayout (every user
@@ -37,7 +38,8 @@ export function AppShell({
   children,
 }: {
   user: UserProfile;
-  balanceCents: number;
+  availableCents: number;
+  heldCents: number;
   unreadNotificationCount: number;
   // Player-facing pages (Feed, Wallet, Profile, ...) are deliberately capped
   // at a mobile-first social-feed width. The admin section is data-dense
@@ -74,7 +76,7 @@ export function AppShell({
             >
               <Search className="size-5" aria-hidden="true" />
             </Link>
-            <BalancePill balanceCents={balanceCents} />
+            <BalancePill availableCents={availableCents} heldCents={heldCents} />
             {isAdminOrAbove(user) && (
               <Link
                 href="/admin/users"
