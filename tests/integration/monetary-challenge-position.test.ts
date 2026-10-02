@@ -28,6 +28,10 @@ import {
 import { getMonetaryParticipants } from "@/lib/monetary/discovery";
 import { getWalletBalanceSummary, getReservationById } from "@/lib/wallet/reservations";
 import { checkMonetaryConsistency } from "@/lib/monetary/reconciliation";
+import { ensurePostForFixture, publishPost } from "@/lib/posts/repository";
+import { createMonetaryProposalReceivedNotification, createMonetaryProposalAcceptedNotification } from "@/lib/notifications/monetary-proposals";
+import { createSettlementNotifications } from "@/lib/notifications/monetary-settlements";
+import type { MonetaryPositionSettlement } from "@/lib/monetary/types";
 
 const { url: SUPABASE_URL, anonKey: ANON_KEY } = getTestSupabaseConfig();
 const admin = getTestAdminClient();
@@ -1029,5 +1033,72 @@ describe("Security", () => {
     expect(outsiderView).toEqual([]);
     const recipientView = await listMonetaryProposalsForMarketAndUser(marketId, recipient.userId);
     expect(recipientView.map((p) => p.id)).toContain(proposed.proposal.id);
+  });
+});
+
+describe("Notifications", () => {
+  // Every monetary notification is stamped with its Market and (when the
+  // Game has a published Post) the Post, so the notification center can
+  // link to the disagreement itself — see lib/notifications/links.ts.
+  it("stamps market_id and the published Post on proposal and settlement notifications", async () => {
+    const { fixtureId, marketId, proposer, recipient, recipientPredictionId } = await setupOpposingFundedPair(1000);
+    await deposit(recipient.userId, 1000);
+    const { id: postId } = await ensurePostForFixture(fixtureId);
+    await publishPost(postId);
+
+    try {
+      const proposed = await proposeMoney(proposer.userId, recipientPredictionId, 1000, randomUUID());
+      if (!proposed.ok) throw new Error("setup failed");
+      await createMonetaryProposalReceivedNotification(proposed.proposal);
+
+      const accepted = await acceptMonetaryProposal(proposed.proposal.id, recipient.userId);
+      if (!accepted.position) throw new Error("setup failed");
+      await createMonetaryProposalAcceptedNotification(accepted.proposal);
+
+      const settlement = {
+        outcome: "PROPOSER_WINS",
+        winnerUserId: proposer.userId,
+        loserUserId: recipient.userId,
+        stake: 1000,
+        winnerCreditAmount: 1980,
+      } as MonetaryPositionSettlement;
+      await createSettlementNotifications(accepted.position, settlement);
+
+      const { data: rows } = await admin
+        .from("notifications")
+        .select("type, user_id, market_id, post_id")
+        .eq("monetary_proposal_id", proposed.proposal.id);
+
+      const byType = new Map((rows ?? []).map((r) => [r.type as string, r]));
+      expect([...byType.keys()].sort()).toEqual(["MONETARY_POSITION_SETTLED_LOSS", "MONETARY_POSITION_SETTLED_WIN", "MONETARY_PROPOSAL_ACCEPTED", "MONETARY_PROPOSAL_RECEIVED"]);
+      for (const row of rows ?? []) {
+        expect(row.market_id).toBe(marketId);
+        expect(row.post_id).toBe(postId);
+      }
+      expect(byType.get("MONETARY_PROPOSAL_RECEIVED")?.user_id).toBe(recipient.userId);
+      expect(byType.get("MONETARY_PROPOSAL_ACCEPTED")?.user_id).toBe(proposer.userId);
+      expect(byType.get("MONETARY_POSITION_SETTLED_WIN")?.user_id).toBe(proposer.userId);
+      expect(byType.get("MONETARY_POSITION_SETTLED_LOSS")?.user_id).toBe(recipient.userId);
+    } finally {
+      // notifications.post_id and posts.fixture_id are real FKs: detach
+      // them before the shared afterEach removes the fixture.
+      await admin.from("notifications").delete().eq("post_id", postId);
+      await admin.from("posts").delete().eq("id", postId);
+    }
+  });
+
+  it("still stamps market_id, with a null post_id, when the Game has no published Post yet", async () => {
+    const { marketId, proposer, recipientPredictionId } = await setupOpposingFundedPair(1000);
+    const proposed = await proposeMoney(proposer.userId, recipientPredictionId, 1000, randomUUID());
+    if (!proposed.ok) throw new Error("setup failed");
+    await createMonetaryProposalReceivedNotification(proposed.proposal);
+
+    const { data: row } = await admin
+      .from("notifications")
+      .select("market_id, post_id")
+      .eq("monetary_proposal_id", proposed.proposal.id)
+      .single();
+    expect(row?.market_id).toBe(marketId);
+    expect(row?.post_id).toBeNull();
   });
 });

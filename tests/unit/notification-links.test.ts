@@ -51,6 +51,16 @@ describe("resolveNotificationHref", () => {
     expect(resolveNotificationHref(n)).toBe("/markets/market-1");
   });
 
+  it("sends a monetary proposal notification to the Post, not the Market", () => {
+    const n = makeNotification({ type: "MONETARY_PROPOSAL_RECEIVED", post_id: "post-1", market_id: "market-1" });
+    expect(resolveNotificationHref(n)).toBe("/post/post-1");
+  });
+
+  it("falls back to the Market for a monetary settlement when the Game has no Post yet", () => {
+    const n = makeNotification({ type: "MONETARY_POSITION_SETTLED_WIN", post_id: null, market_id: "market-1" });
+    expect(resolveNotificationHref(n)).toBe("/markets/market-1");
+  });
+
   it("falls back to the stamped transaction_id's wallet entry when there's no post/market", () => {
     const n = makeNotification({ type: "DEPOSIT_APPROVED", transaction_id: "tx-direct" });
     expect(resolveNotificationHref(n)).toBe("/wallet#tx-tx-direct");
