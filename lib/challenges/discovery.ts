@@ -28,12 +28,16 @@ interface ParticipantRow {
  * for the viewer's own row, for a same-side participant, whenever either
  * Pick is graded or the effective Challenge cutoff has passed, whenever
  * the viewer has no Pick of their own on this Market yet, whenever Call BS
- * is disabled platform-wide, and whenever a PENDING or ACCEPTED Challenge
+ * is disabled platform-wide, whenever a PENDING or ACCEPTED Challenge
  * already links the viewer's Pick to this specific participant's Pick (a
- * presentation-only anti-redundancy check — the database's own uniqueness
- * guarantee only need cover the PENDING case; this simply avoids offering
- * a confusing "Call BS" prompt the backend would reject as a duplicate, or
- * a second one once the two are already facing off).
+ * presentation-only anti-redundancy check — exact-pair duplicates are
+ * still allowed to exist as PENDING rows, this just avoids re-offering a
+ * "Call BS" prompt the backend would reject as a duplicate, or re-offering
+ * one against a target already facing off with the viewer specifically),
+ * and — the exclusivity addendum — whenever EITHER the viewer or this
+ * participant already holds any ACCEPTED Challenge on this Market with
+ * ANYONE (not just each other). Only ACCEPTED pairing is exclusive;
+ * holding other PENDING challenges never suppresses this on its own.
  */
 export async function getMarketParticipants(
   marketId: string,
@@ -55,16 +59,22 @@ export async function getMarketParticipants(
   const pastCutoff = isPastEffectiveLock(scheduledStartUtc, lockPolicy.lockMinutesBeforeKickoff, new Date());
 
   let existingPairPredictionIds = new Set<string>();
+  let acceptedPairedUserIds = new Set<string>();
   if (viewerRow && enabled && !pastCutoff && viewerRow.lifecycle_state !== "GRADED") {
-    const { data: existing, error: existingError } = await admin
-      .from("challenges")
-      .select("challenger_prediction_id, recipient_prediction_id")
-      .in("status", ["PENDING", "ACCEPTED"])
-      .or(`challenger_prediction_id.eq.${viewerRow.id},recipient_prediction_id.eq.${viewerRow.id}`);
+    const [{ data: existing, error: existingError }, { data: acceptedRows, error: acceptedError }] = await Promise.all([
+      admin
+        .from("challenges")
+        .select("challenger_prediction_id, recipient_prediction_id")
+        .in("status", ["PENDING", "ACCEPTED"])
+        .or(`challenger_prediction_id.eq.${viewerRow.id},recipient_prediction_id.eq.${viewerRow.id}`),
+      admin.from("challenges").select("challenger_user_id, recipient_user_id").eq("market_id", marketId).eq("status", "ACCEPTED"),
+    ]);
     if (existingError) throw existingError;
+    if (acceptedError) throw acceptedError;
     existingPairPredictionIds = new Set(
       (existing ?? []).flatMap((c) => [c.challenger_prediction_id, c.recipient_prediction_id]).filter((id) => id !== viewerRow.id),
     );
+    acceptedPairedUserIds = new Set((acceptedRows ?? []).flatMap((c) => [c.challenger_user_id, c.recipient_user_id]));
   }
 
   const userIds = [...new Set(participantRows.map((r) => r.user_id))];
@@ -90,7 +100,9 @@ export async function getMarketParticipants(
         row.selected_outcome !== viewerRow.selected_outcome &&
         row.lifecycle_state !== "GRADED" &&
         viewerRow.lifecycle_state !== "GRADED" &&
-        !existingPairPredictionIds.has(row.id),
+        !existingPairPredictionIds.has(row.id) &&
+        !acceptedPairedUserIds.has(viewerId) &&
+        !acceptedPairedUserIds.has(row.user_id),
     );
     return {
       userId: row.user_id,

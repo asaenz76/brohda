@@ -3,10 +3,26 @@ import type { NotificationRow } from "./fetch";
 
 export type NotificationWithHref = NotificationRow & { href: string | null };
 
+// Call BS exclusivity addendum (§15 of the activation report): these four
+// types prefer the canonical Post over the Market — the social
+// disagreement itself lives on the Post, unlike prediction_graded's own
+// market-first reasoning below (disambiguating between several concurrent
+// Markets on one Post, which a Challenge doesn't need since it's not
+// about "which Market," just "where's the conversation"). Both post_id and
+// market_id are stamped directly onto the notification at creation time
+// (lib/notifications/challenges.ts) — no per-row lookup needed here.
+const CALL_BS_NOTIFICATION_TYPES = new Set(["CALL_BS_RECEIVED", "CALL_BS_ACCEPTED", "CALL_BS_DECLINED", "CALL_BS_RESOLVED"]);
+
 export function resolveNotificationHref(n: NotificationRow): string | null {
   // Not about the recipient's own money — always the admin wallet-requests
   // queue, regardless of transaction_id (null for this type).
   if (n.type === "WALLET_REQUEST_SUBMITTED") return "/admin/wallet-requests";
+
+  if (CALL_BS_NOTIFICATION_TYPES.has(n.type)) {
+    if (n.post_id) return `/post/${n.post_id}`;
+    if (n.market_id) return `/markets/${n.market_id}`;
+    return null;
+  }
 
   // Stage 4C remediation — a Post can have more than one concurrently
   // ACTIVE Market (e.g. MONEYLINE + TOTAL for the same NFL Game), so two

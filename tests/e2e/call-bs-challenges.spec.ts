@@ -4,6 +4,11 @@
  * MarketPredictionCard on /markets/[id] (and, unchanged, /post/[id] via the
  * same shared component). Requires the local Supabase stack
  * (`pnpm supabase:start`) — `pnpm test:e2e` handles the rest.
+ *
+ * call_bs_enabled is turned on once for the whole run by
+ * tests/e2e/helpers/global-setup.ts (and restored by its teardown) — never
+ * toggled per test here, since these specs run in parallel and a per-test
+ * restore would switch the flag off under whichever test is still running.
  */
 import { test, expect, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
@@ -83,7 +88,6 @@ async function cleanup(fixtureId: string, marketId: string, userIds: string[]) {
 
 test.describe("Call BS Challenges", () => {
   test("one user calls BS on an opposing pick, the other accepts, and both see the accepted state", async ({ page }) => {
-    await admin.from("platform_settings").update({ call_bs_enabled: true }).eq("id", true);
     const suffix = randomUUID();
     const emailA = `e2e-call-bs-a-${suffix}@test.local`;
     const emailB = `e2e-call-bs-b-${suffix}@test.local`;
@@ -136,7 +140,6 @@ test.describe("Call BS Challenges", () => {
   });
 
   test("the recipient can decline a Call BS", async ({ page }) => {
-    await admin.from("platform_settings").update({ call_bs_enabled: true }).eq("id", true);
     const suffix = randomUUID();
     const emailA = `e2e-call-bs-decline-a-${suffix}@test.local`;
     const emailB = `e2e-call-bs-decline-b-${suffix}@test.local`;
@@ -172,6 +175,120 @@ test.describe("Call BS Challenges", () => {
 
       const { data: predictions } = await admin.from("predictions").select("locked_at").eq("market_id", marketId);
       expect(predictions?.every((p) => p.locked_at === null)).toBe(true);
+    } finally {
+      await cleanup(fixtureId, marketId, userIds);
+    }
+  });
+
+  test("exclusivity: accepting one Call BS displaces every other pending challenge for either participant, and already-paired users show no Call BS action", async ({ page }) => {
+    // Four users, seven logins and roughly fifteen page loads against a
+    // `next dev` server that compiles routes on demand and is shared with
+    // other workers: ~30s alone, but over the default 60s once contended
+    // (seen in CI with 2 workers, and locally with 3). The page was
+    // mid-login and mid-compile at the timeout — slow, not stuck — so this
+    // triples this one test's budget instead of trimming what it proves.
+    test.slow();
+    const suffix = randomUUID();
+    const emailAndre = `e2e-excl-andre-${suffix}@test.local`;
+    const emailCarlos = `e2e-excl-carlos-${suffix}@test.local`;
+    const emailMarco = `e2e-excl-marco-${suffix}@test.local`;
+    const emailPriya = `e2e-excl-priya-${suffix}@test.local`;
+    const userIds: string[] = [];
+    const { fixtureId, marketId } = await seedMarket();
+
+    try {
+      userIds.push(await createPlayer(emailAndre, "e2eexclandre"));
+      userIds.push(await createPlayer(emailCarlos, "e2eexclcarlos"));
+      userIds.push(await createPlayer(emailMarco, "e2eexclmarco"));
+      userIds.push(await createPlayer(emailPriya, "e2eexclpriya"));
+
+      await loginAs(page, emailAndre);
+      await page.goto(`/markets/${marketId}`);
+      await page.getByRole("button", { name: "Pick: Yes" }).click();
+      await expect(page.getByText(/You picked Yes/)).toBeVisible();
+
+      // Carlos and Marco both pick the opposing side and both send Andre
+      // a Call BS — two independent PENDING challenges against the same
+      // recipient, which must coexist.
+      await page.context().clearCookies();
+      await loginAs(page, emailCarlos);
+      await page.goto(`/markets/${marketId}`);
+      await page.getByRole("button", { name: "Pick: No" }).click();
+      await expect(page.getByText(/You picked No/)).toBeVisible();
+      await page.reload();
+      await page.getByRole("button", { name: "Call BS" }).click();
+      await expect(page.getByText("Pending")).toBeVisible();
+
+      await page.context().clearCookies();
+      await loginAs(page, emailMarco);
+      await page.goto(`/markets/${marketId}`);
+      await page.getByRole("button", { name: "Pick: No" }).click();
+      await expect(page.getByText(/You picked No/)).toBeVisible();
+      await page.reload();
+      await page.getByRole("button", { name: "Call BS" }).click();
+      await expect(page.getByText("Pending")).toBeVisible();
+
+      // Priya also picks the opposing side but sends no challenge — used
+      // below to prove Call BS disappears for an already-paired target.
+      await page.context().clearCookies();
+      await loginAs(page, emailPriya);
+      await page.goto(`/markets/${marketId}`);
+      await page.getByRole("button", { name: "Pick: No" }).click();
+      await expect(page.getByText(/You picked No/)).toBeVisible();
+
+      // Andre sees both Carlos's and Marco's incoming Call BS, each with
+      // its own Accept/Decline — scoped per row so accepting one doesn't
+      // accidentally target the other.
+      await page.context().clearCookies();
+      await loginAs(page, emailAndre);
+      await page.goto(`/markets/${marketId}`);
+      const carlosRow = page.locator("li", { hasText: "e2e-excl-carlos" });
+      const marcoRow = page.locator("li", { hasText: "e2e-excl-marco" });
+      await expect(carlosRow.getByRole("button", { name: "Accept" })).toBeVisible();
+      await expect(marcoRow.getByRole("button", { name: "Accept" })).toBeVisible();
+      // The lock consequence is visible before Andre ever clicks Accept.
+      await expect(carlosRow.getByText(/locks both predictions/i)).toBeVisible();
+
+      await carlosRow.getByRole("button", { name: "Accept" }).click();
+      await expect(carlosRow.getByText("Accepted")).toBeVisible();
+
+      // Marco's still-visible row must stop offering Accept/Decline —
+      // never a stale control — and must not read as an explicit Decline.
+      await page.reload();
+      await expect(marcoRow.getByRole("button", { name: "Accept" })).not.toBeVisible();
+      await expect(marcoRow.getByText("Declined")).not.toBeVisible();
+      await expect(marcoRow.getByText("No longer available")).toBeVisible();
+
+      // Priya's row (never challenged, opposing, previously eligible) no
+      // longer offers Call BS either — Andre is already exclusively
+      // paired with Carlos on this Market.
+      const priyaRow = page.locator("li", { hasText: "e2e-excl-priya" });
+      await expect(priyaRow.getByRole("button", { name: "Call BS" })).not.toBeVisible();
+
+      // From Marco's own side: no longer available too, and his Pick is
+      // still ordinarily editable (never locked — he was displaced, not
+      // paired).
+      await page.context().clearCookies();
+      await loginAs(page, emailMarco);
+      await page.goto(`/markets/${marketId}`);
+      await expect(page.getByText("No longer available")).toBeVisible();
+
+      const { data: predictions } = await admin.from("predictions").select("user_id, locked_at, lock_reason").eq("market_id", marketId);
+      const byUser = new Map((predictions ?? []).map((p) => [p.user_id as string, p]));
+      const andreId = userIds[0];
+      const carlosId = userIds[1];
+      const marcoId = userIds[2];
+      expect(byUser.get(andreId)?.lock_reason).toBe("CHALLENGE_ACCEPTED");
+      expect(byUser.get(carlosId)?.lock_reason).toBe("CHALLENGE_ACCEPTED");
+      expect(byUser.get(marcoId)?.locked_at).toBeNull();
+
+      const { data: marcoChallenge } = await admin
+        .from("challenges")
+        .select("status")
+        .eq("market_id", marketId)
+        .eq("challenger_user_id", marcoId)
+        .single();
+      expect(marcoChallenge?.status).toBe("EXPIRED");
     } finally {
       await cleanup(fixtureId, marketId, userIds);
     }

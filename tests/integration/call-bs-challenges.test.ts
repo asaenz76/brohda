@@ -597,36 +597,361 @@ describe("Decline", () => {
   });
 });
 
-describe("Multiplicity", () => {
-  it("the same already-locked Pick supports a second, independent accepted Challenge — no overwritten lock, one Pick row throughout", async () => {
+describe("Exclusivity (one ACCEPTED Call BS per user per Market)", () => {
+  it("[A] multiple PENDING challenges against the same recipient coexist, and the recipient's Pick stays unlocked", async () => {
     const fixtureId = await createFixture();
     const marketId = await createMarket(fixtureId);
     const andre = await createUser("andre");
     const carlos = await createUser("carlos");
-    const david = await createUser("david");
+    const marco = await createUser("marco");
     const andrePick = await pick(andre.userId, marketId, "YES");
     const carlosPick = await pick(carlos.userId, marketId, "NO");
-    const davidPick = await pick(david.userId, marketId, "NO");
+    const marcoPick = await pick(marco.userId, marketId, "NO");
 
-    const first = await callBS(andre.userId, carlosPick);
-    if (!first.ok) throw new Error("setup failed");
-    const firstAccept = await acceptCallBS(first.challenge.id, carlos.userId);
+    const fromCarlos = await callBS(carlos.userId, andrePick);
+    const fromMarco = await callBS(marco.userId, andrePick);
+    expect(fromCarlos.ok).toBe(true);
+    expect(fromMarco.ok).toBe(true);
+    if (!fromCarlos.ok || !fromMarco.ok) return;
+    expect(fromCarlos.challenge.status).toBe("PENDING");
+    expect(fromMarco.challenge.status).toBe("PENDING");
+
+    const andreRow = await getPredictionById(andrePick);
+    const carlosRow = await getPredictionById(carlosPick);
+    const marcoRow = await getPredictionById(marcoPick);
+    expect(andreRow?.lockedAt).toBeNull();
+    expect(carlosRow?.lockedAt).toBeNull();
+    expect(marcoRow?.lockedAt).toBeNull();
+  });
+
+  it("[B] accepting one challenge locks both Picks and displaces every other PENDING challenge sharing a participant on this Market", async () => {
+    const fixtureId = await createFixture();
+    const marketId = await createMarket(fixtureId);
+    const andre = await createUser("andre");
+    const carlos = await createUser("carlos");
+    const marco = await createUser("marco");
+    const andrePick = await pick(andre.userId, marketId, "YES");
+    const carlosPick = await pick(carlos.userId, marketId, "NO");
+    await pick(marco.userId, marketId, "NO");
+
+    const fromCarlos = await callBS(carlos.userId, andrePick);
+    const fromMarco = await callBS(marco.userId, andrePick);
+    if (!fromCarlos.ok || !fromMarco.ok) throw new Error("setup failed");
+
+    const accept = await acceptCallBS(fromCarlos.challenge.id, andre.userId);
+    expect(accept.outcome).toBe("accepted");
+
+    const andreRow = await getPredictionById(andrePick);
+    const carlosRow = await getPredictionById(carlosPick);
+    expect(andreRow?.lockedAt).not.toBeNull();
+    expect(andreRow?.lockReason).toBe("CHALLENGE_ACCEPTED");
+    expect(carlosRow?.lockedAt).not.toBeNull();
+    expect(carlosRow?.lockReason).toBe("CHALLENGE_ACCEPTED");
+
+    const { data: marcoChallenge } = await admin.from("challenges").select("status").eq("id", fromMarco.challenge.id).single();
+    expect(marcoChallenge?.status).toBe("EXPIRED");
+  });
+
+  it("[C] accepting one of Carlos's challenges displaces every OTHER PENDING challenge involving Carlos on this Market too", async () => {
+    const fixtureId = await createFixture();
+    const marketId = await createMarket(fixtureId);
+    const andre = await createUser("andre");
+    const carlos = await createUser("carlos");
+    const priya = await createUser("priya");
+    const andrePick = await pick(andre.userId, marketId, "YES");
+    const carlosPick = await pick(carlos.userId, marketId, "NO");
+    const priyaPick = await pick(priya.userId, marketId, "YES");
+    void carlosPick;
+
+    // Carlos has two outgoing PENDING challenges on this Market: one
+    // against Andre, one against a second, unrelated opposing picker
+    // (Priya).
+    const carlosToAndre = await callBS(carlos.userId, andrePick);
+    const carlosToPriya = await callBS(carlos.userId, priyaPick);
+    if (!carlosToAndre.ok || !carlosToPriya.ok) throw new Error("setup failed");
+
+    const accept = await acceptCallBS(carlosToAndre.challenge.id, andre.userId);
+    expect(accept.outcome).toBe("accepted");
+
+    const { data: challenges } = await admin
+      .from("challenges")
+      .select("id, status, challenger_user_id, recipient_user_id")
+      .eq("market_id", marketId)
+      .eq("challenger_user_id", carlos.userId);
+    for (const c of challenges ?? []) {
+      if (c.id === carlosToAndre.challenge.id) expect(c.status).toBe("ACCEPTED");
+      else expect(c.status).toBe("EXPIRED");
+    }
+  });
+
+  it("[D] one incoming and one outgoing PENDING challenge for the same user on the same Market — accepting either invalidates the other", async () => {
+    const fixtureId = await createFixture();
+    const marketId = await createMarket(fixtureId);
+    const andre = await createUser("andre");
+    const carlos = await createUser("carlos");
+    const marco = await createUser("marco");
+    const andrePick = await pick(andre.userId, marketId, "YES");
+    const carlosPick = await pick(carlos.userId, marketId, "NO");
+    const marcoPick = await pick(marco.userId, marketId, "NO");
+    void carlosPick;
+
+    // Carlos -> Andre (incoming for Andre) and Andre -> Marco (outgoing for Andre).
+    const incoming = await callBS(carlos.userId, andrePick);
+    const outgoing = await callBS(andre.userId, marcoPick);
+    if (!incoming.ok || !outgoing.ok) throw new Error("setup failed");
+
+    const accept = await acceptCallBS(incoming.challenge.id, andre.userId);
+    expect(accept.outcome).toBe("accepted");
+
+    const { data: outgoingRow } = await admin.from("challenges").select("status").eq("id", outgoing.challenge.id).single();
+    expect(outgoingRow?.status).toBe("EXPIRED");
+  });
+
+  it("[E] two unrelated opposing pairs on the same Market can both become ACCEPTED independently", async () => {
+    const fixtureId = await createFixture();
+    const marketId = await createMarket(fixtureId);
+    const andre = await createUser("andre");
+    const carlos = await createUser("carlos");
+    const marco = await createUser("marco");
+    const lia = await createUser("lia");
+    const andrePick = await pick(andre.userId, marketId, "YES");
+    const carlosPick = await pick(carlos.userId, marketId, "NO");
+    const marcoPick = await pick(marco.userId, marketId, "YES");
+    const liaPick = await pick(lia.userId, marketId, "NO");
+    void andrePick;
+    void marcoPick;
+
+    const pairOne = await callBS(carlos.userId, andrePick);
+    const pairTwo = await callBS(lia.userId, marcoPick);
+    if (!pairOne.ok || !pairTwo.ok) throw new Error("setup failed");
+
+    const acceptOne = await acceptCallBS(pairOne.challenge.id, andre.userId);
+    const acceptTwo = await acceptCallBS(pairTwo.challenge.id, marco.userId);
+    expect(acceptOne.outcome).toBe("accepted");
+    expect(acceptTwo.outcome).toBe("accepted");
+
+    const carlosRow = await getPredictionById(carlosPick);
+    const liaRow = await getPredictionById(liaPick);
+    expect(carlosRow?.lockReason).toBe("CHALLENGE_ACCEPTED");
+    expect(liaRow?.lockReason).toBe("CHALLENGE_ACCEPTED");
+  });
+
+  it("[F] an accepted Call BS on one Market does not block the same user from accepting a different Call BS on another Market", async () => {
+    const fixtureA = await createFixture();
+    const fixtureB = await createFixture();
+    const marketA = await createMarket(fixtureA);
+    const marketB = await createMarket(fixtureB);
+    const andre = await createUser("andre");
+    const carlos = await createUser("carlos");
+    const marco = await createUser("marco");
+    const andrePickA = await pick(andre.userId, marketA, "YES");
+    await pick(carlos.userId, marketA, "NO");
+    const andrePickB = await pick(andre.userId, marketB, "YES");
+    await pick(marco.userId, marketB, "NO");
+
+    const challengeA = await callBS(carlos.userId, andrePickA);
+    const challengeB = await callBS(marco.userId, andrePickB);
+    if (!challengeA.ok || !challengeB.ok) throw new Error("setup failed");
+
+    const acceptA = await acceptCallBS(challengeA.challenge.id, andre.userId);
+    const acceptB = await acceptCallBS(challengeB.challenge.id, andre.userId);
+    expect(acceptA.outcome).toBe("accepted");
+    expect(acceptB.outcome).toBe("accepted");
+  });
+
+  it("[G] a second accept attempt against a conflicting challenge fails deterministically with rejected_already_paired", async () => {
+    const fixtureId = await createFixture();
+    const marketId = await createMarket(fixtureId);
+    const andre = await createUser("andre");
+    const carlos = await createUser("carlos");
+    const marco = await createUser("marco");
+    const andrePick = await pick(andre.userId, marketId, "YES");
+    await pick(carlos.userId, marketId, "NO");
+    await pick(marco.userId, marketId, "NO");
+
+    const fromCarlos = await callBS(carlos.userId, andrePick);
+    const fromMarco = await callBS(marco.userId, andrePick);
+    if (!fromCarlos.ok || !fromMarco.ok) throw new Error("setup failed");
+
+    const firstAccept = await acceptCallBS(fromCarlos.challenge.id, andre.userId);
     expect(firstAccept.outcome).toBe("accepted");
-    const andreRowAfterFirst = await getPredictionById(andrePick);
-    const firstLockedAt = andreRowAfterFirst?.lockedAt;
 
-    const second = await callBS(andre.userId, davidPick);
-    expect(second.ok).toBe(true);
-    if (!second.ok) return;
-    const secondAccept = await acceptCallBS(second.challenge.id, david.userId);
-    expect(secondAccept.outcome).toBe("accepted");
+    // The cascade already flips fromMarco to EXPIRED, so this specific
+    // acceptance attempt now takes the ordinary not-PENDING path — the
+    // important, deterministic fact is that it can never also become
+    // ACCEPTED.
+    const secondAccept = await acceptCallBS(fromMarco.challenge.id, andre.userId);
+    expect(secondAccept.outcome).not.toBe("accepted");
+    expect(secondAccept.challenge.status).not.toBe("ACCEPTED");
+  });
 
-    const andreRowAfterSecond = await getPredictionById(andrePick);
-    expect(andreRowAfterSecond?.lockedAt).toBe(firstLockedAt); // never overwritten
-    expect(andreRowAfterSecond?.lockReason).toBe("CHALLENGE_ACCEPTED");
+  it("[H] the displaced user's Pick remains ordinarily editable; the winning pair's Picks do not", async () => {
+    const fixtureId = await createFixture();
+    const marketId = await createMarket(fixtureId);
+    const andre = await createUser("andre");
+    const carlos = await createUser("carlos");
+    const marco = await createUser("marco");
+    const andrePick = await pick(andre.userId, marketId, "YES");
+    await pick(carlos.userId, marketId, "NO");
+    const marcoPick = await pick(marco.userId, marketId, "NO");
 
-    const { count } = await admin.from("predictions").select("id", { count: "exact", head: true }).eq("id", andrePick);
-    expect(count).toBe(1); // still exactly one Pick row for André
+    const fromCarlos = await callBS(carlos.userId, andrePick);
+    const fromMarco = await callBS(marco.userId, andrePick);
+    if (!fromCarlos.ok || !fromMarco.ok) throw new Error("setup failed");
+    const accept = await acceptCallBS(fromCarlos.challenge.id, andre.userId);
+    expect(accept.outcome).toBe("accepted");
+    void fromMarco;
+
+    // Andre (won the exclusive pairing with Carlos) cannot edit anymore.
+    const { outcome: andreEditOutcome } = await setPick({
+      userId: andre.userId,
+      marketId,
+      selectedOutcome: "NO",
+      yesProbability: 0.6,
+      noProbability: 0.4,
+      marketQuestionSnapshot: "q",
+      marketCloseAtSnapshot: null,
+      marketStatusSnapshot: "ACTIVE",
+      idempotencyKey: crypto.randomUUID(),
+    });
+    expect(andreEditOutcome).toBe("rejected_locked");
+
+    // Marco (displaced, never got an ACCEPTED pairing) can still edit normally.
+    const marcoRowBefore = await getPredictionById(marcoPick);
+    expect(marcoRowBefore?.lockedAt).toBeNull();
+    const { outcome: marcoEditOutcome } = await setPick({
+      userId: marco.userId,
+      marketId,
+      selectedOutcome: "YES",
+      yesProbability: 0.6,
+      noProbability: 0.4,
+      marketQuestionSnapshot: "q",
+      marketCloseAtSnapshot: null,
+      marketStatusSnapshot: "ACTIVE",
+      idempotencyKey: crypto.randomUUID(),
+    });
+    expect(marcoEditOutcome).toBe("updated");
+  });
+
+  it("[concurrency, launch-critical] two concurrent Accept requests for different PENDING challenges sharing one participant — exactly one may ever become ACCEPTED", async () => {
+    const fixtureId = await createFixture();
+    const marketId = await createMarket(fixtureId);
+    const andre = await createUser("andre");
+    const carlos = await createUser("carlos");
+    const marco = await createUser("marco");
+    const andrePick = await pick(andre.userId, marketId, "YES");
+    await pick(carlos.userId, marketId, "NO");
+    await pick(marco.userId, marketId, "NO");
+
+    const fromCarlos = await callBS(carlos.userId, andrePick);
+    const fromMarco = await callBS(marco.userId, andrePick);
+    if (!fromCarlos.ok || !fromMarco.ok) throw new Error("setup failed");
+
+    // Two genuinely overlapping requests against two DIFFERENT Challenge
+    // rows that share Andre as a participant — this is exactly the race
+    // the advisory-lock serialization in accept_call_bs() exists for.
+    // A second admin client instance is used for the second call so the
+    // two requests are independent connections, not serialized by a
+    // single client's own request queueing.
+    const admin2 = getTestAdminClient();
+    const [resultA, resultB] = await Promise.all([
+      acceptCallBS(fromCarlos.challenge.id, andre.userId),
+      admin2
+        .rpc("accept_call_bs", { p_challenge_id: fromMarco.challenge.id, p_recipient_user_id: andre.userId })
+        .single()
+        .then((r) => {
+          if (r.error) throw r.error;
+          const row = r.data as { outcome: string };
+          return { outcome: row.outcome };
+        }),
+    ]);
+
+    const outcomes = [resultA.outcome, resultB.outcome];
+    const acceptedCount = outcomes.filter((o) => o === "accepted").length;
+    expect(acceptedCount).toBe(1);
+
+    const { data: finalStatuses } = await admin
+      .from("challenges")
+      .select("id, status")
+      .in("id", [fromCarlos.challenge.id, fromMarco.challenge.id]);
+    const acceptedRows = (finalStatuses ?? []).filter((c) => c.status === "ACCEPTED");
+    expect(acceptedRows).toHaveLength(1);
+
+    const andreRow = await getPredictionById(andrePick);
+    expect(andreRow?.lockedAt).not.toBeNull();
+    expect(andreRow?.lockReason).toBe("CHALLENGE_ACCEPTED");
+
+    // No deadlock: both calls above resolved (Promise.all settled) rather
+    // than hanging — if the advisory-lock ordering were wrong, this test
+    // itself would time out instead of reaching these assertions.
+  });
+
+  it("[concurrency] Accept vs Decline against the same PENDING challenge — exactly one terminal path wins, no mixed state", async () => {
+    const fixtureId = await createFixture();
+    const marketId = await createMarket(fixtureId);
+    const andre = await createUser("andre");
+    const carlos = await createUser("carlos");
+    const andrePick = await pick(andre.userId, marketId, "YES");
+    await pick(carlos.userId, marketId, "NO");
+
+    const fromCarlos = await callBS(carlos.userId, andrePick);
+    if (!fromCarlos.ok) throw new Error("setup failed");
+
+    const admin2 = getTestAdminClient();
+    const [acceptResult, declineResult] = await Promise.allSettled([
+      acceptCallBS(fromCarlos.challenge.id, andre.userId),
+      admin2.rpc("decline_call_bs", { p_challenge_id: fromCarlos.challenge.id, p_recipient_user_id: andre.userId }).single(),
+    ]);
+
+    const { data: finalRow } = await admin.from("challenges").select("status").eq("id", fromCarlos.challenge.id).single();
+    expect(["ACCEPTED", "DECLINED"]).toContain(finalRow?.status);
+
+    // Exactly one of the two requests actually produced its intended
+    // terminal state; the other either failed (not_pending) or, for
+    // accept, resolved with a non-"accepted" outcome. Never both.
+    const acceptSucceeded = acceptResult.status === "fulfilled" && acceptResult.value.outcome === "accepted";
+    const declineSucceeded = declineResult.status === "fulfilled" && !declineResult.value.error;
+    expect(acceptSucceeded && declineSucceeded).toBe(false);
+  });
+
+  it("[concurrency] Accept vs a Pick edit on the recipient's own Pick — the database never lands on an ACCEPTED Challenge with a stale/non-opposing snapshot", async () => {
+    const fixtureId = await createFixture();
+    const marketId = await createMarket(fixtureId);
+    const andre = await createUser("andre");
+    const carlos = await createUser("carlos");
+    const andrePick = await pick(andre.userId, marketId, "YES");
+    await pick(carlos.userId, marketId, "NO");
+
+    const fromCarlos = await callBS(carlos.userId, andrePick);
+    if (!fromCarlos.ok) throw new Error("setup failed");
+
+    await Promise.all([
+      acceptCallBS(fromCarlos.challenge.id, andre.userId),
+      setPick({
+        userId: andre.userId,
+        marketId,
+        selectedOutcome: "NO",
+        yesProbability: 0.6,
+        noProbability: 0.4,
+        marketQuestionSnapshot: "q",
+        marketCloseAtSnapshot: null,
+        marketStatusSnapshot: "ACTIVE",
+        idempotencyKey: crypto.randomUUID(),
+      }),
+    ]);
+
+    const { data: finalRow } = await admin.from("challenges").select("status, challenger_selection_snapshot, recipient_selection_snapshot").eq("id", fromCarlos.challenge.id).single();
+    if (finalRow?.status === "ACCEPTED") {
+      // If acceptance won the race, the snapshot it accepted against must
+      // still be exactly what it was at Challenge creation — set_pick()
+      // itself is blocked from ever touching a Pick once accept_call_bs()
+      // has locked it, so a "changed snapshot but still ACCEPTED" state
+      // would mean the race was lost, not won.
+      const andreRow = await getPredictionById(andrePick);
+      expect(andreRow?.selectedOutcome).toBe(finalRow.recipient_selection_snapshot);
+    } else {
+      expect(finalRow?.status).toBe("EXPIRED");
+    }
   });
 });
 

@@ -74,16 +74,29 @@ export async function MarketParticipants({
       <p className="text-xs font-medium uppercase tracking-wide text-text-muted">Other picks</p>
       <ul className="space-y-2">
         {others.map((participant) => {
-          const active = relevantChallenges.find(
+          // A terminal-state Challenge between this exact pair never blocks
+          // a fresh one later (existing R7 behavior, unchanged) — so more
+          // than one Challenge can match this pair at once (one EXPIRED,
+          // one newly PENDING). ACCEPTED/PENDING take priority over a
+          // stale EXPIRED row for display purposes; DECLINED/RESOLVED are
+          // deliberately never matched here (unchanged from before this
+          // addendum — those only ever show via the client's own ephemeral
+          // post-action state, never a fresh server render).
+          const pairChallenges = relevantChallenges.filter(
             (c) =>
-              (c.status === "PENDING" || c.status === "ACCEPTED") &&
+              (c.status === "PENDING" || c.status === "ACCEPTED" || c.status === "EXPIRED") &&
               ((c.challengerUserId === viewerId && c.recipientPredictionId === participant.predictionId) ||
                 (c.recipientUserId === viewerId && c.challengerPredictionId === participant.predictionId)),
           );
+          const active =
+            pairChallenges.find((c) => c.status === "ACCEPTED") ??
+            pairChallenges.find((c) => c.status === "PENDING") ??
+            pairChallenges.find((c) => c.status === "EXPIRED");
 
           let action: ComponentProps<typeof ChallengeAction>["state"] | null = null;
           if (active) {
             if (active.status === "ACCEPTED") action = { kind: "accepted" };
+            else if (active.status === "EXPIRED") action = { kind: "unavailable" };
             else if (active.challengerUserId === viewerId) action = { kind: "outgoing_pending" };
             else action = { kind: "incoming_pending", challengeId: active.id };
           } else if (participant.canCallBs) {

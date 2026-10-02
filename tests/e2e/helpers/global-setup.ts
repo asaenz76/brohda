@@ -26,6 +26,22 @@ export default async function globalSetup() {
   // settings.spec.ts already manage their own platform_settings state
   // per-test and are unaffected by this ambient default.
   const admin = getTestAdminClient();
-  const { error } = await admin.from("platform_settings").update({ social_prediction_enabled: true }).eq("id", true);
+
+  // call_bs_enabled follows the same reasoning, with one addition: it is
+  // restored to its pre-run value in the global teardown below, so a run
+  // never leaves the flag flipped in a persisted local database. This must
+  // be a once-per-run setup/teardown pair, NOT a per-test
+  // capture-and-restore — specs run fullyParallel, and one test restoring
+  // the flag to false while another is mid-run silently removes the "Call
+  // BS" button from under it.
+  const { data: before, error: readError } = await admin.from("platform_settings").select("call_bs_enabled").eq("id", true).single();
+  if (readError) throw readError;
+  const previousCallBsEnabled = before?.call_bs_enabled ?? false;
+
+  const { error } = await admin.from("platform_settings").update({ social_prediction_enabled: true, call_bs_enabled: true }).eq("id", true);
   if (error) throw error;
+
+  return async function globalTeardown() {
+    await admin.from("platform_settings").update({ call_bs_enabled: previousCallBsEnabled }).eq("id", true);
+  };
 }
