@@ -12,13 +12,14 @@ import type { ChallengeActionState } from "@/lib/challenges/action-state";
 // MarketParticipants.tsx) (§47: no financial controls, no stake fields,
 // ever).
 
-type StatusKind = "outgoing_pending" | "accepted" | "declined" | "unavailable";
+type StatusKind = "outgoing_pending" | "accepted" | "declined" | "unavailable" | "in_call_bs";
 
 const STATUS: Record<StatusKind, { label: string; className: string }> = {
   outgoing_pending: { label: "Pending", className: "text-text-muted" },
   accepted: { label: "Accepted", className: "text-text-secondary" },
   declined: { label: "Declined", className: "text-text-muted" },
   unavailable: { label: "No longer available", className: "text-text-muted" },
+  in_call_bs: { label: "In a Call BS", className: "text-text-muted" },
 };
 
 export function ChallengeAction({ marketId, state }: { marketId: string; state: ChallengeActionState }) {
@@ -54,7 +55,7 @@ export function ChallengeAction({ marketId, state }: { marketId: string; state: 
     setLocalOutcome(next);
   }
 
-  if (current.kind === "outgoing_pending" || current.kind === "accepted" || current.kind === "declined" || current.kind === "unavailable") {
+  if (current.kind === "outgoing_pending" || current.kind === "accepted" || current.kind === "declined" || current.kind === "unavailable" || current.kind === "in_call_bs") {
     const { label, className } = STATUS[current.kind];
     return (
       <span

@@ -57,6 +57,12 @@ export interface ChallengeParticipant {
   selectedOutcome: PredictionOutcome;
   /** Whether the viewer could Call BS on this specific participant right now — server-derived (opposing viewer Pick exists, neither Pick graded, before cutoff, no existing PENDING pair between the two). Never inferred client-side. */
   canCallBs: boolean;
+  /**
+   * This participant already holds an ACCEPTED Call BS on this Market with someone (never named — only the fact is exposed), and the
+   * viewer could otherwise have called BS on them (opposing pick, before cutoff, neither graded). Lets the UI say why no Call BS is
+   * offered instead of staying silent. False when the viewer is that participant's partner (the row shows "Accepted" then).
+   */
+  pairedInCallBs: boolean;
 }
 
 /** The purely factual head-to-head record a future R11 will consume (§38-39) — no scoring, no reputation, no streaks. */

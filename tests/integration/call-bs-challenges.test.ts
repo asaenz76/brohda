@@ -1477,6 +1477,48 @@ describe("Discovery — accepted-pairing eligibility", () => {
     expect(forC.find((p) => p.userId === d.userId)?.canCallBs).toBe(true); // d is not
   });
 
+  it("flags a paired opposing target as pairedInCallBs (so the UI can say why), and nobody else", async () => {
+    const fixtureId = await createFixture();
+    const marketId = await createMarket(fixtureId);
+    const a = await createUser("a");
+    const b = await createUser("b");
+    const c = await createUser("c");
+    const d = await createUser("d");
+    await pick(a.userId, marketId, "YES");
+    const bPick = await pick(b.userId, marketId, "NO");
+    await pick(c.userId, marketId, "YES"); // viewer: opposes b, same side as a
+    await pick(d.userId, marketId, "NO"); // unpaired opponent
+    const start = await startOf(fixtureId);
+
+    const created = await callBS(a.userId, bPick);
+    if (!created.ok) throw new Error("setup failed");
+    expect((await acceptCallBS(created.challenge.id, b.userId)).outcome).toBe("accepted");
+
+    const forC = await getMarketParticipants(marketId, c.userId, start);
+    const byUser = new Map(forC.map((p) => [p.userId, p]));
+    expect(byUser.get(b.userId)).toMatchObject({ canCallBs: false, pairedInCallBs: true }); // paired, opposing → explained
+    expect(byUser.get(a.userId)).toMatchObject({ canCallBs: false, pairedInCallBs: false }); // paired but same side as c → not relevant
+    expect(byUser.get(d.userId)).toMatchObject({ canCallBs: true, pairedInCallBs: false }); // free
+  });
+
+  it("does not flag anyone as pairedInCallBs once the cutoff has passed", async () => {
+    const fixtureId = await createFixture();
+    const marketId = await createMarket(fixtureId);
+    const a = await createUser("a");
+    const b = await createUser("b");
+    const c = await createUser("c");
+    await pick(a.userId, marketId, "YES");
+    const bPick = await pick(b.userId, marketId, "NO");
+    await pick(c.userId, marketId, "YES");
+    const created = await callBS(a.userId, bPick);
+    if (!created.ok) throw new Error("setup failed");
+    await acceptCallBS(created.challenge.id, b.userId);
+
+    const pastCutoffStart = new Date(Date.now() + 60_000).toISOString(); // inside the 10-minute cutoff window
+    const forC = await getMarketParticipants(marketId, c.userId, pastCutoffStart);
+    expect(forC.every((p) => p.pairedInCallBs === false && p.canCallBs === false)).toBe(true);
+  });
+
   it("a PENDING Challenge alone never suppresses eligibility against other targets", async () => {
     const fixtureId = await createFixture();
     const marketId = await createMarket(fixtureId);

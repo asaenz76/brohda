@@ -132,4 +132,10 @@ describe("ChallengeAction", () => {
     rerender(<ChallengeAction marketId="m1" state={{ kind: "accepted" }} />);
     expect(screen.getByRole("status")).toHaveTextContent("Accepted");
   });
+
+  it("labels a participant who is already in a Call BS, as plain status text with no controls", () => {
+    render(<ChallengeAction marketId="m1" state={{ kind: "in_call_bs" }} />);
+    expect(screen.getByRole("status")).toHaveTextContent("In a Call BS");
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
 });

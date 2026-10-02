@@ -113,7 +113,7 @@ export async function MarketPredictionCard({ market, userId }: { market: Discove
         <YourPredictionCard prediction={existingPrediction!} yesLabel={market.yesLabel} noLabel={market.noLabel} />
       )}
 
-      {existingPrediction && <MarketParticipants marketId={market.id} viewerId={userId} yesLabel={market.yesLabel} noLabel={market.noLabel} />}
+      <MarketParticipants marketId={market.id} viewerId={userId} yesLabel={market.yesLabel} noLabel={market.noLabel} viewerHasPick={Boolean(existingPrediction)} />
     </div>
   );
 }
