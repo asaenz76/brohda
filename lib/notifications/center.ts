@@ -42,14 +42,28 @@
 //     monetary_p2p_enabled is false; spec §41 explicitly forbids exposing
 //     stake/payout/monetary-position activity in the redesigned center.
 //
-//   CALL_BS_*                                              D — hidden.
-//     call_bs_enabled is false; spec §40 explicitly forbids exposing
-//     Call BS/challenge activity in the redesigned center.
+//   CALL_BS_RECEIVED, CALL_BS_ACCEPTED,
+//   CALL_BS_DECLINED, CALL_BS_RESOLVED                     A — shown.
+//     Free Call BS is activated (the exclusive 1v1 pairing rule is
+//     enforced in accept_call_bs()). These are social activity between
+//     two users on a shared disagreement, with no money involved. Each
+//     row carries post_id/market_id, so lib/notifications/links.ts lands
+//     on the Post (falling back to the Market). Rows can only exist once
+//     call_bs_enabled has been turned on — call_bs() refuses to create a
+//     Challenge while it's off — so listing the types here early exposes
+//     nothing.
 //
 // Hiding a type here never deletes it, never touches the row, and never
 // touches the code path that creates it — every notification-creating
 // function in lib/notifications/*.ts, lib/predictions/*.ts, and
 // lib/challenges/*.ts is completely untouched by this phase.
-export const NOTIFICATION_CENTER_TYPES = ["POST_COMMENT_REPLY", "prediction_graded"] as const;
+export const NOTIFICATION_CENTER_TYPES = [
+  "POST_COMMENT_REPLY",
+  "prediction_graded",
+  "CALL_BS_RECEIVED",
+  "CALL_BS_ACCEPTED",
+  "CALL_BS_DECLINED",
+  "CALL_BS_RESOLVED",
+] as const;
 
 export type NotificationCenterType = (typeof NOTIFICATION_CENTER_TYPES)[number];
