@@ -162,6 +162,9 @@ test.describe("P2P Settlement", () => {
       await page.goto(`/markets/${marketId}`);
       await expect(page.getByRole("button", { name: "Accept" })).toBeVisible();
       await page.getByRole("button", { name: "Accept" }).click();
+      // Accepting real money takes an explicit confirmation naming the stake and the consequence.
+      await expect(page.getByText(/This is real money/)).toBeVisible();
+      await page.getByRole("button", { name: /^Confirm/ }).click();
       await expect(page.getByText("$10.00 on the line")).toBeVisible();
 
       const { data: position } = await admin.from("monetary_positions").select("id").eq("market_id", marketId).single();

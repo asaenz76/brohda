@@ -50,3 +50,9 @@ export function formatBps(bps: number): string {
   const formatted = percent.toFixed(2).replace(/\.?0+$/, "");
   return `${formatted}%`;
 }
+
+/** Formats integer basis points as a percentage string for display: 100 -> "1%", 250 -> "2.5%", 0 -> "0%". */
+export function formatBpsAsPercent(bps: number): string {
+  const percent = bps / 100;
+  return `${Number.isInteger(percent) ? percent : percent.toFixed(2).replace(/0+$/, "")}%`;
+}

@@ -1,4 +1,3 @@
-import type { ComponentProps } from "react";
 import Link from "next/link";
 import { getMarketParticipants } from "@/lib/challenges/discovery";
 import { isCallBsEnabled } from "@/lib/challenges/policy";
@@ -14,6 +13,8 @@ import { getMarketById } from "@/lib/prediction-markets/repository";
 import { Avatar } from "@/components/Avatar";
 import { ChallengeAction } from "@/components/predictions/ChallengeAction";
 import { MonetaryProposalAction } from "@/components/predictions/MonetaryProposalAction";
+import { deriveMonetaryActionState } from "@/lib/monetary/action-state";
+import { getP2pFeeBps } from "@/lib/monetary/policy";
 
 // Milestone R7 (docs/BROHDA_2_0_MILESTONE_MAP.md, Free Call BS Challenges),
 // §42-43, §47: the minimal Post/Market social surface Call BS needs — who
@@ -67,13 +68,14 @@ export async function MarketParticipants({
     return <p className="text-xs text-text-muted">Make a pick to call BS on anyone who picked the other side.</p>;
   }
 
-  const [participants, relevantChallenges, monetaryParticipants, relevantProposals, walletSummary, lockPolicy] = await Promise.all([
+  const [participants, relevantChallenges, monetaryParticipants, relevantProposals, walletSummary, lockPolicy, feeBps] = await Promise.all([
     getMarketParticipants(marketId, viewerId, scheduledStartUtc),
     listChallengesForMarketAndUser(marketId, viewerId),
     getMonetaryParticipants(marketId, viewerId, scheduledStartUtc),
     listMonetaryProposalsForMarketAndUser(marketId, viewerId),
     getWalletBalanceSummary(viewerId),
     getPickLockPolicy(),
+    getP2pFeeBps(),
   ]);
   // Same cutoff formula the Call BS discovery query and accept_call_bs()
   // use. A PENDING Challenge is only expired lazily in the database, so
@@ -124,39 +126,16 @@ export async function MarketParticipants({
           const action = actionByUserId.get(participant.userId) ?? null;
 
           const monetaryParticipant = monetaryByUserId.get(participant.userId);
-          const activeProposal = relevantProposals.find(
-            (p) =>
-              (p.status === "PENDING" || p.status === "ACCEPTED") &&
-              ((p.proposerUserId === viewerId && p.recipientPredictionId === participant.predictionId) ||
-                (p.recipientUserId === viewerId && p.proposerPredictionId === participant.predictionId)),
-          );
-
-          let monetaryAction: ComponentProps<typeof MonetaryProposalAction>["state"] | null = null;
-          if (activeProposal) {
-            if (activeProposal.status === "ACCEPTED") {
-              const position = activeProposal.positionId ? positionsById.get(activeProposal.positionId) : undefined;
-              const settlement = position ? settlementsByPositionId.get(position.id) : undefined;
-              if (settlement) {
-                if (settlement.outcome === "VOID") {
-                  monetaryAction = { kind: "settled_void" };
-                } else if (settlement.winnerUserId === viewerId) {
-                  monetaryAction = { kind: "settled_win", amount: settlement.winnerCreditAmount };
-                } else {
-                  monetaryAction = { kind: "settled_loss", amount: settlement.stake };
-                }
-              } else {
-                monetaryAction = { kind: "committed", stake: activeProposal.stake };
-              }
-            } else if (activeProposal.proposerUserId === viewerId) {
-              monetaryAction = { kind: "outgoing_pending", proposalId: activeProposal.id, stake: activeProposal.stake };
-            } else if (walletSummary.available >= activeProposal.stake) {
-              monetaryAction = { kind: "incoming_pending_funded", proposalId: activeProposal.id, stake: activeProposal.stake };
-            } else {
-              monetaryAction = { kind: "incoming_pending_unfunded", proposalId: activeProposal.id, stake: activeProposal.stake };
-            }
-          } else if (monetaryParticipant?.canProposeMoney) {
-            monetaryAction = { kind: "put_money_on_it", recipientPredictionId: participant.predictionId };
-          }
+          const monetaryAction = deriveMonetaryActionState({
+            viewerId,
+            participantPredictionId: participant.predictionId,
+            canProposeMoney: Boolean(monetaryParticipant?.canProposeMoney),
+            proposals: relevantProposals,
+            positionsById,
+            settlementsByPositionId,
+            viewerAvailableCents: walletSummary.available,
+            pastCutoff,
+          });
 
           const profileHref = `/profile/${participant.username ?? participant.userId}`;
           return (
@@ -179,7 +158,19 @@ export async function MarketParticipants({
                   sit to its right as before. */}
               <div className="flex shrink-0 flex-col items-start gap-2 pl-8 sm:items-end sm:gap-1 sm:pl-0">
                 {action && <ChallengeAction marketId={marketId} state={action} />}
-                {monetaryAction && <MonetaryProposalAction marketId={marketId} state={monetaryAction} />}
+                {monetaryAction && (
+                  <MonetaryProposalAction
+                    marketId={marketId}
+                    state={monetaryAction}
+                    context={{
+                      opponentName: participant.displayName,
+                      yourPickLabel: viewerOutcome === "YES" ? yesLabel : noLabel,
+                      theirPickLabel: participant.selectedOutcome === "YES" ? yesLabel : noLabel,
+                      feeBps,
+                      availableCents: walletSummary.available,
+                    }}
+                  />
+                )}
               </div>
             </li>
           );

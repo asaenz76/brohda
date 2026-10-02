@@ -97,6 +97,11 @@ async function getPredictionId(userId: string, marketId: string): Promise<string
 
 test.describe("Reputation", () => {
   test("graded Picks and a resolved Call BS Challenge produce a matching Profile reputation record", async ({ page }) => {
+    // Seeds many Picks and several logins: ~45-60s even alone, right at the
+    // default 60s budget, so any contention on the shared `next dev` server
+    // tipped it over. Slow, not stuck — triple the budget rather than trim
+    // what it proves.
+    test.slow();
     await admin.from("platform_settings").update({ leaderboard_min_decided_picks: 5, call_bs_enabled: true }).eq("id", true);
     const suffix = randomUUID();
     const userIds: string[] = [];
