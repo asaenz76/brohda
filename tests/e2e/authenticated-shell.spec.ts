@@ -168,6 +168,11 @@ test.describe("Authenticated shell — desktop (1280)", () => {
       await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
     }
 
+    // Home's page header matches the front door's: "Upcoming games" (the nav item itself stays "Home").
+    await page.goto("/feed");
+    await expect(page.getByRole("heading", { level: 1, name: "Upcoming games" })).toBeVisible();
+    await expect(rail(page).locator('a[aria-current="page"]')).toContainText("Home");
+
     // Order: the five primary links, then Wallet, positioned lower on the page (a utility, not a destination).
     await page.goto("/feed");
     const hrefs = await rail(page).getByRole("link").evaluateAll((els) => els.map((e) => e.getAttribute("href")));
@@ -263,6 +268,35 @@ test.describe("Authenticated shell — desktop (1280)", () => {
     // Same column header treatment too.
     const headerStyle = (p: Page) => p.locator('[data-slot="column-header"]').first().evaluate((n) => { const cs = getComputedStyle(n); return { position: cs.position, bg: cs.backgroundColor, radius: cs.borderTopLeftRadius }; });
     expect(await headerStyle(anonPage)).toEqual(await headerStyle(page));
+    await anon.close();
+  });
+
+  test("Home carries the same header as the front door: Upcoming games over Sports | Leagues | Teams, Sports being the Game timeline", async ({ page, browser }) => {
+    await login(page);
+    const main = page.getByRole("main");
+    await expect(main.getByRole("heading", { level: 1, name: "Upcoming games" })).toBeVisible();
+    await expect(main.getByRole("tab")).toHaveText(["Sports", "Leagues", "Teams"]);
+    await expect(main.getByRole("tab", { name: "Sports" })).toHaveAttribute("aria-selected", "true");
+    await expect(gameArticle(page)).toBeVisible();
+
+    // Teams: the same Community list Discovery shows, with the viewer's own follow state — and no Game Posts.
+    await main.getByRole("tab", { name: "Teams" }).click();
+    await expect(page).toHaveURL(/\/feed\?tab=teams$/);
+    await expect(main.getByRole("tab", { name: "Teams" })).toHaveAttribute("aria-selected", "true");
+    await expect(main.getByRole("link", { name: TEAM_NAME })).toHaveAttribute("href", `/community/shell-team-${suffix}`);
+    await expect(page.getByRole("article")).toHaveCount(0);
+    await main.getByRole("tab", { name: "Leagues" }).click();
+    await expect(page).toHaveURL(/\/feed\?tab=leagues$/);
+    await main.getByRole("tab", { name: "Sports" }).click();
+    await expect(gameArticle(page)).toBeVisible();
+
+    // Same tab bar as logged out: identical labels and the same underline treatment.
+    const anon = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const anonPage = await anon.newPage();
+    await anonPage.goto("/");
+    const bar = (p: Page) => p.getByRole("main").getByRole("tablist").evaluate((n) => { const cs = getComputedStyle(n); return { borderBottom: cs.borderBottomWidth, display: cs.display }; });
+    expect(await bar(anonPage)).toEqual(await bar(page));
+    await expect(anonPage.getByRole("main").getByRole("heading", { name: "Upcoming games" })).toBeVisible();
     await anon.close();
   });
 

@@ -49,8 +49,8 @@ export function AuthenticatedShell({
       </header>
 
       <div className="mx-auto grid w-full max-w-[1200px] gap-6 px-4 pt-3 pb-[calc(5rem+env(safe-area-inset-bottom))] md:grid-cols-[200px_minmax(0,1fr)] md:pt-4 md:pb-8 lg:grid-cols-[250px_minmax(0,600px)] lg:justify-center lg:py-6 xl:grid-cols-[250px_minmax(0,600px)_280px]">
-        <aside aria-label="Navigation" className="hidden space-y-4 md:sticky md:top-4 md:block md:self-start lg:top-6">
-          <Link href="/feed" className="block px-3 font-logo text-3xl font-extrabold italic text-text-primary">
+        <aside aria-label="Navigation" className="hidden space-y-6 md:sticky md:top-4 md:block md:self-start lg:top-6">
+          <Link href="/feed" className="block px-3 pt-1 font-logo text-[1.7rem] font-extrabold italic leading-none text-text-primary">
             brohda.
           </Link>
           <LeftNav {...navProps} />

@@ -22,7 +22,7 @@ export async function RightRail({ user, profileHref }: { user: UserProfile; prof
   return (
     <div className="space-y-5">
       <section aria-label="Your profile" className="rounded-lg border border-border-subtle p-3">
-        <UserIdentity displayName={user.display_name} username={user.username} avatarUrl={user.avatar_url} reputation={reputation} href={profileHref} />
+        <UserIdentity displayName={user.display_name} username={user.username} avatarUrl={user.avatar_url} reputation={reputation} href={profileHref} wrapReputation />
       </section>
 
       <section aria-label="Following" className="space-y-3">

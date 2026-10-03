@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, Search, Wallet } from "lucide-react";
+import { Menu, Search, Shield, Wallet } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 import { LogoutRow } from "@/components/shell/LogoutRow";
 import { MenuSheet, menuItemClass } from "@/components/shell/MenuSheet";
@@ -104,7 +104,7 @@ export function MobileNav({
                 </Link>
                 {isAdmin && (
                   <Link href="/admin/users" onClick={close} className={menuItemClass}>
-                    <span className="size-4 shrink-0" aria-hidden="true" />
+                    <Shield className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
                     Admin
                   </Link>
                 )}

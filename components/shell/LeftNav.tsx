@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Wallet } from "lucide-react";
+import { Shield, Wallet } from "lucide-react";
 import { LogoutRow } from "@/components/shell/LogoutRow";
 import { cn } from "@/lib/utils";
 import { formatCents } from "@/lib/utils/money";
 import { PRIMARY_NAV, activeNavKey, visibleNav, type ShellNavItem } from "@/components/shell/nav";
 
 const rowClass =
-  "relative flex min-h-11 items-center gap-3 rounded-md px-3 text-[15px] outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50";
+  "relative flex min-h-11 items-center gap-3 rounded-md px-3 text-[15px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60";
 
 function UnreadBadge({ count }: { count: number }) {
   return (
@@ -83,7 +83,7 @@ export function LeftNav({
         </Link>
         {isAdmin && (
           <Link href="/admin/users" className={cn(rowClass, "font-medium text-text-secondary hover:bg-surface-secondary hover:text-text-primary")}>
-            <span className="size-5 shrink-0" aria-hidden="true" />
+            <Shield className="size-5 shrink-0" aria-hidden="true" />
             Admin
           </Link>
         )}
