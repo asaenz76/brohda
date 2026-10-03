@@ -27,3 +27,21 @@ export async function getP2pFeeBps(): Promise<number> {
   const { data } = await admin.from("platform_settings").select("p2p_fee_bps").eq("id", true).single();
   return data?.p2p_fee_bps ?? 0;
 }
+
+export interface MonetaryStakeLimits {
+  minStakeCents: number;
+  maxStakeCents: number;
+}
+
+/**
+ * The configured stake limits (Super Admin), live-read, for presentation and
+ * error copy only — propose_money() is the authority and re-reads them itself.
+ * Fails closed: if the settings can't be read this throws rather than
+ * inventing a fallback limit that could silently override the real one.
+ */
+export async function getMonetaryStakeLimits(): Promise<MonetaryStakeLimits> {
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("platform_settings").select("monetary_p2p_min_stake_cents, monetary_p2p_max_stake_cents").eq("id", true).single();
+  if (error || !data) throw new Error("Could not read the monetary stake limits.");
+  return { minStakeCents: Number(data.monetary_p2p_min_stake_cents), maxStakeCents: Number(data.monetary_p2p_max_stake_cents) };
+}

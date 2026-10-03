@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 // in production between a deploy and its migration.
 const repository = vi.hoisted(() => ({
   expireStaleMonetaryProposals: vi.fn(),
+  getSettlementBatchSize: vi.fn().mockResolvedValue(500),
   listSettlementEligiblePositionIds: vi.fn(),
   settleMonetaryPosition: vi.fn(),
   getMonetaryPositionById: vi.fn(),
@@ -40,5 +41,14 @@ describe("runSettlementJob failure reporting", () => {
 
     const summary = await runSettlementJob();
     expect(summary.failures).toEqual([{ positionId: "pos-2", error: "deadlock detected" }]);
+  });
+
+  it("bounds the expiry sweep by the operator-tunable settlement_batch_size, not a hard-coded number", async () => {
+    repository.getSettlementBatchSize.mockResolvedValue(37);
+    repository.expireStaleMonetaryProposals.mockResolvedValue([]);
+    repository.listSettlementEligiblePositionIds.mockResolvedValue([]);
+
+    await runSettlementJob();
+    expect(repository.expireStaleMonetaryProposals).toHaveBeenLastCalledWith(37);
   });
 });

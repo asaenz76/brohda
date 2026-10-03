@@ -7,6 +7,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
+import { deleteMonetaryRowsForMarkets } from "./helpers/cleanup-monetary";
 import { getTestAdminClient } from "./helpers/test-env";
 import { setPick } from "@/lib/predictions/repository";
 import { upsertMarket } from "@/lib/prediction-markets/repository";
@@ -40,6 +41,7 @@ async function pick(userId: string, market: string, selectedOutcome: "YES" | "NO
 
 afterEach(async () => {
   if (marketId) {
+    await deleteMonetaryRowsForMarkets([marketId]);
     const { data: positions } = await admin.from("monetary_positions").select("id").eq("market_id", marketId);
     const positionIds = (positions ?? []).map((r) => r.id);
     const { data: proposals } = await admin.from("monetary_proposals").select("id").eq("market_id", marketId);
@@ -63,7 +65,7 @@ afterEach(async () => {
     for (const id of userIds) await admin.auth.admin.deleteUser(id);
     userIds.length = 0;
   }
-  await admin.from("platform_settings").update({ monetary_p2p_enabled: true, p2p_fee_bps: 0 }).eq("id", true);
+  await admin.from("platform_settings").update({ monetary_p2p_enabled: true, p2p_fee_bps: 0, monetary_p2p_min_stake_cents: 100, monetary_p2p_max_stake_cents: 10000 }).eq("id", true);
 });
 
 describe("Settlement job: notification failure", () => {

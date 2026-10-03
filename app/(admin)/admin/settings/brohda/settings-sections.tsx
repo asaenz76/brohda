@@ -24,7 +24,7 @@ import type {
   ReputationSettings,
   OperationsSettings,
 } from "@/lib/admin-settings/types";
-import { formatBps } from "@/lib/utils/money";
+import { formatBps, formatCents } from "@/lib/utils/money";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,12 +41,21 @@ import { Card, CardContent } from "@/components/ui/card";
 // pool-fee-defaults-form.tsx's own card/label/description/input/Save/
 // error/success shape exactly.
 
-function FieldRow({ label, description, children }: { label: string; description: string; children: ReactNode }) {
+function FieldRow({ label, description, children, htmlFor }: { label: string; description: string; children: ReactNode; htmlFor?: string }) {
   return (
     <div className="flex items-center justify-between gap-4">
       <div className="min-w-0">
-        <p className="text-sm font-medium text-text-primary">{label}</p>
-        <p className="text-xs text-text-muted">{description}</p>
+        {/* When the row controls a single input, the label is a real <label> and the description is its accessible description. */}
+        {htmlFor ? (
+          <label htmlFor={htmlFor} className="text-sm font-medium text-text-primary">
+            {label}
+          </label>
+        ) : (
+          <p className="text-sm font-medium text-text-primary">{label}</p>
+        )}
+        <p id={htmlFor ? `${htmlFor}-description` : undefined} className="text-xs text-text-muted">
+          {description}
+        </p>
       </div>
       <div className="shrink-0">{children}</div>
     </div>
@@ -380,6 +389,8 @@ export function MonetarySettingsSection({ initial, updatedAt }: { initial: Monet
   const [windowSeconds, setWindowSeconds] = useState(initial.monetaryProposalRateLimitWindowSeconds);
   const [maxAttempts, setMaxAttempts] = useState(initial.monetaryProposalRateLimitMaxAttempts);
   const [feePercent, setFeePercent] = useState((initial.p2pFeeBps / 100).toString());
+  const [minStake, setMinStake] = useState((initial.monetaryP2pMinStakeCents / 100).toFixed(2));
+  const [maxStake, setMaxStake] = useState((initial.monetaryP2pMaxStakeCents / 100).toFixed(2));
   const [currentUpdatedAt, setCurrentUpdatedAt] = useState(updatedAt);
   const [result, setResult] = useState<BrohdaSettingsActionResult | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -397,6 +408,8 @@ export function MonetarySettingsSection({ initial, updatedAt }: { initial: Monet
         monetaryProposalRateLimitWindowSeconds: windowSeconds,
         monetaryProposalRateLimitMaxAttempts: maxAttempts,
         feePercent,
+        minStake,
+        maxStake,
       });
       setResult(r);
       if (r.settings) {
@@ -406,6 +419,8 @@ export function MonetarySettingsSection({ initial, updatedAt }: { initial: Monet
           setWindowSeconds(r.settings.monetary.monetaryProposalRateLimitWindowSeconds);
           setMaxAttempts(r.settings.monetary.monetaryProposalRateLimitMaxAttempts);
           setFeePercent((r.settings.monetary.p2pFeeBps / 100).toString());
+          setMinStake((r.settings.monetary.monetaryP2pMinStakeCents / 100).toFixed(2));
+          setMaxStake((r.settings.monetary.monetaryP2pMaxStakeCents / 100).toFixed(2));
         }
       }
     });
@@ -416,18 +431,43 @@ export function MonetarySettingsSection({ initial, updatedAt }: { initial: Monet
       <FieldRow label="Monetary P2P" description="Master switch for creating new proposals and accepting them. Turning this off blocks NEW commitments only — an already-committed Position always settles normally, and its reservations always resolve. Nothing in flight is ever frozen.">
         <Switch checked={enabled} onCheckedChange={setEnabled} />
       </FieldRow>
-      <FieldRow label="Proposal rate-limit window (seconds)" description="Time window over which the proposal creation attempt cap below applies.">
-        <Input type="number" className="w-24" value={windowSeconds} onChange={(e) => setWindowSeconds(Number(e.target.value))} />
+      <FieldRow
+        label="Minimum stake"
+        htmlFor="monetary-min-stake"
+        description={`Currently ${formatCents(initial.monetaryP2pMinStakeCents)}. The smallest amount someone can put on a pick. Applies to new proposals only — one that was already sent keeps the terms it was created with.`}
+      >
+        <div className="flex items-center gap-1">
+          <span className="text-sm text-text-muted" aria-hidden="true">
+            $
+          </span>
+          <Input id="monetary-min-stake" type="text" inputMode="decimal" autoComplete="off" aria-describedby="monetary-min-stake-description" className="w-24" value={minStake} onChange={(e) => setMinStake(e.target.value)} />
+        </div>
       </FieldRow>
-      <FieldRow label="Proposal rate-limit attempts" description="Maximum monetary proposals a single user may create within the window.">
-        <Input type="number" className="w-24" value={maxAttempts} onChange={(e) => setMaxAttempts(Number(e.target.value))} />
+      <FieldRow
+        label="Maximum stake"
+        htmlFor="monetary-max-stake"
+        description={`Currently ${formatCents(initial.monetaryP2pMaxStakeCents)}. The most someone can put on a pick in one proposal. Nobody can ever stake more than their available balance, whatever this is set to.`}
+      >
+        <div className="flex items-center gap-1">
+          <span className="text-sm text-text-muted" aria-hidden="true">
+            $
+          </span>
+          <Input id="monetary-max-stake" type="text" inputMode="decimal" autoComplete="off" aria-describedby="monetary-max-stake-description" className="w-24" value={maxStake} onChange={(e) => setMaxStake(e.target.value)} />
+        </div>
+      </FieldRow>
+      <FieldRow label="Proposal rate-limit window (seconds)" htmlFor="monetary-rate-window" description="Time window over which the proposal creation attempt cap below applies.">
+        <Input id="monetary-rate-window" type="number" aria-describedby="monetary-rate-window-description" className="w-24" value={windowSeconds} onChange={(e) => setWindowSeconds(Number(e.target.value))} />
+      </FieldRow>
+      <FieldRow label="Proposal rate-limit attempts" htmlFor="monetary-rate-attempts" description="Maximum monetary proposals a single user may create within the window.">
+        <Input id="monetary-rate-attempts" type="number" aria-describedby="monetary-rate-attempts-description" className="w-24" value={maxAttempts} onChange={(e) => setMaxAttempts(Number(e.target.value))} />
       </FieldRow>
       <FieldRow
         label="P2P settlement fee"
+        htmlFor="monetary-fee-percent"
         description={`Currently ${formatBps(initial.p2pFeeBps)} of the losing stake. Applies only to Positions committed after this change — an already-committed Position keeps the exact rate that was in effect when it was accepted, forever.`}
       >
         <div className="flex items-center gap-1">
-          <Input type="number" className="w-20" value={feePercent} onChange={(e) => setFeePercent(e.target.value)} />
+          <Input id="monetary-fee-percent" type="number" aria-describedby="monetary-fee-percent-description" className="w-20" value={feePercent} onChange={(e) => setFeePercent(e.target.value)} />
           <span className="text-sm text-text-muted">%</span>
         </div>
       </FieldRow>

@@ -182,7 +182,7 @@ async function currentUpdatedAt(): Promise<string> {
 
 const DEFAULT_PREDICTIONS = { pickLockMinutesBeforeKickoff: 10, predictionCutoffMinutesBeforeClose: 0, predictionAllowRepeat: false, predictionAllowStalePrice: true, predictionAllowUnavailablePrice: false, predictionAllowClosedMarket: false };
 const DEFAULT_REPUTATION = { leaderboardMinDecidedPicks: 5 };
-const DEFAULT_MONETARY = { monetaryP2pEnabled: true, monetaryProposalRateLimitWindowSeconds: 60, monetaryProposalRateLimitMaxAttempts: 10, p2pFeeBps: 0 };
+const DEFAULT_MONETARY = { monetaryP2pEnabled: true, monetaryProposalRateLimitWindowSeconds: 60, monetaryProposalRateLimitMaxAttempts: 10, p2pFeeBps: 0, monetaryP2pMinStakeCents: 100, monetaryP2pMaxStakeCents: 10000 };
 const DEFAULT_OPERATIONS = { settlementBatchSize: 500, gradingBatchSize: 200, challengeResolutionBatchSize: 200, jobStalenessMultiplier: 3 };
 
 beforeEach(async () => {
@@ -200,6 +200,8 @@ beforeEach(async () => {
       leaderboard_min_decided_picks: DEFAULT_REPUTATION.leaderboardMinDecidedPicks,
       monetary_p2p_enabled: DEFAULT_MONETARY.monetaryP2pEnabled,
       monetary_proposal_rate_limit_window_seconds: DEFAULT_MONETARY.monetaryProposalRateLimitWindowSeconds,
+      monetary_p2p_min_stake_cents: DEFAULT_MONETARY.monetaryP2pMinStakeCents,
+      monetary_p2p_max_stake_cents: DEFAULT_MONETARY.monetaryP2pMaxStakeCents,
       monetary_proposal_rate_limit_max_attempts: DEFAULT_MONETARY.monetaryProposalRateLimitMaxAttempts,
       p2p_fee_bps: DEFAULT_MONETARY.p2pFeeBps,
       settlement_batch_size: DEFAULT_OPERATIONS.settlementBatchSize,

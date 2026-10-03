@@ -39,6 +39,9 @@ export interface MonetaryActionContext {
   feeBps: number;
   /** The viewer's spendable balance right now (total minus holds). */
   availableCents: number;
+  /** Configured stake limits (Super Admin), shown before sending. propose_money() re-checks them; this only spares people finding out after submitting. */
+  minStakeCents: number;
+  maxStakeCents: number;
 }
 
 type LocalOutcome =
@@ -48,7 +51,7 @@ type LocalOutcome =
   | { kind: "withdrawn" };
 
 export function MonetaryProposalAction({ marketId, state, context }: { marketId: string; state: MonetaryActionState; context: MonetaryActionContext }) {
-  const { opponentName, yourPickLabel, theirPickLabel, feeBps, availableCents } = context;
+  const { opponentName, yourPickLabel, theirPickLabel, feeBps, availableCents, minStakeCents, maxStakeCents } = context;
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [localOutcome, setLocalOutcome] = useState<LocalOutcome | null>(null);
@@ -57,6 +60,7 @@ export function MonetaryProposalAction({ marketId, state, context }: { marketId:
   const [confirming, setConfirming] = useState(false);
   const amountId = useId();
   const helpId = useId();
+  const errorId = useId();
 
   // The server's verdict wins once it is terminal for this pair; otherwise
   // what this viewer just did stays on screen until the server catches up.
@@ -274,7 +278,20 @@ export function MonetaryProposalAction({ marketId, state, context }: { marketId:
   }
 
   const parsedStake = parseDollarsToCents(amountInput);
-  const overBalance = parsedStake !== null && parsedStake > availableCents;
+  // The most this person can actually put on it: the configured maximum never implies they have that much available.
+  const ceilingCents = Math.min(maxStakeCents, availableCents);
+  const cannotAffordMinimum = availableCents < minStakeCents;
+  // At most one problem is shown, most specific first, in plain currency.
+  const stakeProblem =
+    parsedStake === null
+      ? null
+      : parsedStake < minStakeCents
+        ? `The minimum is ${formatCents(minStakeCents)}.`
+        : parsedStake > maxStakeCents
+          ? `The maximum is ${formatCents(maxStakeCents)}.`
+          : parsedStake > availableCents
+            ? `That's more than the ${formatCents(availableCents)} you have available.`
+            : null;
   return (
     <div className="flex max-w-[20rem] flex-col items-start gap-2 sm:items-end sm:text-right">
       <label htmlFor={amountId} className="text-xs font-medium text-text-primary">
@@ -287,8 +304,8 @@ export function MonetaryProposalAction({ marketId, state, context }: { marketId:
           inputMode="decimal"
           autoComplete="off"
           placeholder="Amount"
-          aria-describedby={helpId}
-          aria-invalid={overBalance || undefined}
+          aria-describedby={stakeProblem ? `${helpId} ${errorId}` : helpId}
+          aria-invalid={stakeProblem ? true : undefined}
           className="h-9 w-28"
           value={amountInput}
           onChange={(e) => setAmountInput(e.target.value)}
@@ -297,7 +314,7 @@ export function MonetaryProposalAction({ marketId, state, context }: { marketId:
         <Button
           type="button"
           size="lg"
-          disabled={isPending || overBalance}
+          disabled={isPending || stakeProblem !== null || cannotAffordMinimum}
           onClick={() => {
             setError(null);
             if (parsedStake === null) {
@@ -314,17 +331,30 @@ export function MonetaryProposalAction({ marketId, state, context }: { marketId:
             });
           }}
         >
-          {parsedStake !== null && !overBalance ? `Send ${formatCents(parsedStake)}` : "Send"}
+          {parsedStake !== null && stakeProblem === null ? `Send ${formatCents(parsedStake)}` : "Send"}
         </Button>
         <Button type="button" size="lg" variant="ghost" disabled={isPending} onClick={() => setComposerOpen(false)}>
           Cancel
         </Button>
       </div>
       <p id={helpId} className="text-xs text-text-secondary">
-        {overBalance
-          ? `That's more than the ${formatCents(availableCents)} you have available.`
-          : `You have ${formatCents(availableCents)} available. Sending holds this amount from your balance until ${opponentName} accepts or declines, or you withdraw. If they accept and you lose, you pay it.`}
+        {cannotAffordMinimum ? (
+          <>
+            The minimum is {formatCents(minStakeCents)} and you have {formatCents(availableCents)} available.{" "}
+            <Link href="/wallet" className="underline">
+              Fund your wallet
+            </Link>{" "}
+            to put money on it.
+          </>
+        ) : (
+          `Between ${formatCents(minStakeCents)} and ${formatCents(maxStakeCents)}. You have ${formatCents(availableCents)} available, so the most you can put on it is ${formatCents(ceilingCents)}. Sending holds this amount from your balance until ${opponentName} accepts or declines, or you withdraw. If they accept and you lose, you pay it.`
+        )}
       </p>
+      {stakeProblem && (
+        <p id={errorId} role="alert" className="text-xs font-medium text-danger">
+          {stakeProblem}
+        </p>
+      )}
       {alertLine}
     </div>
   );

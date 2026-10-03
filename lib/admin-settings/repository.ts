@@ -57,6 +57,8 @@ interface PlatformSettingsRow {
   monetary_p2p_enabled: boolean;
   monetary_proposal_rate_limit_window_seconds: number;
   monetary_proposal_rate_limit_max_attempts: number;
+  monetary_p2p_min_stake_cents: number;
+  monetary_p2p_max_stake_cents: number;
   p2p_fee_bps: number;
   leaderboard_min_decided_picks: number;
   settlement_batch_size: number;
@@ -134,6 +136,8 @@ function toMonetary(row: PlatformSettingsRow): MonetarySettings {
     monetaryP2pEnabled: row.monetary_p2p_enabled,
     monetaryProposalRateLimitWindowSeconds: row.monetary_proposal_rate_limit_window_seconds,
     monetaryProposalRateLimitMaxAttempts: row.monetary_proposal_rate_limit_max_attempts,
+    monetaryP2pMinStakeCents: Number(row.monetary_p2p_min_stake_cents),
+    monetaryP2pMaxStakeCents: Number(row.monetary_p2p_max_stake_cents),
     p2pFeeBps: row.p2p_fee_bps,
   };
 }
@@ -174,7 +178,7 @@ async function toBrohdaSettings(row: PlatformSettingsRow): Promise<BrohdaSetting
 }
 
 const SETTINGS_COLUMNS =
-  "pick_lock_minutes_before_kickoff, prediction_cutoff_minutes_before_close, prediction_allow_repeat, prediction_allow_stale_price, prediction_allow_unavailable_price, prediction_allow_closed_market, prediction_notifications_enabled, prediction_notify_on_correct, prediction_notify_on_incorrect, prediction_notify_on_void, prediction_notify_title_correct, prediction_notify_body_correct, prediction_notify_title_incorrect, prediction_notify_body_incorrect, prediction_notify_title_void, prediction_notify_body_void, market_ingestion_enabled, market_ingestion_min_bookmaker_count, post_publication_enabled, post_publication_requires_active_market, social_prediction_enabled, feed_completed_game_retention_hours, community_distribution_enabled, community_team_distribution_enabled, community_league_distribution_enabled, community_sport_distribution_enabled, post_comment_max_length, post_comment_rate_limit_window_seconds, post_comment_rate_limit_max_attempts, call_bs_enabled, call_bs_rate_limit_window_seconds, call_bs_rate_limit_max_attempts, monetary_p2p_enabled, monetary_proposal_rate_limit_window_seconds, monetary_proposal_rate_limit_max_attempts, p2p_fee_bps, leaderboard_min_decided_picks, settlement_batch_size, grading_batch_size, challenge_resolution_batch_size, job_staleness_multiplier, updated_at, updated_by";
+  "pick_lock_minutes_before_kickoff, prediction_cutoff_minutes_before_close, prediction_allow_repeat, prediction_allow_stale_price, prediction_allow_unavailable_price, prediction_allow_closed_market, prediction_notifications_enabled, prediction_notify_on_correct, prediction_notify_on_incorrect, prediction_notify_on_void, prediction_notify_title_correct, prediction_notify_body_correct, prediction_notify_title_incorrect, prediction_notify_body_incorrect, prediction_notify_title_void, prediction_notify_body_void, market_ingestion_enabled, market_ingestion_min_bookmaker_count, post_publication_enabled, post_publication_requires_active_market, social_prediction_enabled, feed_completed_game_retention_hours, community_distribution_enabled, community_team_distribution_enabled, community_league_distribution_enabled, community_sport_distribution_enabled, post_comment_max_length, post_comment_rate_limit_window_seconds, post_comment_rate_limit_max_attempts, call_bs_enabled, call_bs_rate_limit_window_seconds, call_bs_rate_limit_max_attempts, monetary_p2p_enabled, monetary_proposal_rate_limit_window_seconds, monetary_proposal_rate_limit_max_attempts, monetary_p2p_min_stake_cents, monetary_p2p_max_stake_cents, p2p_fee_bps, leaderboard_min_decided_picks, settlement_batch_size, grading_batch_size, challenge_resolution_batch_size, job_staleness_multiplier, updated_at, updated_by";
 
 /** The full effective Brohda 2.0 settings snapshot — the one place "what policy is Brohda using right now?" (§14) is answered, for both the admin UI and any test/script that needs it. */
 export async function getBrohdaSettings(): Promise<BrohdaSettings> {
@@ -307,6 +311,8 @@ export async function updateMonetarySettings(adminId: string, expectedUpdatedAt:
       p_monetary_proposal_rate_limit_window_seconds: values.monetaryProposalRateLimitWindowSeconds,
       p_monetary_proposal_rate_limit_max_attempts: values.monetaryProposalRateLimitMaxAttempts,
       p_p2p_fee_bps: values.p2pFeeBps,
+      p_monetary_p2p_min_stake_cents: values.monetaryP2pMinStakeCents,
+      p_monetary_p2p_max_stake_cents: values.monetaryP2pMaxStakeCents,
     })
     .single();
   if (error) throw error;

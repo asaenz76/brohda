@@ -14,7 +14,7 @@ import { Avatar } from "@/components/Avatar";
 import { ChallengeAction } from "@/components/predictions/ChallengeAction";
 import { MonetaryProposalAction } from "@/components/predictions/MonetaryProposalAction";
 import { deriveMonetaryActionState } from "@/lib/monetary/action-state";
-import { getP2pFeeBps } from "@/lib/monetary/policy";
+import { getMonetaryStakeLimits, getP2pFeeBps } from "@/lib/monetary/policy";
 
 // Milestone R7 (docs/BROHDA_2_0_MILESTONE_MAP.md, Free Call BS Challenges),
 // §42-43, §47: the minimal Post/Market social surface Call BS needs — who
@@ -68,7 +68,7 @@ export async function MarketParticipants({
     return <p className="text-xs text-text-muted">Make a pick to call BS on anyone who picked the other side.</p>;
   }
 
-  const [participants, relevantChallenges, monetaryParticipants, relevantProposals, walletSummary, lockPolicy, feeBps] = await Promise.all([
+  const [participants, relevantChallenges, monetaryParticipants, relevantProposals, walletSummary, lockPolicy, feeBps, stakeLimits] = await Promise.all([
     getMarketParticipants(marketId, viewerId, scheduledStartUtc),
     listChallengesForMarketAndUser(marketId, viewerId),
     getMonetaryParticipants(marketId, viewerId, scheduledStartUtc),
@@ -76,6 +76,8 @@ export async function MarketParticipants({
     getWalletBalanceSummary(viewerId),
     getPickLockPolicy(),
     getP2pFeeBps(),
+    // Fail closed: with no readable limits we offer no NEW money action rather than guess a limit. Existing proposals/Positions still render.
+    getMonetaryStakeLimits().catch(() => null),
   ]);
   // Same cutoff formula the Call BS discovery query and accept_call_bs()
   // use. A PENDING Challenge is only expired lazily in the database, so
@@ -129,7 +131,7 @@ export async function MarketParticipants({
           const monetaryAction = deriveMonetaryActionState({
             viewerId,
             participantPredictionId: participant.predictionId,
-            canProposeMoney: Boolean(monetaryParticipant?.canProposeMoney),
+            canProposeMoney: Boolean(monetaryParticipant?.canProposeMoney) && stakeLimits !== null,
             proposals: relevantProposals,
             positionsById,
             settlementsByPositionId,
@@ -168,6 +170,8 @@ export async function MarketParticipants({
                       theirPickLabel: participant.selectedOutcome === "YES" ? yesLabel : noLabel,
                       feeBps,
                       availableCents: walletSummary.available,
+                      minStakeCents: stakeLimits?.minStakeCents ?? 0,
+                      maxStakeCents: stakeLimits?.maxStakeCents ?? 0,
                     }}
                   />
                 )}

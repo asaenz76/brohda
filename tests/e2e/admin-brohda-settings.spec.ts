@@ -38,6 +38,8 @@ const DEFAULTS = {
   monetary_proposal_rate_limit_window_seconds: 60,
   monetary_proposal_rate_limit_max_attempts: 10,
   p2p_fee_bps: 0,
+  monetary_p2p_min_stake_cents: 100,
+  monetary_p2p_max_stake_cents: 10000,
   call_bs_enabled: true,
   market_ingestion_enabled: true,
   post_publication_enabled: true,
@@ -241,6 +243,57 @@ test.describe("Admin Brohda Settings", () => {
     const { data: row } = await admin.from("platform_settings").select("pick_lock_minutes_before_kickoff, prediction_cutoff_minutes_before_close").eq("id", true).single();
     expect(row!.pick_lock_minutes_before_kickoff).toBe(DEFAULTS.pick_lock_minutes_before_kickoff);
     expect(row!.prediction_cutoff_minutes_before_close).toBe(DEFAULTS.prediction_cutoff_minutes_before_close);
+  });
+
+  test("a super_admin sets the stake limits in dollars: labelled fields, invalid and inverted values refused with no change, a valid change saved and audited", async ({ page }) => {
+    const { email, userId } = await createUser("r30-admin", "super_admin");
+    await loginAs(page, email);
+    await page.goto("/admin/settings/brohda");
+
+    const min = page.getByLabel("Minimum stake");
+    const max = page.getByLabel("Maximum stake");
+    await expect(min).toHaveValue("1.00");
+    await expect(max).toHaveValue("100.00");
+    // Real <label>s with real descriptions, in dollars — never raw cents.
+    await expect(min).toHaveAccessibleDescription(/smallest amount someone can put on a pick/i);
+    await expect(max).toHaveAccessibleDescription(/nobody can ever stake more than their available balance/i);
+
+    const stored = async () => {
+      const { data } = await admin.from("platform_settings").select("monetary_p2p_min_stake_cents, monetary_p2p_max_stake_cents").eq("id", true).single();
+      return data;
+    };
+
+    // Inverted: refused in the UI and nothing is written.
+    await min.fill("50");
+    await max.fill("10");
+    await page.getByRole("button", { name: "Save Monetary P2P" }).click();
+    await expect(page.getByText("The maximum stake can't be lower than the minimum.")).toBeVisible();
+    expect(await stored()).toEqual({ monetary_p2p_min_stake_cents: 100, monetary_p2p_max_stake_cents: 10000 });
+
+    // Zero / malformed: refused in the UI and nothing is written.
+    await min.fill("0");
+    await max.fill("100");
+    await page.getByRole("button", { name: "Save Monetary P2P" }).click();
+    await expect(page.getByText(/Enter a valid minimum stake in dollars/)).toBeVisible();
+    await min.fill("2.50");
+    await max.fill("abc");
+    await page.getByRole("button", { name: "Save Monetary P2P" }).click();
+    await expect(page.getByText(/Enter a valid maximum stake in dollars/)).toBeVisible();
+    expect(await stored()).toEqual({ monetary_p2p_min_stake_cents: 100, monetary_p2p_max_stake_cents: 10000 });
+
+    // Valid: saved as integer cents, shown back in dollars, and audited with who/old/new.
+    await min.fill("2.50");
+    await max.fill("250");
+    await page.getByRole("button", { name: "Save Monetary P2P" }).click();
+    await expect(page.getByText("Saved.")).toBeVisible();
+    expect(await stored()).toEqual({ monetary_p2p_min_stake_cents: 250, monetary_p2p_max_stake_cents: 25000 });
+
+    const { data: logs } = await admin.from("audit_logs").select("actor_id, before, after").eq("actor_id", userId).eq("action", "settings.monetary_p2p_updated");
+    expect(logs).toHaveLength(1);
+    expect(logs![0].before).toMatchObject({ monetaryP2pMinStakeCents: 100, monetaryP2pMaxStakeCents: 10000 });
+    expect(logs![0].after).toMatchObject({ monetaryP2pMinStakeCents: 250, monetaryP2pMaxStakeCents: 25000 });
+
+    await restoreDefaults();
   });
 
   test("a financial (P2P fee) change through the admin UI never retroactively alters an already-committed Position", async ({ page }) => {

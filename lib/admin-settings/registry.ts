@@ -16,7 +16,7 @@
 // listed as not-exposed" test, which queries the live schema directly
 // rather than relying on this file alone.
 
-export type SettingType = "boolean" | "integer" | "basis-points" | "text";
+export type SettingType = "boolean" | "integer" | "basis-points" | "cents" | "text";
 
 export interface SettingRegistryEntry {
   domain: string;
@@ -325,6 +325,24 @@ export const SETTINGS_REGISTRY: SettingRegistryEntry[] = [
     label: "Proposal rate-limit attempts",
     description: "Maximum monetary proposals a single user may create within the configured window.",
     type: "integer",
+  },
+  {
+    domain: "Monetary P2P",
+    key: "monetaryP2pMinStakeCents",
+    column: "monetary_p2p_min_stake_cents",
+    label: "Minimum stake",
+    description: "The smallest amount someone can put on a pick. Shown and enforced when a new proposal is sent.",
+    type: "cents",
+    impactNote: "Applies to NEW proposals only. A proposal that was already sent, and any committed Position, keeps the terms it was created with.",
+  },
+  {
+    domain: "Monetary P2P",
+    key: "monetaryP2pMaxStakeCents",
+    column: "monetary_p2p_max_stake_cents",
+    label: "Maximum stake",
+    description: "The most someone can put on a pick in one proposal. A person can never stake more than their available balance, whatever this is set to.",
+    type: "cents",
+    impactNote: "Applies to NEW proposals only. A proposal that was already sent, and any committed Position, keeps the terms it was created with.",
   },
   {
     domain: "Monetary P2P",

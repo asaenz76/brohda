@@ -25,7 +25,7 @@ import type {
   OperationsSettings,
   BrohdaSettings,
 } from "@/lib/admin-settings/types";
-import { parsePercentToBps } from "@/lib/utils/money";
+import { parseDollarsToCents, parsePercentToBps } from "@/lib/utils/money";
 
 // Milestone R12. Every action here: (1) requireSuperAdmin() first line —
 // server-side authorization, never trusting client role state (§8); this
@@ -189,12 +189,20 @@ export async function updateCallBsSettingsAction(expectedUpdatedAt: string, valu
 /** `feePercent` is a display-layer string (e.g. "2.5") converted here via the existing parsePercentToBps utility (lib/utils/money.ts) — the same integer-basis-points parsing already used for pool house-fee configuration, never floating-point financial arithmetic. */
 export async function updateMonetarySettingsAction(
   expectedUpdatedAt: string,
-  values: { monetaryP2pEnabled: boolean; monetaryProposalRateLimitWindowSeconds: number; monetaryProposalRateLimitMaxAttempts: number; feePercent: string },
+  values: { monetaryP2pEnabled: boolean; monetaryProposalRateLimitWindowSeconds: number; monetaryProposalRateLimitMaxAttempts: number; feePercent: string; minStake: string; maxStake: string },
 ): Promise<BrohdaSettingsActionResult> {
   const admin = await requireSuperAdmin();
 
   if (values.monetaryProposalRateLimitWindowSeconds < 1) return { success: false, error: "Rate-limit window must be at least 1 second.", conflict: false, settings: null };
   if (values.monetaryProposalRateLimitMaxAttempts < 1) return { success: false, error: "Rate-limit attempts must be at least 1.", conflict: false, settings: null };
+
+  // Stake limits arrive as the dollar strings the admin typed and are stored as integer cents,
+  // through the same integer parser consumers use — never floating-point money.
+  const monetaryP2pMinStakeCents = parseDollarsToCents(values.minStake);
+  const monetaryP2pMaxStakeCents = parseDollarsToCents(values.maxStake);
+  if (monetaryP2pMinStakeCents === null) return { success: false, error: "Enter a valid minimum stake in dollars, greater than $0.", conflict: false, settings: null };
+  if (monetaryP2pMaxStakeCents === null) return { success: false, error: "Enter a valid maximum stake in dollars, greater than $0.", conflict: false, settings: null };
+  if (monetaryP2pMaxStakeCents < monetaryP2pMinStakeCents) return { success: false, error: "The maximum stake can't be lower than the minimum.", conflict: false, settings: null };
 
   const p2pFeeBps = parsePercentToBps(values.feePercent);
   if (p2pFeeBps === null) return { success: false, error: "Enter a valid fee percentage between 0% and 100%.", conflict: false, settings: null };
@@ -203,6 +211,8 @@ export async function updateMonetarySettingsAction(
     monetaryP2pEnabled: values.monetaryP2pEnabled,
     monetaryProposalRateLimitWindowSeconds: values.monetaryProposalRateLimitWindowSeconds,
     monetaryProposalRateLimitMaxAttempts: values.monetaryProposalRateLimitMaxAttempts,
+    monetaryP2pMinStakeCents,
+    monetaryP2pMaxStakeCents,
     p2pFeeBps,
   };
 
