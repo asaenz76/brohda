@@ -64,7 +64,7 @@ const AVATAR_SIZE: Record<"sm" | "md" | "lg", "sm" | "md" | "lg"> = { sm: "sm", 
  * and name text up a step; reputation/handle stay the same size at every
  * size, since they're secondary to the name at any scale.
  */
-export function UserIdentity({ displayName, username, avatarUrl, reputation, href, size = "md", className }: UserIdentityBaseProps & { size?: "sm" | "md" | "lg" }) {
+export function UserIdentity({ displayName, username, avatarUrl, reputation, href, size = "md", wrapReputation = false, className }: UserIdentityBaseProps & { size?: "sm" | "md" | "lg"; wrapReputation?: boolean }) {
   const rep = reputation ? formatReputation(reputation) : null;
   const body = (
     // min-w-0 here (not just on the inner flex-col below) is load-bearing:
@@ -79,7 +79,7 @@ export function UserIdentity({ displayName, username, avatarUrl, reputation, hre
       <div className="flex min-w-0 flex-col">
         <span className={cn("truncate font-semibold text-text-primary", size === "lg" ? "text-base" : "text-sm")}>{displayName}</span>
         {username && <span className="truncate text-xs text-text-muted">@{username}</span>}
-        {rep && <span className="truncate text-xs text-text-muted">{fullReputationLabel(rep)}</span>}
+        {rep && <span className={cn("text-xs text-text-muted", !wrapReputation && "truncate")}>{fullReputationLabel(rep)}</span>}
       </div>
     </div>
   );

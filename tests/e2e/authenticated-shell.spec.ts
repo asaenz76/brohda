@@ -168,6 +168,11 @@ test.describe("Authenticated shell — desktop (1280)", () => {
       await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
     }
 
+    // Home's page header matches the front door's: "Upcoming games" (the nav item itself stays "Home").
+    await page.goto("/feed");
+    await expect(page.getByRole("heading", { level: 1, name: "Upcoming games" })).toBeVisible();
+    await expect(rail(page).locator('a[aria-current="page"]')).toContainText("Home");
+
     // Order: the five primary links, then Wallet, positioned lower on the page (a utility, not a destination).
     await page.goto("/feed");
     const hrefs = await rail(page).getByRole("link").evaluateAll((els) => els.map((e) => e.getAttribute("href")));

@@ -1,4 +1,4 @@
-import { Home, Sparkles } from "lucide-react";
+import { Sparkles, TrendingUp } from "lucide-react";
 import { requireUser } from "@/lib/auth/session";
 import { getSocialFeed } from "@/lib/communities/feed";
 import { GamePostCard } from "@/components/posts/GamePostCard";
@@ -41,7 +41,7 @@ export default async function FeedPage() {
 
   return (
     <div className="space-y-3">
-      <ColumnHeader title="Home" icon={Home} />
+      <ColumnHeader title="Upcoming games" icon={TrendingUp} />
 
       {feed.length === 0 ? (
         <EmptyFeedState icon={Sparkles} title="Nothing happening right now" description="New games show up here as soon as they're on the board." />

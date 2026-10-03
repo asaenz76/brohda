@@ -1,5 +1,5 @@
 import { GamePostCardSkeleton } from "@/components/posts/GamePostCardSkeleton";
-import { Home } from "lucide-react";
+import { TrendingUp } from "lucide-react";
 import { ColumnHeader } from "@/components/shell/ColumnHeader";
 
 // Next.js route-segment loading state: automatically wraps FeedPage in a
@@ -9,7 +9,7 @@ import { ColumnHeader } from "@/components/shell/ColumnHeader";
 export default function FeedLoading() {
   return (
     <div className="space-y-3" aria-busy="true" aria-label="Loading feed">
-      <ColumnHeader title="Home" icon={Home} />
+      <ColumnHeader title="Upcoming games" icon={TrendingUp} />
       {Array.from({ length: 4 }).map((_, i) => (
         <GamePostCardSkeleton key={i} />
       ))}
