@@ -75,20 +75,39 @@ async function commitVia(proposerId: string, recipientId: string, recipientPickI
   if (acceptError) throw acceptError;
 }
 
-async function cleanup(fixtureId: string, marketId: string, postId: string, userIds: string[]) {
-  // Proposals and Positions reference each other, so they are removed together in one transaction (local DB only).
-  const client = new Client({ connectionString: getTestDatabaseUrl() });
-  await client.connect();
-  try {
-    await client.query("begin");
-    await client.query("set local session_replication_role = replica");
-    await client.query("delete from notifications where monetary_proposal_id in (select id from monetary_proposals where market_id = $1)", [marketId]);
-    await client.query("delete from monetary_positions where market_id = $1", [marketId]);
-    await client.query("delete from monetary_proposals where market_id = $1", [marketId]);
-    await client.query("commit");
-  } finally {
-    await client.end();
+/**
+ * Proposals and Positions reference each other, so no ordering of two plain deletes removes an ACCEPTED pair — the first one
+ * always violates a foreign key (and Supabase returns that as `{ error }`, it doesn't throw). Locally we have a direct,
+ * allowlist-guarded database URL and remove both sides in one transaction. CI's e2e job has no such URL (only the
+ * TEST_SUPABASE_* API values), so there we fall back to the same best-effort deletes every other monetary spec uses — the
+ * CI database is ephemeral, so leftover rows are harmless there. getTestDatabaseUrl() is only called when the variable is
+ * set, so an unsafe value still fails loudly instead of being quietly ignored.
+ */
+async function removeMonetaryRows(marketId: string) {
+  if (process.env.TEST_DATABASE_URL) {
+    const client = new Client({ connectionString: getTestDatabaseUrl() });
+    await client.connect();
+    try {
+      await client.query("begin");
+      await client.query("set local session_replication_role = replica");
+      await client.query("delete from notifications where monetary_proposal_id in (select id from monetary_proposals where market_id = $1)", [marketId]);
+      await client.query("delete from monetary_positions where market_id = $1", [marketId]);
+      await client.query("delete from monetary_proposals where market_id = $1", [marketId]);
+      await client.query("commit");
+    } finally {
+      await client.end();
+    }
+    return;
   }
+  const { data: proposals } = await admin.from("monetary_proposals").select("id").eq("market_id", marketId);
+  const proposalIds = (proposals ?? []).map((r) => r.id);
+  if (proposalIds.length > 0) await admin.from("notifications").delete().in("monetary_proposal_id", proposalIds);
+  await admin.from("monetary_positions").delete().eq("market_id", marketId);
+  await admin.from("monetary_proposals").delete().eq("market_id", marketId);
+}
+
+async function cleanup(fixtureId: string, marketId: string, postId: string, userIds: string[]) {
+  await removeMonetaryRows(marketId);
   await admin.from("notifications").delete().eq("post_id", postId);
   await admin.from("posts").delete().eq("id", postId);
   await admin.from("predictions").delete().eq("market_id", marketId);
