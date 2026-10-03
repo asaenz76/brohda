@@ -8,6 +8,7 @@ import { LocalDateTime } from "@/components/LocalDateTime";
 import { listPostIdsForFixtures } from "@/lib/predictions/post-links";
 import { getMatchupSeparator, orderTeamsForDisplay } from "@/lib/sports-data/team-display-order";
 import { SearchInput } from "./search-input";
+import { ColumnHeader } from "@/components/shell/ColumnHeader";
 
 type SearchProfile = {
   id: string;
@@ -100,8 +101,8 @@ export default async function SearchPage({
   const hasResults = results.length > 0 || fixtures.length > 0;
 
   return (
-    <div className="space-y-[18px] sm:space-y-[22px]">
-      <h1 className="sr-only">Search</h1>
+    <div className="space-y-3">
+      <ColumnHeader title="Search" icon={SearchIcon} />
       <SearchInput initialQuery={query} />
 
       {query.length === 0 ? (
@@ -126,7 +127,7 @@ export default async function SearchPage({
               <ul className="space-y-1">
                 {results.map((profile) => {
                   const row = (
-                    <div className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-surface-secondary">
+                    <div className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-surface-secondary">
                       <Avatar displayName={profile.display_name} avatarUrl={profile.avatar_url} size="md" />
                       <div>
                         <p className="text-sm font-medium text-text-primary">{profile.display_name}</p>
@@ -166,7 +167,7 @@ export default async function SearchPage({
                     <li key={fixture.id}>
                       <Link
                         href={`/post/${fixture.postId}`}
-                        className="flex flex-col rounded-xl px-3 py-2 hover:bg-surface-secondary"
+                        className="flex flex-col rounded-lg px-3 py-2 hover:bg-surface-secondary"
                       >
                         <span className="text-sm font-medium text-text-primary">
                           {firstTeam} {getMatchupSeparator(fixture.sport)} {secondTeam}

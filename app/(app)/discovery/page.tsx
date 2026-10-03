@@ -5,6 +5,7 @@ import { DiscoveryTabNav } from "@/components/discovery/DiscoveryTabNav";
 import { DISCOVERY_EMPTY_COPY, DISCOVERY_TAB_TYPE, parseDiscoveryTab } from "@/lib/communities/discovery-tabs";
 import { DiscoveryRow } from "@/components/discovery/DiscoveryRow";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
+import { ColumnHeader } from "@/components/shell/ColumnHeader";
 
 /**
  * Phase D (Brohda 2.0 redesign) — Discovery: Brohda's Explore surface,
@@ -31,9 +32,10 @@ export default async function DiscoveryPage({ searchParams }: { searchParams: Pr
   const items = await listCommunitiesByType(DISCOVERY_TAB_TYPE[tab], user.id);
 
   return (
-    <div className="space-y-4">
-      <h1 className="sr-only">Discovery</h1>
-      <DiscoveryTabNav active={tab} />
+    <div className="space-y-3">
+      <ColumnHeader title="Discovery" icon={Compass}>
+        <DiscoveryTabNav active={tab} />
+      </ColumnHeader>
 
       {items.length === 0 ? (
         <EmptyFeedState icon={Compass} title={DISCOVERY_EMPTY_COPY[tab]} description="Check back soon — this grows as Brohda covers more games." />

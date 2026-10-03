@@ -5,6 +5,7 @@ import { GamePostCard } from "@/components/posts/GamePostCard";
 import { DiscoveryTabNav } from "@/components/discovery/DiscoveryTabNav";
 import { PublicCommunityRow } from "@/components/discovery/PublicCommunityRow";
 import { PublicMobileMenu } from "@/components/landing/PublicMobileMenu";
+import { ColumnHeader } from "@/components/shell/ColumnHeader";
 import { cn } from "@/lib/utils";
 import { DISCOVERY_EMPTY_COPY, type DiscoveryTab } from "@/lib/communities/discovery-tabs";
 import type { FeedItem } from "@/lib/communities/feed";
@@ -104,16 +105,10 @@ export function PublicFrontDoor({
           {/* Narrow screens have no brand column (and so no visible headline); keep a single h1 for assistive tech. */}
           <h1 className="sr-only md:hidden">{HEADLINE}</h1>
 
-          {/* One compact, sticky header: the title and the three tabs stay in reach while the feed scrolls. */}
-          <div className="sticky top-0 z-20 -mx-4 bg-background md:mx-0 md:rounded-t-lg md:border md:border-b-0 md:border-border-subtle">
-            <div className="flex items-center gap-2 px-4 py-2.5">
-              <TrendingUp className="size-5 text-text-secondary" aria-hidden="true" />
-              <h2 className="text-base font-semibold text-text-primary">Upcoming games</h2>
-            </div>
-            <div className="px-1">
-              <DiscoveryTabNav active={tab} basePath="/" />
-            </div>
-          </div>
+          {/* The same sticky column header the signed-in app uses: the title and the three tabs stay in reach while the feed scrolls. */}
+          <ColumnHeader title="Upcoming games" icon={TrendingUp} headingLevel={2}>
+            <DiscoveryTabNav active={tab} basePath="/" />
+          </ColumnHeader>
 
           {tab === "sports" ? (
             feed.length === 0 ? (

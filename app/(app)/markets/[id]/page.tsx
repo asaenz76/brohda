@@ -3,6 +3,7 @@ import { requireSocialPredictionAccess } from "@/lib/social/access";
 import { getMarketDetail } from "@/lib/prediction-markets/discovery/repository";
 import { MarketPredictionCard } from "@/components/predictions/MarketPredictionCard";
 import { Card, CardContent } from "@/components/ui/card";
+import { ColumnHeader } from "@/components/shell/ColumnHeader";
 
 // Market detail (roadmap STEP 15; prediction submission added Milestone 3,
 // roadmap STEP 17). A market that's INACTIVE/ARCHIVED, or genuinely doesn't
@@ -24,8 +25,8 @@ export default async function MarketDetailPage({ params }: { params: Promise<{ i
   if (!market) notFound();
 
   return (
-    <div className="space-y-4">
-      <h1 className="sr-only">Market detail</h1>
+    <div className="space-y-3">
+      <ColumnHeader title="Market" backHref="/feed" backLabel="Back to Home" />
       <Card>
         <CardContent className="pt-6">
           <MarketPredictionCard market={market} userId={user.id} />

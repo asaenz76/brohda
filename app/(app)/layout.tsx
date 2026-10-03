@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/auth/session";
 import { isAdminOrAbove } from "@/lib/auth/guards";
-import { AppShell } from "@/components/AppShell";
+import { AuthenticatedShell } from "@/components/shell/AuthenticatedShell";
 import { getAppShellProps } from "@/lib/app-shell-props";
 import { getSocialPredictionAccessPolicy } from "@/lib/social/access";
 
@@ -18,14 +18,14 @@ export default async function AppRouteLayout({ children }: { children: React.Rea
   const showSocialPredictionNav = isAdminOrAbove(user) || socialPolicy.enabled;
 
   return (
-    <AppShell
+    <AuthenticatedShell
       user={user}
       availableCents={availableCents}
       heldCents={heldCents}
       unreadNotificationCount={unreadNotificationCount}
-      showSocialPredictionNav={showSocialPredictionNav}
+      showSocialNav={showSocialPredictionNav}
     >
       {children}
-    </AppShell>
+    </AuthenticatedShell>
   );
 }

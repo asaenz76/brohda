@@ -31,21 +31,20 @@ function gameStatusLabel(internalStatus: string, homeScore: number | null, awayS
 }
 
 /**
- * `mode="public"` is the logged-out, read-only presentation used by the front
- * door (components/landing/PublicFrontDoor.tsx). It is the SAME card — same
- * matchup, status, question and sentiment — with exactly four deliberate
- * differences, so there is never a second, divergent Game Post design:
- *   1. a small "Brohda · <competition>" line, because the Game is published
- *      by the platform and a logged-out visitor has no other cue for that
- *      (a Game never has a user author, in either mode);
- *   2. the Pick control becomes links to sign-up (PublicPickChoices) instead
- *      of mutation buttons;
- *   3. Community chips are plain text, since Community pages need an account;
- *   4. the card is an <article> with an accessible name, so a screen reader
- *      can tell the Game apart from the people discussing it.
+ * One Game Post, two audiences. The card is identical for a member and for
+ * a logged-out visitor — same matchup, status, question, sentiment and
+ * spacing — so signing in never changes how a Game looks, only what you can
+ * do with it. Both modes open with the same authorship line ("Brohda ·
+ * competition"): a Game is published by the platform and never has a user
+ * author. `mode="public"` (the front door,
+ * components/landing/PublicFrontDoor.tsx) differs only in capability:
+ *   1. the Pick control becomes links to sign-up (PublicPickChoices)
+ *      instead of mutation buttons;
+ *   2. Community chips are plain text, since Community pages need an
+ *      account;
+ *   3. there is no "Following" marker, since there is no viewer.
  * Money controls never appear on this card in either mode (they live on the
- * Post detail, inside MarketParticipants). `member` is the default and is
- * unchanged.
+ * Post detail, inside MarketParticipants). `member` is the default.
  */
 export function GamePostCard({ item, mode = "member" }: { item: FeedItem; mode?: "member" | "public" }) {
   const isPublic = mode === "public";
@@ -60,28 +59,25 @@ export function GamePostCard({ item, mode = "member" }: { item: FeedItem; mode?:
   const card = (
     <Card>
       <CardContent className="space-y-3 pt-6">
-        {isPublic && (
+        <div className="flex items-center justify-between gap-2">
           <p className="text-xs text-text-muted">
             <span className="sr-only">Game published by </span>
             <span className="font-medium text-text-secondary">Brohda</span>
             {item.competitionName && ` · ${item.competitionName}`}
           </p>
-        )}
+          {!isPublic && item.isFromFollowedCommunity && (
+            <span className="shrink-0 rounded-full bg-accent-primary/10 px-2 py-0.5 text-xs font-medium text-accent-primary">Following</span>
+          )}
+        </div>
         <Link href={`/post/${item.post.id}`} className="block space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <p className="flex flex-wrap items-center gap-1.5 text-base font-semibold text-text-primary">
-              <TeamCrest logoUrl={item.awayTeamLogoUrl} teamName={item.awayTeamName} />
-              {item.awayTeamName} @ <TeamCrest logoUrl={item.homeTeamLogoUrl} teamName={item.homeTeamName} />
-              {item.homeTeamName}
-            </p>
-            {!isPublic && item.isFromFollowedCommunity && (
-              <span className="shrink-0 rounded-full bg-accent-primary/10 px-2 py-0.5 text-xs font-medium text-accent-primary">Following</span>
-            )}
-          </div>
+          <p className="flex flex-wrap items-center gap-1.5 text-base font-semibold text-text-primary">
+            <TeamCrest logoUrl={item.awayTeamLogoUrl} teamName={item.awayTeamName} />
+            {item.awayTeamName} @ <TeamCrest logoUrl={item.homeTeamLogoUrl} teamName={item.homeTeamName} />
+            {item.homeTeamName}
+          </p>
 
           <p className="text-sm text-text-secondary">
             {statusLabel ?? <LocalDateTime iso={item.scheduledStartUtc} options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />}
-            {!isPublic && item.competitionName && ` · ${item.competitionName}`}
           </p>
 
           {market && <p className="text-sm font-medium text-text-primary">{market.question}</p>}
@@ -152,6 +148,5 @@ export function GamePostCard({ item, mode = "member" }: { item: FeedItem; mode?:
     </Card>
   );
 
-  if (!isPublic) return card;
   return <article aria-label={`Game: ${item.awayTeamName} at ${item.homeTeamName}`}>{card}</article>;
 }

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { User } from "lucide-react";
 import { requireUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getUserPredictionRecord } from "@/lib/reputation/repository";
@@ -8,6 +9,7 @@ import { ProfileHeader } from "@/components/profile/ProfileHeader";
 import { ProfileTabNav, type ProfileTab } from "./profile-tab-nav";
 import { PredictionsHistory } from "./predictions-history";
 import { CommunitiesTab } from "./communities-tab";
+import { ColumnHeader } from "@/components/shell/ColumnHeader";
 
 /**
  * Own Profile (Phase F, Brohda 2.0 redesign) — a social identity, not a
@@ -50,7 +52,8 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
   const profileHref = `/profile/${user.username ?? user.id}`;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      <ColumnHeader title="Profile" icon={User} />
       <ProfileHeader
         displayName={user.display_name}
         username={user.username}

@@ -1,17 +1,15 @@
 import { GamePostCardSkeleton } from "@/components/posts/GamePostCardSkeleton";
+import { Home } from "lucide-react";
+import { ColumnHeader } from "@/components/shell/ColumnHeader";
 
 // Next.js route-segment loading state: automatically wraps FeedPage in a
 // Suspense boundary since it's a pure async Server Component. Mirrors the
-// real page's spacing/filter-bar shape so streaming in the real content
+// real page's header and card spacing so streaming in the real content
 // doesn't shift the layout.
 export default function FeedLoading() {
   return (
-    <div className="space-y-[18px] sm:space-y-[22px]" aria-busy="true" aria-label="Loading feed">
-      <h1 className="sr-only">Feed</h1>
-      <div className="flex gap-2">
-        <div className="h-8 w-28 animate-pulse rounded-lg bg-surface-elevated" />
-        <div className="h-8 w-28 animate-pulse rounded-lg bg-surface-elevated" />
-      </div>
+    <div className="space-y-3" aria-busy="true" aria-label="Loading feed">
+      <ColumnHeader title="Home" icon={Home} />
       {Array.from({ length: 4 }).map((_, i) => (
         <GamePostCardSkeleton key={i} />
       ))}

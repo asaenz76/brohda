@@ -19,6 +19,10 @@ export function SearchInput({ initialQuery }: { initialQuery: string }) {
     debounceRef.current = setTimeout(() => {
       const params = new URLSearchParams(searchParams.toString());
       const trimmed = value.trim();
+      // Nothing was typed: the URL already says this. Without this guard the
+      // mount-time debounce re-pushed /search 300ms after arriving, which
+      // overrode a navigation the visitor had already started elsewhere.
+      if (trimmed === (params.get("q") ?? "")) return;
       if (trimmed) {
         params.set("q", trimmed);
       } else {

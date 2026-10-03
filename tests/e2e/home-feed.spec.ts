@@ -221,8 +221,8 @@ test.describe("Home timeline", () => {
       // Scoped to each test's own card — see the previous test's own note
       // on why (the shared feed is global across concurrently-running
       // E2E workers).
-      const followedCard = page.locator("a", { hasText: `E2E Away vs Followed ${suffix}` });
-      const otherCard = page.locator("a", { hasText: `E2E Away vs Other ${suffix}` });
+      const followedCard = page.getByRole("article", { name: new RegExp(`E2E Away vs Followed ${suffix}`) });
+      const otherCard = page.getByRole("article", { name: new RegExp(`E2E Away vs Other ${suffix}`) });
       await expect(followedCard.getByText("Following")).toBeVisible();
       await expect(otherCard).toBeVisible();
       await expect(otherCard.getByText("Following")).toHaveCount(0);

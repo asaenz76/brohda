@@ -271,7 +271,7 @@ export function MonetaryProposalAction({ marketId, state, context }: { marketId:
   const { recipientPredictionId } = current;
   if (!composerOpen) {
     return (
-      <Button type="button" size="lg" variant="outline" onClick={() => setComposerOpen(true)}>
+      <Button type="button" size="lg" variant="ghost" className="text-text-secondary" onClick={() => setComposerOpen(true)}>
         Put money on it
       </Button>
     );

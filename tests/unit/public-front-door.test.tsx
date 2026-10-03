@@ -251,11 +251,33 @@ describe("GamePostCard modes", () => {
     expect(screen.queryAllByRole("button")).toHaveLength(0);
   });
 
-  it("member mode is unchanged: real Pick buttons, linked Community chips, no Brohda eyebrow, no article wrapper", () => {
+  it("member mode is the same card with real controls: Pick buttons, linked Community chips, the same Brohda authorship line", () => {
     const { container } = render(<GamePostCard item={item()} />);
     expect(screen.getAllByRole("button", { name: /^Pick: / })).toHaveLength(2);
     expect(screen.getByRole("link", { name: /^NFL/ })).toHaveAttribute("href", "/community/nfl");
-    expect(text(container)).not.toContain("Game published by");
-    expect(screen.queryByRole("article")).toBeNull();
+    const article = screen.getByRole("article", { name: "Game: New England Patriots at Buffalo Bills" });
+    expect(text(article)).toContain("Game published by");
+    expect(text(article)).toContain("Brohda · NFL");
+    expect(text(container)).not.toMatch(/posted by|authored by|created by/i);
   });
+
+  it("signing in does not change the card: member and public render the same structure, spacing and text around the Pick control", () => {
+    const strip = (el: HTMLElement) => {
+      // Everything except the one deliberate difference (the Pick control and Community chips): same elements, same classes, same text.
+      const clone = el.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll('[data-testid="public-pick-choices"], [data-slot="prediction-actions"]').forEach((n) => n.remove());
+      return clone;
+    };
+    const publicView = render(<GamePostCard item={item()} mode="public" />);
+    const publicCard = strip(screen.getByRole("article"));
+    const publicClasses = Array.from(publicCard.querySelectorAll("[class]")).map((n) => n.className).filter((c) => !/space-y-2 rounded-lg/.test(c));
+    publicView.unmount();
+    render(<GamePostCard item={item()} />);
+    const memberCard = strip(screen.getByRole("article"));
+    const memberClasses = Array.from(memberCard.querySelectorAll("[class]")).map((n) => n.className).filter((c) => !/space-y-2 rounded-lg/.test(c));
+    // The Community chips differ in element type (link vs plain text) but share the same chip classes.
+    expect(memberClasses.slice(0, 6)).toEqual(publicClasses.slice(0, 6));
+    expect(memberCard.querySelector("article, [data-slot='card']")?.className).toBe(publicCard.querySelector("[data-slot='card']")?.className);
+  });
+
 });

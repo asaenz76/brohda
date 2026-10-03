@@ -109,7 +109,8 @@ test.describe("Brohda Prediction layer", () => {
       await expect(page.getByRole("button", { name: "Pick: Home Test FC wins" })).toBeVisible();
       await expect(page.getByRole("button", { name: "Pick: Home Test FC does not win" })).toBeVisible();
 
-      const bodyTextBefore = await page.locator("body").innerText();
+      // The page's content, not the app shell: the left rail has a quiet "Wallet" utility link by design.
+      const bodyTextBefore = await page.getByRole("main").innerText();
       for (const pattern of FORBIDDEN_TERMS) expect(bodyTextBefore).not.toMatch(pattern);
       // No amount input anywhere on the page — a Prediction is a free,
       // equal, non-monetary belief, never a stake.
@@ -120,7 +121,7 @@ test.describe("Brohda Prediction layer", () => {
       // language, never the raw YES/NO enum.
       await expect(page.getByText(/You picked Home Test FC wins \(\d+%\)\./)).toBeVisible();
 
-      const bodyTextAfter = await page.locator("body").innerText();
+      const bodyTextAfter = await page.getByRole("main").innerText();
       for (const pattern of FORBIDDEN_TERMS) expect(bodyTextAfter).not.toMatch(pattern);
 
       // Revisit: the server now considers this Game's Pick cutoff still
