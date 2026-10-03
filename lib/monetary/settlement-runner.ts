@@ -1,3 +1,4 @@
+import { errorMessage } from "@/lib/utils/error-message";
 import "server-only";
 import { listSettlementEligiblePositionIds, settleMonetaryPosition, getMonetaryPositionById, expireStaleMonetaryProposals } from "./repository";
 import { createSettlementNotifications } from "@/lib/notifications/monetary-settlements";
@@ -47,7 +48,7 @@ export async function runSettlementJob(limit?: number): Promise<SettlementRunSum
       if (!delivery.delivered) expiryFailures.push({ proposalId: proposal.id, error: `expired and released, but MONETARY_PROPOSAL_EXPIRED notification failed: ${delivery.error}` });
     }
   } catch (error) {
-    expiryFailures.push({ error: `proposal expiry sweep failed: ${error instanceof Error ? error.message : String(error)}` });
+    expiryFailures.push({ error: `proposal expiry sweep failed: ${errorMessage(error)}` });
   }
 
   const positionIds = await listSettlementEligiblePositionIds(limit);
@@ -88,7 +89,7 @@ export async function runSettlementJob(limit?: number): Promise<SettlementRunSum
         summary.invariantViolations += 1;
       }
     } catch (error) {
-      summary.failures.push({ positionId, error: error instanceof Error ? error.message : String(error) });
+      summary.failures.push({ positionId, error: errorMessage(error) });
     }
   }
 

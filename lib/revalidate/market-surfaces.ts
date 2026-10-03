@@ -1,3 +1,4 @@
+import { errorMessage } from "@/lib/utils/error-message";
 import "server-only";
 import { revalidatePath } from "next/cache";
 import { listPostIdsForMarkets } from "@/lib/predictions/post-links";
@@ -15,6 +16,6 @@ export async function revalidateMarketSurfaces(marketId: string, extraPaths: str
     const postId = (await listPostIdsForMarkets([marketId])).get(marketId);
     if (postId) revalidatePath(`/post/${postId}`);
   } catch (error) {
-    console.error(`[revalidate] could not resolve the Post to revalidate for market ${marketId}:`, error instanceof Error ? error.message : error);
+    console.error(`[revalidate] could not resolve the Post to revalidate for market ${marketId}:`, errorMessage(error));
   }
 }

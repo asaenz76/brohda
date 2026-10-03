@@ -1,3 +1,4 @@
+import { errorMessage } from "@/lib/utils/error-message";
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -29,7 +30,7 @@ export async function deliverNotification(scope: string, label: string, subjectI
     await send();
     return { delivered: true };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     console.error(`[${scope}] ${label} notification failed for ${subjectId} — the underlying action itself is unaffected:`, message);
     return { delivered: false, error: message };
   }

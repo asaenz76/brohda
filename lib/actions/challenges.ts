@@ -1,5 +1,6 @@
 "use server";
 
+import { errorMessage } from "@/lib/utils/error-message";
 import { requireUser } from "@/lib/auth/session";
 import { callBS, acceptCallBS, declineCallBS } from "@/lib/challenges/repository";
 import { callBsSchema, respondToChallengeSchema } from "@/lib/validations/challenges";
@@ -84,7 +85,7 @@ export async function acceptChallengeAction(challengeId: string, marketId: strin
   try {
     result = await acceptCallBS(parsed.data.challengeId, user.id);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return { error: RESPOND_ERROR_COPY[message] ?? "Could not accept this Call BS.", challenge: null };
   }
 
@@ -122,7 +123,7 @@ export async function declineChallengeAction(challengeId: string, marketId: stri
   try {
     challenge = await declineCallBS(parsed.data.challengeId, user.id);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return { error: RESPOND_ERROR_COPY[message] ?? "Could not decline this Call BS.", challenge: null };
   }
 

@@ -1,3 +1,4 @@
+import { errorMessage } from "@/lib/utils/error-message";
 import "server-only";
 import { getPredictionById } from "@/lib/predictions/repository";
 import { listUnresolvedAcceptedChallenges, markChallengeResolved } from "./repository";
@@ -122,7 +123,7 @@ export async function resolveAcceptedChallenges(): Promise<ChallengeResolutionRu
     } catch (error) {
       // Milestone R13.5 (§23, §26): one bad Challenge must not abort the
       // rest of an automated batch — left ACCEPTED for the next run.
-      summary.failures.push({ challengeId: challenge.id, error: error instanceof Error ? error.message : String(error) });
+      summary.failures.push({ challengeId: challenge.id, error: errorMessage(error) });
     }
   }
 

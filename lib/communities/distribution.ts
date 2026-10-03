@@ -1,3 +1,4 @@
+import { errorMessage } from "@/lib/utils/error-message";
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureLeagueCommunity, ensureSportCommunity, ensureTeamCommunity } from "./repository";
@@ -126,7 +127,7 @@ export async function runCommunityDistribution(): Promise<CommunityDistributionS
       const outcome = await distributePostForFixture(post.id, post.fixture_id);
       outcomes.push({ postId: post.id, ...outcome });
     } catch (err) {
-      failures.push({ postId: post.id, error: err instanceof Error ? err.message : String(err) });
+      failures.push({ postId: post.id, error: errorMessage(err) });
     }
   }
 

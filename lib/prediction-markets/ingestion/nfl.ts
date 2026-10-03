@@ -1,3 +1,4 @@
+import { errorMessage } from "@/lib/utils/error-message";
 import "server-only";
 import { apiNflProvider } from "@/lib/sports-data/api-nfl-provider";
 import { API_NFL_PROVIDER } from "@/lib/sports-data/provider-names";
@@ -215,7 +216,7 @@ export async function runNflMarketIngestion(): Promise<MarketIngestionSummary> {
       // One fixture's failure (e.g. a uniqueness race lost, or an
       // unexpected provider shape) must never abort the rest of the run —
       // canonical state already written for other fixtures stays intact.
-      failures.push({ fixtureId: fixture.id, error: error instanceof Error ? error.message : String(error) });
+      failures.push({ fixtureId: fixture.id, error: errorMessage(error) });
     }
   }
 

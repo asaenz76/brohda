@@ -1,3 +1,4 @@
+import { errorMessage } from "@/lib/utils/error-message";
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { API_NFL_PROVIDER } from "@/lib/sports-data/provider-names";
@@ -88,7 +89,7 @@ export async function runPostPublication(): Promise<PostPublicationSummary> {
     try {
       outcomes.push(await ensureAndPublishPostForFixture(fixtureId, policy.requiresActiveMarket));
     } catch (error) {
-      failures.push({ fixtureId, error: error instanceof Error ? error.message : String(error) });
+      failures.push({ fixtureId, error: errorMessage(error) });
     }
   }
 

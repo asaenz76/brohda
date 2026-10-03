@@ -1,3 +1,4 @@
+import { errorMessage } from "@/lib/utils/error-message";
 import "server-only";
 import * as Sentry from "@sentry/nextjs";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -112,7 +113,7 @@ export async function recordJobRun<T>(
     await admin.from("background_jobs").insert({
       job_name: jobName,
       status: "error",
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error),
       started_at: startedAt.toISOString(),
       finished_at: finishedAt.toISOString(),
       duration_ms: finishedAt.getTime() - startedAt.getTime(),

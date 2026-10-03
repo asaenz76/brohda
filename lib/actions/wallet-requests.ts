@@ -1,5 +1,6 @@
 "use server";
 
+import { errorMessage } from "@/lib/utils/error-message";
 import { revalidatePath } from "next/cache";
 import { requireUser, requireSuperAdmin } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -83,7 +84,7 @@ export async function submitWalletRequestAction(
       });
       reservationId = reservation.id;
     } catch (reserveError) {
-      const message = reserveError instanceof Error ? reserveError.message : String(reserveError);
+      const message = errorMessage(reserveError);
       if (message.includes("insufficient_available_balance")) {
         return { error: "You don't have enough available balance for this withdrawal.", success: false, idempotencyKey };
       }
