@@ -46,13 +46,29 @@ async function expectFooterAtBottom(page: Page, label: string) {
   const links = footer.getByRole("navigation", { name: "About and legal" }).getByRole("link");
   await expect(links, label).toHaveText(["How it works", "Terms", "Privacy"]);
   await expect(footer, label).toContainText(`© ${new Date().getFullYear()} Brohda`);
-  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  // Scroll to the true end and check the footer is fully on screen there. The document can still be growing (crests loading,
+  // a long timeline settling), so scroll again and re-measure until it holds, in one read each time.
+  await expect
+    .poll(
+      async () => {
+        await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+        return page.evaluate(() => {
+          const foot = document.querySelector("footer")!.getBoundingClientRect();
+          const atEnd = Math.round(window.innerHeight + window.scrollY) >= document.documentElement.scrollHeight - 2;
+          return atEnd && foot.bottom <= window.innerHeight + 1;
+        });
+      },
+      { message: `${label}: footer is within the screen at the end of the page` },
+    )
+    .toBe(true);
   const box = (await footer.boundingBox())!;
-  const viewport = page.viewportSize()!;
-  expect(box.y + box.height, `${label}: footer is within the screen at the end of the page`).toBeLessThanOrEqual(viewport.height);
-  // After all page content: nothing but the (fixed) bars comes below it in the document.
-  const lastMain = await page.getByRole("main").boundingBox();
-  expect(box.y, `${label}: footer sits below the main column`).toBeGreaterThanOrEqual(lastMain!.y + lastMain!.height - 1);
+  // After all page content: the footer starts below the main column's end (measured in one go, so a growing page can't skew it).
+  const gap = await page.evaluate(() => {
+    const main = document.querySelector("main")!.getBoundingClientRect();
+    const foot = document.querySelector("footer")!.getBoundingClientRect();
+    return foot.top - main.bottom;
+  });
+  expect(gap, `${label}: footer sits below the main column`).toBeGreaterThanOrEqual(-1);
   // The fixed bottom bar (phones) never overlaps the footer.
   for (const id of ["public-bottom-bar", "auth-bottom-nav"]) {
     const bar = page.getByTestId(id);
