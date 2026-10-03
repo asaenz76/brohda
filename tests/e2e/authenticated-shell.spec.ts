@@ -271,6 +271,35 @@ test.describe("Authenticated shell — desktop (1280)", () => {
     await anon.close();
   });
 
+  test("Home carries the same header as the front door: Upcoming games over Sports | Leagues | Teams, Sports being the Game timeline", async ({ page, browser }) => {
+    await login(page);
+    const main = page.getByRole("main");
+    await expect(main.getByRole("heading", { level: 1, name: "Upcoming games" })).toBeVisible();
+    await expect(main.getByRole("tab")).toHaveText(["Sports", "Leagues", "Teams"]);
+    await expect(main.getByRole("tab", { name: "Sports" })).toHaveAttribute("aria-selected", "true");
+    await expect(gameArticle(page)).toBeVisible();
+
+    // Teams: the same Community list Discovery shows, with the viewer's own follow state — and no Game Posts.
+    await main.getByRole("tab", { name: "Teams" }).click();
+    await expect(page).toHaveURL(/\/feed\?tab=teams$/);
+    await expect(main.getByRole("tab", { name: "Teams" })).toHaveAttribute("aria-selected", "true");
+    await expect(main.getByRole("link", { name: TEAM_NAME })).toHaveAttribute("href", `/community/shell-team-${suffix}`);
+    await expect(page.getByRole("article")).toHaveCount(0);
+    await main.getByRole("tab", { name: "Leagues" }).click();
+    await expect(page).toHaveURL(/\/feed\?tab=leagues$/);
+    await main.getByRole("tab", { name: "Sports" }).click();
+    await expect(gameArticle(page)).toBeVisible();
+
+    // Same tab bar as logged out: identical labels and the same underline treatment.
+    const anon = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const anonPage = await anon.newPage();
+    await anonPage.goto("/");
+    const bar = (p: Page) => p.getByRole("main").getByRole("tablist").evaluate((n) => { const cs = getComputedStyle(n); return { borderBottom: cs.borderBottomWidth, display: cs.display }; });
+    expect(await bar(anonPage)).toEqual(await bar(page));
+    await expect(anonPage.getByRole("main").getByRole("heading", { name: "Upcoming games" })).toBeVisible();
+    await anon.close();
+  });
+
   test("Discovery keeps the Sports | Leagues | Teams tabs with the same active underline as the front door", async ({ page }) => {
     await login(page);
     await page.goto("/discovery");

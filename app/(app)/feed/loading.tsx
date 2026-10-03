@@ -9,7 +9,10 @@ import { ColumnHeader } from "@/components/shell/ColumnHeader";
 export default function FeedLoading() {
   return (
     <div className="space-y-3" aria-busy="true" aria-label="Loading feed">
-      <ColumnHeader title="Upcoming games" icon={TrendingUp} />
+      <ColumnHeader title="Upcoming games" icon={TrendingUp}>
+        {/* Holds the tab row's height so the real tabs don't shift the page when they stream in. */}
+        <div className="h-[43px] border-b border-border-subtle" aria-hidden="true" />
+      </ColumnHeader>
       {Array.from({ length: 4 }).map((_, i) => (
         <GamePostCardSkeleton key={i} />
       ))}

@@ -1,7 +1,13 @@
 import { Sparkles, TrendingUp } from "lucide-react";
 import { requireUser } from "@/lib/auth/session";
+import { isAdminOrAbove } from "@/lib/auth/guards";
 import { getSocialFeed } from "@/lib/communities/feed";
+import { listCommunitiesByType } from "@/lib/communities/discovery";
+import { DISCOVERY_EMPTY_COPY, DISCOVERY_TAB_TYPE, parseDiscoveryTab } from "@/lib/communities/discovery-tabs";
+import { getSocialPredictionAccessPolicy } from "@/lib/social/access";
 import { GamePostCard } from "@/components/posts/GamePostCard";
+import { DiscoveryTabNav } from "@/components/discovery/DiscoveryTabNav";
+import { DiscoveryRow } from "@/components/discovery/DiscoveryRow";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
 import { ColumnHeader } from "@/components/shell/ColumnHeader";
 
@@ -35,18 +41,42 @@ import { ColumnHeader } from "@/components/shell/ColumnHeader";
  * requireSocialPredictionAccess() unchanged — their fallback destination
  * (this page) still exists and is still correct.
  */
-export default async function FeedPage() {
+export default async function FeedPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const user = await requireUser();
-  const feed = await getSocialFeed(user.id);
+  const { tab: tabParam } = await searchParams;
+
+  // The same header and tab bar the logged-out front door shows: "Upcoming games" over Sports | Leagues | Teams.
+  // Sports is the Game Post timeline; Leagues and Teams are Discovery's own Community lists (with follow controls,
+  // since there is a viewer). Like the Discovery page itself, the Community tabs only exist while the social
+  // product is on — otherwise this is just the timeline.
+  const showTabs = isAdminOrAbove(user) || (await getSocialPredictionAccessPolicy()).enabled;
+  const tab = showTabs ? parseDiscoveryTab(tabParam) : "sports";
+
+  const [feed, communities] = await Promise.all([
+    tab === "sports" ? getSocialFeed(user.id) : Promise.resolve([]),
+    tab === "sports" ? Promise.resolve([]) : listCommunitiesByType(DISCOVERY_TAB_TYPE[tab], user.id),
+  ]);
 
   return (
     <div className="space-y-3">
-      <ColumnHeader title="Upcoming games" icon={TrendingUp} />
+      <ColumnHeader title="Upcoming games" icon={TrendingUp}>
+        {showTabs && <DiscoveryTabNav active={tab} basePath="/feed" />}
+      </ColumnHeader>
 
-      {feed.length === 0 ? (
-        <EmptyFeedState icon={Sparkles} title="Nothing happening right now" description="New games show up here as soon as they're on the board." />
+      {tab === "sports" ? (
+        feed.length === 0 ? (
+          <EmptyFeedState icon={Sparkles} title="Nothing happening right now" description="New games show up here as soon as they're on the board." />
+        ) : (
+          feed.map((item) => <GamePostCard key={item.post.id} item={item} />)
+        )
+      ) : communities.length === 0 ? (
+        <EmptyFeedState icon={Sparkles} title={DISCOVERY_EMPTY_COPY[tab]} description="Check back soon — this grows as Brohda covers more games." />
       ) : (
-        feed.map((item) => <GamePostCard key={item.post.id} item={item} />)
+        <ul className="divide-y divide-border-subtle rounded-lg border border-border-subtle">
+          {communities.map((item) => (
+            <DiscoveryRow key={item.id} item={item} />
+          ))}
+        </ul>
       )}
     </div>
   );
