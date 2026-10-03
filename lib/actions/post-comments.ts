@@ -1,5 +1,6 @@
 "use server";
 
+import { errorMessage } from "@/lib/utils/error-message";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -40,7 +41,7 @@ export async function addPostCommentAction(postId: string, body: string, parentC
   try {
     created = await addPostComment({ postId: parsed.data.postId, userId: user.id, body: parsed.data.body, parentCommentId: parsed.data.parentCommentId ?? null });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     if (message.includes("nesting_too_deep")) return { error: "Replies can't be nested further.", comment: null };
     if (message.includes("post_not_found")) return { error: "This post isn't available for comments.", comment: null };
     if (message.includes("body_too_long")) return { error: "That comment is too long.", comment: null };

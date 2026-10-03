@@ -1,5 +1,6 @@
 "use server";
 
+import { errorMessage } from "@/lib/utils/error-message";
 import { requireUser } from "@/lib/auth/session";
 import { proposeMoney, acceptMonetaryProposal, declineMonetaryProposal, withdrawMonetaryProposal } from "@/lib/monetary/repository";
 import { proposeMoneySchema, respondToMonetaryProposalSchema } from "@/lib/validations/monetary-proposals";
@@ -103,7 +104,7 @@ export async function acceptMonetaryProposalAction(proposalId: string, marketId:
   try {
     result = await acceptMonetaryProposal(parsed.data.proposalId, user.id);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return { error: RESPOND_ERROR_COPY[message] ?? "Could not accept this proposal.", proposal: null, position: null };
   }
 
@@ -144,7 +145,7 @@ export async function declineMonetaryProposalAction(proposalId: string, marketId
   try {
     proposal = await declineMonetaryProposal(parsed.data.proposalId, user.id);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return { error: RESPOND_ERROR_COPY[message] ?? "Could not decline this proposal.", proposal: null, position: null };
   }
 
@@ -166,7 +167,7 @@ export async function withdrawMonetaryProposalAction(proposalId: string, marketI
   try {
     proposal = await withdrawMonetaryProposal(parsed.data.proposalId, user.id);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return { error: RESPOND_ERROR_COPY[message] ?? "Could not withdraw this proposal.", proposal: null, position: null };
   }
 

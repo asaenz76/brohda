@@ -1,3 +1,4 @@
+import { errorMessage } from "@/lib/utils/error-message";
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -18,7 +19,7 @@ const QUOTA_ERROR_PATTERN = /request limit|too many requests|rate limit|quota/i;
  * (discovery sync, recommendation cache refresh) needs to stop entirely
  * instead of burning its remaining calls on guaranteed-to-fail requests. */
 export function isQuotaExhaustedError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = errorMessage(error);
   return QUOTA_ERROR_PATTERN.test(message);
 }
 

@@ -1,3 +1,4 @@
+import { errorMessage } from "@/lib/utils/error-message";
 import "server-only";
 import { getMarketById, type MarketRecord } from "@/lib/prediction-markets/repository";
 import { deriveConsumerStatus } from "@/lib/prediction-markets/discovery/status";
@@ -204,7 +205,7 @@ export async function runGradingJob(
       // write (markPredictionGraded), so a failure here never leaves that
       // one row partially graded — it's simply left PENDING for the next
       // run, exactly like a still-pending decision.
-      summary.failures.push({ predictionId: prediction.id, error: error instanceof Error ? error.message : String(error) });
+      summary.failures.push({ predictionId: prediction.id, error: errorMessage(error) });
     }
   }
 
