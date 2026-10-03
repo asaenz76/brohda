@@ -3,6 +3,7 @@ import Link from "next/link";
 import { LeftNav } from "@/components/shell/LeftNav";
 import { MobileNav } from "@/components/shell/MobileNav";
 import { RightRail } from "@/components/shell/RightRail";
+import { SiteFooter } from "@/components/shell/SiteFooter";
 import { NotificationToast } from "@/components/NotificationToast";
 import { isAdminOrAbove } from "@/lib/auth/guards";
 import type { UserProfile } from "@/lib/auth/session";
@@ -48,7 +49,7 @@ export function AuthenticatedShell({
         </div>
       </header>
 
-      <div className="mx-auto grid w-full max-w-[1200px] gap-6 px-4 pt-3 pb-[calc(5rem+env(safe-area-inset-bottom))] md:grid-cols-[200px_minmax(0,1fr)] md:pt-4 md:pb-8 lg:grid-cols-[250px_minmax(0,600px)] lg:justify-center lg:py-6 xl:grid-cols-[250px_minmax(0,600px)_280px]">
+      <div className="mx-auto grid w-full max-w-[1200px] gap-6 px-4 pt-3 md:grid-cols-[200px_minmax(0,1fr)] md:pt-4 lg:grid-cols-[250px_minmax(0,600px)] lg:justify-center lg:pt-6 xl:grid-cols-[250px_minmax(0,600px)_280px]">
         <aside aria-label="Navigation" className="hidden space-y-6 md:sticky md:top-4 md:block md:self-start lg:top-6">
           <Link href="/feed" className="block px-3 pt-1 font-logo text-[1.7rem] font-extrabold italic leading-none text-text-primary">
             brohda.
@@ -65,6 +66,11 @@ export function AuthenticatedShell({
             <RightRail user={user} profileHref={`/profile/${profileSlug}`} />
           </Suspense>
         </aside>
+      </div>
+
+      {/* The page's last element; on phones it clears the fixed bottom bar. */}
+      <div className="mx-auto mt-6 w-full max-w-[1200px] px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:mt-8 md:pb-8">
+        <SiteFooter />
       </div>
 
       <MobileNav {...navProps} profile={{ displayName: user.display_name, avatarUrl: user.avatar_url }} />

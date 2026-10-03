@@ -174,8 +174,9 @@ describe("PublicFrontDoor", () => {
     // What it does keep: search (honestly account-gated), one line about Brohda, legal.
     expect(within(left).getByRole("link", { name: /Search/ })).toHaveAttribute("href", "/login");
     expect(within(left).getByText("Brohda is a social network for people who think they know sports.")).toBeInTheDocument();
-    expect(within(left).getByRole("link", { name: "Terms" })).toHaveAttribute("href", "/terms");
-    expect(within(left).getByRole("link", { name: "Privacy" })).toHaveAttribute("href", "/privacy");
+    // The legal links are the page footer's job now, not the sidebar's.
+    expect(within(left).queryByRole("link", { name: "Terms" })).toBeNull();
+    expect(within(left).queryByRole("link", { name: "Privacy" })).toBeNull();
   });
 
   it("exposes named landmarks so structure doesn't depend on layout", () => {
@@ -183,6 +184,24 @@ describe("PublicFrontDoor", () => {
     expect(screen.getByRole("main")).toBeInTheDocument();
     expect(screen.getAllByRole("complementary").map((el) => el.getAttribute("aria-label")).sort()).toEqual(["About Brohda", "Join Brohda"]);
     expect(screen.getAllByRole("navigation").length).toBeGreaterThan(0);
+  });
+});
+
+describe("PublicFrontDoor — page footer", () => {
+  it("ends the page with How it works, Terms, Privacy and the copyright line — below the feed, outside every column", () => {
+    const { container } = renderDoor({ feed: [item()] });
+    const footer = screen.getByRole("contentinfo");
+    const links = within(footer).getAllByRole("link").map((a) => [a.textContent, a.getAttribute("href")]);
+    expect(links).toEqual([
+      ["How it works", "/how-it-works"],
+      ["Terms", "/terms"],
+      ["Privacy", "/privacy"],
+    ]);
+    expect(footer).toHaveTextContent(`© ${new Date().getFullYear()} Brohda`);
+    // After the main column in document order, and not inside either sidebar.
+    expect(screen.getByRole("main").compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    for (const aside of screen.getAllByRole("complementary")) expect(aside).not.toContainElement(footer);
+    expect(container.querySelectorAll("footer")).toHaveLength(1);
   });
 });
 
@@ -211,6 +230,7 @@ describe("PublicFrontDoor — mobile bottom bar and menu", () => {
       ["Sports", "/?tab=sports"],
       ["Leagues", "/?tab=leagues"],
       ["Teams", "/?tab=teams"],
+      ["How it works", "/how-it-works"],
       ["Terms", "/terms"],
       ["Privacy", "/privacy"],
     ]);
