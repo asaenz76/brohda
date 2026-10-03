@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { LocalDateTime } from "@/components/LocalDateTime";
 import { TeamCrest } from "@/components/TeamCrest";
 import { PredictionActions } from "@/components/predictions/PredictionActions";
+import { PublicPickChoices } from "@/components/posts/PublicPickChoices";
 import { getCommunityTypeLabel } from "@/lib/communities/presentation";
 import type { FeedItem } from "@/lib/communities/feed";
 
@@ -29,7 +30,25 @@ function gameStatusLabel(internalStatus: string, homeScore: number | null, awayS
   return null;
 }
 
-export function GamePostCard({ item }: { item: FeedItem }) {
+/**
+ * `mode="public"` is the logged-out, read-only presentation used by the front
+ * door (components/landing/PublicFrontDoor.tsx). It is the SAME card — same
+ * matchup, status, question and sentiment — with exactly four deliberate
+ * differences, so there is never a second, divergent Game Post design:
+ *   1. a small "Brohda · <competition>" line, because the Game is published
+ *      by the platform and a logged-out visitor has no other cue for that
+ *      (a Game never has a user author, in either mode);
+ *   2. the Pick control becomes links to sign-up (PublicPickChoices) instead
+ *      of mutation buttons;
+ *   3. Community chips are plain text, since Community pages need an account;
+ *   4. the card is an <article> with an accessible name, so a screen reader
+ *      can tell the Game apart from the people discussing it.
+ * Money controls never appear on this card in either mode (they live on the
+ * Post detail, inside MarketParticipants). `member` is the default and is
+ * unchanged.
+ */
+export function GamePostCard({ item, mode = "member" }: { item: FeedItem; mode?: "member" | "public" }) {
+  const isPublic = mode === "public";
   const statusLabel = gameStatusLabel(item.internalStatus, item.homeScore, item.awayScore);
   const market = item.primaryMarket;
   // Restraint (spec §20): a Post can belong to several Communities at
@@ -38,9 +57,16 @@ export function GamePostCard({ item }: { item: FeedItem }) {
   const visibleCommunities = item.communities.slice(0, 2);
   const extraCommunityCount = item.communities.length - visibleCommunities.length;
 
-  return (
+  const card = (
     <Card>
       <CardContent className="space-y-3 pt-6">
+        {isPublic && (
+          <p className="text-xs text-text-muted">
+            <span className="sr-only">Game published by </span>
+            <span className="font-medium text-text-secondary">Brohda</span>
+            {item.competitionName && ` · ${item.competitionName}`}
+          </p>
+        )}
         <Link href={`/post/${item.post.id}`} className="block space-y-3">
           <div className="flex items-center justify-between gap-2">
             <p className="flex flex-wrap items-center gap-1.5 text-base font-semibold text-text-primary">
@@ -48,14 +74,14 @@ export function GamePostCard({ item }: { item: FeedItem }) {
               {item.awayTeamName} @ <TeamCrest logoUrl={item.homeTeamLogoUrl} teamName={item.homeTeamName} />
               {item.homeTeamName}
             </p>
-            {item.isFromFollowedCommunity && (
+            {!isPublic && item.isFromFollowedCommunity && (
               <span className="shrink-0 rounded-full bg-accent-primary/10 px-2 py-0.5 text-xs font-medium text-accent-primary">Following</span>
             )}
           </div>
 
           <p className="text-sm text-text-secondary">
             {statusLabel ?? <LocalDateTime iso={item.scheduledStartUtc} options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />}
-            {item.competitionName && ` · ${item.competitionName}`}
+            {!isPublic && item.competitionName && ` · ${item.competitionName}`}
           </p>
 
           {market && <p className="text-sm font-medium text-text-primary">{market.question}</p>}
@@ -63,7 +89,13 @@ export function GamePostCard({ item }: { item: FeedItem }) {
 
         {market && (
           <div className="space-y-2 rounded-lg bg-secondary p-3">
-            {market.isEditable ? (
+            {isPublic ? (
+              market.pickDisabledReason ? (
+                <p className="text-sm font-medium text-text-muted">{market.pickDisabledReason}</p>
+              ) : (
+                <PublicPickChoices yesLabel={market.yesLabel} noLabel={market.noLabel} />
+              )
+            ) : market.isEditable ? (
               <PredictionActions
                 marketId={market.id}
                 disabledReason={market.pickDisabledReason}
@@ -88,16 +120,23 @@ export function GamePostCard({ item }: { item: FeedItem }) {
         <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
           {visibleCommunities.length > 0 ? (
             <div className="flex flex-wrap items-center gap-1.5">
-              {visibleCommunities.map((c) => (
-                <Link
-                  key={c.id}
-                  href={`/community/${c.slug}`}
-                  className="rounded-full border border-border-subtle px-2 py-0.5 text-xs text-text-muted hover:border-accent-primary/50 hover:text-text-primary"
-                >
-                  {c.displayName}
-                  <span className="sr-only"> ({getCommunityTypeLabel(c.type)})</span>
-                </Link>
-              ))}
+              {visibleCommunities.map((c) =>
+                isPublic ? (
+                  <span key={c.id} className="rounded-full border border-border-subtle px-2 py-0.5 text-xs text-text-muted">
+                    {c.displayName}
+                    <span className="sr-only"> ({getCommunityTypeLabel(c.type)})</span>
+                  </span>
+                ) : (
+                  <Link
+                    key={c.id}
+                    href={`/community/${c.slug}`}
+                    className="rounded-full border border-border-subtle px-2 py-0.5 text-xs text-text-muted hover:border-accent-primary/50 hover:text-text-primary"
+                  >
+                    {c.displayName}
+                    <span className="sr-only"> ({getCommunityTypeLabel(c.type)})</span>
+                  </Link>
+                ),
+              )}
               {extraCommunityCount > 0 && <span className="text-xs text-text-muted">+{extraCommunityCount}</span>}
             </div>
           ) : (
@@ -112,4 +151,7 @@ export function GamePostCard({ item }: { item: FeedItem }) {
       </CardContent>
     </Card>
   );
+
+  if (!isPublic) return card;
+  return <article aria-label={`Game: ${item.awayTeamName} at ${item.homeTeamName}`}>{card}</article>;
 }

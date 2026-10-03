@@ -1,10 +1,10 @@
 import { Compass } from "lucide-react";
 import { requireSocialPredictionAccess } from "@/lib/social/access";
 import { listCommunitiesByType } from "@/lib/communities/discovery";
-import { DiscoveryTabNav, type DiscoveryTab } from "@/components/discovery/DiscoveryTabNav";
+import { DiscoveryTabNav } from "@/components/discovery/DiscoveryTabNav";
+import { DISCOVERY_EMPTY_COPY, DISCOVERY_TAB_TYPE, parseDiscoveryTab } from "@/lib/communities/discovery-tabs";
 import { DiscoveryRow } from "@/components/discovery/DiscoveryRow";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
-import type { CommunityType } from "@/lib/communities/types";
 
 /**
  * Phase D (Brohda 2.0 redesign) — Discovery: Brohda's Explore surface,
@@ -23,24 +23,12 @@ import type { CommunityType } from "@/lib/communities/types";
  * for that subject (Phase A/lib/communities/distribution.ts), which this
  * phase does not change.
  */
-const TAB_TYPE: Record<DiscoveryTab, CommunityType> = { sports: "SPORT", leagues: "LEAGUE", teams: "TEAM" };
-const VALID_TABS: DiscoveryTab[] = ["sports", "leagues", "teams"];
-const EMPTY_COPY: Record<DiscoveryTab, string> = {
-  sports: "No sports to show yet.",
-  leagues: "No leagues to show yet.",
-  teams: "No teams to show yet.",
-};
-
-function parseTab(raw: string | undefined): DiscoveryTab {
-  return VALID_TABS.includes(raw as DiscoveryTab) ? (raw as DiscoveryTab) : "sports";
-}
-
 export default async function DiscoveryPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const user = await requireSocialPredictionAccess();
   const { tab: tabParam } = await searchParams;
-  const tab = parseTab(tabParam);
+  const tab = parseDiscoveryTab(tabParam);
 
-  const items = await listCommunitiesByType(TAB_TYPE[tab], user.id);
+  const items = await listCommunitiesByType(DISCOVERY_TAB_TYPE[tab], user.id);
 
   return (
     <div className="space-y-4">
@@ -48,7 +36,7 @@ export default async function DiscoveryPage({ searchParams }: { searchParams: Pr
       <DiscoveryTabNav active={tab} />
 
       {items.length === 0 ? (
-        <EmptyFeedState icon={Compass} title={EMPTY_COPY[tab]} description="Check back soon — this grows as Brohda covers more games." />
+        <EmptyFeedState icon={Compass} title={DISCOVERY_EMPTY_COPY[tab]} description="Check back soon — this grows as Brohda covers more games." />
       ) : (
         <ul className="divide-y divide-border-subtle rounded-lg border border-border-subtle">
           {items.map((item) => (
