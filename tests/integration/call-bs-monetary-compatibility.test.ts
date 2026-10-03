@@ -12,6 +12,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { deleteMonetaryRowsForMarkets } from "./helpers/cleanup-monetary";
 import { getTestAdminClient, getTestSupabaseConfig } from "./helpers/test-env";
 import { setPick } from "@/lib/predictions/repository";
 import { upsertMarket } from "@/lib/prediction-markets/repository";
@@ -181,11 +182,12 @@ async function sendAndAcceptCallBs(challenger: { userId: string }, recipient: { 
 }
 
 beforeEach(async () => {
-  await setPolicy({ monetary_p2p_enabled: true, call_bs_enabled: true, p2p_fee_bps: 0, pick_lock_minutes_before_kickoff: 10 });
+  await setPolicy({ monetary_p2p_enabled: true, call_bs_enabled: true, p2p_fee_bps: 0, pick_lock_minutes_before_kickoff: 10, monetary_p2p_min_stake_cents: 100, monetary_p2p_max_stake_cents: 10000 });
 });
 
 afterEach(async () => {
   if (createdMarketIds.length > 0) {
+    await deleteMonetaryRowsForMarkets(createdMarketIds);
     const { data: positionRows } = await admin.from("monetary_positions").select("id").in("market_id", createdMarketIds);
     const positionIds = (positionRows ?? []).map((r) => r.id);
     const { data: proposalRows } = await admin.from("monetary_proposals").select("id").in("market_id", createdMarketIds);
@@ -215,7 +217,7 @@ afterEach(async () => {
     for (const userId of createdUserIds) await admin.auth.admin.deleteUser(userId);
     createdUserIds.length = 0;
   }
-  await setPolicy({ monetary_p2p_enabled: true, call_bs_enabled: true, p2p_fee_bps: 0, pick_lock_minutes_before_kickoff: 10 });
+  await setPolicy({ monetary_p2p_enabled: true, call_bs_enabled: true, p2p_fee_bps: 0, pick_lock_minutes_before_kickoff: 10, monetary_p2p_min_stake_cents: 100, monetary_p2p_max_stake_cents: 10000 });
 });
 
 describe("Money first → free Call BS still allowed", () => {

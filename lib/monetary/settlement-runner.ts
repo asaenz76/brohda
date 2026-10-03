@@ -1,6 +1,6 @@
 import { errorMessage } from "@/lib/utils/error-message";
 import "server-only";
-import { listSettlementEligiblePositionIds, settleMonetaryPosition, getMonetaryPositionById, expireStaleMonetaryProposals } from "./repository";
+import { listSettlementEligiblePositionIds, settleMonetaryPosition, getMonetaryPositionById, expireStaleMonetaryProposals, getSettlementBatchSize } from "./repository";
 import { createSettlementNotifications } from "@/lib/notifications/monetary-settlements";
 import { createMonetaryProposalExpiredNotification } from "@/lib/notifications/monetary-proposals";
 import { deliverNotification } from "@/lib/notifications/deliver";
@@ -41,7 +41,8 @@ export async function runSettlementJob(limit?: number): Promise<SettlementRunSum
   const expiryFailures: SettlementRunSummary["failures"] = [];
   let expiredProposals = 0;
   try {
-    const expired = await expireStaleMonetaryProposals();
+    // The sweep is bounded by the same operator-tunable setting as the rest of this job — no second, hard-coded batch size.
+    const expired = await expireStaleMonetaryProposals(await getSettlementBatchSize());
     expiredProposals = expired.length;
     for (const proposal of expired) {
       const delivery = await deliverNotification("monetary", "MONETARY_PROPOSAL_EXPIRED", `proposal ${proposal.id}`, () => createMonetaryProposalExpiredNotification(proposal));

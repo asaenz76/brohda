@@ -7,6 +7,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
+import { deleteMonetaryRowsForMarkets } from "./helpers/cleanup-monetary";
 import { getTestAdminClient } from "./helpers/test-env";
 import { setPick } from "@/lib/predictions/repository";
 import { upsertMarket } from "@/lib/prediction-markets/repository";
@@ -167,7 +168,7 @@ async function movePastCutoff(fixtureId: string) {
   await admin.from("fixtures").update({ scheduled_start_utc: new Date(Date.now() + 3 * 60_000).toISOString() }).eq("id", fixtureId);
 }
 
-const BASE_POLICY = { monetary_p2p_enabled: true, call_bs_enabled: true, p2p_fee_bps: 0, pick_lock_minutes_before_kickoff: 10, monetary_proposal_rate_limit_window_seconds: 60, monetary_proposal_rate_limit_max_attempts: 10 };
+const BASE_POLICY = { monetary_p2p_enabled: true, call_bs_enabled: true, p2p_fee_bps: 0, pick_lock_minutes_before_kickoff: 10, monetary_proposal_rate_limit_window_seconds: 60, monetary_proposal_rate_limit_max_attempts: 10, monetary_p2p_min_stake_cents: 100, monetary_p2p_max_stake_cents: 10000 };
 
 beforeEach(async () => {
   await setPolicy(BASE_POLICY);
@@ -175,6 +176,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   if (createdMarketIds.length > 0) {
+    await deleteMonetaryRowsForMarkets(createdMarketIds);
     const { data: positionRows } = await admin.from("monetary_positions").select("id").in("market_id", createdMarketIds);
     const positionIds = (positionRows ?? []).map((r) => r.id);
     const { data: proposalRows } = await admin.from("monetary_proposals").select("id").in("market_id", createdMarketIds);
@@ -465,7 +467,9 @@ describe("Fee and ledger math at p2p_fee_bps = 100 (1%)", () => {
 
   for (const c of CASES) {
     it(`stake ${c.stake} each → fee ${c.fee}, winner credit ${c.credit}, loser pays ${c.stake}, house +${c.fee}, nothing created or destroyed`, async () => {
-      await setPolicy({ p2p_fee_bps: 100 });
+      // Settlement rounding is a property of the settlement math itself, independent of the product's stake minimum ($1.00
+      // in production), so the sub-minimum cases lower the configured minimum for this test only.
+      await setPolicy({ p2p_fee_bps: 100, monetary_p2p_min_stake_cents: 1 });
       const { fixtureId, marketId, proposer, recipient, recipientPick } = await setupPair({ proposerFunds: c.stake + 500, recipientFunds: c.stake + 500 });
       const proposal = await send(proposer, recipientPick, c.stake);
       const accepted = await acceptMonetaryProposal(proposal.id, recipient);

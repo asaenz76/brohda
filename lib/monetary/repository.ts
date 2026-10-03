@@ -194,7 +194,8 @@ export type AcceptMonetaryProposalOutcome =
   | "rejected_invalidated"
   | "proposer_reservation_invalid"
   | "insufficient_recipient_balance"
-  | "rejected_ineligible_account";
+  | "rejected_ineligible_account"
+  | "rejected_pair_has_position";
 
 export interface AcceptMonetaryProposalResult {
   proposal: MonetaryProposal;
@@ -369,6 +370,13 @@ export async function getMonetaryPositionSettlementByPositionId(positionId: stri
  * RPC against every COMMITTED Position in the system on every run.
  * Read-only; never itself decides an outcome.
  */
+/** `platform_settings.settlement_batch_size` — the one operator-tunable bound on how much work a settlement-job run does. */
+export async function getSettlementBatchSize(): Promise<number> {
+  const admin = createAdminClient();
+  const { data: settingsRow } = await admin.from("platform_settings").select("settlement_batch_size").eq("id", true).single();
+  return settingsRow?.settlement_batch_size ?? 500;
+}
+
 export async function listSettlementEligiblePositionIds(limit?: number): Promise<string[]> {
   const admin = createAdminClient();
   // Milestone R12 (§36, §82): closes the R10 batch-size caveat —
@@ -377,11 +385,7 @@ export async function listSettlementEligiblePositionIds(limit?: number): Promise
   // canonical source, live-read on every call, changeable by an operator
   // with no deployment. An explicit `limit` argument still overrides it
   // (used by tests that need a smaller, deterministic batch).
-  let effectiveLimit: number = limit ?? 500;
-  if (limit === undefined) {
-    const { data: settingsRow } = await admin.from("platform_settings").select("settlement_batch_size").eq("id", true).single();
-    effectiveLimit = settingsRow?.settlement_batch_size ?? 500;
-  }
+  const effectiveLimit: number = limit ?? (await getSettlementBatchSize());
   const { data: positions, error } = await admin
     .from("monetary_positions")
     .select("id, proposer_prediction_id, recipient_prediction_id")

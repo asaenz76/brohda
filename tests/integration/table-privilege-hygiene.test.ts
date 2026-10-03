@@ -81,6 +81,48 @@ describe("client-facing roles never hold DDL-adjacent table privileges", () => {
   }
 });
 
+// Money tables: RLS already made client writes inert, but a grant is a second lock
+// that must not depend on the first being configured correctly forever. Nothing in
+// the app writes these through a user-scoped client (every write is a SECURITY
+// DEFINER RPC or a service-role call), so neither client role needs any write
+// privilege, and anonymous visitors need no read access at all.
+const MONEY_TABLES = [
+  "wallet_balances",
+  "wallet_transactions",
+  "wallet_reservations",
+  "wallet_requests",
+  "monetary_proposals",
+  "monetary_positions",
+  "monetary_position_settlements",
+];
+
+describe("money tables carry no client write grants and no anonymous read grant", () => {
+  for (const table of MONEY_TABLES) {
+    for (const role of CLIENT_ROLES) {
+      for (const privilege of ["INSERT", "UPDATE", "DELETE"]) {
+        it(`${role} does not have ${privilege} on public.${table}`, async () => {
+          const { rows } = await client.query<{ has: boolean }>(`select has_table_privilege($1, $2, $3) as has`, [role, `public.${table}`, privilege]);
+          expect(rows[0].has).toBe(false);
+        });
+      }
+    }
+    it(`anon cannot SELECT public.${table}`, async () => {
+      const { rows } = await client.query<{ has: boolean }>(`select has_table_privilege('anon', $1, 'SELECT') as has`, [`public.${table}`]);
+      expect(rows[0].has).toBe(false);
+    });
+    it(`authenticated still can SELECT public.${table} (rows are then filtered by RLS), and service_role still can read it`, async () => {
+      // Only reads are asserted for service_role on purpose: several of these tables are written solely by SECURITY DEFINER
+      // functions (running as the owner), so service_role never held direct INSERT/UPDATE there — and this hardening must
+      // not, and does not, change anything about it.
+      const { rows } = await client.query<{ auth: boolean; svc_select: boolean }>(
+        `select has_table_privilege('authenticated', $1, 'SELECT') as auth, has_table_privilege('service_role', $1, 'SELECT') as svc_select`,
+        [`public.${table}`],
+      );
+      expect(rows[0]).toEqual({ auth: true, svc_select: true });
+    });
+  }
+});
+
 describe("service_role's trusted-backend privileges are unaffected", () => {
   it("service_role retains its intended CRUD on markets (this remediation must not narrow the trusted role)", async () => {
     const { rows } = await client.query<{ has: boolean }>(

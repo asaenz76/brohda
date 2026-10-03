@@ -5,6 +5,8 @@ import { requireUser } from "@/lib/auth/session";
 import { proposeMoney, acceptMonetaryProposal, declineMonetaryProposal, withdrawMonetaryProposal } from "@/lib/monetary/repository";
 import { proposeMoneySchema, respondToMonetaryProposalSchema } from "@/lib/validations/monetary-proposals";
 import { checkMonetaryProposalRateLimit } from "@/lib/rate-limit/monetary-proposals";
+import { getMonetaryStakeLimits } from "@/lib/monetary/policy";
+import { formatCents } from "@/lib/utils/money";
 import {
   createMonetaryProposalReceivedNotification,
   createMonetaryProposalAcceptedNotification,
@@ -43,11 +45,25 @@ const PROPOSE_MONEY_ERROR_COPY: Record<string, string> = {
   source_challenge_pick_mismatch: "That Call BS doesn't match these picks.",
   duplicate_pending_proposal: "You already have a pending proposal with this pick.",
   insufficient_available_balance: "You don't have enough available balance to cover this stake.",
+  pair_already_has_position: "You already have money on this prediction with this person.",
   proposer_inactive: "Your account can't put money on picks right now.",
   recipient_inactive: "That account is no longer active.",
 };
 
-function copyForProposeMoneyError(message: string): string {
+/**
+ * The stake-limit errors name the real configured amount, read live, so the
+ * person sees "The minimum is $1.00." rather than a bare code. If the limits
+ * can't be read, the message degrades to wording that needs no number.
+ */
+async function copyForProposeMoneyError(message: string): Promise<string> {
+  if (message === "stake_below_minimum" || message === "stake_above_maximum") {
+    try {
+      const { minStakeCents, maxStakeCents } = await getMonetaryStakeLimits();
+      return message === "stake_below_minimum" ? `The minimum is ${formatCents(minStakeCents)}.` : `The maximum is ${formatCents(maxStakeCents)}.`;
+    } catch {
+      return message === "stake_below_minimum" ? "That's below the minimum stake." : "That's above the maximum stake.";
+    }
+  }
   return PROPOSE_MONEY_ERROR_COPY[message] ?? "Could not send this proposal.";
 }
 
@@ -72,7 +88,7 @@ export async function proposeMoneyAction(
   const idempotencyKey = crypto.randomUUID();
   const outcome = await proposeMoney(user.id, parsed.data.recipientPredictionId, parsed.data.stake, idempotencyKey, parsed.data.sourceChallengeId ?? null);
   if (!outcome.ok) {
-    return { error: copyForProposeMoneyError(outcome.error), proposal: null };
+    return { error: await copyForProposeMoneyError(outcome.error), proposal: null };
   }
 
   await deliverNotification("monetary", "MONETARY_PROPOSAL_RECEIVED", `proposal ${outcome.proposal.id}`, () => createMonetaryProposalReceivedNotification(outcome.proposal));
@@ -119,6 +135,9 @@ export async function acceptMonetaryProposalAction(proposalId: string, marketId:
   }
   if (result.outcome === "proposer_reservation_invalid") {
     return { error: "This proposal can't be accepted right now. Please try again later.", proposal: result.proposal, position: null };
+  }
+  if (result.outcome === "rejected_pair_has_position") {
+    return { error: "You already have money on this prediction with this person.", proposal: result.proposal, position: null };
   }
   if (result.outcome === "rejected_ineligible_account") {
     return { error: "This proposal is no longer available.", proposal: result.proposal, position: null };

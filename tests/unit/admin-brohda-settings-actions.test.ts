@@ -55,7 +55,7 @@ function fakeSettings(overrides: Partial<BrohdaSettings> = {}): BrohdaSettings {
     communities: { communityDistributionEnabled: true, communityTeamDistributionEnabled: true, communityLeagueDistributionEnabled: true, communitySportDistributionEnabled: true },
     conversation: { postCommentMaxLength: 500, postCommentRateLimitWindowSeconds: 60, postCommentRateLimitMaxAttempts: 10 },
     callBs: { callBsEnabled: true, callBsRateLimitWindowSeconds: 60, callBsRateLimitMaxAttempts: 10 },
-    monetary: { monetaryP2pEnabled: true, monetaryProposalRateLimitWindowSeconds: 60, monetaryProposalRateLimitMaxAttempts: 10, p2pFeeBps: 0 },
+    monetary: { monetaryP2pEnabled: true, monetaryProposalRateLimitWindowSeconds: 60, monetaryProposalRateLimitMaxAttempts: 10, p2pFeeBps: 0, monetaryP2pMinStakeCents: 100, monetaryP2pMaxStakeCents: 10000 },
     reputation: { leaderboardMinDecidedPicks: 5 },
     operations: { settlementBatchSize: 500, gradingBatchSize: 200, challengeResolutionBatchSize: 200, jobStalenessMultiplier: 3 },
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -102,7 +102,7 @@ const VALID_MARKETS = { marketIngestionEnabled: true, marketIngestionMinBookmake
 const VALID_COMMUNITIES = { communityDistributionEnabled: true, communityTeamDistributionEnabled: true, communityLeagueDistributionEnabled: true, communitySportDistributionEnabled: true };
 const VALID_CONVERSATION = { postCommentMaxLength: 500, postCommentRateLimitWindowSeconds: 60, postCommentRateLimitMaxAttempts: 10 };
 const VALID_CALL_BS = { callBsEnabled: true, callBsRateLimitWindowSeconds: 60, callBsRateLimitMaxAttempts: 10 };
-const VALID_MONETARY = { monetaryP2pEnabled: true, monetaryProposalRateLimitWindowSeconds: 60, monetaryProposalRateLimitMaxAttempts: 10, feePercent: "2.5" };
+const VALID_MONETARY = { monetaryP2pEnabled: true, monetaryProposalRateLimitWindowSeconds: 60, monetaryProposalRateLimitMaxAttempts: 10, feePercent: "2.5", minStake: "1.00", maxStake: "100.00" };
 const VALID_REPUTATION = { leaderboardMinDecidedPicks: 5 };
 const VALID_OPERATIONS = { settlementBatchSize: 500, gradingBatchSize: 200, challengeResolutionBatchSize: 200, jobStalenessMultiplier: 3 };
 const T0 = "2026-01-01T00:00:00.000Z";
@@ -243,6 +243,37 @@ describe("Monetary P2P validation — the financial domain", () => {
       expect(result.success).toBe(false);
       expect(repoCalls).toHaveLength(0);
     }
+  });
+
+  describe("stake limits", () => {
+    it("converts the dollar strings into integer cents before calling the repository", async () => {
+      await updateMonetarySettingsAction(T0, { ...VALID_MONETARY, minStake: "2.50", maxStake: "250" });
+      expect(repoCalls[0].args[2]).toMatchObject({ monetaryP2pMinStakeCents: 250, monetaryP2pMaxStakeCents: 25000 });
+    });
+
+    it("accepts a maximum equal to the minimum", async () => {
+      const result = await updateMonetarySettingsAction(T0, { ...VALID_MONETARY, minStake: "5", maxStake: "5.00" });
+      expect(result.success).toBe(true);
+      expect(repoCalls[0].args[2]).toMatchObject({ monetaryP2pMinStakeCents: 500, monetaryP2pMaxStakeCents: 500 });
+    });
+
+    it("rejects a maximum lower than the minimum without calling the repository", async () => {
+      const result = await updateMonetarySettingsAction(T0, { ...VALID_MONETARY, minStake: "10", maxStake: "5" });
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/maximum stake can't be lower than the minimum/i);
+      expect(repoCalls).toHaveLength(0);
+    });
+
+    it("rejects zero, negative and malformed values for either limit without calling the repository", async () => {
+      for (const bad of ["0", "0.00", "-1", "abc", "", "1.234", "1,00"]) {
+        for (const field of ["minStake", "maxStake"] as const) {
+          repoCalls = [];
+          const result = await updateMonetarySettingsAction(T0, { ...VALID_MONETARY, [field]: bad });
+          expect(result.success, `${field}=${JSON.stringify(bad)}`).toBe(false);
+          expect(repoCalls).toHaveLength(0);
+        }
+      }
+    });
   });
 
   it("converts a valid percentage string into basis points via the shared money utility before calling the repository", async () => {

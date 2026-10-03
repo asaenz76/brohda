@@ -12,7 +12,7 @@ vi.mock("@/lib/actions/monetary-proposals", () => actions);
 
 import { MonetaryProposalAction, type MonetaryActionContext } from "@/components/predictions/MonetaryProposalAction";
 
-const context: MonetaryActionContext = { opponentName: "Louis", yourPickLabel: "Eagles do not win", theirPickLabel: "Eagles win", feeBps: 100, availableCents: 5000 };
+const context: MonetaryActionContext = { opponentName: "Louis", yourPickLabel: "Eagles do not win", theirPickLabel: "Eagles win", feeBps: 100, availableCents: 5000, minStakeCents: 100, maxStakeCents: 10000 };
 const proposal = { id: "p1", stake: 1000 } as never;
 
 beforeEach(() => Object.values(actions).forEach((fn) => fn.mockReset()));
@@ -25,7 +25,8 @@ describe("MonetaryProposalAction — sending", () => {
 
     expect(screen.getByLabelText(/amount to put on it/i)).toBeInTheDocument();
     const help = screen.getByText(/sending holds this amount from your balance/i);
-    expect(help).toHaveTextContent("You have $50.00 available");
+    expect(help).toHaveTextContent("Between $1.00 and $100.00");
+    expect(help).toHaveTextContent("You have $50.00 available, so the most you can put on it is $50.00");
     expect(help).toHaveTextContent("If they accept and you lose, you pay it");
     expect(screen.getByLabelText(/amount to put on it/i)).toHaveAccessibleDescription(/sending holds this amount/i);
   });
@@ -69,6 +70,81 @@ describe("MonetaryProposalAction — sending", () => {
     });
     expect(await screen.findByRole("status")).toHaveTextContent("Withdrawn — your hold was released");
     expect(screen.queryByRole("button", { name: "Put money on it" })).not.toBeInTheDocument();
+  });
+});
+
+describe("MonetaryProposalAction — stake limits", () => {
+  const open = (ctx: MonetaryActionContext = context) => {
+    render(<MonetaryProposalAction marketId="m1" state={{ kind: "put_money_on_it", recipientPredictionId: "r1" }} context={ctx} />);
+    fireEvent.click(screen.getByRole("button", { name: "Put money on it" }));
+    return screen.getByLabelText(/amount to put on it/i);
+  };
+  const type = (input: HTMLElement, value: string) => fireEvent.change(input, { target: { value } });
+
+  it("shows the minimum, the maximum and the available balance before anything is typed", () => {
+    open();
+    expect(screen.getByText(/Between \$1\.00 and \$100\.00/)).toBeInTheDocument();
+  });
+
+  it("makes the effective ceiling min(maximum, available) understandable — a high maximum never implies funds", () => {
+    open({ ...context, availableCents: 2500 });
+    expect(screen.getByText(/the most you can put on it is \$25\.00/)).toBeInTheDocument();
+    cleanup();
+    open({ ...context, availableCents: 90000 });
+    expect(screen.getByText(/the most you can put on it is \$100\.00/)).toBeInTheDocument();
+  });
+
+  it("accepts exactly the minimum and exactly the maximum (when the balance covers it)", () => {
+    const input = open({ ...context, availableCents: 90000 });
+    type(input, "1");
+    expect(screen.getByRole("button", { name: "Send $1.00" })).toBeEnabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    type(input, "100");
+    expect(screen.getByRole("button", { name: "Send $100.00" })).toBeEnabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("rejects below the minimum with the amount in plain currency, tied to the field, as an alert", () => {
+    const input = open();
+    type(input, "0.50");
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("The minimum is $1.00.");
+    expect(alert).not.toHaveTextContent(/cents|stake_below/i);
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(input).toHaveAccessibleDescription(/The minimum is \$1\.00\./);
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+  });
+
+  it("rejects above the maximum even when the balance would cover it", () => {
+    const input = open({ ...context, availableCents: 90000 });
+    type(input, "100.01");
+    expect(screen.getByRole("alert")).toHaveTextContent("The maximum is $100.00.");
+    expect(input).toHaveAccessibleDescription(/The maximum is \$100\.00\./);
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+  });
+
+  it("when the balance is the binding limit, says so in terms of the balance, not the maximum", () => {
+    const input = open({ ...context, availableCents: 2500 });
+    type(input, "30");
+    expect(screen.getByRole("alert")).toHaveTextContent("That's more than the $25.00 you have available.");
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+  });
+
+  it("with less available than the minimum, explains why and offers funding instead of an unusable Send", () => {
+    open({ ...context, availableCents: 50 });
+    expect(screen.getByText(/The minimum is \$1\.00 and you have \$0\.50 available/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Fund your wallet" })).toHaveAttribute("href", "/wallet");
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+  });
+
+  it("surfaces a server-side refusal (the authority) as an alert, even if the client let it through", async () => {
+    actions.proposeMoneyAction.mockResolvedValue({ error: "The maximum is $100.00.", proposal: null });
+    const input = open();
+    type(input, "50");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Send $50.00" }));
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent("The maximum is $100.00.");
   });
 });
 

@@ -62,6 +62,10 @@ export interface MonetarySettings {
   monetaryP2pEnabled: boolean;
   monetaryProposalRateLimitWindowSeconds: number;
   monetaryProposalRateLimitMaxAttempts: number;
+  /** Integer cents. Smallest stake a NEW monetary proposal may carry. Read live by propose_money(); never retroactive (a created proposal's terms are immutable). */
+  monetaryP2pMinStakeCents: number;
+  /** Integer cents. Largest stake a NEW monetary proposal may carry. A user's effective ceiling is min(this, their available balance). */
+  monetaryP2pMaxStakeCents: number;
   /** Basis points, 0-10000. Snapshotted onto monetary_positions.fee_bps at acceptance time — changing this NEVER alters an already-committed Position (see docs/architecture/p2p-settlement.md and this milestone's own dedicated test). */
   p2pFeeBps: number;
 }
