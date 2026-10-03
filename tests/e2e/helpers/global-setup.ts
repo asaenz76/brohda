@@ -34,14 +34,18 @@ export default async function globalSetup() {
   // capture-and-restore — specs run fullyParallel, and one test restoring
   // the flag to false while another is mid-run silently removes the "Call
   // BS" button from under it.
-  const { data: before, error: readError } = await admin.from("platform_settings").select("call_bs_enabled").eq("id", true).single();
+  // registration_enabled gets the same once-per-run treatment: the logged-out front door at "/"
+  // only renders while self-service registration is open (it redirects to /login otherwise — the
+  // invite-only behavior it replaced), and production has registration open. Restored afterwards.
+  const { data: before, error: readError } = await admin.from("platform_settings").select("call_bs_enabled, registration_enabled").eq("id", true).single();
   if (readError) throw readError;
   const previousCallBsEnabled = before?.call_bs_enabled ?? false;
+  const previousRegistrationEnabled = before?.registration_enabled ?? false;
 
-  const { error } = await admin.from("platform_settings").update({ social_prediction_enabled: true, call_bs_enabled: true }).eq("id", true);
+  const { error } = await admin.from("platform_settings").update({ social_prediction_enabled: true, call_bs_enabled: true, registration_enabled: true }).eq("id", true);
   if (error) throw error;
 
   return async function globalTeardown() {
-    await admin.from("platform_settings").update({ call_bs_enabled: previousCallBsEnabled }).eq("id", true);
+    await admin.from("platform_settings").update({ call_bs_enabled: previousCallBsEnabled, registration_enabled: previousRegistrationEnabled }).eq("id", true);
   };
 }

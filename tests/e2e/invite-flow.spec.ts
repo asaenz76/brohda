@@ -46,6 +46,9 @@ test("invitation → registration → login", async ({ page }) => {
 
   await page.goto("/profile");
   await page.getByRole("button", { name: /log out/i }).click();
+  // Logging out lands on "/", which is now the logged-out front door while registration is open (it used to bounce straight to /login).
+  await expect(page).toHaveURL(/\/$/);
+  await page.getByRole("complementary", { name: "Join Brohda" }).getByRole("link", { name: "Log in" }).click();
   await expect(page).toHaveURL(/\/login$/);
 
   await page.getByLabel("Email").fill(inviteeEmail);

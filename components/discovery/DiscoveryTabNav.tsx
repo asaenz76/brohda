@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { Tabs, TabsList, TabsTab } from "@/components/ui/tabs";
+import { DISCOVERY_TABS, DISCOVERY_TAB_LABELS, type DiscoveryTab } from "@/lib/communities/discovery-tabs";
 
 // Phase D (Brohda 2.0 redesign) — Discovery's exactly-three locked tabs
 // (spec §2), URL-driven via `?tab=` so a specific tab is directly
@@ -13,15 +14,11 @@ import { Tabs, TabsList, TabsTab } from "@/components/ui/tabs";
 // as a normal server-rendered sibling below it in the page, not inside a
 // Tabs.Panel, since there is nothing to client-side swap between (each
 // tab change is a real navigation to fresh server-rendered data).
-export type DiscoveryTab = "sports" | "leagues" | "teams";
+export type { DiscoveryTab };
 
-const TAB_LABELS: Record<DiscoveryTab, string> = {
-  sports: "Sports",
-  leagues: "Leagues",
-  teams: "Teams",
-};
-
-export function DiscoveryTabNav({ active }: { active: DiscoveryTab }) {
+// `basePath` is the page the tabs live on: /discovery for members, and "/"
+// for the logged-out front door, which reuses this exact tab bar.
+export function DiscoveryTabNav({ active, basePath = "/discovery" }: { active: DiscoveryTab; basePath?: string }) {
   const router = useRouter();
 
   return (
@@ -34,14 +31,14 @@ export function DiscoveryTabNav({ active }: { active: DiscoveryTab }) {
         // instead of a fresh render of the Community list below (which
         // reads `searchParams.tab` in the Server Component) — router.refresh()
         // forces that refetch against the new URL every time.
-        router.push(`/discovery?tab=${value as DiscoveryTab}`);
+        router.push(`${basePath}?tab=${value as DiscoveryTab}`);
         router.refresh();
       }}
     >
       <TabsList>
-        {(Object.keys(TAB_LABELS) as DiscoveryTab[]).map((tab) => (
+        {DISCOVERY_TABS.map((tab) => (
           <TabsTab key={tab} value={tab}>
-            {TAB_LABELS[tab]}
+            {DISCOVERY_TAB_LABELS[tab]}
           </TabsTab>
         ))}
       </TabsList>

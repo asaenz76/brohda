@@ -24,7 +24,7 @@ const montserrat = Montserrat({
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.APP_URL ?? "http://localhost:3000"),
   title: "brohda.",
-  description: "Predict sports outcomes with your friends — no money, just bragging rights.",
+  description: "A social network for people who think they know sports. Pick a side, join the conversation, call BS, and see who was right.",
   // Belt-and-suspenders alongside app/robots.ts: invite-only means no page
   // should ever be indexed, even if a crawler ignores robots.txt.
   robots: { index: false, follow: false },

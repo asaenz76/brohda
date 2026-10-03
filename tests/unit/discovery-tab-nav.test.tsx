@@ -46,4 +46,18 @@ describe("DiscoveryTabNav", () => {
     expect(screen.getByRole("tab", { name: "Leagues" })).toHaveAttribute("tabindex", "-1");
     expect(screen.getByRole("tab", { name: "Teams" })).toHaveAttribute("tabindex", "0");
   });
+
+  it("navigates under a custom basePath — the logged-out front door reuses this bar on \"/\"", () => {
+    push.mockClear();
+    render(<DiscoveryTabNav active="sports" basePath="/" />);
+    fireEvent.click(screen.getByRole("tab", { name: "Leagues" }));
+    expect(push).toHaveBeenCalledWith("/?tab=leagues");
+  });
+
+  it("styles the active tab through the attribute @base-ui actually sets (data-active), so the underline really shows", () => {
+    render(<DiscoveryTabNav active="leagues" />);
+    expect(screen.getByRole("tab", { name: "Leagues" })).toHaveAttribute("data-active");
+    expect(screen.getByRole("tab", { name: "Sports" })).not.toHaveAttribute("data-active");
+    expect(screen.getByRole("tab", { name: "Leagues" }).className).toContain("data-[active]:border-accent-primary");
+  });
 });
