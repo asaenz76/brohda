@@ -58,16 +58,6 @@ export async function RightRail({ user, profileHref }: { user: UserProfile; prof
           ))
         )}
       </section>
-
-      <nav aria-label="Legal" className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border-subtle px-1 pt-4 text-xs text-text-muted">
-        <Link href="/terms" className="underline-offset-4 hover:text-text-primary hover:underline">
-          Terms
-        </Link>
-        <Link href="/privacy" className="underline-offset-4 hover:text-text-primary hover:underline">
-          Privacy
-        </Link>
-        <span>© {new Date().getFullYear()} Brohda</span>
-      </nav>
     </div>
   );
 }

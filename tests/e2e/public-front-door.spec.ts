@@ -200,8 +200,8 @@ test.describe("Logged-out front door — desktop", () => {
     await page.goto("/");
     await expect(page.getByRole("complementary", { name: "About Brohda" })).toBeVisible();
     await expect(page.getByRole("complementary", { name: "Join Brohda" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Terms" }).first()).toBeVisible();
-    await expect(page.getByRole("link", { name: "Privacy" }).first()).toBeVisible();
+    await expect(page.getByRole("contentinfo").getByRole("link", { name: "Terms" })).toBeVisible();
+    await expect(page.getByRole("contentinfo").getByRole("link", { name: "Privacy" })).toBeVisible();
 
     const game = gameArticle(page);
     await expect(game.getByRole("link", { name: new RegExp(`${AWAY} @`) })).toHaveAttribute("href", `/post/${seeded.postId}`);
@@ -265,8 +265,9 @@ test.describe("Logged-out front door — desktop", () => {
     const left = page.getByRole("complementary", { name: "About Brohda" });
     await expect(left.getByRole("link", { name: /Search/ })).toHaveAttribute("href", "/login");
     await expect(left.getByText("Brohda is a social network for people who think they know sports.")).toBeVisible();
-    await expect(left.getByRole("link", { name: "Terms" })).toBeVisible();
-    await expect(left.getByRole("link", { name: "Privacy" })).toBeVisible();
+    // The legal links are the page footer's, not the sidebar's.
+    await expect(left.getByRole("link", { name: "Terms" })).toHaveCount(0);
+    await expect(left.getByRole("link", { name: "Privacy" })).toHaveCount(0);
     for (const label of ["Sports", "Leagues", "Teams"]) await expect(left.getByRole("link", { name: label, exact: true })).toHaveCount(0);
     // The desktop layout has no bottom bar or hamburger.
     await expect(page.getByTestId("public-bottom-bar")).toBeHidden();
@@ -311,7 +312,7 @@ test.describe("Logged-out front door — tablet", () => {
     await expect(gameArticle(page)).toBeVisible();
     await expect(page.getByRole("complementary", { name: "Join Brohda" })).toBeVisible();
     await expect(page.getByRole("complementary", { name: "About Brohda" })).toHaveCount(0); // not rendered at this width
-    await expect(page.getByRole("complementary", { name: "Join Brohda" }).getByRole("link", { name: "Terms" })).toBeVisible(); // legal moves to the right column
+    await expect(page.getByRole("contentinfo").getByRole("link", { name: "Terms" })).toBeVisible(); // legal lives in the page footer at every width
     await expect(page.getByTestId("public-bottom-bar")).toBeHidden(); // the bar and hamburger are phone-only
     await expect(page.getByRole("main").getByRole("tab")).toHaveText(["Sports", "Leagues", "Teams"]);
     await expectNoHorizontalScroll(page, "768");
@@ -389,7 +390,7 @@ test.describe("Logged-out front door — mobile (Mastodon pattern: the feed is t
         const menu = page.getByRole("dialog");
         await expect(menu).toBeVisible();
         await expect(menu.getByRole("heading", { name: "Menu" })).toBeVisible();
-        await expect(menu.getByRole("link")).toHaveText(["SearchLog in to search", "Sports", "Leagues", "Teams", "Terms", "Privacy"]);
+        await expect(menu.getByRole("link")).toHaveText(["SearchLog in to search", "Sports", "Leagues", "Teams", "How it works", "Terms", "Privacy"]);
         await expect(menu.getByRole("heading", { name: "About Brohda" })).toBeVisible();
         await expect(menu.getByText("Brohda is a social network for people who think they know sports.")).toBeVisible();
         const menuBox = (await menu.boundingBox())!;

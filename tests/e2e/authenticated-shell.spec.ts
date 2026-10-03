@@ -209,7 +209,8 @@ test.describe("Authenticated shell — desktop (1280)", () => {
     await expect(context.getByRole("region", { name: "Your profile" })).toContainText(`@${USERNAME}`);
     const following = context.getByRole("region", { name: "Following" });
     await expect(following.getByRole("link", { name: TEAM_NAME })).toHaveAttribute("href", `/community/shell-team-${suffix}`);
-    await expect(context.getByRole("link", { name: "Terms" })).toBeVisible();
+    // The legal links are the page footer's, not the rail's.
+    await expect(context.getByRole("link", { name: "Terms" })).toHaveCount(0);
     // Not a second nav: no primary destinations in the rail.
     await expect(context.getByRole("link", { name: "Notifications" })).toHaveCount(0);
   });

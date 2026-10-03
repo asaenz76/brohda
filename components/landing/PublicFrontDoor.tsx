@@ -6,6 +6,7 @@ import { DiscoveryTabNav } from "@/components/discovery/DiscoveryTabNav";
 import { PublicCommunityRow } from "@/components/discovery/PublicCommunityRow";
 import { PublicMobileMenu } from "@/components/landing/PublicMobileMenu";
 import { ColumnHeader } from "@/components/shell/ColumnHeader";
+import { SiteFooter } from "@/components/shell/SiteFooter";
 import { cn } from "@/lib/utils";
 import { DISCOVERY_EMPTY_COPY, type DiscoveryTab } from "@/lib/communities/discovery-tabs";
 import type { FeedItem } from "@/lib/communities/feed";
@@ -43,20 +44,6 @@ function Wordmark({ className }: { className?: string }) {
   );
 }
 
-function LegalLinks({ className }: { className?: string }) {
-  return (
-    <nav aria-label="Legal" className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted", className)}>
-      <Link href="/terms" className="underline-offset-4 hover:text-text-primary hover:underline">
-        Terms
-      </Link>
-      <Link href="/privacy" className="underline-offset-4 hover:text-text-primary hover:underline">
-        Privacy
-      </Link>
-      <span>© {new Date().getFullYear()} Brohda</span>
-    </nav>
-  );
-}
-
 export function PublicFrontDoor({
   tab,
   feed,
@@ -84,7 +71,7 @@ export function PublicFrontDoor({
         </div>
       </header>
 
-      <div className="mx-auto grid w-full max-w-[1200px] gap-6 px-4 pt-3 pb-[calc(5rem+env(safe-area-inset-bottom))] md:grid-cols-[minmax(0,1fr)_260px] md:pt-4 md:pb-8 lg:grid-cols-[250px_minmax(0,600px)_280px] lg:justify-center lg:py-6">
+      <div className="mx-auto grid w-full max-w-[1200px] gap-6 px-4 pt-3 md:grid-cols-[minmax(0,1fr)_260px] md:pt-4 lg:grid-cols-[250px_minmax(0,600px)_280px] lg:justify-center lg:pt-6">
         {/* LEFT — lightweight context (lg+). Deliberately not a nav: the centre tabs are the way to browse. */}
         <aside aria-label="About Brohda" className="hidden space-y-5 lg:sticky lg:top-6 lg:block lg:self-start">
           <Link
@@ -97,7 +84,6 @@ export function PublicFrontDoor({
             </span>
           </Link>
           <p className="text-sm text-text-secondary">{ABOUT}</p>
-          <LegalLinks className="border-t border-border-subtle pt-4" />
         </aside>
 
         {/* CENTRE — the product. */}
@@ -145,11 +131,13 @@ export function PublicFrontDoor({
             </Link>
           </div>
           {/* The left column's content, for the widths where that column isn't shown. */}
-          <div className="space-y-3 border-t border-border-subtle pt-4 lg:hidden">
-            <p className="text-sm text-text-secondary">{ABOUT}</p>
-            <LegalLinks />
-          </div>
+          <p className="border-t border-border-subtle pt-4 text-sm text-text-secondary lg:hidden">{ABOUT}</p>
         </aside>
+      </div>
+
+      {/* The page's last element, signed in or out; on phones it clears the fixed bar below. */}
+      <div className="mx-auto mt-6 w-full max-w-[1200px] px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:mt-8 md:pb-8">
+        <SiteFooter />
       </div>
 
       {/* Mobile: account actions are always on screen; everything else is behind the hamburger. */}
