@@ -11,6 +11,7 @@ import { getPaymentMethods } from "@/lib/payment-methods/fetch";
 import { TransactionList } from "@/components/activity/TransactionList";
 import { WalletRequestForm } from "./wallet-request-form";
 import { HouseRevenueView } from "./house-revenue-view";
+import { ColumnHeader } from "@/components/shell/ColumnHeader";
 
 // Pending is the state a player is actively waiting and wondering about, so
 // it gets the loudest treatment — the same warning-muted "needs attention"
@@ -45,18 +46,18 @@ export default async function WalletPage() {
   const enabledPaymentMethods = paymentMethods.filter((m) => m.enabled);
 
   return (
-    <div className="space-y-6">
-      <h1 className="sr-only">Ledger</h1>
+    <div className="space-y-4">
+      <ColumnHeader title="Wallet" icon={Wallet} />
 
       {/* Confidence starts with clearly seeing what you can use — the
           available amount is deliberately the loudest number on the page,
-          bigger than any button or heading below it. Money on hold is
+          the biggest figure on this page. Money on hold is
           still yours (it comes back if a Position voids), so the total
           stays visible, but it's never the headline: it can't all be put
           on something at once. */}
-      <div className="rounded-2xl border border-border-subtle bg-surface-primary p-5">
+      <div className="rounded-lg border border-border-subtle bg-surface-primary p-5">
         <p className="text-sm text-text-muted">Available</p>
-        <p className="text-4xl font-bold text-text-primary">{formatCents(summary.available)}</p>
+        <p className="text-3xl font-bold text-text-primary">{formatCents(summary.available)}</p>
         {/* Only shown once something actually holds funds, so the common
             case (no holds) stays as simple as it was before holds existed. */}
         {summary.reserved > 0 && (
@@ -89,7 +90,7 @@ export default async function WalletPage() {
             {requests.map((request) => (
               <li
                 key={request.id}
-                className="rounded-xl border border-border-subtle bg-surface-primary px-4 py-3"
+                className="rounded-lg border border-border-subtle bg-surface-primary px-4 py-3"
               >
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-text-primary">

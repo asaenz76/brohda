@@ -8,6 +8,7 @@ import { FollowButton } from "@/components/profile/FollowButton";
 import { ProfileTabNav, type ProfileTab } from "../profile-tab-nav";
 import { PredictionsHistory } from "../predictions-history";
 import { CommunitiesTab } from "../communities-tab";
+import { ColumnHeader } from "@/components/shell/ColumnHeader";
 
 /**
  * Public Profile (Phase F, Brohda 2.0 redesign) — the same identity
@@ -50,7 +51,8 @@ export default async function PublicProfilePage({
   const counts = Array.isArray(countsRows) ? countsRows[0] : countsRows;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      <ColumnHeader title="Profile" backHref="/feed" backLabel="Back to Home" />
       <ProfileHeader
         displayName={profile.display_name}
         username={profile.username}

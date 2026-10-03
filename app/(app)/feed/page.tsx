@@ -1,8 +1,9 @@
-import { Sparkles } from "lucide-react";
+import { Home, Sparkles } from "lucide-react";
 import { requireUser } from "@/lib/auth/session";
 import { getSocialFeed } from "@/lib/communities/feed";
 import { GamePostCard } from "@/components/posts/GamePostCard";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
+import { ColumnHeader } from "@/components/shell/ColumnHeader";
 
 /**
  * Phase C (Brohda 2.0 redesign) — /feed is now the canonical Home
@@ -40,7 +41,7 @@ export default async function FeedPage() {
 
   return (
     <div className="space-y-3">
-      <h1 className="sr-only">Home</h1>
+      <ColumnHeader title="Home" icon={Home} />
 
       {feed.length === 0 ? (
         <EmptyFeedState icon={Sparkles} title="Nothing happening right now" description="New games show up here as soon as they're on the board." />

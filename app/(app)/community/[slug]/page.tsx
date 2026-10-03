@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { TeamCrest } from "@/components/TeamCrest";
 import { GamePostCard } from "@/components/posts/GamePostCard";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
+import { ColumnHeader } from "@/components/shell/ColumnHeader";
 
 /**
  * Community detail (Phase E, Brohda 2.0 redesign) — the canonical
@@ -51,8 +52,8 @@ export default async function CommunityDetailPage({ params }: { params: Promise<
   ]);
 
   return (
-    <div className="space-y-4">
-      <h1 className="sr-only">Community</h1>
+    <div className="space-y-3">
+      <ColumnHeader title="Community" backHref="/discovery" backLabel="Back to Discovery" />
 
       <Card>
         <CardContent className="flex items-center justify-between gap-3 pt-6">

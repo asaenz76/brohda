@@ -75,7 +75,7 @@ export function TransactionDetailSheet({ entry, onClose }: TransactionDetailShee
         </dl>
 
         {entry.poolQuestion && (
-          <div className="rounded-xl border border-border-subtle p-3">
+          <div className="rounded-lg border border-border-subtle p-3">
             {entry.fixtureLabel && (
               <p className="text-sm font-medium text-text-primary">{entry.fixtureLabel}</p>
             )}
@@ -90,7 +90,7 @@ export function TransactionDetailSheet({ entry, onClose }: TransactionDetailShee
         )}
 
         {entry.settlement && (
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-xl border border-border-subtle p-3 text-sm">
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-lg border border-border-subtle p-3 text-sm">
             <dt className="text-text-muted">Gross pool</dt>
             <dd className="text-text-primary">{formatCents(entry.settlement.grossPool)}</dd>
             <dt className="text-text-muted">Platform fee</dt>

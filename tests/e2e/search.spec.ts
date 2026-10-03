@@ -107,7 +107,7 @@ test.describe("Search", () => {
 
       await page.goto(`/search?q=e2esearch${suffix}`);
       await expect(page.getByRole("heading", { name: "Players" })).toBeVisible();
-      await expect(page.locator(`a[href="/profile/e2esearch${suffix}"]`)).toBeVisible();
+      await expect(page.getByRole("main").locator(`a[href="/profile/e2esearch${suffix}"]`)).toBeVisible();
     } finally {
       if (postIds.length > 0) await admin.from("posts").delete().in("id", postIds);
       if (fixtureIds.length > 0) await admin.from("fixtures").delete().in("id", fixtureIds);

@@ -93,7 +93,7 @@ export function NotificationToast({ initialUnreadCount }: { initialUnreadCount: 
     <div
       role="status"
       aria-live="polite"
-      className="fixed inset-x-4 bottom-20 z-50 mx-auto flex max-w-sm items-start gap-3 rounded-xl border border-border-subtle bg-surface-primary p-4 shadow-lg animate-[toast-slide-in_0.25s_ease-out]"
+      className="fixed inset-x-4 bottom-20 z-50 mx-auto flex max-w-sm items-start gap-3 rounded-lg border border-border-subtle bg-surface-primary p-4 shadow-lg animate-[toast-slide-in_0.25s_ease-out]"
     >
       {toast.href ? (
         // Plain <a>, not next/link — a hash-only target (e.g. a wallet

@@ -18,6 +18,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { LocalDateTime } from "@/components/LocalDateTime";
 import { TeamCrest } from "@/components/TeamCrest";
 import Link from "next/link";
+import { ColumnHeader } from "@/components/shell/ColumnHeader";
 
 /**
  * Post detail (Milestone R3, docs/BROHDA_2_0_MILESTONE_MAP.md, Post
@@ -73,18 +74,22 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
   const reputationByUserId: Record<string, UserIdentityReputation> = Object.fromEntries(reputationMap);
 
   return (
-    <div className="space-y-4">
-      <h1 className="sr-only">Post detail</h1>
+    <div className="space-y-3">
+      <ColumnHeader title="Post" backHref="/feed" backLabel="Back to Home" />
 
       <Card>
         <CardContent className="space-y-4 pt-6">
           <div className="space-y-2">
+            <p className="text-xs text-text-muted">
+              <span className="sr-only">Game published by </span>
+              <span className="font-medium text-text-secondary">Brohda</span>
+              {fixture.competitionName && ` · ${fixture.competitionName}`}
+            </p>
             <p className="flex flex-wrap items-center gap-1.5 text-xl font-semibold text-text-primary">
               <TeamCrest logoUrl={fixture.awayTeamLogoUrl} teamName={fixture.awayTeamName} />
               {fixture.awayTeamName} @ <TeamCrest logoUrl={fixture.homeTeamLogoUrl} teamName={fixture.homeTeamName} />
               {fixture.homeTeamName}
             </p>
-            {fixture.competitionName && <p className="text-sm text-text-secondary">{fixture.competitionName}</p>}
             <p className="text-sm text-text-secondary">
               <LocalDateTime iso={fixture.scheduledStartUtc} options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
             </p>

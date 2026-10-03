@@ -19,7 +19,7 @@ export function UserListRow({ entry, viewerId }: { entry: UserListEntry; viewerI
 
   return (
     <li>
-      <div className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-surface-secondary">
+      <div className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-surface-secondary">
         <Link
           href={`/profile/${entry.username ?? entry.userId}`}
           className="flex flex-1 items-center gap-3"

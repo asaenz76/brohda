@@ -7,7 +7,9 @@ import { getNotifications } from "@/lib/notifications/fetch";
 import { attachNotificationHrefs, type NotificationWithHref } from "@/lib/notifications/links";
 import { markNotificationsReadAction } from "@/lib/actions/notifications";
 import { Button } from "@/components/ui/button";
+import { LocalDateTime } from "@/components/LocalDateTime";
 import { cn } from "@/lib/utils";
+import { ColumnHeader } from "@/components/shell/ColumnHeader";
 
 /**
  * Notifications (Phase G, Brohda 2.0 redesign) — the canonical
@@ -32,29 +34,29 @@ export default async function NotificationsPage() {
   const hasUnread = notifications.some((n) => n.read_at == null);
 
   return (
-    <div className="space-y-4">
-      <h1 className="sr-only">Notifications</h1>
+    <div className="space-y-3">
+      <ColumnHeader
+        title="Notifications"
+        icon={Bell}
+        actions={
+          hasUnread ? (
+            <form action={markNotificationsReadAction}>
+              <Button type="submit" variant="ghost" size="sm">
+                Mark all read
+              </Button>
+            </form>
+          ) : undefined
+        }
+      />
 
       {notifications.length === 0 ? (
         <EmptyFeedState icon={Bell} title="No notifications yet." description="Replies and prediction results will show up here." />
       ) : (
-        <>
-          {hasUnread && (
-            <div className="flex justify-end">
-              <form action={markNotificationsReadAction}>
-                <Button type="submit" variant="outline" size="sm">
-                  Mark all read
-                </Button>
-              </form>
-            </div>
-          )}
-
-          <ul className="divide-y divide-border-subtle rounded-lg border border-border-subtle">
-            {notifications.map((n) => (
-              <NotificationRow key={n.id} notification={n} />
-            ))}
-          </ul>
-        </>
+        <ul className="divide-y divide-border-subtle rounded-lg border border-border-subtle">
+          {notifications.map((n) => (
+            <NotificationRow key={n.id} notification={n} />
+          ))}
+        </ul>
       )}
     </div>
   );
@@ -70,24 +72,24 @@ function NotificationRow({ notification: n }: { notification: NotificationWithHr
   const isUnread = n.read_at == null;
 
   const content = (
-    <div className="flex items-start gap-3 px-4 py-3">
-      <Icon className="mt-0.5 size-5 shrink-0 text-text-muted" aria-hidden="true" />
+    <div className={cn("flex items-start gap-3 px-4 py-3", isUnread && "bg-accent-primary/5")}>
+      <Icon className={cn("mt-0.5 size-5 shrink-0", isUnread ? "text-accent-primary" : "text-text-muted")} aria-hidden="true" />
       <div className="min-w-0 flex-1">
         <p className={cn("text-sm", isUnread ? "font-semibold text-text-primary" : "font-medium text-text-secondary")}>
           {isUnread && <span className="sr-only">Unread: </span>}
           {n.title}
         </p>
-        <p className="text-sm text-text-secondary">{n.body}</p>
+        <p className="text-sm text-text-secondary [overflow-wrap:anywhere]">{n.body}</p>
         <p className="mt-1 text-xs text-text-muted">
-          <time dateTime={n.created_at}>{new Date(n.created_at).toLocaleString()}</time>
+          <LocalDateTime iso={n.created_at} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
         </p>
       </div>
       {/* Unread state is never color-only (spec §25/§44) — the sr-only
-          "Unread:" prefix and the font-weight difference above both carry
+          "Unread:" prefix, the font weight and the tinted row all carry
           the same meaning this dot does visually. */}
       {isUnread && <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-accent-primary" aria-hidden="true" />}
     </div>
   );
 
-  return <li>{n.href ? <Link href={n.href}>{content}</Link> : content}</li>;
+  return <li>{n.href ? <Link href={n.href} className="block outline-none hover:bg-surface-secondary focus-visible:ring-3 focus-visible:ring-ring/50">{content}</Link> : content}</li>;
 }

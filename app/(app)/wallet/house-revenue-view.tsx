@@ -4,6 +4,7 @@ import { formatCents } from "@/lib/utils/money";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
 import { getHouseLedgerEntries } from "@/lib/wallet/ledger";
 import { TransactionList } from "@/components/activity/TransactionList";
+import { ColumnHeader } from "@/components/shell/ColumnHeader";
 
 // The admin's own wallet_balances row (account_type='user') is always
 // empty — admins don't enter pools. What an admin actually means by "my
@@ -16,10 +17,10 @@ export async function HouseRevenueView() {
   const [revenue, entries] = await Promise.all([getHouseRevenue(), getHouseLedgerEntries()]);
 
   return (
-    <div className="space-y-6">
-      <h1 className="sr-only">Ledger</h1>
+    <div className="space-y-4">
+      <ColumnHeader title="Wallet" icon={Landmark} />
 
-      <div className="rounded-2xl border border-border-subtle bg-surface-primary p-4">
+      <div className="rounded-lg border border-border-subtle bg-surface-primary p-4">
         <p className="text-sm text-text-muted">Platform revenue</p>
         <p className="text-2xl font-bold text-text-primary">{formatCents(revenue.currentBalance)}</p>
         <p className="mt-1 text-xs text-text-muted">

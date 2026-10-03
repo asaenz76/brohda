@@ -18,7 +18,7 @@ export default function AppError({
   }, [error]);
 
   return (
-    <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border-subtle px-6 py-16 text-center">
+    <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border-subtle px-6 py-16 text-center">
       <AlertTriangle className="size-8 text-text-muted" aria-hidden="true" />
       <p className="text-base font-semibold text-text-primary">Something went wrong</p>
       <p className="max-w-xs text-sm text-text-secondary">

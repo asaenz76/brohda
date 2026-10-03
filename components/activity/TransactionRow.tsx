@@ -47,7 +47,7 @@ export function TransactionRow({
     <li
       id={`tx-${id}`}
       className={cn(
-        "rounded-xl border border-border-subtle bg-surface-primary transition-shadow",
+        "rounded-lg border border-border-subtle bg-surface-primary transition-shadow",
         highlighted && "ring-2 ring-accent-primary",
       )}
     >

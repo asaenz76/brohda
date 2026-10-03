@@ -59,7 +59,7 @@ export function WalletRequestForm({ paymentMethods }: { paymentMethods: PaymentM
 
   if (justSubmitted) {
     return (
-      <div className="space-y-2 rounded-xl border border-border-subtle p-4">
+      <div className="space-y-2 rounded-lg border border-border-subtle p-4">
         <p className="text-sm font-medium text-text-primary">Request submitted.</p>
         <p className="text-sm text-text-secondary">Usually reviewed within a few hours.</p>
         <Button type="button" variant="outline" onClick={reset}>
@@ -71,7 +71,7 @@ export function WalletRequestForm({ paymentMethods }: { paymentMethods: PaymentM
 
   if (paymentMethods.length === 0) {
     return (
-      <div className="space-y-2 rounded-xl border border-border-subtle p-4">
+      <div className="space-y-2 rounded-lg border border-border-subtle p-4">
         <p className="text-sm font-medium text-text-primary">
           {mode === "deposit" ? "Add Funds" : "Transfer Out"}
         </p>
@@ -86,7 +86,7 @@ export function WalletRequestForm({ paymentMethods }: { paymentMethods: PaymentM
   }
 
   return (
-    <form action={formAction} className="space-y-3 rounded-xl border border-border-subtle p-4">
+    <form action={formAction} className="space-y-3 rounded-lg border border-border-subtle p-4">
       <input type="hidden" name="type" value={mode} />
       <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
       <p className="text-sm font-medium text-text-primary">

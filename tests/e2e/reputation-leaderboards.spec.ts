@@ -225,7 +225,7 @@ test.describe("Reputation", () => {
       await page.context().clearCookies();
       await loginAs(page, emailChamp);
       await page.goto("/profile");
-      await expect(page.getByText("100% prediction accuracy · 7 predicted")).toBeVisible();
+      await expect(page.getByRole("main").getByText("100% prediction accuracy · 7 predicted")).toBeVisible();
 
       // The below-minimum user's own Profile shows their real reputation
       // regardless of leaderboard eligibility (reputation is never gated
@@ -233,7 +233,7 @@ test.describe("Reputation", () => {
       await page.context().clearCookies();
       await loginAs(page, emailBelowMin);
       await page.goto("/profile");
-      await expect(page.getByText("67% prediction accuracy · 3 predicted")).toBeVisible();
+      await expect(page.getByRole("main").getByText("67% prediction accuracy · 3 predicted")).toBeVisible();
     } finally {
       if (challengeIds.length > 0) {
         await admin.from("notifications").delete().in("challenge_id", challengeIds);

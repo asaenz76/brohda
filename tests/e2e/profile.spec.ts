@@ -113,7 +113,8 @@ test.describe("Profile", () => {
     await loginAs(page, email);
     await page.goto("/profile");
 
-    await expect(page.getByText(`@${username}`)).toBeVisible();
+    // Scoped to the page: the right rail also shows the viewer's compact identity.
+    await expect(page.getByRole("main").getByText(`@${username}`)).toBeVisible();
     // Truly zero history (spec §5/§26) omits the reputation line entirely
     // rather than showing a fabricated "0 predicted" — matching
     // UserIdentity's own locked unit-tested behavior.
