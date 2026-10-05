@@ -9,7 +9,9 @@ import { Card, CardContent } from "@/components/ui/card";
 
 const initialState: CloseAccountState = { error: null };
 
-export function CloseAccountForm() {
+// `showMoney` follows the consumer money capability: the balance and funding-request conditions are only mentioned to someone for whom the
+// wallet is visible, so a free-only account is never told about money it can't see.
+export function CloseAccountForm({ showMoney }: { showMoney: boolean }) {
   const [state, formAction, pending] = useActionState(closeAccountAction, initialState);
   const [open, setOpen] = useState(false);
 
@@ -27,9 +29,10 @@ export function CloseAccountForm() {
         <p className="text-sm font-semibold text-text-primary">Close your account?</p>
         <p className="text-sm text-text-secondary">
           This deactivates your account and permanently removes your name, username, and photo —
-          this can&apos;t be undone. Your email can never be used to register again. You&apos;ll
-          need a $0 balance and no picks still in progress, and any pending deposit or withdrawal
-          request must be resolved first.
+          this can&apos;t be undone. Your email can never be used to register again.{" "}
+          {showMoney
+            ? "You\u2019ll need a $0 balance and no picks still in progress, and any pending deposit or withdrawal request must be resolved first."
+            : "You\u2019ll need no picks still in progress."}
         </p>
         <form action={formAction} className="space-y-3">
           <div className="space-y-1.5">

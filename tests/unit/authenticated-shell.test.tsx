@@ -17,6 +17,7 @@ afterEach(() => cleanup());
 const navProps = {
   profileSlug: "andre",
   showSocialNav: true,
+  showWallet: true,
   unreadNotificationCount: 0,
   availableCents: 80_000,
   heldCents: 20_000,
@@ -121,6 +122,27 @@ describe("LeftNav (desktop rail)", () => {
     expect(wallet).toHaveTextContent("$800.00");
     expect(wallet).not.toHaveTextContent("$1,000.00");
     expect(wallet).toHaveAttribute("title", "$800.00 available, $200.00 on hold");
+  });
+});
+
+describe("Wallet entry follows the consumer money capability", () => {
+  it("rail: with the wallet hidden there is no Wallet link, no balance and no money text — and the rest of the lower section is intact", () => {
+    currentPathname = "/feed";
+    const { container } = render(<LeftNav {...navProps} showWallet={false} />);
+    expect(screen.queryByRole("link", { name: /wallet/i })).toBeNull();
+    expect(container.textContent).not.toMatch(/\$|wallet|balance|on hold/i);
+    expect(screen.getAllByRole("link").map((l) => l.getAttribute("href"))).toEqual(["/feed", "/discovery", "/notifications", "/search", "/profile", "/profile/edit", "/rules"]);
+    expect(screen.getByRole("button", { name: "Log out" })).toBeInTheDocument();
+  });
+
+  it("phone Menu: with the wallet hidden the sheet has Search, Settings, Rules and Log out — no Wallet", async () => {
+    currentPathname = "/feed";
+    render(<MobileNav {...navProps} showWallet={false} profile={profile} />);
+    fireEvent.click(screen.getByRole("button", { name: "Menu" }));
+    const sheet = await screen.findByTestId("auth-mobile-menu");
+    expect(within(sheet).queryByRole("link", { name: /wallet/i })).toBeNull();
+    expect(within(sheet).getAllByRole("link").map((l) => l.getAttribute("href"))).toEqual(["/search", "/profile/edit", "/rules"]);
+    expect(sheet.textContent).not.toMatch(/\$|wallet/i);
   });
 });
 

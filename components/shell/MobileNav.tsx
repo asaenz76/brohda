@@ -45,6 +45,7 @@ export function MobileNav({
   profile,
   profileSlug,
   showSocialNav,
+  showWallet,
   unreadNotificationCount,
   availableCents,
   heldCents,
@@ -53,6 +54,7 @@ export function MobileNav({
   profile: { displayName: string; avatarUrl: string | null };
   profileSlug: string | null;
   showSocialNav: boolean;
+  showWallet: boolean;
   unreadNotificationCount: number;
   availableCents: number;
   heldCents: number;
@@ -95,13 +97,15 @@ export function MobileNav({
                   <Search className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
                   Search
                 </Link>
-                <Link href="/wallet" onClick={close} title={description} aria-label={`Wallet: ${description}`} className={menuItemClass}>
-                  <Wallet className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
-                  <span>Wallet</span>
-                  <span className="ml-auto text-xs font-normal text-text-muted" aria-hidden="true">
-                    {available}
-                  </span>
-                </Link>
+                {showWallet && (
+                  <Link href="/wallet" onClick={close} title={description} aria-label={`Wallet: ${description}`} className={menuItemClass}>
+                    <Wallet className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
+                    <span>Wallet</span>
+                    <span className="ml-auto text-xs font-normal text-text-muted" aria-hidden="true">
+                      {available}
+                    </span>
+                  </Link>
+                )}
                 <Link href="/profile/edit" onClick={close} className={menuItemClass}>
                   <Settings className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
                   Settings

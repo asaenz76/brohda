@@ -44,6 +44,7 @@ function NavRow({ item, active, unread }: { item: ShellNavItem; active: boolean;
 export function LeftNav({
   profileSlug,
   showSocialNav,
+  showWallet,
   unreadNotificationCount,
   availableCents,
   heldCents,
@@ -51,6 +52,7 @@ export function LeftNav({
 }: {
   profileSlug: string | null;
   showSocialNav: boolean;
+  showWallet: boolean;
   unreadNotificationCount: number;
   availableCents: number;
   heldCents: number;
@@ -68,19 +70,21 @@ export function LeftNav({
       ))}
 
       <div className="mt-3 flex flex-col gap-1 border-t border-border-subtle pt-3">
-        <Link
-          href="/wallet"
-          title={description}
-          aria-label={`Wallet: ${description}`}
-          aria-current={active === "wallet" ? "page" : undefined}
-          className={cn(rowClass, active === "wallet" ? "bg-surface-secondary font-semibold text-text-primary" : "font-medium text-text-secondary hover:bg-surface-secondary hover:text-text-primary")}
-        >
-          <Wallet className={cn("size-5 shrink-0", active === "wallet" && "text-accent-primary")} aria-hidden="true" />
-          <span className="truncate">Wallet</span>
-          <span className="ml-auto text-xs font-normal text-text-muted" aria-hidden="true">
-            {available}
-          </span>
-        </Link>
+        {showWallet && (
+          <Link
+            href="/wallet"
+            title={description}
+            aria-label={`Wallet: ${description}`}
+            aria-current={active === "wallet" ? "page" : undefined}
+            className={cn(rowClass, active === "wallet" ? "bg-surface-secondary font-semibold text-text-primary" : "font-medium text-text-secondary hover:bg-surface-secondary hover:text-text-primary")}
+          >
+            <Wallet className={cn("size-5 shrink-0", active === "wallet" && "text-accent-primary")} aria-hidden="true" />
+            <span className="truncate">Wallet</span>
+            <span className="ml-auto text-xs font-normal text-text-muted" aria-hidden="true">
+              {available}
+            </span>
+          </Link>
+        )}
         <Link
           href="/profile/edit"
           aria-current={active === "settings" ? "page" : undefined}

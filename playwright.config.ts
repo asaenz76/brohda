@@ -102,7 +102,7 @@ export default defineConfig({
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
-      testIgnore: /admin-brohda-settings/,
+      testIgnore: /admin-brohda-settings|monetary-capability-gating/,
     },
     {
       name: "chromium-admin-settings",
@@ -110,6 +110,15 @@ export default defineConfig({
       testMatch: /admin-brohda-settings/,
       fullyParallel: false,
       dependencies: ["chromium"],
+    },
+    // Also mutates the platform_settings singleton (flips monetary_p2p_enabled), so it must not overlap the settings project either:
+    // files within one project run on separate workers, projects chained by `dependencies` never overlap.
+    {
+      name: "chromium-money-gating",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: /monetary-capability-gating/,
+      fullyParallel: false,
+      dependencies: ["chromium-admin-settings"],
     },
   ],
 });

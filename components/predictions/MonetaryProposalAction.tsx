@@ -140,6 +140,40 @@ export function MonetaryProposalAction({ marketId, state, context }: { marketId:
   if (current.kind === "declined") return status("text-text-muted", "Declined — nothing was held");
   if (current.kind === "withdrawn") return status("text-text-muted", "Withdrawn — your hold was released");
 
+  if (current.kind === "incoming_pending_unavailable") {
+    const { proposalId, stake } = current;
+    return (
+      <div className="flex max-w-[20rem] flex-col items-start gap-1 sm:items-end sm:text-right">
+        <p className="text-xs text-text-secondary">
+          <span className="font-medium text-text-primary">
+            {opponentName} sent an offer of {formatCents(stake)}.
+          </span>{" "}
+          It can no longer be accepted. Decline it to release their hold.
+        </p>
+        <Button
+          type="button"
+          size="lg"
+          variant="ghost"
+          disabled={isPending}
+          onClick={() => {
+            setError(null);
+            startTransition(async () => {
+              const result = await declineMonetaryProposalAction(proposalId, marketId);
+              if (result.error) {
+                setError(result.error);
+                return;
+              }
+              settle({ kind: "declined" });
+            });
+          }}
+        >
+          Decline
+        </Button>
+        {alertLine}
+      </div>
+    );
+  }
+
   if (current.kind === "incoming_pending_unfunded") {
     const { proposalId, stake } = current;
     const shortfall = Math.max(stake - availableCents, 0);

@@ -1,5 +1,7 @@
 import { Wallet } from "lucide-react";
+import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth/session";
+import { getConsumerMonetaryAccess } from "@/lib/monetary/capability";
 import { createClient } from "@/lib/supabase/server";
 import { formatCents } from "@/lib/utils/money";
 import { cn } from "@/lib/utils";
@@ -29,6 +31,13 @@ export default async function WalletPage() {
   if (user.role === "super_admin") {
     return <HouseRevenueView />;
   }
+
+  // The consumer wallet is part of the optional money layer. While money is off it stays reachable only for someone who still has funds or
+  // a hold to deal with (and for operators); everyone else is sent back to Home rather than shown a dormant product.
+  const access = await getConsumerMonetaryAccess(user);
+  if (!access.canSeeWallet) redirect("/feed");
+  // Funding is part of the optional money layer; taking money out never is.
+  const allowFunding = access.enabled || access.isOperator;
 
   const supabase = await createClient();
 
@@ -74,7 +83,7 @@ export default async function WalletPage() {
         )}
       </div>
 
-      <WalletRequestForm paymentMethods={enabledPaymentMethods} />
+      <WalletRequestForm paymentMethods={enabledPaymentMethods} allowFunding={allowFunding} />
 
       <div className="space-y-2">
         <h2 className="text-sm font-semibold text-text-primary">Your requests</h2>
@@ -82,7 +91,7 @@ export default async function WalletPage() {
           <EmptyFeedState
             icon={Wallet}
             title="No requests yet"
-            description="Requesting a deposit or withdrawal above will show up here."
+            description={allowFunding ? "Requesting a deposit or withdrawal above will show up here." : "A transfer out that you request above will show up here."}
           />
         )}
         {requests && requests.length > 0 && (
