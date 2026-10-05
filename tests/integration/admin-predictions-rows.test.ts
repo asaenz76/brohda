@@ -97,7 +97,7 @@ describe("listAdminPredictionRows", () => {
     expect(second.market.primary).toBe(`Second market ${suffix}`);
   });
 
-  it("resolves everything in a fixed number of table reads — no per-row lookups (no N+1)", async () => {
+  it("resolves everything in batches — a bounded number of reads that grows with ids per chunk, never with rows (no N+1)", async () => {
     const reads: string[] = [];
     const counting = {
       from: (table: string) => {
@@ -105,13 +105,16 @@ describe("listAdminPredictionRows", () => {
         return admin.from(table as never);
       },
     };
-    const few = await listAdminPredictionRows(1, counting as never);
-    const fewReads = reads.length;
+    const one = await listAdminPredictionRows(1, counting as never);
+    expect(one).toHaveLength(1);
+    expect(reads.length).toBeLessThanOrEqual(4); // predictions, profiles, markets, fixtures
     reads.length = 0;
     const many = await listAdminPredictionRows(500, counting as never);
-    expect(many.length).toBeGreaterThanOrEqual(few.length);
-    expect(reads.length).toBeLessThanOrEqual(4);
-    expect(fewReads).toBeLessThanOrEqual(4);
-    expect(new Set(reads).size).toBe(reads.length); // each table read once
+    // One read of predictions, then at most one read per 150 distinct ids for each of the three lookups.
+    const maxPerTable = Math.ceil(many.length / 150);
+    expect(reads.length).toBeLessThanOrEqual(1 + 3 * maxPerTable);
+    expect(reads.filter((t) => t === "predictions")).toHaveLength(1);
+    // The real regression: hundreds of rows must not fail with "URI too long".
+    expect(many.length).toBeGreaterThanOrEqual(one.length);
   });
 });

@@ -1,12 +1,12 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchInChunks } from "@/lib/utils/batch";
 import { getMatchupSeparator, orderTeamsForDisplay } from "@/lib/sports-data/team-display-order";
 
 // Read-only, operator-facing view model for /admin/predictions: each
 // Prediction with the human context an operator needs (who, which Game,
-// which Market) next to the raw ids, resolved in a fixed number of batched
-// queries — predictions, then profiles + markets in parallel, then fixtures —
-// never one lookup per row. Nothing here writes, regrades or interprets a
+// which Market) next to the raw ids, resolved in batches — predictions, then
+// profiles + markets in parallel, then fixtures — never one lookup per row. Nothing here writes, regrades or interprets a
 // Prediction; it only reads and labels.
 
 export const ADMIN_PREDICTIONS_LIMIT = 200;
@@ -120,21 +120,26 @@ export async function listAdminPredictionRows(limit: number = ADMIN_PREDICTIONS_
   const userIds = [...new Set(rows.map((r) => r.user_id))];
   const marketIds = [...new Set(rows.map((r) => r.market_id))];
 
-  const [profilesResult, marketsResult] = await Promise.all([
-    client.from("user_profiles").select("id, username, display_name").in("id", userIds),
-    client.from("markets").select("id, question, fixture_id").in("id", marketIds),
+  // Id lists go through fetchInChunks: a single .in() with a few hundred UUIDs exceeds PostgREST's URL limit ("URI too long").
+  // Reads stay bounded (one per ~150 ids per table), never one per row. An error in any chunk is thrown, not swallowed into
+  // "Unknown ..." rows.
+  const readChunk = <Row,>(table: string, columns: string) => (chunk: string[]) =>
+    client
+      .from(table)
+      .select(columns)
+      .in("id", chunk)
+      .then((result: { data: unknown; error: { message: string } | null }) => {
+        if (result.error) throw result.error;
+        return { data: result.data as Row[] | null };
+      });
+
+  const [profiles, markets] = await Promise.all([
+    fetchInChunks<AdminProfileRaw>(userIds, readChunk<AdminProfileRaw>("user_profiles", "id, username, display_name")),
+    fetchInChunks<AdminMarketRaw>(marketIds, readChunk<AdminMarketRaw>("markets", "id, question, fixture_id")),
   ]);
-  if (profilesResult.error) throw profilesResult.error;
-  if (marketsResult.error) throw marketsResult.error;
-  const markets = (marketsResult.data ?? []) as AdminMarketRaw[];
 
   const fixtureIds = [...new Set(markets.map((m) => m.fixture_id).filter((id): id is string => Boolean(id)))];
-  let fixtures: AdminFixtureRaw[] = [];
-  if (fixtureIds.length > 0) {
-    const { data, error: fixturesError } = await client.from("fixtures").select("id, sport, home_team_name, away_team_name").in("id", fixtureIds);
-    if (fixturesError) throw fixturesError;
-    fixtures = (data ?? []) as AdminFixtureRaw[];
-  }
+  const fixtures = await fetchInChunks<AdminFixtureRaw>(fixtureIds, readChunk<AdminFixtureRaw>("fixtures", "id, sport, home_team_name, away_team_name"));
 
-  return buildAdminPredictionRows({ predictions: rows, profiles: (profilesResult.data ?? []) as AdminProfileRaw[], markets, fixtures });
+  return buildAdminPredictionRows({ predictions: rows, profiles, markets, fixtures });
 }

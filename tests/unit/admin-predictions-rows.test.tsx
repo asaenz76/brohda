@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 
-import { buildAdminPredictionRows, type AdminPredictionRaw } from "@/lib/predictions/admin-rows";
+import { buildAdminPredictionRows, listAdminPredictionRows, type AdminPredictionRaw } from "@/lib/predictions/admin-rows";
 import { AdminPredictionsTable } from "@/components/admin/AdminPredictionsTable";
 
 afterEach(() => cleanup());
@@ -134,5 +134,65 @@ describe("AdminPredictionsTable", () => {
     expect(container.querySelector("table")?.className).toContain("min-w-[1040px]");
     rerender(<AdminPredictionsTable rows={[]} />);
     expect(screen.getByText("No predictions yet.")).toBeInTheDocument();
+  });
+});
+
+// A fake PostgREST client: records every .in() id-list size so a too-long URL can't slip through unnoticed.
+function fakeClient(predictions: AdminPredictionRaw[]) {
+  const inSizes: Record<string, number[]> = {};
+  const client = {
+    from(table: string) {
+      const q: Record<string, unknown> = {};
+      q.select = () => q;
+      q.order = () => q;
+      q.limit = () => q;
+      q.in = (_column: string, ids: string[]) => {
+        (inSizes[table] ??= []).push(ids.length);
+        q.ids = ids;
+        return q;
+      };
+      q.then = (resolve: (v: unknown) => unknown) => resolve({ data: table === "predictions" ? predictions : [], error: null });
+      return q;
+    },
+  };
+  return { client, inSizes };
+}
+
+describe("listAdminPredictionRows on a long page", () => {
+  it("looks up users and markets in chunks of at most 150 ids (PostgREST's URL limit), never one giant .in()", async () => {
+    const many = Array.from({ length: 400 }, (_, i) =>
+      prediction({ id: `p-${i}`, user_id: `00000000-0000-0000-0000-${String(i).padStart(12, "0")}`, market_id: `11111111-0000-0000-0000-${String(i).padStart(12, "0")}` }),
+    );
+    const { client, inSizes } = fakeClient(many);
+    const rows = await listAdminPredictionRows(400, client as never);
+    expect(rows).toHaveLength(400);
+    expect(inSizes.user_profiles).toEqual([150, 150, 100]);
+    expect(inSizes.markets).toEqual([150, 150, 100]);
+    expect(Math.max(...Object.values(inSizes).flat())).toBeLessThanOrEqual(150);
+    // Nothing resolved (the fake returns no profiles/markets): every row degrades to Unknown, none throws.
+    expect(rows[0].user.primary).toBe("Unknown user");
+    expect(rows[0].match.primary).toBe("Unknown game");
+  });
+
+  it("returns no rows without querying the lookup tables when there are no Predictions", async () => {
+    const { client, inSizes } = fakeClient([]);
+    expect(await listAdminPredictionRows(200, client as never)).toEqual([]);
+    expect(inSizes).toEqual({});
+  });
+
+  it("throws a lookup error rather than silently showing Unknown rows", async () => {
+    const failing = {
+      from(table: string) {
+        const q: Record<string, unknown> = {};
+        q.select = () => q;
+        q.order = () => q;
+        q.limit = () => q;
+        q.in = () => q;
+        q.then = (resolve: (v: unknown) => unknown) =>
+          resolve(table === "predictions" ? { data: [prediction()], error: null } : { data: null, error: { message: "boom" } });
+        return q;
+      },
+    };
+    await expect(listAdminPredictionRows(10, failing as never)).rejects.toMatchObject({ message: "boom" });
   });
 });
