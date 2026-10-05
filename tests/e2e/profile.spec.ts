@@ -127,7 +127,8 @@ test.describe("Profile", () => {
     await expect(page.getByRole("tab", { name: "Market Predictions" })).toHaveCount(0);
     await expect(page.getByRole("tab", { name: "Teams & Leagues" })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "Analytics" })).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "Rules" })).toHaveCount(0);
+    // The legacy Profile "Rules" link stays gone. (Scoped to the page content: the shell's secondary nav and the footer now carry the real /rules page.)
+    await expect(page.getByRole("main").getByRole("link", { name: "Rules" })).toHaveCount(0);
     await expect(page.getByRole("link", { name: /leaderboard/i })).toHaveCount(0);
 
     await expect(page.getByText("No predictions yet.")).toBeVisible();
