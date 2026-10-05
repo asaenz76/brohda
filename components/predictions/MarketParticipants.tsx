@@ -12,6 +12,8 @@ import { getFixtureScheduledStart } from "@/lib/sports-data/fixture-lookup";
 import { getMarketById } from "@/lib/prediction-markets/repository";
 import { Avatar } from "@/components/Avatar";
 import { ChallengeAction } from "@/components/predictions/ChallengeAction";
+import { HeadToHeadLine } from "@/components/profile/CallBsRecordLine";
+import { getHeadToHeadRecords } from "@/lib/challenges/history";
 import { MonetaryProposalAction } from "@/components/predictions/MonetaryProposalAction";
 import { deriveMonetaryActionState } from "@/lib/monetary/action-state";
 import { getMonetaryStakeLimits, getP2pFeeBps } from "@/lib/monetary/policy";
@@ -98,6 +100,13 @@ export async function MarketParticipants({
   const others = participants.filter((p) => p.userId !== viewerId);
   if (others.length === 0) return null;
 
+  // The viewer's resolved Call BS record against each person on this list, in one batched read. Only RESOLVED challenges count,
+  // so a pending or accepted-but-ungraded one is never in it; the line below appears only where there is history to show.
+  const headToHead = await getHeadToHeadRecords(
+    viewerId,
+    others.map((p) => p.userId),
+  );
+
   const actionByUserId = new Map(
     others.map((participant) => [
       participant.userId,
@@ -153,6 +162,10 @@ export async function MarketParticipants({
                     {participant.displayName}
                   </Link>
                   <p className="break-words text-xs text-text-muted">Picked {participant.selectedOutcome === "YES" ? yesLabel : noLabel}</p>
+                  {(() => {
+                    const record = headToHead.get(participant.userId);
+                    return record ? <HeadToHeadLine opponentName={participant.displayName} wins={record.wins} losses={record.losses} /> : null;
+                  })()}
                 </div>
               </div>
               {/* Below sm the controls drop under the identity (aligned with
