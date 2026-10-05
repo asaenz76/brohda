@@ -1,5 +1,6 @@
 import { requirePredictionDiagnosticsViewer } from "@/lib/predictions/authorization";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { ADMIN_PREDICTIONS_LIMIT, listAdminPredictionRows } from "@/lib/predictions/admin-rows";
+import { AdminPredictionsTable } from "@/components/admin/AdminPredictionsTable";
 
 // Milestone 3 admin/diagnostic support (roadmap STEP 24) — read-only,
 // deliberately. No edit, no delete, no grading override exists here or
@@ -19,60 +20,16 @@ import { createAdminClient } from "@/lib/supabase/admin";
 // into this feature. See lib/predictions/authorization.ts.
 export default async function AdminPredictionsPage() {
   await requirePredictionDiagnosticsViewer();
-  const admin = createAdminClient();
-  const { data: predictions } = await admin
-    .from("predictions")
-    .select(
-      "id, user_id, market_id, selected_outcome, yes_probability_snapshot, no_probability_snapshot, lifecycle_state, result, graded_at, created_at",
-    )
-    .order("created_at", { ascending: false })
-    .limit(200);
+  const rows = await listAdminPredictionRows();
 
   return (
     <div className="space-y-4">
       <h1 className="sr-only">Predictions</h1>
       <p className="text-sm text-text-secondary">
-        Read-only diagnostic view of the 200 most recent Predictions. Historical records are never editable here.
+        Read-only diagnostic view of the {ADMIN_PREDICTIONS_LIMIT} most recent Predictions. Historical records are never editable here. Each row shows the
+        user, Game and Market by name, with the short ids alongside (hover for the full id).
       </p>
-      <div className="overflow-x-auto rounded-xl border border-border-subtle">
-        <table className="w-full text-sm">
-          <thead className="bg-surface-secondary text-left text-text-muted">
-            <tr>
-              <th className="px-3 py-2 font-medium">Created</th>
-              <th className="px-3 py-2 font-medium">User</th>
-              <th className="px-3 py-2 font-medium">Market</th>
-              <th className="px-3 py-2 font-medium">Selected</th>
-              <th className="px-3 py-2 font-medium">Snapshot (YES / NO)</th>
-              <th className="px-3 py-2 font-medium">State</th>
-              <th className="px-3 py-2 font-medium">Result</th>
-              <th className="px-3 py-2 font-medium">Graded</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border-subtle">
-            {(predictions ?? []).map((p) => (
-              <tr key={p.id}>
-                <td className="whitespace-nowrap px-3 py-2 text-text-secondary">{new Date(p.created_at).toLocaleString()}</td>
-                <td className="px-3 py-2 text-text-secondary">{p.user_id.slice(0, 8)}</td>
-                <td className="px-3 py-2 text-text-secondary">{p.market_id.slice(0, 8)}</td>
-                <td className="px-3 py-2 text-text-primary">{p.selected_outcome}</td>
-                <td className="px-3 py-2 text-text-secondary">
-                  {Math.round(Number(p.yes_probability_snapshot) * 100)}% / {Math.round(Number(p.no_probability_snapshot) * 100)}%
-                </td>
-                <td className="px-3 py-2 text-text-secondary">{p.lifecycle_state}</td>
-                <td className="px-3 py-2 text-text-secondary">{p.result ?? "—"}</td>
-                <td className="px-3 py-2 text-text-secondary">{p.graded_at ? new Date(p.graded_at).toLocaleString() : "—"}</td>
-              </tr>
-            ))}
-            {(!predictions || predictions.length === 0) && (
-              <tr>
-                <td colSpan={8} className="px-3 py-8 text-center text-text-muted">
-                  No predictions yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <AdminPredictionsTable rows={rows} />
     </div>
   );
 }
