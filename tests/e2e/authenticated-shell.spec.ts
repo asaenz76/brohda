@@ -93,6 +93,10 @@ test.beforeAll(async () => {
   seeded.postId = game.postId;
   seeded.marketId = game.marketId;
   await seedGame(LONG_HOME, LONG_AWAY, 21);
+  // The commenter also picked the other side, so the Post shows a participant row (Call BS) beneath the conversation.
+  await admin
+    .rpc("set_pick", { p_user_id: commenter.id, p_market_id: game.marketId, p_selected_outcome: "NO", p_yes_probability: 0.6, p_no_probability: 0.4, p_market_question: "q", p_market_close_at: null, p_market_status: "ACTIVE", p_idempotency_key: randomUUID() })
+    .single();
   await admin.from("post_comments").insert({ post_id: game.postId, user_id: commenter.id, body: LONG_COMMENT });
   await admin.from("notifications").insert([
     { user_id: viewer.id, type: "POST_COMMENT_REPLY", title: "New reply", body: `${commenter.id.slice(0, 4)} replied: ${LONG_COMMENT}` },
@@ -120,9 +124,9 @@ test.afterAll(async () => {
   if (seeded.teams.length) await admin.from("teams").delete().in("id", seeded.teams);
 });
 
-async function login(page: Page) {
+async function login(page: Page, email: string = viewerEmail) {
   await page.goto("/login");
-  await page.getByLabel("Email").fill(viewerEmail);
+  await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password", { exact: true }).fill(PASSWORD);
   await page.getByRole("button", { name: /log in/i }).click();
   await expect(page).toHaveURL(/\/feed$/);
@@ -156,6 +160,7 @@ test.describe("Authenticated shell — desktop (1280)", () => {
       ["/search", "Search"],
       ["/profile", "Profile"],
       ["/wallet", "Wallet"],
+      ["/profile/edit", "Settings"],
     ];
     for (const [path, label] of cases) {
       await page.goto(path);
@@ -176,7 +181,7 @@ test.describe("Authenticated shell — desktop (1280)", () => {
     // Order: the five primary links, then Wallet, positioned lower on the page (a utility, not a destination).
     await page.goto("/feed");
     const hrefs = await rail(page).getByRole("link").evaluateAll((els) => els.map((e) => e.getAttribute("href")));
-    expect(hrefs).toEqual(["/feed", "/discovery", "/notifications", "/search", "/profile", "/wallet"]);
+    expect(hrefs).toEqual(["/feed", "/discovery", "/notifications", "/search", "/profile", "/wallet", "/profile/edit"]);
     const profileBox = (await rail(page).getByRole("link", { name: "Profile" }).boundingBox())!;
     const walletBox = (await rail(page).getByRole("link", { name: /^Wallet:/ }).boundingBox())!;
     expect(walletBox.y).toBeGreaterThan(profileBox.y + profileBox.height);
@@ -199,6 +204,32 @@ test.describe("Authenticated shell — desktop (1280)", () => {
     await expect(main).toContainText(`${AWAY} @`);
     await expect(main.getByText("Comments")).toBeVisible();
     await expect(main).toContainText("A very long comment");
+  });
+
+  test("Post detail reads Game -> Pick and sentiment -> conversation -> Call BS / money, one expanded Game Post", async ({ page }) => {
+    // Participants (Call BS / money) only show to someone who has a Pick, so this test uses its own viewer who already picked
+    // the other side from the seeded commenter — independent of what the Pick test does to the main viewer.
+    const picker = await createUser("order", "Order Viewer", `shellorder${suffix}`);
+    await admin
+      .rpc("set_pick", { p_user_id: picker.id, p_market_id: seeded.marketId, p_selected_outcome: "YES", p_yes_probability: 0.6, p_no_probability: 0.4, p_market_question: "q", p_market_close_at: null, p_market_status: "ACTIVE", p_idempotency_key: randomUUID() })
+      .single();
+    await login(page, picker.email);
+    await page.goto(`/post/${seeded.postId}`);
+    const y = async (loc: import("@playwright/test").Locator) => (await loc.first().boundingBox())!.y;
+    const main = page.getByRole("main");
+    const game = await y(main.getByText(`${AWAY} @`));
+    const sentiment = await y(main.getByText(/\d+% *$/).first());
+    const pick = await y(main.getByRole("button", { name: /^Pick: / }));
+    const comments = await y(main.getByText("Comments", { exact: true }));
+    const comment = await y(main.getByText("A very long comment"));
+    const others = await y(main.getByText("Other picks", { exact: true }));
+    expect(game).toBeLessThan(sentiment);
+    expect(sentiment).toBeLessThan(pick);
+    expect(pick).toBeLessThan(comments);
+    expect(comments).toBeLessThan(comment);
+    expect(comment).toBeLessThan(others); // the participants (Call BS, optional money) come after the conversation
+    // One Post, one card.
+    await expect(main.locator('[data-slot="card"]')).toHaveCount(1);
   });
 
   test("the right rail is contextual: the viewer's own identity and what they follow — real data, no composer", async ({ page }) => {
@@ -242,10 +273,10 @@ test.describe("Authenticated shell — desktop (1280)", () => {
     const game = gameArticle(page);
     await game.getByRole("button", { name: "Pick: Yes" }).click();
     await expect(game.getByText("Change your prediction")).toBeVisible();
-    const { count } = await admin.from("predictions").select("id", { count: "exact", head: true }).eq("market_id", seeded.marketId);
+    const { count } = await admin.from("predictions").select("id", { count: "exact", head: true }).eq("market_id", seeded.marketId).eq("user_id", seeded.users[0]);
     expect(count).toBe(1);
     await game.getByRole("button", { name: "Pick: No" }).click();
-    await expect.poll(async () => (await admin.from("predictions").select("selected_outcome").eq("market_id", seeded.marketId).single()).data?.selected_outcome).toBe("NO");
+    await expect.poll(async () => (await admin.from("predictions").select("selected_outcome").eq("market_id", seeded.marketId).eq("user_id", seeded.users[0]).single()).data?.selected_outcome).toBe("NO");
   });
 
   test("signed-in /feed and the logged-out front door use the very same Game Post card language", async ({ page, browser }) => {
@@ -350,6 +381,8 @@ test.describe("Authenticated shell — breakpoints", () => {
     await expect(page.getByTestId("auth-bottom-nav")).toBeHidden();
     for (const [name, path] of pages()) {
       await page.goto(path);
+      // Let the page settle before leaving it: navigating on while a page is still hydrating can abort the next goto under load.
+      await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
       await expectNoHorizontalScroll(page, `768 ${name}`);
     }
     await ctx.close();
@@ -409,6 +442,7 @@ test.describe("Authenticated shell — breakpoints", () => {
     await expect(sheet.getByRole("heading", { name: "Menu" })).toBeVisible();
     await expect(sheet.getByRole("link", { name: "Search" })).toHaveAttribute("href", "/search");
     await expect(sheet.getByRole("link", { name: /^Wallet:/ })).toHaveAttribute("href", "/wallet");
+    await expect(sheet.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/profile/edit");
     await expect(sheet.getByRole("button", { name: "Log out" })).toBeVisible();
     expect(await sheet.innerText()).not.toMatch(/create|new post|publish/i);
     await expectNoHorizontalScroll(page, "375 menu open");
@@ -435,7 +469,11 @@ test.describe("Authenticated shell — breakpoints", () => {
     // Log out works from the sheet and returns to the logged-out front door.
     await page.getByRole("button", { name: "Menu" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Log out" }).click();
-    await expect(page).toHaveURL(/\/($|login)/);
+    // ...and lands on the public front door (registration is open in this environment), not an authenticated page.
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.getByRole("heading", { level: 2, name: "Upcoming games" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Create account" }).first()).toBeVisible();
+    await expect(page.getByTestId("auth-bottom-nav")).toHaveCount(0);
     await ctx.close();
   });
 });

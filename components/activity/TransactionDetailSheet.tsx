@@ -32,7 +32,7 @@ export function TransactionDetailSheet({ entry, onClose }: TransactionDetailShee
         aria-label="Transaction details"
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-[720px] space-y-4 rounded-t-2xl bg-surface-primary p-5 outline-none"
+        className="w-full max-w-[720px] space-y-4 rounded-t-xl bg-surface-primary p-5 outline-none"
       >
         <div className="mx-auto h-1 w-10 rounded-full bg-border-subtle" aria-hidden="true" />
 

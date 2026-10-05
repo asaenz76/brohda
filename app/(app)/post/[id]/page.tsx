@@ -12,6 +12,8 @@ import { getCommunityRefsForPost } from "@/lib/communities/feed";
 import { getUserPredictionRecords } from "@/lib/reputation/repository";
 import type { UserIdentityReputation } from "@/components/identity/UserIdentity";
 import { MarketPredictionCard } from "@/components/predictions/MarketPredictionCard";
+import { MarketParticipants } from "@/components/predictions/MarketParticipants";
+import { getLatestUserPredictionForMarket } from "@/lib/predictions/repository";
 import { PostConversation } from "@/components/posts/PostConversation";
 import { PostCommunityBadges } from "@/components/communities/PostCommunityBadges";
 import { Card, CardContent } from "@/components/ui/card";
@@ -64,6 +66,9 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
   const primaryMarket = selectPrimaryMarket(activeMarkets, policy.primaryMarketTemplatePriority);
   const primaryMarketDetail = primaryMarket ? await getMarketDetail(primaryMarket.id) : null;
   const otherMarkets = activeMarkets.filter((m) => m.id !== primaryMarket?.id);
+  // Call BS and the optional money action sit under the conversation (the Post reads Game -> Pick -> conversation -> challenges),
+  // so the participants block is rendered here rather than inside MarketPredictionCard; it needs to know whether the viewer has a Pick.
+  const viewerPrediction = primaryMarketDetail ? await getLatestUserPredictionForMarket(user.id, primaryMarketDetail.id) : null;
 
   // Phase G — every commenter's canonical reputation, batched in one query
   // regardless of thread size (lib/reputation/repository.ts's
@@ -104,7 +109,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
 
           <div className="border-t border-border-subtle pt-4">
             {primaryMarketDetail ? (
-              <MarketPredictionCard market={primaryMarketDetail} userId={user.id} />
+              <MarketPredictionCard market={primaryMarketDetail} userId={user.id} includeParticipants={false} />
             ) : (
               <p className="text-sm text-text-secondary">No markets are available for this game yet.</p>
             )}
@@ -133,6 +138,18 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
               reputationByUserId={reputationByUserId}
             />
           </div>
+
+          {primaryMarketDetail && (
+            <div className="border-t border-border-subtle pt-4">
+              <MarketParticipants
+                marketId={primaryMarketDetail.id}
+                viewerId={user.id}
+                yesLabel={primaryMarketDetail.yesLabel}
+                noLabel={primaryMarketDetail.noLabel}
+                viewerHasPick={Boolean(viewerPrediction)}
+              />
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
