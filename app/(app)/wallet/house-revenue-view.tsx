@@ -24,7 +24,7 @@ export async function HouseRevenueView() {
         <p className="text-sm text-text-muted">Platform revenue</p>
         <p className="text-2xl font-bold text-text-primary">{formatCents(revenue.currentBalance)}</p>
         <p className="mt-1 text-xs text-text-muted">
-          Platform fees collected across all pools, net of anything reversed.
+          Platform fees collected, net of anything reversed.
         </p>
         <dl className="mt-3 grid grid-cols-3 gap-2 text-xs">
           <div>
@@ -48,7 +48,7 @@ export async function HouseRevenueView() {
           <EmptyFeedState
             icon={Landmark}
             title="No revenue yet"
-            description="Platform fees from settled pools will show up here."
+            description="Platform fees will show up here as they're collected."
           />
         )}
         {entries.length > 0 && <TransactionList entries={entries} />}

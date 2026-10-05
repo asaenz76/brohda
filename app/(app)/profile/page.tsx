@@ -2,10 +2,12 @@ import Link from "next/link";
 import { User } from "lucide-react";
 import { requireUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
-import { getUserPredictionRecord } from "@/lib/reputation/repository";
+import { getUserCallBsRecord, getUserPredictionRecord } from "@/lib/reputation/repository";
+import { listCallBsHistory } from "@/lib/challenges/history";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
+import { CallBsHistory } from "@/components/profile/CallBsHistory";
 import { ProfileTabNav, type ProfileTab } from "./profile-tab-nav";
 import { PredictionsHistory } from "./predictions-history";
 import { CommunitiesTab } from "./communities-tab";
@@ -36,7 +38,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
   const { tab: tabParam } = await searchParams;
   const tab: ProfileTab = tabParam === "communities" ? "communities" : "predictions";
 
-  const [{ data: countsRows }, { data: editableFields }, reputation] = await Promise.all([
+  const [{ data: countsRows }, { data: editableFields }, reputation, callBsRecord, callBsHistory] = await Promise.all([
     supabase.rpc("get_follow_counts", { p_user_id: user.id }),
     // Not part of the shared session UserProfile type (kept narrow for
     // guards/middleware) — fetched separately for this page's header/edit form.
@@ -46,6 +48,8 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
       .eq("id", user.id)
       .single(),
     getUserPredictionRecord(user.id),
+    getUserCallBsRecord(user.id),
+    listCallBsHistory(user.id),
   ]);
 
   const counts = Array.isArray(countsRows) ? countsRows[0] : countsRows;
@@ -65,12 +69,15 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
         followerCount={counts?.follower_count ?? 0}
         followingCount={counts?.following_count ?? 0}
         profileHref={profileHref}
+        callBsRecord={callBsRecord}
         action={
           <Link href="/profile/edit" className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
             Edit profile
           </Link>
         }
       />
+
+      <CallBsHistory entries={callBsHistory} subjectIsViewer subjectName={user.display_name} />
 
       <ProfileTabNav active={tab} basePath="/profile" />
 

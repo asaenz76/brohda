@@ -2,8 +2,10 @@ import { redirect, notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { resolvePublicProfile } from "@/lib/profiles/fetch";
-import { getUserPredictionRecord } from "@/lib/reputation/repository";
+import { getUserCallBsRecord, getUserPredictionRecord } from "@/lib/reputation/repository";
+import { getHeadToHeadRecords, listCallBsHistory } from "@/lib/challenges/history";
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
+import { CallBsHistory } from "@/components/profile/CallBsHistory";
 import { FollowButton } from "@/components/profile/FollowButton";
 import { ProfileTabNav, type ProfileTab } from "../profile-tab-nav";
 import { PredictionsHistory } from "../predictions-history";
@@ -42,10 +44,14 @@ export default async function PublicProfilePage({
   if (!profile) notFound();
   if (profile.id === currentUser.id) redirect("/profile");
 
-  const [{ data: countsRows }, { data: isFollowing }, reputation] = await Promise.all([
+  const [{ data: countsRows }, { data: isFollowing }, reputation, callBsRecord, callBsHistory, headToHeadMap] = await Promise.all([
     supabase.rpc("get_follow_counts", { p_user_id: profile.id }),
     supabase.rpc("is_following", { p_follower_id: currentUser.id, p_followee_id: profile.id }),
     getUserPredictionRecord(profile.id),
+    getUserCallBsRecord(profile.id),
+    listCallBsHistory(profile.id),
+    // Your own record against this person — shown only when the two of you have resolved Call BS history.
+    getHeadToHeadRecords(currentUser.id, [profile.id]),
   ]);
 
   const counts = Array.isArray(countsRows) ? countsRows[0] : countsRows;
@@ -64,8 +70,11 @@ export default async function PublicProfilePage({
         followerCount={counts?.follower_count ?? 0}
         followingCount={counts?.following_count ?? 0}
         profileHref={`/profile/${identifier}`}
+        callBsRecord={callBsRecord}
         action={<FollowButton followeeId={profile.id} initiallyFollowing={Boolean(isFollowing)} />}
       />
+
+      <CallBsHistory entries={callBsHistory} subjectIsViewer={false} subjectName={profile.display_name} headToHead={headToHeadMap.get(profile.id) ?? null} />
 
       <ProfileTabNav active={tab} basePath={`/profile/${identifier}`} />
 

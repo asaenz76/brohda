@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CircleHelp, Menu, Search, Shield, Wallet } from "lucide-react";
+import { CircleHelp, Menu, Search, Settings, Shield, Wallet } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 import { LogoutRow } from "@/components/shell/LogoutRow";
 import { MenuSheet, menuItemClass } from "@/components/shell/MenuSheet";
@@ -101,6 +101,10 @@ export function MobileNav({
                   <span className="ml-auto text-xs font-normal text-text-muted" aria-hidden="true">
                     {available}
                   </span>
+                </Link>
+                <Link href="/profile/edit" onClick={close} className={menuItemClass}>
+                  <Settings className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
+                  Settings
                 </Link>
                 <Link href="/how-it-works" onClick={close} className={menuItemClass}>
                   <CircleHelp className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />

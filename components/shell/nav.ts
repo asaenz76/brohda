@@ -7,7 +7,7 @@ import type { LucideIcon } from "lucide-react";
 //
 // There is deliberately no "Create"/"New post" entry: Game Posts are
 // published by Brohda only, so a member has nothing to create.
-export type ShellNavKey = "home" | "discovery" | "notifications" | "search" | "profile" | "wallet";
+export type ShellNavKey = "home" | "discovery" | "notifications" | "search" | "profile" | "wallet" | "settings";
 
 export interface ShellNavItem {
   key: ShellNavKey;
@@ -46,6 +46,8 @@ export function activeNavKey(pathname: string, profileSlug: string | null): Shel
   if (under("/notifications") || under("/activity")) return "notifications";
   if (under("/search")) return "search";
   if (under("/wallet")) return "wallet";
-  if (pathname === "/profile" || under("/profile/edit") || (profileSlug && under(`/profile/${profileSlug}`))) return "profile";
+  // Editing your profile and account is "Settings", not "Profile" — the page you view is your Profile.
+  if (under("/profile/edit")) return "settings";
+  if (pathname === "/profile" || (profileSlug && under(`/profile/${profileSlug}`))) return "profile";
   return null;
 }

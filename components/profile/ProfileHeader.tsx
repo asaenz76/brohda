@@ -1,6 +1,7 @@
 import { UserIdentity } from "@/components/identity/UserIdentity";
 import type { UserIdentityReputation } from "@/components/identity/UserIdentity";
 import { ProfileStatsRow } from "./ProfileStatsRow";
+import { CallBsRecordLine } from "./CallBsRecordLine";
 
 /**
  * Phase F (Brohda 2.0 redesign) — the Profile header as a social identity
@@ -37,6 +38,7 @@ export function ProfileHeader({
   followerCount,
   followingCount,
   profileHref,
+  callBsRecord,
   action,
 }: {
   displayName: string;
@@ -49,6 +51,8 @@ export function ProfileHeader({
   followerCount: number;
   followingCount: number;
   profileHref: string;
+  /** Resolved Call BS wins/losses — secondary context under the prediction reputation. Hidden when there are none. */
+  callBsRecord?: { wins: number; losses: number } | null;
   action?: React.ReactNode;
 }) {
   const metaLine = [pronouns, gender].filter(Boolean).join(" · ");
@@ -56,7 +60,11 @@ export function ProfileHeader({
   return (
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-3">
-        <UserIdentity displayName={displayName} username={username ?? null} avatarUrl={avatarUrl} reputation={reputation} size="lg" />
+        {/* The compact Call BS record sits in the identity's text column (under the prediction reputation), as secondary context. */}
+        <div className="min-w-0">
+          <UserIdentity displayName={displayName} username={username ?? null} avatarUrl={avatarUrl} reputation={reputation} size="lg" />
+          {callBsRecord && <CallBsRecordLine wins={callBsRecord.wins} losses={callBsRecord.losses} className="mt-0.5 pl-[3.625rem]" />}
+        </div>
         {action}
       </div>
       {metaLine && <p className="text-sm text-text-secondary">{metaLine}</p>}

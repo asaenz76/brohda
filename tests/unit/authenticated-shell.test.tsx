@@ -40,7 +40,7 @@ describe("activeNavKey", () => {
     ["/search", "search"],
     ["/wallet", "wallet"],
     ["/profile", "profile"],
-    ["/profile/edit", "profile"],
+    ["/profile/edit", "settings"],
     ["/profile/andre", "profile"],
     ["/profile/andre/followers", "profile"],
   ])("%s -> %s", (path, key) => {
@@ -63,8 +63,8 @@ describe("LeftNav (desktop rail)", () => {
     render(<LeftNav {...navProps} />);
     expect(PRIMARY_NAV.map((i) => i.label)).toEqual(["Home", "Discovery", "Notifications", "Search", "Profile"]);
     const links = screen.getAllByRole("link");
-    expect(links.map((l) => l.getAttribute("href"))).toEqual(["/feed", "/discovery", "/notifications", "/search", "/profile", "/wallet"]);
-    expect(links[links.length - 1]).toHaveAttribute("aria-label", "Wallet: $800.00 available, $200.00 on hold");
+    expect(links.map((l) => l.getAttribute("href"))).toEqual(["/feed", "/discovery", "/notifications", "/search", "/profile", "/wallet", "/profile/edit"]);
+    expect(links.find((l) => l.getAttribute("href") === "/wallet")).toHaveAttribute("aria-label", "Wallet: $800.00 available, $200.00 on hold");
     expect(screen.getByRole("button", { name: "Log out" })).toBeInTheDocument();
   });
 
@@ -75,6 +75,7 @@ describe("LeftNav (desktop rail)", () => {
     ["/search", "Search"],
     ["/profile", "Profile"],
     ["/wallet", "Wallet$800.00"],
+    ["/profile/edit", "Settings"],
   ])("marks exactly one entry as the current page on %s", (path, label) => {
     currentPathname = path;
     render(<LeftNav {...navProps} />);
@@ -150,6 +151,8 @@ describe("MobileNav (bottom bar)", () => {
     const sheet = await screen.findByTestId("auth-mobile-menu");
     expect(within(sheet).getByRole("link", { name: "Search" })).toHaveAttribute("href", "/search");
     expect(within(sheet).getByRole("link", { name: /^Wallet:/ })).toHaveAttribute("href", "/wallet");
+    expect(within(sheet).getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/profile/edit");
+    expect(within(sheet).getByRole("link", { name: "How it works" })).toHaveAttribute("href", "/how-it-works");
     expect(within(sheet).getByRole("button", { name: "Log out" })).toBeInTheDocument();
     expect(sheet.textContent).not.toMatch(/create|new post|publish/i);
 

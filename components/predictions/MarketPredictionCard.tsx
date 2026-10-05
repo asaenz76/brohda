@@ -31,7 +31,16 @@ import { MarketParticipants } from "@/components/predictions/MarketParticipants"
  * bordered Cards (product feedback: the Post detail page should read as
  * one coherent Post, not four boxes).
  */
-export async function MarketPredictionCard({ market, userId }: { market: DiscoveryMarketDetail; userId: string }) {
+export async function MarketPredictionCard({
+  market,
+  userId,
+  includeParticipants = true,
+}: {
+  market: DiscoveryMarketDetail;
+  userId: string;
+  /** Post detail renders the participants (Call BS / money) itself, after the conversation. */
+  includeParticipants?: boolean;
+}) {
   // Phase C (Brohda 2.0 redesign): market.yesPercent/noPercent are real
   // Brohda Pick-share sentiment now, not provider odds — see
   // getMarketDetail()'s own comment (lib/prediction-markets/discovery/repository.ts).
@@ -113,7 +122,9 @@ export async function MarketPredictionCard({ market, userId }: { market: Discove
         <YourPredictionCard prediction={existingPrediction!} yesLabel={market.yesLabel} noLabel={market.noLabel} />
       )}
 
-      <MarketParticipants marketId={market.id} viewerId={userId} yesLabel={market.yesLabel} noLabel={market.noLabel} viewerHasPick={Boolean(existingPrediction)} />
+      {includeParticipants && (
+        <MarketParticipants marketId={market.id} viewerId={userId} yesLabel={market.yesLabel} noLabel={market.noLabel} viewerHasPick={Boolean(existingPrediction)} />
+      )}
     </div>
   );
 }
