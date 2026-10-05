@@ -26,7 +26,7 @@ const WITHDRAWAL_NOTE_COPY: Record<PaymentMethod | "", { label: string; placehol
   OTHER: { label: "Payment details", placeholder: "How should we send your funds?" },
 };
 
-export function WalletRequestForm({ paymentMethods }: { paymentMethods: PaymentMethodRow[] }) {
+export function WalletRequestForm({ paymentMethods, allowFunding = true }: { paymentMethods: PaymentMethodRow[]; allowFunding?: boolean }) {
   const [mode, setMode] = useState<"closed" | "deposit" | "withdrawal">("closed");
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | "">("");
@@ -47,9 +47,11 @@ export function WalletRequestForm({ paymentMethods }: { paymentMethods: PaymentM
   if (mode === "closed") {
     return (
       <div className="flex gap-2">
-        <Button type="button" variant="outline" onClick={() => setMode("deposit")}>
-          Add Funds
-        </Button>
+        {allowFunding && (
+          <Button type="button" variant="outline" onClick={() => setMode("deposit")}>
+            Add Funds
+          </Button>
+        )}
         <Button type="button" variant="outline" onClick={() => setMode("withdrawal")}>
           Transfer Out
         </Button>

@@ -65,7 +65,8 @@ describe("RulesContent", () => {
   });
 
   it("goes generic — never a stale or invented number — when a value can't be read", () => {
-    const { container } = render(<RulesContent policy={UNKNOWN_RULES_POLICY} />);
+    // Money on, but its fee and limits unreadable: the section stays and says so without inventing a number.
+    const { container } = render(<RulesContent policy={{ ...UNKNOWN_RULES_POLICY, monetaryEnabled: true }} />);
     expect(text(container)).toContain("Picks lock shortly before kickoff");
     expect(text(container)).toContain("The fee rate is shown before you confirm an offer.");
     expect(text(container)).toContain("Each offer has a minimum and a maximum amount, shown when you make it.");
@@ -75,10 +76,9 @@ describe("RulesContent", () => {
     expect(text(container)).not.toMatch(/switched off/);
   });
 
-  it("says plainly when Call BS or money is currently switched off, and only then", () => {
-    const off = render(<RulesContent policy={{ ...live, callBsEnabled: false, monetaryEnabled: false }} />);
+  it("says plainly when Call BS is currently switched off, and only then", () => {
+    const off = render(<RulesContent policy={{ ...live, callBsEnabled: false }} />);
     expect(text(off.container)).toContain("Call BS is switched off right now.");
-    expect(text(off.container)).toContain("Money offers are switched off right now");
     off.unmount();
     const on = render(<RulesContent policy={live} />);
     expect(text(on.container)).not.toMatch(/switched off/);
@@ -157,5 +157,60 @@ describe("RulesContent", () => {
   it("has no controls: no buttons, forms, inputs or textareas — nothing that can mutate anything", () => {
     const { container } = render(<RulesContent policy={live} />);
     expect(container.querySelectorAll("button, form, input, textarea, select")).toHaveLength(0);
+  });
+});
+
+describe("RulesContent — optional money switched off (a complete free product)", () => {
+  const off: RulesPolicy = { ...live, monetaryEnabled: false };
+
+  it("drops the whole Money section and describes the free product, with nothing marking the gap", () => {
+    const { container } = render(<RulesContent policy={off} />);
+    expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual([
+      "The basics",
+      "Game Posts",
+      "Picks",
+      "When Picks lock",
+      "Call BS",
+      "Your prediction record",
+      "Results and grading",
+      "When a game can't be decided",
+      "Comments and conduct",
+      "Where these rules come from",
+    ]);
+    expect(screen.getAllByRole("region")).toHaveLength(10);
+    expect(text(container)).not.toMatch(/coming soon|disabled|switched off|not available|ask an admin/i);
+  });
+
+  it("carries no consumer money copy anywhere: stakes, fees, holds, funding, Positions, wallet, settlement, winnings", () => {
+    const { container } = render(<RulesContent policy={off} />);
+    expect(text(container)).not.toMatch(/\bmoney\b|\bstakes?\b|\bfees?\b|\bheld\b|\bon hold\b|\breserv|\bfund(s|ing)?\b|\bdeposit|\bwithdraw|\bposition|\bwallet\b|\bsettle|\bwinnings\b|\bbalance\b|\boffers?\b/i);
+    expect(text(container)).not.toMatch(/\$\d/);
+  });
+
+  it("the rest still reads correctly without money: authorship, Picks, locking, Call BS, record, results and VOID", () => {
+    const { container } = render(<RulesContent policy={off} />);
+    const t = text(container);
+    expect(t).toContain("Every Game Post is created by Brohda. Members can't create, edit or remove one.");
+    expect(t).toContain("you take part with Picks, comments and Call BS. Members never create the games themselves.");
+    expect(t).toContain("A Pick is free.");
+    expect(t).toContain("Picks lock 10 minutes before kickoff");
+    expect(t).toContain("accepting a Call BS locks the Picks involved immediately.");
+    expect(t).toContain("Call BS is a head-to-head challenge between two people who picked opposite sides of the same Market.");
+    expect(t).toContain("Call BS never changes it. Your prediction record comes only from your Picks.");
+    expect(t).toContain("Call BS results follow from the Market’s result.");
+    expect(t).toContain("A voided Call BS is neither a win nor a loss for either person.");
+    expect(t).toContain("The cutoff quoted here is read from Brohda's live settings, so it stays current.");
+  });
+
+  it("fails closed: an unreadable money setting reads as off, so the Money section is hidden too", () => {
+    const { container } = render(<RulesContent policy={UNKNOWN_RULES_POLICY} />);
+    expect(screen.queryByRole("heading", { level: 2, name: "Money" })).toBeNull();
+    expect(text(container)).not.toMatch(/\bmoney\b|\bfees?\b|\bstakes?\b/i);
+  });
+
+  it("with money on, the section is back with the live fee and limits (unchanged behaviour)", () => {
+    render(<RulesContent policy={live} />);
+    expect(screen.getByRole("heading", { level: 2, name: "Money" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Money" })).toHaveTextContent("The fee is currently 1%.");
   });
 });

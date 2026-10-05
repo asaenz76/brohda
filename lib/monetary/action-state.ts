@@ -10,6 +10,10 @@ export type MonetaryActionState =
   | { kind: "outgoing_pending"; proposalId: string; stake: number }
   | { kind: "incoming_pending_funded"; proposalId: string; stake: number }
   | { kind: "incoming_pending_unfunded"; proposalId: string; stake: number }
+  // Optional money is switched off: an offer that is still pending can no longer
+  // be accepted (and so is never offered "Fund to accept"), but the recipient can
+  // still decline it, which releases the sender's hold.
+  | { kind: "incoming_pending_unavailable"; proposalId: string; stake: number }
   // A PENDING proposal whose Game is past the cutoff. It can no longer be
   // accepted, and the expiry sweep releases the proposer's hold within a
   // couple of minutes — so neither side is offered a control the server
@@ -36,6 +40,7 @@ export function deriveMonetaryActionState({
   settlementsByPositionId,
   viewerAvailableCents,
   pastCutoff,
+  moneyEnabled = true,
 }: {
   viewerId: string;
   participantPredictionId: string;
@@ -45,6 +50,8 @@ export function deriveMonetaryActionState({
   settlementsByPositionId: Map<string, MonetaryPositionSettlement>;
   viewerAvailableCents: number;
   pastCutoff: boolean;
+  /** Whether optional money is on (the consumer capability). Defaults to on so existing callers are unchanged. */
+  moneyEnabled?: boolean;
 }): MonetaryActionState | null {
   const activeProposal = proposals.find(
     (p) =>
@@ -66,6 +73,7 @@ export function deriveMonetaryActionState({
     }
     if (pastCutoff) return { kind: "expired", stake: activeProposal.stake };
     if (activeProposal.proposerUserId === viewerId) return { kind: "outgoing_pending", proposalId: activeProposal.id, stake: activeProposal.stake };
+    if (!moneyEnabled) return { kind: "incoming_pending_unavailable", proposalId: activeProposal.id, stake: activeProposal.stake };
     if (viewerAvailableCents >= activeProposal.stake) return { kind: "incoming_pending_funded", proposalId: activeProposal.id, stake: activeProposal.stake };
     return { kind: "incoming_pending_unfunded", proposalId: activeProposal.id, stake: activeProposal.stake };
   }

@@ -10,6 +10,13 @@ import { describeLockWindow, describeStakeLimits, formatFeePercent, type RulesPo
 // on/off switches) arrive as `policy` from the live settings; when one
 // couldn't be read the copy goes generic rather than quoting a number.
 //
+// The optional money layer is described only when it is on for consumers
+// (policy.monetaryEnabled === true — an unreadable setting counts as off).
+// When it is off the page simply describes the free product: the Money
+// section is absent, and no sentence anywhere mentions stakes, fees, holds,
+// funding, Positions or the wallet. There's no "coming soon" or "disabled"
+// placeholder — nothing marks where it would have been.
+//
 // The page that hosts this supplies the h1.
 
 function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
@@ -30,6 +37,7 @@ export function RulesContent({ policy }: { policy: RulesPolicy }) {
   const lock = describeLockWindow(policy.lockMinutesBeforeKickoff);
   const fee = formatFeePercent(policy.feeBps);
   const limits = describeStakeLimits(policy.minStakeCents, policy.maxStakeCents);
+  const money = policy.monetaryEnabled === true;
 
   return (
     <div className="space-y-6">
@@ -47,8 +55,8 @@ export function RulesContent({ policy }: { policy: RulesPolicy }) {
 
       <Section id="rules-basics" title="The basics">
         <p className={body}>
-          Brohda is a social network around real sporting events. Brohda publishes the games; you take part with Picks, comments and Call BS and, if you
-          choose, with money. Members never create the games themselves.
+          Brohda is a social network around real sporting events. Brohda publishes the games; you take part with Picks, comments and Call BS
+          {money ? " and, if you choose, with money" : ""}. Members never create the games themselves.
         </p>
       </Section>
 
@@ -64,7 +72,7 @@ export function RulesContent({ policy }: { policy: RulesPolicy }) {
       <Section id="rules-picks" title="Picks">
         <ul className={list}>
           <li>A Pick is your opinion on a Market: one side of its question.</li>
-          <li>A Pick is free. Money is a separate, optional layer, and nothing about Picks needs it.</li>
+          <li>{money ? "A Pick is free. Money is a separate, optional layer, and nothing about Picks needs it." : "A Pick is free."}</li>
           <li>You can change your Pick until it locks.</li>
           <li>Your final Pick before it locks is the one on your record. Once a Pick is locked it can&apos;t be changed.</li>
         </ul>
@@ -75,7 +83,7 @@ export function RulesContent({ policy }: { policy: RulesPolicy }) {
           Picks lock {lock}, or as soon as the game is no longer waiting to start. After that you can&apos;t make a Pick or change one.
         </p>
         <p className={body}>
-          Your Pick stays editable until then unless you enter something that needs it to hold still: accepting a Call BS, or a money Position being accepted,
+          Your Pick stays editable until then unless you enter something that needs it to hold still: {money ? "accepting a Call BS, or a money Position being accepted," : "accepting a Call BS"}{" "}
           locks the Picks involved immediately.
         </p>
       </Section>
@@ -83,7 +91,11 @@ export function RulesContent({ policy }: { policy: RulesPolicy }) {
       <Section id="rules-call-bs" title="Call BS">
         {policy.callBsEnabled === false && <p className={body}>Call BS is switched off right now. This is how it works when it&apos;s on.</p>}
         <ul className={list}>
-          <li>Call BS is a free, head-to-head challenge between two people who picked opposite sides of the same Market. It involves no money.</li>
+          <li>
+            {money
+              ? "Call BS is a free, head-to-head challenge between two people who picked opposite sides of the same Market. It involves no money."
+              : "Call BS is a head-to-head challenge between two people who picked opposite sides of the same Market."}
+          </li>
           <li>Sending a Call BS doesn&apos;t lock either Pick. If either of you changes your Pick before it&apos;s accepted, it can no longer be accepted.</li>
           <li>You can have several Call BS waiting at once, and the other person decides whether to accept. It has to be accepted before the cutoff.</li>
           <li>Each person can be in only one accepted Call BS per Market. Accepting locks both Picks right away, and every other waiting Call BS involving either of you on that Market becomes unavailable.</li>
@@ -105,36 +117,37 @@ export function RulesContent({ policy }: { policy: RulesPolicy }) {
           </li>
           <li>&ldquo;Predicted&rdquo; is the number of your Picks that have been graded, voided ones included. A Pick still waiting for its result isn&apos;t counted yet.</li>
           <li>It shows as, for example, 67% prediction accuracy · 42 predicted, and there&apos;s no percentage until you have at least one decided Pick.</li>
-          <li>Call BS and money never change it. Your prediction record comes only from your Picks.</li>
+          <li>{money ? "Call BS and money never change it. Your prediction record comes only from your Picks." : "Call BS never changes it. Your prediction record comes only from your Picks."}</li>
         </ul>
       </Section>
 
-      <Section id="rules-money" title="Money">
-        <p className={body}>
-          Money is optional, and it&apos;s separate from Picks and from Call BS. You can take part in everything else without it.
-          {policy.monetaryEnabled === false && " Money offers are switched off right now; this is how they work when they're on."}
-        </p>
-        <ul className={list}>
-          <li>You can offer money to someone who picked the opposite side of the same Market, before the cutoff.</li>
-          <li>{limits ? `Each offer must be ${limits}.` : "Each offer has a minimum and a maximum amount, shown when you make it."}</li>
-          <li>You need enough available balance. Sending an offer holds your amount out of your available balance; holding it isn&apos;t the same as the other person accepting.</li>
-          <li>The other person has to accept it themselves. Accepting needs their own matching available balance, which is then held too, and it locks both Picks immediately.</li>
-          <li>Between the same two Picks there&apos;s at most one active money Position per Market. You can still have offers and Positions with different people on the same Market, as long as your balance covers each one.</li>
-          <li>If an offer is declined, withdrawn, or runs out at the cutoff, the amount held for it is released.</li>
-          <li>It&apos;s separate from Call BS: a Call BS and a money Position between the same two people don&apos;t count as each other, and a Position never adds a Call BS result.</li>
-        </ul>
-        <h3 className="pt-1 text-sm font-semibold text-text-primary">The fee</h3>
-        <p className={body}>
-          When a Position settles with a winner, Brohda takes a fee out of the losing amount and credits the rest to the winner; the winner&apos;s own amount is
-          simply released. {fee ? `The fee is currently ${fee}.` : "The fee rate is shown before you confirm an offer."} The rate is fixed on a Position at the moment
-          it&apos;s accepted. Before you confirm anything, Brohda shows the amount, the fee and what will be held.
-        </p>
-      </Section>
+      {money && (
+        <Section id="rules-money" title="Money">
+          <p className={body}>
+            Money is optional, and it&apos;s separate from Picks and from Call BS. You can take part in everything else without it.
+          </p>
+          <ul className={list}>
+            <li>You can offer money to someone who picked the opposite side of the same Market, before the cutoff.</li>
+            <li>{limits ? `Each offer must be ${limits}.` : "Each offer has a minimum and a maximum amount, shown when you make it."}</li>
+            <li>You need enough available balance. Sending an offer holds your amount out of your available balance; holding it isn&apos;t the same as the other person accepting.</li>
+            <li>The other person has to accept it themselves. Accepting needs their own matching available balance, which is then held too, and it locks both Picks immediately.</li>
+            <li>Between the same two Picks there&apos;s at most one active money Position per Market. You can still have offers and Positions with different people on the same Market, as long as your balance covers each one.</li>
+            <li>If an offer is declined, withdrawn, or runs out at the cutoff, the amount held for it is released.</li>
+            <li>It&apos;s separate from Call BS: a Call BS and a money Position between the same two people don&apos;t count as each other, and a Position never adds a Call BS result.</li>
+          </ul>
+          <h3 className="pt-1 text-sm font-semibold text-text-primary">The fee</h3>
+          <p className={body}>
+            When a Position settles with a winner, Brohda takes a fee out of the losing amount and credits the rest to the winner; the winner&apos;s own amount is
+            simply released. {fee ? `The fee is currently ${fee}.` : "The fee rate is shown before you confirm an offer."} The rate is fixed on a Position at the moment
+            it&apos;s accepted. Before you confirm anything, Brohda shows the amount, the fee and what will be held.
+          </p>
+        </Section>
+      )}
 
       <Section id="rules-results" title="Results and grading">
         <ul className={list}>
           <li>Brohda grades Markets from official sports results once a game is final, and grades the Picks on them automatically. Once a Pick is graded it doesn&apos;t change.</li>
-          <li>Call BS and money results follow from the Market&apos;s result.</li>
+          <li>{money ? "Call BS and money results follow from the Market\u2019s result." : "Call BS results follow from the Market\u2019s result."}</li>
           <li>Comments, community sentiment and what most people picked don&apos;t affect grading.</li>
           <li>Results come from sports data feeds. Brohda works from them as they are and can&apos;t promise that data is perfect.</li>
         </ul>
@@ -145,7 +158,7 @@ export function RulesContent({ policy }: { policy: RulesPolicy }) {
           <li>If a game is cancelled, or a line lands exactly on the result (a push), the Market is voided. If a game is postponed or suspended, Picks wait; nothing is guessed.</li>
           <li>A voided Pick counts as predicted but as neither correct nor incorrect.</li>
           <li>A voided Call BS is neither a win nor a loss for either person.</li>
-          <li>A voided money Position releases what was held on both sides. No fee is taken and nothing moves.</li>
+          {money && <li>A voided money Position releases what was held on both sides. No fee is taken and nothing moves.</li>}
         </ul>
       </Section>
 
@@ -162,8 +175,8 @@ export function RulesContent({ policy }: { policy: RulesPolicy }) {
 
       <Section id="rules-source" title="Where these rules come from">
         <p className={body}>
-          This page describes how Brohda works today. The cutoff, the fee and the limits quoted here are read from Brohda&apos;s live settings, so they stay
-          current. It isn&apos;t the legal agreement — that&apos;s the{" "}
+          This page describes how Brohda works today. {money ? "The cutoff, the fee and the limits quoted here are" : "The cutoff quoted here is"} read from Brohda&apos;s live settings, so{" "}
+          {money ? "they stay" : "it stays"} current. It isn&apos;t the legal agreement — that&apos;s the{" "}
           <Link href="/terms" className="underline underline-offset-4 hover:text-text-primary">
             Terms
           </Link>

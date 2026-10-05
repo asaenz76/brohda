@@ -5,6 +5,7 @@ import { AvatarUploader } from "../avatar-uploader";
 import { ProfileForm } from "../profile-form";
 import { ChangePasswordForm } from "../change-password-form";
 import { CloseAccountForm } from "../close-account-form";
+import { getConsumerMonetaryAccess } from "@/lib/monetary/capability";
 
 /**
  * Phase F (Brohda 2.0 redesign, spec §19) — "Edit profile" moved out of
@@ -18,6 +19,7 @@ import { CloseAccountForm } from "../close-account-form";
 export default async function EditProfilePage() {
   const user = await requireUser();
   const supabase = await createClient();
+  const moneyAccess = await getConsumerMonetaryAccess(user);
 
   const { data: editableFields } = await supabase
     .from("user_profiles")
@@ -57,7 +59,7 @@ export default async function EditProfilePage() {
         </CardContent>
       </Card>
 
-      <CloseAccountForm />
+      <CloseAccountForm showMoney={moneyAccess.canSeeWallet} />
     </div>
   );
 }

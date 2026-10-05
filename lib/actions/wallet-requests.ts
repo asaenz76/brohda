@@ -3,6 +3,8 @@
 import { errorMessage } from "@/lib/utils/error-message";
 import { revalidatePath } from "next/cache";
 import { requireUser, requireSuperAdmin } from "@/lib/auth/session";
+import { isAdminOrAbove } from "@/lib/auth/guards";
+import { isConsumerMonetaryEnabled } from "@/lib/monetary/capability";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAuditLog } from "@/lib/audit/log";
 import { parseDollarsToCents } from "@/lib/utils/money";
@@ -57,6 +59,12 @@ export async function submitWalletRequestAction(
     // request shape), not the common "wrong field" case.
     const message = parsed.error.issues[0]?.message ?? "Enter a valid amount.";
     return { error: message, success: false, idempotencyKey };
+  }
+
+  // Funding is part of the optional money layer: while it is off a member can't start a NEW deposit request (the UI doesn't offer one;
+  // this keeps a hand-built request from slipping past it). Withdrawals are never blocked — money already in the system can always be taken out.
+  if (parsed.data.type === "deposit" && !isAdminOrAbove(user) && !(await isConsumerMonetaryEnabled())) {
+    return { error: "Adding funds isn't available right now.", success: false, idempotencyKey };
   }
 
   const adminClient = createAdminClient();

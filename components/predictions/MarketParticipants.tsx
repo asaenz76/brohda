@@ -17,6 +17,7 @@ import { getHeadToHeadRecords } from "@/lib/challenges/history";
 import { MonetaryProposalAction } from "@/components/predictions/MonetaryProposalAction";
 import { deriveMonetaryActionState } from "@/lib/monetary/action-state";
 import { getMonetaryStakeLimits, getP2pFeeBps } from "@/lib/monetary/policy";
+import { isConsumerMonetaryEnabled } from "@/lib/monetary/capability";
 
 // Milestone R7 (docs/BROHDA_2_0_MILESTONE_MAP.md, Free Call BS Challenges),
 // §42-43, §47: the minimal Post/Market social surface Call BS needs — who
@@ -70,7 +71,7 @@ export async function MarketParticipants({
     return <p className="text-xs text-text-muted">Make a pick to call BS on anyone who picked the other side.</p>;
   }
 
-  const [participants, relevantChallenges, monetaryParticipants, relevantProposals, walletSummary, lockPolicy, feeBps, stakeLimits] = await Promise.all([
+  const [participants, relevantChallenges, monetaryParticipants, relevantProposals, walletSummary, lockPolicy, feeBps, stakeLimits, moneyEnabled] = await Promise.all([
     getMarketParticipants(marketId, viewerId, scheduledStartUtc),
     listChallengesForMarketAndUser(marketId, viewerId),
     getMonetaryParticipants(marketId, viewerId, scheduledStartUtc),
@@ -80,6 +81,9 @@ export async function MarketParticipants({
     getP2pFeeBps(),
     // Fail closed: with no readable limits we offer no NEW money action rather than guess a limit. Existing proposals/Positions still render.
     getMonetaryStakeLimits().catch(() => null),
+    // The consumer money capability (fail-closed). When off, no new offer is shown, an incoming pending offer can only be declined,
+    // and only existing obligations (a pending offer you sent, a committed or settled Position) remain visible.
+    isConsumerMonetaryEnabled(),
   ]);
   // Same cutoff formula the Call BS discovery query and accept_call_bs()
   // use. A PENDING Challenge is only expired lazily in the database, so
@@ -146,6 +150,7 @@ export async function MarketParticipants({
             settlementsByPositionId,
             viewerAvailableCents: walletSummary.available,
             pastCutoff,
+            moneyEnabled,
           });
 
           const profileHref = `/profile/${participant.username ?? participant.userId}`;

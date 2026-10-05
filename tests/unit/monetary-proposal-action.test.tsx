@@ -248,3 +248,25 @@ describe("MonetaryProposalAction — follows the server", () => {
     expect(screen.getByText("Void — hold released")).toBeInTheDocument();
   });
 });
+
+describe("MonetaryProposalAction — money switched off, incoming offer", () => {
+  const unavailable = { kind: "incoming_pending_unavailable", proposalId: "p1", stake: 1000 } as const;
+
+  it("offers only Decline: no Accept, no 'Fund your wallet', no stake or fee copy", () => {
+    const { container } = render(<MonetaryProposalAction marketId="m1" state={unavailable} context={context} />);
+    expect(screen.getByRole("button", { name: "Decline" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /accept|confirm/i })).toBeNull();
+    expect(screen.queryByRole("link", { name: /fund/i })).toBeNull();
+    expect(container.textContent).toContain("Louis sent an offer of $10.00.");
+    expect(container.textContent).not.toMatch(/fee|fund|matching it|available|put .* on it/i);
+  });
+
+  it("declining releases the sender's hold through the existing action and confirms in words", async () => {
+    actions.declineMonetaryProposalAction.mockResolvedValue({ error: null });
+    render(<MonetaryProposalAction marketId="m1" state={unavailable} context={context} />);
+    fireEvent.click(screen.getByRole("button", { name: "Decline" }));
+    await waitFor(() => expect(actions.declineMonetaryProposalAction).toHaveBeenCalledWith("p1", "m1"));
+    expect(await screen.findByRole("status")).toHaveTextContent("Declined — nothing was held");
+    expect(actions.acceptMonetaryProposalAction).not.toHaveBeenCalled();
+  });
+});

@@ -27,7 +27,7 @@ function proposal(overrides: Partial<MonetaryProposal>): MonetaryProposal {
 const incoming = (overrides: Partial<MonetaryProposal> = {}) =>
   proposal({ proposerUserId: OTHER, recipientUserId: VIEWER, proposerPredictionId: OTHER_PICK, recipientPredictionId: VIEWER_PICK, ...overrides });
 
-function derive(proposals: MonetaryProposal[], opts: { canProposeMoney?: boolean; available?: number; pastCutoff?: boolean; positions?: MonetaryPosition[]; settlements?: MonetaryPositionSettlement[] } = {}) {
+function derive(proposals: MonetaryProposal[], opts: { canProposeMoney?: boolean; moneyEnabled?: boolean; available?: number; pastCutoff?: boolean; positions?: MonetaryPosition[]; settlements?: MonetaryPositionSettlement[] } = {}) {
   return deriveMonetaryActionState({
     viewerId: VIEWER,
     participantPredictionId: OTHER_PICK,
@@ -37,6 +37,7 @@ function derive(proposals: MonetaryProposal[], opts: { canProposeMoney?: boolean
     settlementsByPositionId: new Map((opts.settlements ?? []).map((s) => [s.positionId, s])),
     viewerAvailableCents: opts.available ?? 5000,
     pastCutoff: opts.pastCutoff ?? false,
+    ...(opts.moneyEnabled === undefined ? {} : { moneyEnabled: opts.moneyEnabled }),
   });
 }
 
@@ -103,5 +104,33 @@ describe("formatBpsAsPercent", () => {
 describe("notification center", () => {
   it("lists the proposal-expired type, so a released hold is never a silent event", () => {
     expect(NOTIFICATION_CENTER_TYPES).toContain("MONETARY_PROPOSAL_EXPIRED");
+  });
+});
+
+// Consumer money gating: switching optional money off stops NEW participation but must not strand an obligation.
+describe("deriveMonetaryActionState — optional money switched off", () => {
+  it("is unchanged when money is on (the default)", () => {
+    expect(derive([incoming()], { available: 5000, moneyEnabled: true })).toEqual({ kind: "incoming_pending_funded", proposalId: "p1", stake: 1000 });
+    expect(derive([incoming()], { available: 5000 })).toEqual({ kind: "incoming_pending_funded", proposalId: "p1", stake: 1000 });
+  });
+
+  it("an incoming pending offer can no longer be accepted or funded — only declined — whatever the viewer's balance", () => {
+    for (const available of [0, 999, 1000, 5000]) {
+      expect(derive([incoming()], { available, moneyEnabled: false })).toEqual({ kind: "incoming_pending_unavailable", proposalId: "p1", stake: 1000 });
+    }
+  });
+
+  it("never offers a NEW 'Put money on it' to someone with nothing active (the participant discovery already withholds it)", () => {
+    expect(derive([], { canProposeMoney: false, moneyEnabled: false })).toBeNull();
+  });
+
+  it("keeps existing obligations visible: a pending offer you sent (to withdraw), a committed Position, and a settled one", () => {
+    expect(derive([proposal({})], { moneyEnabled: false })).toEqual({ kind: "outgoing_pending", proposalId: "p1", stake: 1000 });
+    const position = { id: "pos1", settlementStatus: "COMMITTED" } as MonetaryPosition;
+    expect(derive([proposal({ status: "ACCEPTED", positionId: "pos1" })], { moneyEnabled: false, positions: [position] })).toEqual({ kind: "committed", stake: 1000 });
+  });
+
+  it("an offer past its cutoff still reads as expired, not as a live offer", () => {
+    expect(derive([incoming()], { moneyEnabled: false, pastCutoff: true })).toEqual({ kind: "expired", stake: 1000 });
   });
 });
