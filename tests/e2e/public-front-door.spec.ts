@@ -390,7 +390,7 @@ test.describe("Logged-out front door — mobile (Mastodon pattern: the feed is t
         const menu = page.getByRole("dialog");
         await expect(menu).toBeVisible();
         await expect(menu.getByRole("heading", { name: "Menu" })).toBeVisible();
-        await expect(menu.getByRole("link")).toHaveText(["SearchLog in to search", "Sports", "Leagues", "Teams", "How it works", "Terms", "Privacy"]);
+        await expect(menu.getByRole("link")).toHaveText(["SearchLog in to search", "Sports", "Leagues", "Teams", "Rules", "Terms", "Privacy"]);
         await expect(menu.getByRole("heading", { name: "About Brohda" })).toBeVisible();
         await expect(menu.getByText("Brohda is a social network for people who think they know sports.")).toBeVisible();
         const menuBox = (await menu.boundingBox())!;

@@ -1,31 +1,7 @@
 import { requireUser } from "@/lib/auth/session";
-import { isAdminOrAbove } from "@/lib/auth/guards";
-import { AuthenticatedShell } from "@/components/shell/AuthenticatedShell";
-import { getAppShellProps } from "@/lib/app-shell-props";
-import { getSocialPredictionAccessPolicy } from "@/lib/social/access";
+import { AuthenticatedPage } from "@/components/shell/AuthenticatedPage";
 
 export default async function AppRouteLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
-  const [{ availableCents, heldCents, unreadNotificationCount }, socialPolicy] = await Promise.all([
-    getAppShellProps(user),
-    getSocialPredictionAccessPolicy(),
-  ]);
-  // Milestone R13.10 (Stage 0) — the nav tab is a UX signal, not the
-  // enforcement layer; each Brohda 2.0 page's own requireSocialPrediction
-  // Access() (lib/social/access.ts) is what actually protects direct URL
-  // access. Admin/Super Admin always see the tab regardless, matching
-  // their always-pass preview access on the pages themselves.
-  const showSocialPredictionNav = isAdminOrAbove(user) || socialPolicy.enabled;
-
-  return (
-    <AuthenticatedShell
-      user={user}
-      availableCents={availableCents}
-      heldCents={heldCents}
-      unreadNotificationCount={unreadNotificationCount}
-      showSocialNav={showSocialPredictionNav}
-    >
-      {children}
-    </AuthenticatedShell>
-  );
+  return <AuthenticatedPage user={user}>{children}</AuthenticatedPage>;
 }

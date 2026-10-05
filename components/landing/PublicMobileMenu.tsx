@@ -44,8 +44,8 @@ export function PublicMobileMenu({ about, className }: { about: string; classNam
           </section>
 
           <nav aria-label="Legal" className="mt-2 space-y-1 border-t border-border-subtle pt-2">
-            <Link href="/how-it-works" onClick={close} className={menuItemClass}>
-              How it works
+            <Link href="/rules" onClick={close} className={menuItemClass}>
+              Rules
             </Link>
             <Link href="/terms" onClick={close} className={menuItemClass}>
               Terms

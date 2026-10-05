@@ -63,7 +63,7 @@ describe("LeftNav (desktop rail)", () => {
     render(<LeftNav {...navProps} />);
     expect(PRIMARY_NAV.map((i) => i.label)).toEqual(["Home", "Discovery", "Notifications", "Search", "Profile"]);
     const links = screen.getAllByRole("link");
-    expect(links.map((l) => l.getAttribute("href"))).toEqual(["/feed", "/discovery", "/notifications", "/search", "/profile", "/wallet", "/profile/edit"]);
+    expect(links.map((l) => l.getAttribute("href"))).toEqual(["/feed", "/discovery", "/notifications", "/search", "/profile", "/wallet", "/profile/edit", "/rules"]);
     expect(links.find((l) => l.getAttribute("href") === "/wallet")).toHaveAttribute("aria-label", "Wallet: $800.00 available, $200.00 on hold");
     expect(screen.getByRole("button", { name: "Log out" })).toBeInTheDocument();
   });
@@ -152,7 +152,7 @@ describe("MobileNav (bottom bar)", () => {
     expect(within(sheet).getByRole("link", { name: "Search" })).toHaveAttribute("href", "/search");
     expect(within(sheet).getByRole("link", { name: /^Wallet:/ })).toHaveAttribute("href", "/wallet");
     expect(within(sheet).getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/profile/edit");
-    expect(within(sheet).getByRole("link", { name: "How it works" })).toHaveAttribute("href", "/how-it-works");
+    expect(within(sheet).getByRole("link", { name: "Rules" })).toHaveAttribute("href", "/rules");
     expect(within(sheet).getByRole("button", { name: "Log out" })).toBeInTheDocument();
     expect(sheet.textContent).not.toMatch(/create|new post|publish/i);
 

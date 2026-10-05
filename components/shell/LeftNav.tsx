@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Settings, Shield, Wallet } from "lucide-react";
+import { BookOpen, Settings, Shield, Wallet } from "lucide-react";
 import { LogoutRow } from "@/components/shell/LogoutRow";
 import { cn } from "@/lib/utils";
 import { formatCents } from "@/lib/utils/money";
@@ -88,6 +88,14 @@ export function LeftNav({
         >
           <Settings className={cn("size-5 shrink-0", active === "settings" && "text-accent-primary")} aria-hidden="true" />
           <span className="truncate">Settings</span>
+        </Link>
+        <Link
+          href="/rules"
+          aria-current={active === "rules" ? "page" : undefined}
+          className={cn(rowClass, active === "rules" ? "bg-surface-secondary font-semibold text-text-primary" : "font-medium text-text-secondary hover:bg-surface-secondary hover:text-text-primary")}
+        >
+          <BookOpen className={cn("size-5 shrink-0", active === "rules" && "text-accent-primary")} aria-hidden="true" />
+          <span className="truncate">Rules</span>
         </Link>
         {isAdmin && (
           <Link href="/admin/users" className={cn(rowClass, "font-medium text-text-secondary hover:bg-surface-secondary hover:text-text-primary")}>
