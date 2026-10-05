@@ -188,12 +188,12 @@ describe("PublicFrontDoor", () => {
 });
 
 describe("PublicFrontDoor — page footer", () => {
-  it("ends the page with How it works, Terms, Privacy and the copyright line — below the feed, outside every column", () => {
+  it("ends the page with Rules, Terms, Privacy and the copyright line — below the feed, outside every column", () => {
     const { container } = renderDoor({ feed: [item()] });
     const footer = screen.getByRole("contentinfo");
     const links = within(footer).getAllByRole("link").map((a) => [a.textContent, a.getAttribute("href")]);
     expect(links).toEqual([
-      ["How it works", "/how-it-works"],
+      ["Rules", "/rules"],
       ["Terms", "/terms"],
       ["Privacy", "/privacy"],
     ]);
@@ -230,7 +230,7 @@ describe("PublicFrontDoor — mobile bottom bar and menu", () => {
       ["Sports", "/?tab=sports"],
       ["Leagues", "/?tab=leagues"],
       ["Teams", "/?tab=teams"],
-      ["How it works", "/how-it-works"],
+      ["Rules", "/rules"],
       ["Terms", "/terms"],
       ["Privacy", "/privacy"],
     ]);

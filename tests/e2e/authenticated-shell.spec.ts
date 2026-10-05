@@ -161,6 +161,7 @@ test.describe("Authenticated shell — desktop (1280)", () => {
       ["/profile", "Profile"],
       ["/wallet", "Wallet"],
       ["/profile/edit", "Settings"],
+      ["/rules", "Rules"],
     ];
     for (const [path, label] of cases) {
       await page.goto(path);
@@ -181,7 +182,7 @@ test.describe("Authenticated shell — desktop (1280)", () => {
     // Order: the five primary links, then Wallet, positioned lower on the page (a utility, not a destination).
     await page.goto("/feed");
     const hrefs = await rail(page).getByRole("link").evaluateAll((els) => els.map((e) => e.getAttribute("href")));
-    expect(hrefs).toEqual(["/feed", "/discovery", "/notifications", "/search", "/profile", "/wallet", "/profile/edit"]);
+    expect(hrefs).toEqual(["/feed", "/discovery", "/notifications", "/search", "/profile", "/wallet", "/profile/edit", "/rules"]);
     const profileBox = (await rail(page).getByRole("link", { name: "Profile" }).boundingBox())!;
     const walletBox = (await rail(page).getByRole("link", { name: /^Wallet:/ }).boundingBox())!;
     expect(walletBox.y).toBeGreaterThan(profileBox.y + profileBox.height);

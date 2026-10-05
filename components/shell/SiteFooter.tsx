@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
-// The footer every page ends with, signed in or out: how Brohda works, the
-// Terms, the Privacy policy and the copyright line. It lives at the very
+// The footer every page ends with, signed in or out: the Rules, the Terms,
+// the Privacy policy and the copyright line. It lives at the very
 // bottom of the page (below the feed), not in a sidebar, so it is the same
 // place on every screen size. The routes sit next to each other at the
-// top level (app/how-it-works, app/terms, app/privacy) and need no account.
+// top level (app/rules, app/terms, app/privacy) and need no account.
 export const FOOTER_LINKS = [
-  { label: "How it works", href: "/how-it-works" },
+  { label: "Rules", href: "/rules" },
   { label: "Terms", href: "/terms" },
   { label: "Privacy", href: "/privacy" },
 ] as const;
