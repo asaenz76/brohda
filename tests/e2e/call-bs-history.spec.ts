@@ -73,9 +73,22 @@ async function gradeGame(game: Game, homeWins: boolean) {
   }
 }
 
-async function runResolver(page: Page) {
-  const response = await page.request.get("/api/cron/resolve-challenges", { headers: { authorization: "Bearer e2e-placeholder" } });
-  expect(response.ok()).toBe(true);
+/**
+ * Runs the resolver the way the scheduler would (its cron route) until THIS Market's Call BS is RESOLVED. The route can legitimately
+ * answer "skipped" when another invocation holds the job's overlap lock, so one call isn't proof — what the tests need is the
+ * resolved challenge, so re-invoke until it is, and fail with the resolver's own answer if it never happens.
+ */
+async function runResolver(page: Page, marketId: string) {
+  let last = "";
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const response = await page.request.get("/api/cron/resolve-challenges", { headers: { authorization: "Bearer e2e-placeholder" } });
+    expect(response.ok(), `resolver route status ${response.status()}`).toBe(true);
+    last = await response.text();
+    const { data } = await admin.from("challenges").select("status").eq("market_id", marketId).eq("status", "RESOLVED");
+    if ((data ?? []).length > 0) return;
+    await page.waitForTimeout(1000);
+  }
+  throw new Error(`the Call BS on market ${marketId} was not resolved after 8 resolver runs; last answer: ${last}`);
 }
 
 async function login(page: Page, email: string) {
@@ -148,7 +161,7 @@ test.describe("Call BS record, head-to-head and history", () => {
   test("once graded and resolved: A sees 1–0, B sees 0–1, the history row links to the canonical Post, and prediction accuracy is untouched", async ({ page }) => {
     // The Home team wins -> YES -> A (who called BS, picked YES) is right.
     await gradeGame(games.First, true);
-    await runResolver(page);
+    await runResolver(page, games.First.marketId);
 
     await login(page, A_EMAIL);
     await page.goto("/profile");
@@ -206,7 +219,7 @@ test.describe("Call BS record, head-to-head and history", () => {
 
   test("a newly resolved challenge is reflected immediately: A goes 2–0, B 0–2, newest first", async ({ page }) => {
     await gradeGame(games.Second, true); // A right again
-    await runResolver(page);
+    await runResolver(page, games.Second.marketId);
 
     await login(page, A_EMAIL);
     await page.goto("/profile");
@@ -225,7 +238,7 @@ test.describe("Call BS record, head-to-head and history", () => {
     await expect(page.getByRole("main").getByText("Call BS: 0–2")).toBeVisible();
 
     // The resolver running again changes nothing.
-    await runResolver(page);
+    await page.request.get("/api/cron/resolve-challenges", { headers: { authorization: "Bearer e2e-placeholder" } });
     await page.reload();
     await expect(page.getByRole("main").getByText("Call BS: 0–2")).toBeVisible();
   });
