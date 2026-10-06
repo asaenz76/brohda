@@ -41,5 +41,6 @@ function ResultLine({ prediction }: { prediction: Prediction }) {
   if (prediction.result === "INCORRECT") {
     return <p className="text-xs font-medium text-text-primary">Result: Incorrect</p>;
   }
-  return <p className="text-xs font-medium text-text-muted">No result — this one didn&apos;t count</p>;
+  // VOID: a cancelled game, a push, or a tied Moneyline. Said plainly, in the same register as Correct / Incorrect, and neither choice is marked right.
+  return <p className="text-xs font-medium text-text-muted">Result: Void — this one didn&apos;t count</p>;
 }

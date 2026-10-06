@@ -15,31 +15,33 @@ export default function TermsPage() {
         <p>
           These Terms of Service (&quot;Terms&quot;) govern your access to and use of brohda.
           (&quot;brohda.&quot;, the &quot;App&quot;, the &quot;Service&quot;, &quot;we&quot;, &quot;us&quot;), operated by{" "}
-          <strong>brohda</strong> (the &quot;Company&quot;). By accepting an invitation
-          to join, creating an account, or otherwise using the Service, you agree to be bound by
+          <strong>brohda</strong> (the &quot;Company&quot;). By creating an account,
+          accepting an invitation, or otherwise using the Service, you agree to be bound by
           these Terms. If you do not agree, do not use the Service.
         </p>
       </section>
 
       <section>
-        <h2>1. Invite-only, private service</h2>
+        <h2>1. Access to the Service</h2>
         <p>
-          brohda. is a private, invite-only social platform. Access is granted only to individuals
-          invited by an existing member or administrator of a private group. It is not open to the
-          general public, is not advertised or offered to the public at large, and we may decline,
-          suspend, or revoke access to anyone at any time, for any reason, in our sole discretion.
+          Access is available by invitation from an administrator or, while registration is open,
+          by creating an account. We may decline, suspend, or revoke access to anyone at any time,
+          for any reason, in our sole discretion.
         </p>
       </section>
 
       <section>
         <h2>2. What the Service is — and is not</h2>
         <p>
-          The Service provides software tools that let a private group of people who know each
-          other organize friendly prediction pools, keep score, and track who owes or is owed what
-          within the group. The Service includes an in-app &quot;wallet&quot; balance that is a
-          <strong> record-keeping tool only</strong> — a running tally of amounts group members and
-          administrators have told the App they sent or received using payment methods entirely
-          outside the App.
+          brohda. is a social network built around real sporting events. brohda. publishes the
+          games (&quot;Game Posts&quot;); members make Picks on them, comment, and can challenge
+          one another with &quot;Call BS&quot;. Members do not create games or competitions. Where
+          it is enabled, the Service also lets two members agree an optional money Position on
+          opposing Picks. The Service includes an in-app &quot;wallet&quot; balance that is a
+          <strong> record-keeping tool only</strong> — a running tally of amounts members have
+          told the App they sent or received, as confirmed by an administrator, using payment
+          methods entirely outside the App, and of the results of optional Positions between
+          members.
         </p>
         <p>
           <strong>
@@ -55,9 +57,8 @@ export default function TermsPage() {
       <section>
         <h2>3. All real-money transactions happen off-platform</h2>
         <p>
-          Every actual transfer of money — deposits, withdrawals, entry fees, and payouts — occurs
-          directly between members, or between a member and a group administrator, using
-          third-party payment methods the group chooses (for example, bank transfers, mobile
+          Every actual transfer of money — deposits and withdrawals — occurs between a member and an
+          administrator, using third-party payment methods listed in the App (for example, bank transfers, mobile
           payment services, digital wallets, or cash), entirely outside the Service. The Service
           only records that an administrator has confirmed such a transfer occurred; it does not
           initiate, process, guarantee, or reverse any transfer.
@@ -74,11 +75,11 @@ export default function TermsPage() {
           <li>
             The Company is not responsible for, and bears no liability for, funds that are lost,
             delayed, sent to the wrong recipient, reversed, disputed, or fraudulently obtained
-            through any third-party payment method, or for any error, delay, or omission by a group
+            through any third-party payment method, or for any error, delay, or omission by an
             administrator in recording such transfers.
           </li>
           <li>
-            Balances shown in the App reflect what has been reported and confirmed by group
+            Balances shown in the App reflect what has been reported and confirmed by
             administrators and may not reflect real-time or error-free reality. Disputes about
             whether a real-world payment was actually sent or received are between the members
             involved and are not resolved, guaranteed, or insured by the Company.
@@ -91,8 +92,8 @@ export default function TermsPage() {
         <p>
           You must be at least 18 years old, or the age of legal majority in your jurisdiction if
           higher, to use the Service. You are solely responsible for determining whether
-          participating in prediction pools or similar contests among your private group is lawful
-          where you live, and for complying with all applicable laws. The Company makes no
+          using the Service — including making Picks and any optional money Positions with other
+          members — is lawful where you live, and for complying with all applicable laws. The Company makes no
           representation that use of the Service is appropriate or legal in any particular
           jurisdiction, and you agree not to use the Service where doing so would violate
           applicable law.
@@ -102,10 +103,11 @@ export default function TermsPage() {
       <section>
         <h2>5. Service fee</h2>
         <p>
-          A pool may disclose a service fee retained from that pool&apos;s total contributions,
-          shown to members before they join. This fee compensates the Company and/or group
-          administrators for providing and operating the Service. It is a flat service charge, not
-          a wager, stake, or bet placed by the Company on the outcome of any pool.
+          Where optional money Positions are enabled, the Service may retain a fee from the losing
+          amount of a settled Position. The current rate is shown before you confirm an offer, and
+          the rate in effect when a Position was accepted is the one that applies to it. This fee
+          compensates the Company for providing and operating the Service. It is a service charge,
+          not a wager, stake, or bet placed by the Company on the outcome of any Market.
         </p>
       </section>
 
@@ -113,16 +115,12 @@ export default function TermsPage() {
         <h2>6. Your conduct</h2>
         <p>You agree that you will not:</p>
         <ul>
-          <li>
-            Invite, or ask to be invited, anyone you do not know and trust, or use the Service to
-            solicit participation from the general public.
-          </li>
           <li>Use the Service for money laundering, fraud, or any other illegal purpose.</li>
           <li>
             Misrepresent whether a real-world payment was sent or received, or otherwise submit
-            false information to a group administrator.
+            false information to an administrator.
           </li>
-          <li>Attempt to manipulate the outcome of any pool or interfere with other members&apos; use of the Service.</li>
+          <li>Attempt to manipulate the outcome of any Market, Pick, Call BS, or Position, or interfere with other members&apos; use of the Service.</li>
           <li>Circumvent, disable, or interfere with any security feature of the Service.</li>
         </ul>
       </section>
@@ -130,9 +128,9 @@ export default function TermsPage() {
       <section>
         <h2>7. Administrator discretion</h2>
         <p>
-          Group administrators review and approve or reject wallet activity, resolve disputes about
-          pool entries and outcomes, and may correct errors, cancel pools, or reverse recorded
-          entries at their discretion in order to keep the group&apos;s records accurate. Their
+          Administrators review and approve or reject wallet requests, resolve disputes about the
+          Service&apos;s records, and may correct errors or reverse recorded entries at their
+          discretion in order to keep those records accurate. Their
           good-faith decisions regarding the App&apos;s records are final. This does not affect any
           right you may separately have against another individual member with respect to money
           actually owed between you off-platform.

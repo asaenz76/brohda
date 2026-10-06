@@ -55,11 +55,15 @@ export function computeSportsMarketOutcome(definition: SportsMarketDefinition, f
 
   if (marketTemplate === "MONEYLINE") {
     const [yesScore, noScore] = sidesFor(yesSide, fixture);
-    // Template rule: MONEYLINE is strictly a two-outcome "does yes_side win
-    // outright" proposition. A draw resolves NO (yes_side did not win),
-    // not VOID — this is the template's own definition, not an
-    // unresolved question. A separate three-way/draw-inclusive template
-    // is not implemented (no evidence any current sport/pool requires it).
+    // Template rule: MONEYLINE is a two-way "which team wins" proposition,
+    // and consumers now read it as exactly that — the two choices are the two
+    // teams. A tied game means neither team won, so neither displayed choice
+    // can be right: it resolves VOID, through the same canonical VOID path as
+    // a cancelled game or a Spread/Total push (Picks VOID, Call BS VOID,
+    // money released with no fee). Only the equality case differs from a
+    // normal result. A separate three-way/draw-inclusive template is not
+    // implemented.
+    if (yesScore === noScore) return "VOID";
     return yesScore > noScore ? "YES" : "NO";
   }
 

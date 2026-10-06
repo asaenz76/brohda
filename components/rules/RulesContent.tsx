@@ -159,7 +159,7 @@ export function RulesContent({ policy }: { policy: RulesPolicy }) {
 
       <Section id="rules-void" title="When a game can&apos;t be decided">
         <ul className={list}>
-          <li>If a game is cancelled, or a line lands exactly on the result (a push), the Market is voided. If a game is postponed or suspended, Picks wait; nothing is guessed.</li>
+          <li>If a game is cancelled, if a Moneyline ends tied (so neither team won), or if a line lands exactly on the result (a push), the Market is voided. If a game is postponed or suspended, Picks wait; nothing is guessed.</li>
           <li>A voided Pick counts as predicted but as neither correct nor incorrect.</li>
           <li>A voided Call BS is neither a win nor a loss for either person.</li>
           {money && <li>A voided money Position releases what was held on both sides. No fee is taken and nothing moves.</li>}
