@@ -16,6 +16,8 @@ Audit date: 2026-10-06. Implementation facts below were read from the code and (
 | Terms intro | "By accepting an invitation to join, creating an account…" | "By creating an account, accepting an invitation, or otherwise using the Service" | A |
 | Terms §1 title/body | "Invite-only, private service … private group … not open to the general public, not advertised" | "Access to the Service": by invitation or, while registration is open, by creating an account; the right to decline/suspend/revoke is kept verbatim | A+B (see B1) |
 | Terms §2 ¶1 | "a private group … organize friendly prediction pools, keep score, and track who owes or is owed what" | Brohda publishes Game Posts; members make Picks, comment, Call BS; optional money Position between two members; wallet described as before plus Position results | A |
+| Terms §2 ¶1–2 (r41 correction) | "wallet … **record-keeping tool only** — a running tally…"; "The Company is a facilitator of recordkeeping and organization only."; "The Company does not accept, hold, custody, transmit, or have access to any member's money at any time." | neutral factual description of the wallet, reserves, settlement, fee and withdrawals; the two claims and the "facilitator … only" lead-in removed; the "is not a bank…" sentence retained verbatim | A (factual) + B2/B3 |
+| Terms §3 heading/body (r41 correction) | "3. All real-money transactions happen off-platform"; "Balances … reported and confirmed by administrators" | "3. Deposits and withdrawals happen outside the App"; "…confirmed by administrators, together with the results of settled Positions…" | A |
 | Terms §3 | "deposits, withdrawals, entry fees, and payouts … between members, or between a member and a group administrator … payment methods the group chooses"; "group administrator" ×2 | "deposits and withdrawals … between a member and an administrator … payment methods listed in the App"; "an administrator" / "administrators" | A (allocation of responsibility untouched — B4) |
 | Terms §4 | "participating in prediction pools or similar contests among your private group" | "using the Service — including making Picks and any optional money Positions with other members" | A (B5) |
 | Terms §5 | "A pool may disclose a service fee retained from that pool's total contributions … flat service charge … group administrators" | Fee retained from the losing amount of a settled Position; rate shown before confirming; the rate at acceptance applies; compensates the Company; "service charge" ("flat" dropped — the fee is a percentage) | A (B6) |
@@ -42,13 +44,23 @@ product fact they rest on is now untrue, that is stated.
   public and not advertised. That is false today: production has `registration_enabled = true` and a public front door. The published text
   now says access is "by invitation … or, while registration is open, by creating an account". Whether the earlier positioning mattered
   to the legal analysis (gambling, money-transmission, consumer law) is a counsel question; the facts it rested on no longer hold.
-- **B2 — "Record-keeping tool only" and "does not accept, hold, custody, transmit, or have access to any member's money" (Terms §2).**
-  Product facts: deposits are credited to an in-app balance after an administrator approves them; offers and accepted Positions place
-  *holds* on balances; settlement moves value between two members' balances in the Company's ledger; the Company's ledger credits a fee to
-  a house account; withdrawals are reserved at request and paid out by an administrator. Whether the quoted sentences remain accurate and
-  sufficient is a legal question. They are unchanged.
-- **B3 — "Not … a gambling operator, or party to any wager, bet, or contest between members" (Terms §2).** Brohda now matches, holds, settles
-  and charges a fee on optional member-to-member Positions on game outcomes. Unchanged; needs counsel.
+- **B2 — Wallet balances, reserved funds, settlement, withdrawals and the platform fee: final legal characterization —
+  OWNER/COUNSEL REVIEW REQUIRED.** The two published claims that "the wallet is a record-keeping tool only" and that "the Company does not accept,
+  hold, custody, transmit, or have access to any member's money" were **removed** in the r41 correction because they no longer match the
+  implementation (see section 2a for the exact before/after). They were replaced with neutral, factual wording of what the system does. **No legal
+  characterization was substituted.** The final characterization of each of the following is for the owner and qualified counsel to decide, and
+  nothing in the published Terms should be read as having decided it:
+  1. member **wallet balances** (what they are, who they belong to, what the member is entitled to);
+  2. **reserved funds** (holds placed on a balance for an open offer, an open Position or a withdrawal request);
+  3. **settlement** of Positions inside the ledger (value moves between two members' balances according to the Market result);
+  4. **withdrawals** (a request reserves funds; an administrator reviews, confirms and pays out off-platform);
+  5. the **platform fee** (a percentage of the losing amount, snapshotted at acceptance, credited to a house account).
+- **B3 — "Not … a bank, money transmitter, payment processor, escrow agent, broker, bookmaker, gambling operator, or party to any wager, bet, or
+  contest between members" (Terms §2) — OWNER/COUNSEL REVIEW REQUIRED.** This owner-authored sentence is **retained verbatim**, on purpose: the
+  correction removed only the objectively obsolete factual claims, and removing (or restating) a legal classification is not an engineering
+  decision. Note the tension for counsel: Brohda now reserves balances, settles Positions on game outcomes in its own ledger and takes a fee.
+  Engineering has added no new classification anywhere (no escrow, custodian, money transmitter, sportsbook, financial institution or
+  broker language). A unit test guards that these words appear in the Terms only inside this one retained sentence.
 - **B4 — Allocation of responsibility for off-platform transfers (Terms §3, §9, §10).** Wording was written for a private group where members
   paid each other. Now deposits/withdrawals are between a member and the Company's administrators. Sentences such as "Disputes about
   whether a real-world payment was actually sent or received are between the members involved" no longer describe the parties. Only
@@ -72,6 +84,53 @@ product fact they rest on is now untrue, that is stated.
   Terms §12 says material changes are "made available in the App". Registration requires an "I accept" checkbox
   (`acceptedTerms`), but **acceptance is not stored or versioned** (no column/record), and existing members are not re-prompted.
   Counsel should decide the effective date, whether this is a "material change", and whether to add acceptance records/re-acceptance.
+
+### 2a. r41 correction — exact before / after (Terms §2 and §3)
+
+**Before (as published on `main`):**
+
+> The Service provides software tools that let a private group of people who know each other organize friendly prediction pools, keep score, and
+> track who owes or is owed what within the group. The Service includes an in-app "wallet" balance that is a **record-keeping tool only** — a running
+> tally of amounts group members and administrators have told the App they sent or received using payment methods entirely outside the App.
+>
+> **The Company is a facilitator of recordkeeping and organization only. The Company is not a bank, money transmitter, payment processor, escrow
+> agent, broker, bookmaker, gambling operator, or party to any wager, bet, or contest between members.** The Company does not accept, hold, custody,
+> transmit, or have access to any member's money at any time.
+>
+> *3. All real-money transactions happen off-platform*
+
+**After (this branch):**
+
+> brohda. is a social network built around real sporting events. brohda. publishes the games ("Game Posts"); members make Picks on them, comment, and can
+> challenge one another with "Call BS". Members do not create games or competitions. Where it is enabled, the Service also lets two members agree an
+> optional money Position on opposing Picks. The Service includes an in-app "wallet" balance. Where the optional money functionality is enabled, a
+> member may add funds to their wallet balance and may request a withdrawal, in each case using payment methods outside the App and subject to an
+> administrator's review and confirmation. A member who makes or accepts an offer commits part of their wallet balance to that Position: the Service
+> records the amount as reserved while the Position is open and, once the Market is decided, settles the Position by updating the wallet balances of
+> the two members according to the Market's result. If a Position is voided, the reserved amounts are released. The Service may deduct a platform fee as
+> described in Section 5. A money Position is private to the two members involved and to authorized administrators.
+>
+> **The Company is not a bank, money transmitter, payment processor, escrow agent, broker, bookmaker, gambling operator, or party to any wager, bet, or
+> contest between members.** *(retained verbatim — see B3)*
+>
+> *3. Deposits and withdrawals happen outside the App*  (and: "Balances shown in the App reflect what has been reported and confirmed by administrators,
+> together with the results of settled Positions, …")
+
+What was removed: "record-keeping tool only"; "The Company is a facilitator of recordkeeping and organization only."; "The Company does not accept, hold,
+custody, transmit, or have access to any member's money at any time."; "All real-money transactions happen off-platform" (settlement happens inside the
+ledger, so that heading was itself inaccurate). What was **not** added: any statement about custody, ownership of funds, escrow, gambling status, licensing or
+regulatory treatment. Each fact in the new wording was checked against the implementation (deposit/withdrawal requests reviewed by an administrator;
+stake reserved at proposal and at acceptance; settlement by balance update from the Market result; VOID releases both holds with no fee; fee taken from
+the losing amount; money Positions visible only to the two members and super-admin operators).
+
+**Left unresolved on purpose** (the sentence "The Service only records that an administrator has confirmed such a transfer occurred; it does not
+initiate, process, guarantee, or reverse any transfer" in §3, the §3 allocation of disputes, §9/§10 references to off-platform payments "between members",
+and the §5 characterization of the fee) — all part of B2–B6 above.
+
+### 2b. Deferred to the later legal/privacy cleanup milestone (explicitly out of scope here)
+
+formal conduct policy · Terms version acceptance/history · re-consent on material Terms changes · profile-field disclosures (G1) · Sentry disclosure (G3) ·
+Resend disclosure (G4) · withdrawal-destination wording (G5) · deletion vs. append-only ledger reconciliation (G9) · audit-log IP discrepancy (G7).
 
 ---
 
@@ -170,10 +229,10 @@ Evidence (not a promise beyond it):
 | Prediction record | correct ÷ (correct + incorrect) | — | "prediction record (the share of your decided Picks that were correct…)" | Profile line |
 | VOID | cancelled game, tied Moneyline, push → Market voided | — | — | "Result: Void" |
 | Money / Position | optional; Position between two members | "optional money Position" | "Wallet and money records … offers and Positions" | Put money on it (when enabled) |
-| Wallet | — (Rules avoid it) | record-keeping tool | wallet ledger | Wallet (when visible) |
+| Wallet | — (Rules avoid it) | in-app wallet balance; reserves; settlement; fee (neutral factual description) | wallet ledger | Wallet (when visible) |
 
-Remaining contradictions: the Rules defer to the Terms for what is not allowed (section 3); Terms B2–B4 describe the Company's role in
-money in language that predates the current ledger/holds/fee model.
+Remaining contradictions: the Rules defer to the Terms for what is not allowed (section 3); Terms B3–B4 describe the Company's role in
+money in language that predates the current ledger/holds/fee model (the B2 factual claims were corrected in r41).
 
 ---
 

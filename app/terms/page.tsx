@@ -37,25 +37,27 @@ export default function TermsPage() {
           games (&quot;Game Posts&quot;); members make Picks on them, comment, and can challenge
           one another with &quot;Call BS&quot;. Members do not create games or competitions. Where
           it is enabled, the Service also lets two members agree an optional money Position on
-          opposing Picks. The Service includes an in-app &quot;wallet&quot; balance that is a
-          <strong> record-keeping tool only</strong> — a running tally of amounts members have
-          told the App they sent or received, as confirmed by an administrator, using payment
-          methods entirely outside the App, and of the results of optional Positions between
-          members.
+          opposing Picks. The Service includes an in-app &quot;wallet&quot; balance. Where the
+          optional money functionality is enabled, a member may add funds to their wallet balance
+          and may request a withdrawal, in each case using payment methods outside the App and
+          subject to an administrator&apos;s review and confirmation. A member who makes or accepts
+          an offer commits part of their wallet balance to that Position: the Service records the
+          amount as reserved while the Position is open and, once the Market is decided, settles
+          the Position by updating the wallet balances of the two members according to the
+          Market&apos;s result. If a Position is voided, the reserved amounts are released. The
+          Service may deduct a platform fee as described in Section 5. A money Position is private
+          to the two members involved and to authorized administrators.
         </p>
         <p>
           <strong>
-            The Company is a facilitator of recordkeeping and organization only. The Company is not
-            a bank, money transmitter, payment processor, escrow agent, broker, bookmaker, gambling
-            operator, or party to any wager, bet, or contest between members.
-          </strong>{" "}
-          The Company does not accept, hold, custody, transmit, or have access to any member&apos;s
-          money at any time.
+            The Company is not a bank, money transmitter, payment processor, escrow agent, broker,
+            bookmaker, gambling operator, or party to any wager, bet, or contest between members.
+          </strong>
         </p>
       </section>
 
       <section>
-        <h2>3. All real-money transactions happen off-platform</h2>
+        <h2>3. Deposits and withdrawals happen outside the App</h2>
         <p>
           Every actual transfer of money — deposits and withdrawals — occurs between a member and an
           administrator, using third-party payment methods listed in the App (for example, bank transfers, mobile
@@ -80,7 +82,8 @@ export default function TermsPage() {
           </li>
           <li>
             Balances shown in the App reflect what has been reported and confirmed by
-            administrators and may not reflect real-time or error-free reality. Disputes about
+            administrators, together with the results of settled Positions, and may not reflect
+            real-time or error-free reality. Disputes about
             whether a real-world payment was actually sent or received are between the members
             involved and are not resolved, guaranteed, or insured by the Company.
           </li>

@@ -45,12 +45,45 @@ describe("Terms describe Brohda 2.0, not the old Pool product", () => {
     expect(terms).toContain("Where optional money Positions are enabled");
   });
 
-  it("keeps the substantive legal provisions exactly as they were (they are for the owner and counsel, not for a copy pass)", () => {
-    expect(terms).toContain("record-keeping tool only");
-    expect(terms).toContain("The Company is a facilitator of recordkeeping and organization only.");
+  it("no longer makes the two claims the implementation contradicts", () => {
+    // The wallet is not "a record-keeping tool only" and the Company is not described as holding no member's money: balances are kept,
+    // reserved for offers and Positions, settled in the ledger, charged a fee, and paid out on withdrawal.
+    expect(terms).not.toMatch(/record-?keeping tool only/i);
+    expect(terms).not.toMatch(/facilitator of recordkeeping/i);
+    expect(terms).not.toMatch(/does not accept, hold, custody, transmit, or have access to any member/i);
+    expect(terms).not.toMatch(/all real-money transactions happen off-platform/i);
+  });
+
+  it("describes what the wallet and money functionality actually do, neutrally", () => {
+    expect(terms).toContain('The Service includes an in-app "wallet" balance.');
+    expect(terms).toContain("Where the optional money functionality is enabled");
+    expect(terms).toContain("may add funds to their wallet balance and may request a withdrawal");
+    expect(terms).toContain("subject to an administrator's review and confirmation");
+    expect(terms).toContain("commits part of their wallet balance to that Position");
+    expect(terms).toContain("records the amount as reserved while the Position is open");
+    expect(terms).toContain("settles the Position by updating the wallet balances of the two members according to the Market's result");
+    expect(terms).toContain("If a Position is voided, the reserved amounts are released.");
+    expect(terms).toContain("The Service may deduct a platform fee as described in Section 5.");
+    expect(terms).toContain("A money Position is private to the two members involved and to authorized administrators.");
+    expect(terms).toContain("3. Deposits and withdrawals happen outside the App");
+    expect(terms).toContain("together with the results of settled Positions");
+  });
+
+  it("adds no legal classification of its own: custody / escrow / transmitter / sportsbook language appears only in the one retained owner-authored sentence", () => {
+    const retained = "The Company is not a bank, money transmitter, payment processor, escrow agent, broker, bookmaker, gambling operator, or party to any wager, bet, or contest between members.";
+    expect(terms).toContain(retained); // kept verbatim for owner/counsel review (docs/legal/TERMS_PRIVACY_OWNER_COUNSEL_REVIEW.md, B3)
+    const everythingElse = terms.replace(retained, "");
+    expect(everythingElse).not.toMatch(/custod|escrow|money transmitter|sportsbook|financial institution|\bbroker|\bbookmaker|trust(ee)? account|\bholds? (your|the member's|members') (money|funds)\b|safeguard/i);
+    // The Terms say nothing about the legal status of the funds or the activity beyond that sentence.
+    expect(everythingElse).not.toMatch(/licen[sc]ed|regulated|legal tender|owned by (the )?(company|member)|belongs? to (the )?(company|member)/i);
+  });
+
+  it("keeps the other substantive legal provisions exactly as they were (they are for the owner and counsel, not for a copy pass)", () => {
     expect(terms).toContain("not exceed one hundred U.S. dollars (US$100)");
     expect(terms).toContain("governed by the laws of Costa Rica");
     expect(terms).toContain("You must be at least 18 years old");
+    expect(terms).toContain("Their good-faith decisions regarding the App's records are final.");
+    expect(terms).toContain("including any dispute over money you sent or received off-platform");
   });
 });
 
