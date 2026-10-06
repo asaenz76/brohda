@@ -210,7 +210,7 @@ test.describe("Logged-out front door — desktop", () => {
     // Counted for this Game's own Market only: seeding and cleanup run once per worker, so a global count would race.
     const picksOnThisGame = async () => (await admin.from("predictions").select("id", { count: "exact", head: true }).eq("market_id", seeded.marketId)).count;
     const before = await picksOnThisGame();
-    await game.getByRole("link", { name: /^Pick: .* \(create an account/ }).first().click();
+    await game.getByRole("link", { name: /^Pick .* \(create an account/ }).first().click();
     await expect(page).toHaveURL(/\/register$/);
     expect(await picksOnThisGame()).toBe(before);
 
@@ -445,7 +445,7 @@ test.describe("Logged-out front door — mobile (Mastodon pattern: the feed is t
         await expect(page.getByRole("article")).toHaveCount(0);
         await page.getByRole("main").getByRole("tab", { name: "Sports" }).click();
         await expect(gameArticle(page)).toBeVisible();
-        await gameArticle(page).getByRole("link", { name: /^Pick: .* \(create an account/ }).first().click();
+        await gameArticle(page).getByRole("link", { name: /^Pick .* \(create an account/ }).first().click();
         await expect(page).toHaveURL(/\/register$/);
       });
 

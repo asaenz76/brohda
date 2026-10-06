@@ -1,5 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchInChunks } from "@/lib/utils/batch";
+import type { SelectionLabelSource } from "./selection-labels";
 import type { MarketTemplate, MarketYesSide, NormalizedMarket } from "./types";
 
 // Server-side read/write layer for the `markets` table — repurposed
@@ -275,13 +277,60 @@ export async function listActiveMarketsForFixtures(fixtureIds: string[]): Promis
   return (data as MarketRow[]).map(toRecord);
 }
 
-/** Stage 4A remediation (§13/§16 — a Prediction-history list needs only its Market's semantic labels, not the full record) — one query regardless of how many distinct markets appear across a user's Prediction history. */
-export async function listPriceOutcomeLabelsByMarketIds(marketIds: string[]): Promise<Map<string, MarketRecord["priceOutcomeLabels"]>> {
-  if (marketIds.length === 0) return new Map();
+interface ChoiceSourceRow {
+  id: string;
+  market_template: MarketTemplate;
+  line_value: number | string | null;
+  yes_side: MarketYesSide | null;
+  price_outcome_labels: { yes: string | null; no: string | null } | null;
+  fixtures: { sport: string | null; home_team_name: string | null; away_team_name: string | null } | { sport: string | null; home_team_name: string | null; away_team_name: string | null }[] | null;
+}
+
+/**
+ * Everything the shared choice presentation (./selection-labels.ts) needs for
+ * a list of Markets — template, line, yes side, the Game's two team names and
+ * the ingestion-authored fallback labels — in one batched read, however many
+ * distinct Markets a list spans. Used by every surface that shows a Pick for a
+ * Market it didn't itself load in full (Prediction history, Call BS history,
+ * notifications, admin), so the same canonical Pick reads the same everywhere.
+ * A Market that can't be found is simply absent from the map; callers fall back
+ * to the presentation's own generic labels.
+ */
+export async function listChoiceSourcesByMarketIds(marketIds: string[]): Promise<Map<string, SelectionLabelSource>> {
+  const ids = [...new Set(marketIds)];
+  if (ids.length === 0) return new Map();
   const admin = createAdminClient();
-  const { data, error } = await admin.from("markets").select("id, price_outcome_labels").in("id", marketIds);
-  if (error) throw error;
-  return new Map((data as { id: string; price_outcome_labels: MarketRecord["priceOutcomeLabels"] }[]).map((row) => [row.id, row.price_outcome_labels]));
+  const rows = await fetchInChunks<ChoiceSourceRow>(ids, (chunk) =>
+    admin.from("markets").select("id, market_template, line_value, yes_side, price_outcome_labels, fixtures(sport, home_team_name, away_team_name)").in("id", chunk) as unknown as PromiseLike<{ data: ChoiceSourceRow[] | null }>,
+  );
+  return new Map(
+    rows.map((row) => {
+      const fixture = Array.isArray(row.fixtures) ? row.fixtures[0] : row.fixtures;
+      return [
+        row.id,
+        {
+          marketTemplate: row.market_template,
+          lineValue: row.line_value != null ? Number(row.line_value) : null,
+          yesSide: row.yes_side,
+          homeTeamName: fixture?.home_team_name ?? null,
+          awayTeamName: fixture?.away_team_name ?? null,
+          sport: fixture?.sport ?? null,
+          priceOutcomeLabels: row.price_outcome_labels,
+        } satisfies SelectionLabelSource,
+      ];
+    }),
+  );
+}
+
+/** A Game's two team names, by fixture id — for callers that already hold the Market and only need the matchup (feeds, Post detail). */
+export async function listFixtureTeamNames(fixtureIds: string[]): Promise<Map<string, { homeTeamName: string | null; awayTeamName: string | null; sport: string | null }>> {
+  const ids = [...new Set(fixtureIds)];
+  if (ids.length === 0) return new Map();
+  const admin = createAdminClient();
+  const rows = await fetchInChunks<{ id: string; sport: string | null; home_team_name: string | null; away_team_name: string | null }>(ids, (chunk) =>
+    admin.from("fixtures").select("id, sport, home_team_name, away_team_name").in("id", chunk) as unknown as PromiseLike<{ data: { id: string; sport: string | null; home_team_name: string | null; away_team_name: string | null }[] | null }>,
+  );
+  return new Map(rows.map((r) => [r.id, { homeTeamName: r.home_team_name, awayTeamName: r.away_team_name, sport: r.sport }]));
 }
 
 export async function getActiveMarketByFixtureAndTemplate(fixtureId: string, marketTemplate: MarketTemplate): Promise<MarketRecord | null> {

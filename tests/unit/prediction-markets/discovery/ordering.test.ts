@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { choiceFields } from "../../helpers/choices";
 import { compareDiscoveryMarkets, DEFAULT_SORT_POLICY, type OrderableMarket, type SortPolicy } from "@/lib/prediction-markets/discovery/ordering";
 
 function market(overrides: Partial<OrderableMarket>): OrderableMarket {
@@ -12,8 +13,7 @@ function market(overrides: Partial<OrderableMarket>): OrderableMarket {
     closesAt: null,
     freshness: "FRESH",
     liquidity: null,
-    yesLabel: "Yes",
-    noLabel: "No",
+    ...choiceFields({}),
     ...overrides,
   };
 }

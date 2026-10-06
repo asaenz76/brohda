@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import type { Choice } from "@/lib/prediction-markets/selection-labels";
 
 /**
  * The logged-out version of a Game Post's Pick control: same labels, same
@@ -9,20 +10,20 @@ import { cn } from "@/lib/utils";
  * mutation. A visitor's intent click leads to creating an account; nothing is
  * recorded for an anonymous visitor.
  */
-export function PublicPickChoices({ yesLabel, noLabel }: { yesLabel: string; noLabel: string }) {
+export function PublicPickChoices({ choices }: { choices: [Choice, Choice] }) {
   return (
     <div className="space-y-2" data-testid="public-pick-choices">
       <p className="text-sm font-semibold text-text-primary">Make your prediction</p>
       {/* Stacked full-width below sm, inline from sm — same overflow guard as the member control. */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
-        {[yesLabel, noLabel].map((label) => (
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-3">
+        {choices.map((choice) => (
           <Link
-            key={label}
+            key={choice.outcome}
             href="/register"
-            aria-label={`Pick: ${label} (create an account to make your pick)`}
-            className={cn(buttonVariants({ variant: "outline", size: "lg" }), "w-full sm:w-auto")}
+            aria-label={`${choice.accessibleName} (create an account to make your pick)`}
+            className={cn(buttonVariants({ variant: "outline", size: "lg" }), "h-auto min-h-9 w-full whitespace-normal text-balance py-2 sm:w-auto sm:max-w-full")}
           >
-            {label}
+            {choice.label}
           </Link>
         ))}
       </div>

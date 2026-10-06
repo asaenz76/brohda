@@ -1,5 +1,5 @@
 import type { MarketRecord } from "../repository";
-import { getSelectionLabel } from "../selection-labels";
+import { getChoicePresentation, getSelectionLabel, type SelectionLabelSource } from "../selection-labels";
 import { classifyFreshness, type FreshnessPolicy } from "./policy";
 import { formatProbabilityPercent } from "./probability";
 import { deriveConsumerStatus } from "./status";
@@ -14,12 +14,26 @@ import type { DiscoveryCategoryRef, DiscoveryMarketCard, DiscoveryMarketDetail }
  * `DiscoveryMarketDetail` (types.ts) have no field that could carry them.
  */
 
-export function toDiscoveryMarketCard(market: MarketRecord, categories: DiscoveryCategoryRef[], freshnessPolicy: FreshnessPolicy): DiscoveryMarketCard | null {
+/** The Game's two team names, needed for the template-aware choice labels. Absent → the shared presentation falls back, never guesses. */
+export interface MatchupTeams {
+  homeTeamName: string | null;
+  awayTeamName: string | null;
+  sport?: string | null;
+}
+
+export function toDiscoveryMarketCard(
+  market: MarketRecord,
+  categories: DiscoveryCategoryRef[],
+  freshnessPolicy: FreshnessPolicy,
+  teams: MatchupTeams | null = null,
+): DiscoveryMarketCard | null {
   const status = deriveConsumerStatus(market.status, market.resolvedOutcome);
   if (status === null) return null;
 
   const yesPercent = formatProbabilityPercent(market.yesPrice);
   const noPercent = formatProbabilityPercent(market.noPrice);
+  const source: SelectionLabelSource = { ...market, homeTeamName: teams?.homeTeamName ?? null, awayTeamName: teams?.awayTeamName ?? null, sport: teams?.sport ?? null };
+  const presentation = getChoicePresentation(source);
 
   return {
     id: market.id,
@@ -30,8 +44,10 @@ export function toDiscoveryMarketCard(market: MarketRecord, categories: Discover
     status,
     closesAt: market.closesAt,
     freshness: classifyFreshness(market.lastSyncedAt, yesPercent != null || noPercent != null, freshnessPolicy),
-    yesLabel: getSelectionLabel(market, "YES"),
-    noLabel: getSelectionLabel(market, "NO"),
+    yesLabel: getSelectionLabel(source, "YES"),
+    noLabel: getSelectionLabel(source, "NO"),
+    choices: presentation.choices,
+    marketLabel: presentation.marketLabel,
   };
 }
 
@@ -39,8 +55,9 @@ export function toDiscoveryMarketDetail(
   market: MarketRecord,
   categories: DiscoveryCategoryRef[],
   freshnessPolicy: FreshnessPolicy,
+  teams: MatchupTeams | null = null,
 ): DiscoveryMarketDetail | null {
-  const card = toDiscoveryMarketCard(market, categories, freshnessPolicy);
+  const card = toDiscoveryMarketCard(market, categories, freshnessPolicy, teams);
   if (!card) return null;
   return {
     ...card,

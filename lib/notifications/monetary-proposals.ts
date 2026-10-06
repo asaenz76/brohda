@@ -25,13 +25,13 @@ function formatStake(stakeCents: number): string {
 
 /** The recipient learns a specific user proposed money on their opposing Pick. */
 export async function createMonetaryProposalReceivedNotification(proposal: MonetaryProposal): Promise<void> {
-  const [proposerName, { question, postId }] = await Promise.all([getDisplayName(proposal.proposerUserId), getMarketNotificationContext(proposal.marketId)]);
+  const [proposerName, { subject, postId }] = await Promise.all([getDisplayName(proposal.proposerUserId), getMarketNotificationContext(proposal.marketId)]);
 
   await insertNotificationRows("MONETARY_PROPOSAL_RECEIVED", {
     user_id: proposal.recipientUserId,
     type: "MONETARY_PROPOSAL_RECEIVED",
     title: "Someone put money on it",
-    body: `${proposerName} proposed ${formatStake(proposal.stake)} on your pick on "${question}".`,
+    body: `${proposerName} proposed ${formatStake(proposal.stake)} on your pick on "${subject}".`,
     monetary_proposal_id: proposal.id,
     market_id: proposal.marketId,
     post_id: postId,
@@ -40,13 +40,13 @@ export async function createMonetaryProposalReceivedNotification(proposal: Monet
 
 /** The proposer learns the recipient accepted — a Position now exists. */
 export async function createMonetaryProposalAcceptedNotification(proposal: MonetaryProposal): Promise<void> {
-  const [recipientName, { question, postId }] = await Promise.all([getDisplayName(proposal.recipientUserId), getMarketNotificationContext(proposal.marketId)]);
+  const [recipientName, { subject, postId }] = await Promise.all([getDisplayName(proposal.recipientUserId), getMarketNotificationContext(proposal.marketId)]);
 
   await insertNotificationRows("MONETARY_PROPOSAL_ACCEPTED", {
     user_id: proposal.proposerUserId,
     type: "MONETARY_PROPOSAL_ACCEPTED",
     title: "Your proposal was accepted",
-    body: `${recipientName} accepted your ${formatStake(proposal.stake)} proposal on "${question}". Both picks are locked in.`,
+    body: `${recipientName} accepted your ${formatStake(proposal.stake)} proposal on "${subject}". Both picks are locked in.`,
     monetary_proposal_id: proposal.id,
     market_id: proposal.marketId,
     post_id: postId,
@@ -55,13 +55,13 @@ export async function createMonetaryProposalAcceptedNotification(proposal: Monet
 
 /** The proposer learns the recipient declined — their reservation was released. */
 export async function createMonetaryProposalDeclinedNotification(proposal: MonetaryProposal): Promise<void> {
-  const [recipientName, { question, postId }] = await Promise.all([getDisplayName(proposal.recipientUserId), getMarketNotificationContext(proposal.marketId)]);
+  const [recipientName, { subject, postId }] = await Promise.all([getDisplayName(proposal.recipientUserId), getMarketNotificationContext(proposal.marketId)]);
 
   await insertNotificationRows("MONETARY_PROPOSAL_DECLINED", {
     user_id: proposal.proposerUserId,
     type: "MONETARY_PROPOSAL_DECLINED",
     title: "Your proposal was declined",
-    body: `${recipientName} declined your ${formatStake(proposal.stake)} proposal on "${question}".`,
+    body: `${recipientName} declined your ${formatStake(proposal.stake)} proposal on "${subject}".`,
     monetary_proposal_id: proposal.id,
     market_id: proposal.marketId,
     post_id: postId,
@@ -70,13 +70,13 @@ export async function createMonetaryProposalDeclinedNotification(proposal: Monet
 
 /** The recipient learns the proposer withdrew — purely informational, no reservation impact on their side (they never had one). */
 export async function createMonetaryProposalWithdrawnNotification(proposal: MonetaryProposal): Promise<void> {
-  const [proposerName, { question, postId }] = await Promise.all([getDisplayName(proposal.proposerUserId), getMarketNotificationContext(proposal.marketId)]);
+  const [proposerName, { subject, postId }] = await Promise.all([getDisplayName(proposal.proposerUserId), getMarketNotificationContext(proposal.marketId)]);
 
   await insertNotificationRows("MONETARY_PROPOSAL_WITHDRAWN", {
     user_id: proposal.recipientUserId,
     type: "MONETARY_PROPOSAL_WITHDRAWN",
     title: "A proposal was withdrawn",
-    body: `${proposerName} withdrew their ${formatStake(proposal.stake)} proposal on "${question}".`,
+    body: `${proposerName} withdrew their ${formatStake(proposal.stake)} proposal on "${subject}".`,
     monetary_proposal_id: proposal.id,
     market_id: proposal.marketId,
     post_id: postId,
@@ -90,13 +90,13 @@ export async function createMonetaryProposalWithdrawnNotification(proposal: Mone
  * leaves the proposer wondering where their money went.
  */
 export async function createMonetaryProposalExpiredNotification(proposal: MonetaryProposal): Promise<void> {
-  const [recipientName, { question, postId }] = await Promise.all([getDisplayName(proposal.recipientUserId), getMarketNotificationContext(proposal.marketId)]);
+  const [recipientName, { subject, postId }] = await Promise.all([getDisplayName(proposal.recipientUserId), getMarketNotificationContext(proposal.marketId)]);
 
   await insertNotificationRows("MONETARY_PROPOSAL_EXPIRED", {
     user_id: proposal.proposerUserId,
     type: "MONETARY_PROPOSAL_EXPIRED",
     title: "Your proposal expired",
-    body: `Your ${formatStake(proposal.stake)} proposal to ${recipientName} on "${question}" expired. The hold on your ${formatStake(proposal.stake)} was released.`,
+    body: `Your ${formatStake(proposal.stake)} proposal to ${recipientName} on "${subject}" expired. The hold on your ${formatStake(proposal.stake)} was released.`,
     monetary_proposal_id: proposal.id,
     market_id: proposal.marketId,
     post_id: postId,

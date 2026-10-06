@@ -64,7 +64,7 @@ export function RulesContent({ policy }: { policy: RulesPolicy }) {
       <Section id="rules-game-posts" title="Game Posts">
         <ul className={list}>
           <li>Every Game Post is created by Brohda. Members can&apos;t create, edit or remove one.</li>
-          <li>A Game Post represents a real sporting event, and it can carry more than one Market — a question about the game, like who wins.</li>
+          <li>A Game Post represents a real sporting event, and it can carry more than one Market — a different way to pick the same game, like who wins, the point spread, or the total score.</li>
           <li>Members don&apos;t publish games or Markets.</li>
           <li>Comments and everything else people do around a game belong to that game&apos;s Post.</li>
         </ul>
@@ -72,7 +72,7 @@ export function RulesContent({ policy }: { policy: RulesPolicy }) {
 
       <Section id="rules-picks" title="Picks">
         <ul className={list}>
-          <li>A Pick is your opinion on a Market: one side of its question.</li>
+          <li>A Pick is your opinion on a Market: you choose one of its two sides — a team, a team with its spread, or Over or Under a total.</li>
           <li>{money ? "A Pick is free. Money is a separate, optional layer, and nothing about Picks needs it." : "A Pick is free."}</li>
           <li>You can make or change your Pick {until}.</li>
           <li>When that cutoff passes, your Pick locks: ordinary Pick changes stop, and your final Pick is the one on your record.</li>

@@ -39,7 +39,8 @@ import type { PredictionNotificationCopyPolicy, PredictionResult } from "@/lib/p
 export async function createPredictionGradedNotification(input: {
   userId: string;
   predictionId: string;
-  questionSnapshot: string;
+  /** What the Market is about, in words ("Washington Commanders @ Indianapolis Colts · Moneyline") — substituted for the `{{question}}` placeholder. */
+  marketSubject: string;
   result: PredictionResult;
   /** Stage 4A remediation (Stage 4 audit §14) — the canonical Post this grading was about, for click-through (lib/notifications/links.ts). Null when the grading job's own fixture->Post lookup came up empty (data anomaly) — the notification is still created, just not clickable. */
   postId: string | null;
@@ -48,7 +49,7 @@ export async function createPredictionGradedNotification(input: {
 }): Promise<void> {
   const admin = createAdminClient();
   const copyPolicy = await getPredictionNotificationCopyPolicy();
-  const { title, body } = renderNotificationCopy(input.result, input.questionSnapshot, copyPolicy);
+  const { title, body } = renderNotificationCopy(input.result, input.marketSubject, copyPolicy);
 
   const { error } = await admin.from("notifications").insert({
     user_id: input.userId,
@@ -78,7 +79,8 @@ export async function createPredictionGradedNotification(input: {
 export async function maybeCreatePredictionGradedNotification(input: {
   userId: string;
   predictionId: string;
-  questionSnapshot: string;
+  /** What the Market is about, in words ("Washington Commanders @ Indianapolis Colts · Moneyline") — substituted for the `{{question}}` placeholder. */
+  marketSubject: string;
   result: PredictionResult;
   postId: string | null;
   marketId: string | null;

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { submitPredictionAction } from "@/lib/actions/predictions";
+import type { Choice } from "@/lib/prediction-markets/selection-labels";
 
 // Milestone 3's original prediction-submission UI (roadmap STEP 9),
 // extended by Milestone R5 (docs/BROHDA_2_0_MILESTONE_MAP.md, Pick
@@ -12,8 +13,8 @@ import { submitPredictionAction } from "@/lib/actions/predictions";
 // successful submission instead of being replaced by static confirmation
 // text, until the Pick becomes locked.
 //
-// Consumer language only — "Make your prediction", "YES"/"NO", "You
-// predicted" — never Buy/Sell/Trade/Order/Contract/Shares/Position/
+// Consumer language only — "Make your prediction", the visible team / line
+// / Over-Under choices, "You picked" — never Buy/Sell/Trade/Order/Contract/Shares/Position/
 // Wallet/Stake/Bet slip, and never a financial-return figure or an amount
 // input (this is a belief, not a stake).
 //
@@ -26,16 +27,18 @@ export function PredictionActions({
   marketId,
   disabledReason,
   currentSelection = null,
-  yesLabel,
-  noLabel,
+  choices,
 }: {
   marketId: string;
   disabledReason: string | null;
   /** Milestone R5: pass the existing Pick's selection to render this as an editable "change your pick" control instead of a first-time one. */
   currentSelection?: "YES" | "NO" | null;
-  /** Stage 4A remediation (§13/§16): semantic per-side labels ("Chiefs win", "Over 47.5") — YES/NO stays the internal wire representation (submitPredictionAction still receives "YES"/"NO"), only the rendered copy changes. */
-  yesLabel: string;
-  noLabel: string;
+  /**
+   * The two choices in DISPLAY order (lib/prediction-markets/selection-labels.ts). Each carries the canonical outcome it stands for:
+   * the wire representation is still "YES"/"NO" (submitPredictionAction receives exactly that), only what is shown changes. Selected state
+   * is read from the canonical outcome, never from a label.
+   */
+  choices: [Choice, Choice];
 }) {
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [selection, setSelection] = useState<"YES" | "NO" | null>(currentSelection);
@@ -89,35 +92,26 @@ export function PredictionActions({
         at any viewport regardless of label length, without truncating or
         wrapping text inside the button itself.
       */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
-        <Button
-          type="button"
-          variant={selection === "YES" ? "default" : "outline"}
-          size="lg"
-          disabled={isDisabled}
-          onClick={() => handleSubmit("YES")}
-          aria-label={`Pick: ${yesLabel}`}
-          aria-pressed={selection === "YES"}
-          className="w-full sm:w-auto"
-        >
-          {yesLabel}
-        </Button>
-        <Button
-          type="button"
-          variant={selection === "NO" ? "default" : "outline"}
-          size="lg"
-          disabled={isDisabled}
-          onClick={() => handleSubmit("NO")}
-          aria-label={`Pick: ${noLabel}`}
-          aria-pressed={selection === "NO"}
-          className="w-full sm:w-auto"
-        >
-          {noLabel}
-        </Button>
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-3">
+        {choices.map((choice) => (
+          <Button
+            key={choice.outcome}
+            type="button"
+            variant={selection === choice.outcome ? "default" : "outline"}
+            size="lg"
+            disabled={isDisabled}
+            onClick={() => handleSubmit(choice.outcome)}
+            aria-label={choice.accessibleName}
+            aria-pressed={selection === choice.outcome}
+            className="h-auto min-h-9 w-full whitespace-normal text-balance py-2 sm:w-auto sm:max-w-full"
+          >
+            {choice.label}
+          </Button>
+        ))}
       </div>
       {confirmation && (
         <p role="status" className="text-sm font-semibold text-text-primary">
-          You picked {confirmation.selectedOutcome === "YES" ? yesLabel : noLabel} ({confirmation.probabilityPercent}%).
+          You picked {choices.find((c) => c.outcome === confirmation.selectedOutcome)?.label} ({confirmation.probabilityPercent}%).
         </p>
       )}
       {disabledReason && <p className="text-xs text-text-muted">{disabledReason}</p>}

@@ -15,6 +15,12 @@ export function getMatchupSeparator(sport: string): string {
   return isAwayFirstSport(sport) ? "@" : "vs";
 }
 
+/** "Washington Commanders @ Indianapolis Colts" / "Arsenal vs Chelsea" — the one matchup string, in the sport's own order. */
+export function formatMatchup(sport: string, home: string, away: string): string {
+  const [first, second] = orderTeamsForDisplay(sport, home, away);
+  return `${first} ${getMatchupSeparator(sport)} ${second}`;
+}
+
 export function orderTeamsForDisplay<T>(sport: string, home: T, away: T): [first: T, second: T] {
   return isAwayFirstSport(sport) ? [away, home] : [home, away];
 }

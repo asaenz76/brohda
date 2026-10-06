@@ -101,19 +101,19 @@ test.describe("Call BS Challenges", () => {
       // A picks YES.
       await loginAs(page, emailA);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Pick: Yes" }).click();
-      await expect(page.getByText(/You picked Yes/)).toBeVisible();
+      await page.getByRole("button", { name: "Pick Home Test FC to win" }).click();
+      await expect(page.getByText(/You picked Home Test FC/)).toBeVisible();
 
       // B picks NO, then sees A's opposing pick with a Call BS button.
       await page.context().clearCookies();
       await loginAs(page, emailB);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Pick: No" }).click();
-      await expect(page.getByText(/You picked No/)).toBeVisible();
+      await page.getByRole("button", { name: "Pick Away Test FC to win" }).click();
+      await expect(page.getByText(/You picked Away Test FC/)).toBeVisible();
 
       await page.reload();
       await expect(page.getByText("Other picks")).toBeVisible();
-      await expect(page.getByText("Picked Yes")).toBeVisible();
+      await expect(page.getByText("Picked Home Test FC")).toBeVisible();
       await page.getByRole("button", { name: "Call BS" }).click();
       await expect(page.getByText("Pending")).toBeVisible();
 
@@ -121,7 +121,7 @@ test.describe("Call BS Challenges", () => {
       await page.context().clearCookies();
       await loginAs(page, emailA);
       await page.goto(`/markets/${marketId}`);
-      await expect(page.getByText("Picked No")).toBeVisible();
+      await expect(page.getByText("Picked Away Test FC")).toBeVisible();
       await expect(page.getByRole("button", { name: "Accept" })).toBeVisible();
       await page.getByRole("button", { name: "Accept" }).click();
       await expect(page.getByText("Accepted")).toBeVisible();
@@ -152,14 +152,14 @@ test.describe("Call BS Challenges", () => {
 
       await loginAs(page, emailA);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Pick: Yes" }).click();
-      await expect(page.getByText(/You picked Yes/)).toBeVisible();
+      await page.getByRole("button", { name: "Pick Home Test FC to win" }).click();
+      await expect(page.getByText(/You picked Home Test FC/)).toBeVisible();
 
       await page.context().clearCookies();
       await loginAs(page, emailB);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Pick: No" }).click();
-      await expect(page.getByText(/You picked No/)).toBeVisible();
+      await page.getByRole("button", { name: "Pick Away Test FC to win" }).click();
+      await expect(page.getByText(/You picked Away Test FC/)).toBeVisible();
       await page.reload();
       await page.getByRole("button", { name: "Call BS" }).click();
       await expect(page.getByText("Pending")).toBeVisible();
@@ -204,8 +204,8 @@ test.describe("Call BS Challenges", () => {
 
       await loginAs(page, emailAndre);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Pick: Yes" }).click();
-      await expect(page.getByText(/You picked Yes/)).toBeVisible();
+      await page.getByRole("button", { name: "Pick Home Test FC to win" }).click();
+      await expect(page.getByText(/You picked Home Test FC/)).toBeVisible();
 
       // Carlos and Marco both pick the opposing side and both send Andre
       // a Call BS — two independent PENDING challenges against the same
@@ -213,8 +213,8 @@ test.describe("Call BS Challenges", () => {
       await page.context().clearCookies();
       await loginAs(page, emailCarlos);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Pick: No" }).click();
-      await expect(page.getByText(/You picked No/)).toBeVisible();
+      await page.getByRole("button", { name: "Pick Away Test FC to win" }).click();
+      await expect(page.getByText(/You picked Away Test FC/)).toBeVisible();
       await page.reload();
       await page.getByRole("button", { name: "Call BS" }).click();
       await expect(page.getByText("Pending")).toBeVisible();
@@ -222,8 +222,8 @@ test.describe("Call BS Challenges", () => {
       await page.context().clearCookies();
       await loginAs(page, emailMarco);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Pick: No" }).click();
-      await expect(page.getByText(/You picked No/)).toBeVisible();
+      await page.getByRole("button", { name: "Pick Away Test FC to win" }).click();
+      await expect(page.getByText(/You picked Away Test FC/)).toBeVisible();
       await page.reload();
       await page.getByRole("button", { name: "Call BS" }).click();
       await expect(page.getByText("Pending")).toBeVisible();
@@ -233,8 +233,8 @@ test.describe("Call BS Challenges", () => {
       await page.context().clearCookies();
       await loginAs(page, emailPriya);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Pick: No" }).click();
-      await expect(page.getByText(/You picked No/)).toBeVisible();
+      await page.getByRole("button", { name: "Pick Away Test FC to win" }).click();
+      await expect(page.getByText(/You picked Away Test FC/)).toBeVisible();
 
       // Andre sees both Carlos's and Marco's incoming Call BS, each with
       // its own Accept/Decline — scoped per row so accepting one doesn't

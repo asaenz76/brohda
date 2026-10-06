@@ -220,7 +220,7 @@ test.describe("Authenticated shell — desktop (1280)", () => {
     const main = page.getByRole("main");
     const game = await y(main.getByText(`${AWAY} @`));
     const sentiment = await y(main.getByText(/\d+% *$/).first());
-    const pick = await y(main.getByRole("button", { name: /^Pick: / }));
+    const pick = await y(main.getByRole("button", { name: /^Pick .* to win$/ }));
     const comments = await y(main.getByText("Comments", { exact: true }));
     const comment = await y(main.getByText("A very long comment"));
     const others = await y(main.getByText("Other picks", { exact: true }));
@@ -272,11 +272,11 @@ test.describe("Authenticated shell — desktop (1280)", () => {
   test("the Pick control still works from the shell: choose a side, see it saved, change it", async ({ page }) => {
     await login(page);
     const game = gameArticle(page);
-    await game.getByRole("button", { name: "Pick: Yes" }).click();
+    await game.getByRole("button", { name: `Pick ${HOME} to win` }).click();
     await expect(game.getByText("Change your prediction")).toBeVisible();
     const { count } = await admin.from("predictions").select("id", { count: "exact", head: true }).eq("market_id", seeded.marketId).eq("user_id", seeded.users[0]);
     expect(count).toBe(1);
-    await game.getByRole("button", { name: "Pick: No" }).click();
+    await game.getByRole("button", { name: `Pick ${AWAY} to win` }).click();
     await expect.poll(async () => (await admin.from("predictions").select("selected_outcome").eq("market_id", seeded.marketId).eq("user_id", seeded.users[0]).single()).data?.selected_outcome).toBe("NO");
   });
 

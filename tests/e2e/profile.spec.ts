@@ -148,19 +148,24 @@ test.describe("Profile", () => {
     await createPrediction(userId, marketId, question, { graded: "CORRECT" });
 
     const question2 = `Will the Pending Test ${suffix} win?`;
-    const { marketId: marketId2 } = await seedMarket(question2);
+    const { marketId: marketId2, postId: postId2 } = await seedMarket(question2);
     await createPrediction(userId, marketId2, question2, { pending: true });
 
     await loginAs(page, email);
     await page.goto("/profile");
 
-    await expect(page.getByText(question)).toBeVisible();
+    // Each row names the Game and the Market ("Home vs Away · Moneyline") and the visible Pick — never the old question or a raw YES.
+    const gradedRow = page.locator(`a[href="/post/${postId}"]`);
+    const pendingRow = page.locator(`a[href="/post/${postId2}"]`);
+    await expect(gradedRow).toHaveText("Home vs Away · Moneyline");
+    await expect(pendingRow).toHaveText("Home vs Away · Moneyline");
+    await expect(page.getByText(/You picked Home \(/).first()).toBeVisible();
+    await expect(page.getByRole("main")).not.toContainText(/Will the|do not win|You picked (YES|NO)\b/);
     await expect(page.getByText("Correct", { exact: true })).toBeVisible();
-    await expect(page.getByText(question2)).toBeVisible();
     await expect(page.getByText("Pending", { exact: true })).toBeVisible();
 
     // Links to the canonical Post, not /markets/[id].
-    await page.getByText(question).click();
+    await gradedRow.click();
     await expect(page).toHaveURL(new RegExp(`/post/${postId}$`));
   });
 
@@ -170,11 +175,11 @@ test.describe("Profile", () => {
     const { userId: targetUserId, username: targetUsername } = await createPlayer(targetEmail, "e2eprofother");
 
     const gradedQuestion = `Will the Graded Test ${suffix} win?`;
-    const { marketId: gradedMarketId } = await seedMarket(gradedQuestion);
+    const { marketId: gradedMarketId, postId: gradedPostId } = await seedMarket(gradedQuestion);
     await createPrediction(targetUserId, gradedMarketId, gradedQuestion, { graded: "CORRECT" });
 
     const pendingQuestion = `Will the Secret Pending Test ${suffix} win?`;
-    const { marketId: pendingMarketId } = await seedMarket(pendingQuestion);
+    const { marketId: pendingMarketId, postId: pendingPostId } = await seedMarket(pendingQuestion);
     await createPrediction(targetUserId, pendingMarketId, pendingQuestion, { pending: true });
 
     const viewerEmail = `e2e-profile-viewer-${suffix}@example.com`;
@@ -184,8 +189,8 @@ test.describe("Profile", () => {
     await page.goto(`/profile/${targetUsername}`);
 
     await expect(page.getByRole("button", { name: "Follow" })).toBeVisible();
-    await expect(page.getByText(gradedQuestion)).toBeVisible();
-    await expect(page.getByText(pendingQuestion)).toHaveCount(0);
+    await expect(page.locator(`a[href="/post/${gradedPostId}"]`)).toHaveText("Home vs Away · Moneyline");
+    await expect(page.locator(`a[href="/post/${pendingPostId}"]`)).toHaveCount(0); // a pending Pick is never shown to someone else
 
     // No Edit profile / Analytics / Rules on someone else's profile either.
     await expect(page.getByRole("link", { name: "Edit profile" })).toHaveCount(0);

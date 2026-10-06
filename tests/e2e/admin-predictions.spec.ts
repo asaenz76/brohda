@@ -76,7 +76,9 @@ test.describe("Admin predictions table", () => {
     await expect(cells.nth(3)).toContainText(QUESTION);
     await expect(cells.nth(3)).toContainText(seeded.marketId.slice(0, 8));
     await expect(cells.nth(3).getByTitle(seeded.marketId)).toBeVisible();
-    await expect(cells.nth(4)).toHaveText("YES");
+    // Selected: the human label leads, the canonical stored value stays beside it for diagnostics.
+    await expect(cells.nth(4)).toContainText(HOME);
+    await expect(cells.nth(4)).toContainText("YES");
     // No email anywhere on the page.
     expect(await page.locator("main").innerText()).not.toContain("@test.local");
   });

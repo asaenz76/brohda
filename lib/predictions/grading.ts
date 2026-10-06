@@ -3,6 +3,7 @@ import "server-only";
 import { getMarketById, type MarketRecord } from "@/lib/prediction-markets/repository";
 import { deriveConsumerStatus } from "@/lib/prediction-markets/discovery/status";
 import { maybeCreatePredictionGradedNotification } from "@/lib/notifications/predictions";
+import { getMarketNotificationContext } from "@/lib/notifications/market-context";
 import { computeSportsMarketOutcome } from "./sports-resolution";
 import { getFixtureForGrading, type FixtureForGrading } from "@/lib/sports-data/fixture-lookup";
 import { getPostByFixtureId } from "@/lib/posts/repository";
@@ -152,6 +153,16 @@ export async function runGradingJob(
   const pending = await listPendingPredictions();
   const summary: GradingRunSummary = { examined: 0, graded: 0, correct: 0, incorrect: 0, voided: 0, stillPending: 0, failures: [] };
 
+  // One human subject per Market per run ("Washington Commanders @ Indianapolis Colts · Moneyline"), for the notification copy only.
+  const subjectByMarketId = new Map<string, string>();
+  const subjectFor = async (marketId: string, questionFallback: string): Promise<string> => {
+    const cached = subjectByMarketId.get(marketId);
+    if (cached !== undefined) return cached;
+    const subject = await getMarketNotificationContext(marketId).then((c) => c.subject).catch(() => questionFallback);
+    subjectByMarketId.set(marketId, subject);
+    return subject;
+  };
+
   for (const prediction of pending) {
     summary.examined += 1;
     try {
@@ -194,7 +205,7 @@ export async function runGradingJob(
       await maybeCreatePredictionGradedNotification({
         userId: prediction.userId,
         predictionId: prediction.id,
-        questionSnapshot: prediction.marketQuestionSnapshot,
+        marketSubject: await subjectFor(market!.id, prediction.marketQuestionSnapshot),
         result: decision.result,
         postId: post?.id ?? null,
         marketId: market!.id,

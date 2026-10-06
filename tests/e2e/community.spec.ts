@@ -71,6 +71,11 @@ async function seedSportCommunity(sportKey: string, displayName: string) {
   return { communityId: community.id as string, slug: community.slug as string };
 }
 
+/** The Game Post card for a Game whose home team is `teamName` (unique per test). The Moneyline no longer prints a question line, so the card is found by its Game. */
+function gameCard(page: Page, teamName: string) {
+  return page.getByRole("article", { name: new RegExp(` at ${teamName}$`) });
+}
+
 async function seedFixtureAndPost(homeTeamName: string, awayTeamName: string, question: string) {
   const { data: fixture, error: fixtureError } = await admin
     .from("fixtures")
@@ -156,7 +161,7 @@ test.describe("Community", () => {
       await expect(header.getByText(teamName)).toBeVisible();
       await expect(header.getByRole("button", { name: "Follow" })).toBeVisible();
 
-      await expect(page.getByText(question)).toBeVisible();
+      await expect(gameCard(page, teamName)).toBeVisible();
       await expect(page.getByText(/predicted|no one has predicted yet/i)).toBeVisible();
       await expect(page.getByText(/comment/i)).toBeVisible();
     } finally {
@@ -254,10 +259,10 @@ test.describe("Community", () => {
       await loginAs(page, email);
 
       await page.goto(`/community/${teamSlug}`);
-      await expect(page.getByText(question)).toHaveCount(1);
+      await expect(gameCard(page, teamName)).toHaveCount(1);
 
       await page.goto(`/community/${leagueSlug}`);
-      await expect(page.getByText(question)).toHaveCount(1);
+      await expect(gameCard(page, teamName)).toHaveCount(1);
     } finally {
       await cleanup({ fixtureIds: [fixtureId], teamIds: [teamId], leagueIds: [leagueId], communityIds: [teamCommunityId, leagueCommunityId] });
     }
@@ -299,7 +304,7 @@ test.describe("Community", () => {
     try {
       await loginAs(page, email);
       await page.goto(`/community/${slug}`);
-      await expect(page.getByText(question)).toBeVisible();
+      await expect(gameCard(page, teamName)).toBeVisible();
 
       const hasOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
       expect(hasOverflow).toBe(false);

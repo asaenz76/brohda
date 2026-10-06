@@ -172,11 +172,15 @@ test.describe("Call BS record, head-to-head and history", () => {
     await expect(main.getByText("100% prediction accuracy · 1 predicted")).toBeVisible();
     await expect(main.getByText("No Call BS results yet.")).toHaveCount(0);
 
-    const row = main.getByRole("listitem").filter({ hasText: games.First.question });
+    const row = main.getByRole("listitem").filter({ hasText: games.First.label });
     await expect(row).toHaveCount(1);
     await expect(row).toContainText("vs");
     await expect(row).toContainText("Won");
-    await expect(row).toContainText(`You picked ${games.First.label.split(" @ ")[1]} win`);
+    // Read in the Game's own language: the Market's compact label, my visible Pick (YES = the home team) and the opponent's.
+    await expect(row).toContainText("Moneyline");
+    await expect(row).toContainText(`You picked ${games.First.label.split(" @ ")[1]}`);
+    await expect(row).toContainText(`picked ${games.First.label.split(" @ ")[0]}`);
+    await expect(row).not.toContainText(/do not win|\bYES\b|\bNO\b/);
     await expect(row.getByRole("link", { name: `Open the Game: ${games.First.label}` })).toHaveAttribute("href", `/post/${games.First.postId}`);
     await row.getByRole("link", { name: `Open the Game: ${games.First.label}` }).click();
     await expect(page).toHaveURL(new RegExp(`/post/${games.First.postId}$`));
@@ -185,9 +189,9 @@ test.describe("Call BS record, head-to-head and history", () => {
     await page.goto("/profile");
     await expect(page.getByRole("main").getByText("Call BS record: 0 wins, 1 loss")).toBeAttached();
     await expect(page.getByRole("main").getByText("Call BS: 0–1")).toBeVisible();
-    const bRow = page.getByRole("main").getByRole("listitem").filter({ hasText: games.First.question });
+    const bRow = page.getByRole("main").getByRole("listitem").filter({ hasText: games.First.label });
     await expect(bRow).toContainText("Lost");
-    await expect(bRow).toContainText(`You picked ${games.First.label.split(" @ ")[1]} do not win`); // B's own Profile: B picked NO
+    await expect(bRow).toContainText(`You picked ${games.First.label.split(" @ ")[0]}`); // B's own Profile: B picked NO = the away team
     await expect(page.getByRole("main").getByText("0 wins")).toBeAttached();
   });
 
@@ -199,7 +203,7 @@ test.describe("Call BS record, head-to-head and history", () => {
     await expect(page.getByRole("main").getByText(`Your Call BS record vs ${B_NAME}: 1–0`)).toBeVisible();
     // B's history, read by A, says "Picked …" (B's pick) — never "You picked". (Scoped to the Call BS section: the Predictions tab below has its own wording.)
     const section = page.getByRole("region", { name: "Call BS" });
-    await expect(section).toContainText(`Picked ${games.First.label.split(" @ ")[1]} do not win`);
+    await expect(section).toContainText(`Picked ${games.First.label.split(" @ ")[0]}`);
     await expect(section).not.toContainText("You picked");
 
     // On the Second Game, beside Call BS: the previous 1–0 (not the pending one).
@@ -227,8 +231,8 @@ test.describe("Call BS record, head-to-head and history", () => {
     await expect(page.getByRole("main").getByText("100% prediction accuracy · 2 predicted")).toBeVisible();
     const rows = page.getByRole("main").getByRole("list").filter({ has: page.getByRole("link", { name: /Open the Game/ }) }).getByRole("listitem");
     await expect(rows).toHaveCount(2);
-    await expect(rows.first()).toContainText(games.Second.question); // resolved last, listed first
-    await expect(rows.last()).toContainText(games.First.question);
+    await expect(rows.first()).toContainText(games.Second.label); // resolved last, listed first
+    await expect(rows.last()).toContainText(games.First.label);
 
     await page.goto(`/profile/cbhb${suffix}`);
     await expect(page.getByRole("main").getByText(`Your Call BS record vs ${B_NAME}: 2–0`)).toBeVisible();

@@ -131,9 +131,7 @@ test.describe("Home timeline", () => {
     const awayTeamName = `E2E Away ${suffix}`;
     const fixtureId = await seedFixture(homeTeamName, awayTeamName);
     const question = `Will the E2E Home ${suffix} win?`;
-    const yesLabel = `E2E Home ${suffix} wins`;
-    const noLabel = `E2E Home ${suffix} does not win`;
-    await seedMarket(fixtureId, question, { yes: yesLabel, no: noLabel });
+    await seedMarket(fixtureId, question);
     await seedPublishedPost(fixtureId);
 
     const email = `e2e-feed-${suffix}@example.com`;
@@ -159,15 +157,17 @@ test.describe("Home timeline", () => {
       const cardLink = page.locator("a", { hasText: `${awayTeamName} @ ${homeTeamName}` });
       const card = page.locator('[data-slot="card"]', { hasText: `${awayTeamName} @ ${homeTeamName}` });
       await expect(cardLink).toBeVisible();
-      await expect(cardLink.getByText(question)).toBeVisible();
+      // A moneyline needs no question line: the two team choices below already say what is being picked.
+      await expect(cardLink.getByText(question)).toHaveCount(0);
 
       // Semantic selection labels, never the raw YES/NO enum, on the feed
       // card — this freshly-seeded Market has zero real Picks yet, so the
       // labels surface as this card's own Pick buttons (real Brohda
       // sentiment, not the provider price seedMarket also sets, only
       // renders once a real Pick exists — see GamePostCard's own comment).
-      await expect(card.getByText(yesLabel)).toBeVisible();
-      await expect(card.getByText(noLabel)).toBeVisible();
+      await expect(card.getByRole("button", { name: `Pick ${homeTeamName} to win` })).toBeVisible();
+      await expect(card.getByRole("button", { name: `Pick ${awayTeamName} to win` })).toBeVisible();
+      await expect(card.getByText(/do not win|^Yes$|^No$/)).toHaveCount(0);
       await expect(card.getByText(/^\s*yes\s*$/i)).toHaveCount(0);
       await expect(card.getByText(/^\s*no\s*$/i)).toHaveCount(0);
 
@@ -248,7 +248,9 @@ test.describe("market detail deep link", () => {
     try {
       await loginAs(page, email);
       await page.goto(`/markets/${marketId}`);
-      await expect(page.getByText(question)).toBeVisible();
+      // The standalone Market page names the Game and the Market by their compact labels, not by the old question.
+      await expect(page.getByText("Moneyline")).toBeVisible();
+      await expect(page.getByText(question)).toHaveCount(0);
     } finally {
       await cleanup([fixtureId], []);
     }

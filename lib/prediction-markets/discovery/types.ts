@@ -5,6 +5,8 @@
 // any raw database row. Nothing here ever carries a provider name, provider
 // id, or raw metadata (roadmap STEP 3).
 
+import type { Choice } from "../selection-labels";
+
 export type ConsumerMarketStatus = "ACTIVE" | "CLOSED" | "RESOLVED";
 
 export type Freshness = "FRESH" | "STALE" | "UNAVAILABLE";
@@ -35,9 +37,13 @@ export interface DiscoveryMarketCard {
   status: ConsumerMarketStatus;
   closesAt: string | null;
   freshness: Freshness;
-  /** Stage 4A remediation (§5/§13): semantic per-side labels ("Chiefs win", "Over 47.5") derived from `markets.price_outcome_labels` — never the raw YES/NO enum. See lib/prediction-markets/selection-labels.ts. */
+  /** What a viewer reads for each canonical side ("Indianapolis Colts", "Patriots +3.5", "Over 47.5") — never the raw YES/NO enum. Derived once, in lib/prediction-markets/selection-labels.ts. */
   yesLabel: string;
   noLabel: string;
+  /** Both choices in DISPLAY order (matchup order for team Markets), each carrying the canonical outcome it stands for and its accessible name. Render from this, not from yesLabel/noLabel positions. */
+  choices: [Choice, Choice];
+  /** "Moneyline" | "Spread" | "Total 47.5", or null when the template-aware label isn't available (the old question is then the context). */
+  marketLabel: string | null;
 }
 
 export interface DiscoveryMarketDetail extends DiscoveryMarketCard {

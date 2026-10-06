@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import { requireSocialPredictionAccess } from "@/lib/social/access";
 import { getMarketDetail } from "@/lib/prediction-markets/discovery/repository";
+import { getMarketById, listFixtureTeamNames } from "@/lib/prediction-markets/repository";
+import { formatMatchup } from "@/lib/sports-data/team-display-order";
 import { MarketPredictionCard } from "@/components/predictions/MarketPredictionCard";
 import { Card, CardContent } from "@/components/ui/card";
 import { ColumnHeader } from "@/components/shell/ColumnHeader";
@@ -23,13 +25,17 @@ export default async function MarketDetailPage({ params }: { params: Promise<{ i
 
   const market = await getMarketDetail(id);
   if (!market) notFound();
+  // This page stands on its own, without a Game header, so it names the matchup itself (in the sport's own matchup order).
+  const raw = await getMarketById(id);
+  const teams = raw ? (await listFixtureTeamNames([raw.fixtureId])).get(raw.fixtureId) : undefined;
+  const matchup = teams?.homeTeamName && teams?.awayTeamName ? formatMatchup(teams.sport ?? "", teams.homeTeamName, teams.awayTeamName) : null;
 
   return (
     <div className="space-y-3">
       <ColumnHeader title="Market" backHref="/feed" backLabel="Back to Home" />
       <Card>
         <CardContent className="pt-6">
-          <MarketPredictionCard market={market} userId={user.id} />
+          <MarketPredictionCard market={market} userId={user.id} matchup={matchup} />
         </CardContent>
       </Card>
     </div>

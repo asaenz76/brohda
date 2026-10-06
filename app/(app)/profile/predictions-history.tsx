@@ -1,9 +1,9 @@
 import { Compass } from "lucide-react";
 import Link from "next/link";
 import { listUserPredictions } from "@/lib/predictions/repository";
-import { listPriceOutcomeLabelsByMarketIds, type MarketRecord } from "@/lib/prediction-markets/repository";
+import { listChoiceSourcesByMarketIds } from "@/lib/prediction-markets/repository";
 import { listPostIdsForMarkets } from "@/lib/predictions/post-links";
-import { getSelectionLabel } from "@/lib/prediction-markets/selection-labels";
+import { getChoicePresentation, getMarketSubject, type SelectionLabelSource } from "@/lib/prediction-markets/selection-labels";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -38,8 +38,8 @@ export async function PredictionsHistory({ userId, gradedOnly = false }: { userI
   }
 
   const marketIds = [...new Set(predictions.map((p) => p.marketId))];
-  const [labelsByMarketId, postIdsByMarketId] = await Promise.all([
-    listPriceOutcomeLabelsByMarketIds(marketIds),
+  const [sourcesByMarketId, postIdsByMarketId] = await Promise.all([
+    listChoiceSourcesByMarketIds(marketIds),
     listPostIdsForMarkets(marketIds),
   ]);
 
@@ -49,7 +49,7 @@ export async function PredictionsHistory({ userId, gradedOnly = false }: { userI
         <PredictionHistoryRow
           key={prediction.id}
           prediction={prediction}
-          priceOutcomeLabels={labelsByMarketId.get(prediction.marketId) ?? null}
+          choiceSource={sourcesByMarketId.get(prediction.marketId) ?? null}
           postId={postIdsByMarketId.get(prediction.marketId) ?? null}
         />
       ))}
@@ -59,12 +59,12 @@ export async function PredictionsHistory({ userId, gradedOnly = false }: { userI
 
 function PredictionHistoryRow({
   prediction,
-  priceOutcomeLabels,
+  choiceSource,
   postId,
 }: {
   prediction: Awaited<ReturnType<typeof listUserPredictions>>[number];
-  /** Stage 4A remediation (§16 — "You predicted YES" raw-enum leakage): the referenced Market's semantic labels, or null if the Market's own row is no longer resolvable (falls back to a plain "Yes"/"No" via getSelectionLabel). */
-  priceOutcomeLabels: MarketRecord["priceOutcomeLabels"] | undefined;
+  /** What the shared presentation needs to name this Pick (template, line, side, teams), or null if the Market's own row is no longer resolvable — it then falls back to the labels it can still find, never to a guess. */
+  choiceSource: SelectionLabelSource | null;
   postId: string | null;
 }) {
   const predictedPercent = Math.round(
@@ -75,13 +75,17 @@ function PredictionHistoryRow({
     month: "short",
     day: "numeric",
   });
-  const pickedLabel = getSelectionLabel({ priceOutcomeLabels: priceOutcomeLabels ?? null }, prediction.selectedOutcome);
+  const presentation = getChoicePresentation(choiceSource ?? {});
+  const pickedLabel = presentation.choices.find((c) => c.outcome === prediction.selectedOutcome)!.label;
+  // A template-aware Market is named by its matchup and label ("Washington Commanders @ Indianapolis Colts · Moneyline"); the old
+  // question snapshot is only the fallback for a Market the presentation can't describe.
+  const title = getMarketSubject(choiceSource ?? {}, prediction.marketQuestionSnapshot);
 
   return (
     <Card>
       <CardContent className="space-y-1 pt-4">
         <Link href={postId ? `/post/${postId}` : `/markets/${prediction.marketId}`} className="text-sm font-semibold text-text-primary hover:underline">
-          {prediction.marketQuestionSnapshot}
+          {title}
         </Link>
         <p className="text-xs text-text-muted">
           You picked {pickedLabel} ({predictedPercent}%) · {predictedAt}

@@ -1,4 +1,5 @@
 import type { Prediction } from "@/lib/predictions/types";
+import type { Choice } from "@/lib/prediction-markets/selection-labels";
 
 // Market detail's "you already predicted here" state (roadmap STEP 17).
 // Never implies the user currently holds a financial position — this is a
@@ -8,11 +9,11 @@ import type { Prediction } from "@/lib/predictions/types";
 // repeating the current numbers itself (mirrors the FreshnessNote
 // no-duplicated-copy precedent from Milestone 2).
 
-export function YourPredictionCard({ prediction, yesLabel, noLabel }: { prediction: Prediction; yesLabel: string; noLabel: string }) {
+export function YourPredictionCard({ prediction, choices }: { prediction: Prediction; choices: [Choice, Choice] }) {
   const predictedPercent = Math.round(
     (prediction.selectedOutcome === "YES" ? prediction.yesProbabilitySnapshot : prediction.noProbabilitySnapshot) * 100,
   );
-  const pickedLabel = prediction.selectedOutcome === "YES" ? yesLabel : noLabel;
+  const pickedLabel = choices.find((c) => c.outcome === prediction.selectedOutcome)?.label;
 
   return (
     <div className="space-y-1 rounded-lg border-2 border-text-primary bg-secondary p-4">
