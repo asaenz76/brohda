@@ -6,7 +6,7 @@ import { listFollowedCommunityIds } from "./follows";
 import { listCommunitiesByIds } from "./repository";
 import { listCommunityIdsForPost } from "./distribution";
 import { getPostPublicationPolicy } from "@/lib/posts/policy";
-import { listActiveMarketsForFixtures } from "@/lib/prediction-markets/repository";
+import { listDisplayableMarketsForFixtures } from "@/lib/prediction-markets/repository";
 import { selectPrimaryMarket } from "@/lib/posts/primary-market";
 import { getChoicePresentation, type Choice } from "@/lib/prediction-markets/selection-labels";
 import { getPickAggregatesForMarkets, listLatestUserPredictionsForMarkets } from "@/lib/predictions/repository";
@@ -127,6 +127,8 @@ export interface FeedMarketSummary {
   yesPercent: number | null;
   noPercent: number | null;
   totalPickCount: number;
+  /** True only when the viewer has made a Pick on this Market — the percentages and count above are withheld (null / 0) until then. */
+  sentimentRevealed: boolean;
   status: string;
   /** The viewer's own current Pick on this Market, if any — for "you picked X" display on the feed card. */
   viewerSelection: PredictionOutcome | null;
@@ -150,6 +152,8 @@ export interface FeedCommunityRef {
 }
 
 export interface FeedItem {
+  /** The Game's sport — decides the matchup order everywhere the Game is named (lib/sports-data/team-display-order.ts). */
+  sport: string;
   post: Post;
   homeTeamName: string;
   awayTeamName: string;
@@ -305,7 +309,7 @@ async function enrichFeedRows(
   const fixtureIds = [...new Set(rows.map((r) => r.fixture_id))];
 
   const [activeMarkets, communitiesByPost, commentCounts] = await Promise.all([
-    listActiveMarketsForFixtures(fixtureIds),
+    listDisplayableMarketsForFixtures(fixtureIds),
     listCommunitiesForPosts(postIds),
     getPostCommentCountsForPosts(postIds),
   ]);
@@ -339,8 +343,11 @@ async function enrichFeedRows(
     let primaryMarket: FeedMarketSummary | null = null;
 
     if (primary) {
-      const sentiment = computePickSentiment(pickAggregates.get(primary.id));
       const viewerPrediction = viewerPredictions.get(primary.id);
+      // Pick-first reveal: Brohda's crowd sentiment is shown only to someone who has made a Pick on this Market. A logged-out visitor or a
+      // member who hasn't picked gets no percentages and no count — withheld here, so no surface can show them by accident.
+      const sentimentRevealed = viewerPrediction !== undefined;
+      const sentiment = sentimentRevealed ? computePickSentiment(pickAggregates.get(primary.id)) : { yesPercent: null, noPercent: null, totalPickCount: 0 };
 
       // Same eligibility decision MarketPredictionCard makes for a single
       // Market (lib/predictions/policy.ts's checkMarketEligibility), just
@@ -374,6 +381,7 @@ async function enrichFeedRows(
         yesPercent: sentiment.yesPercent,
         noPercent: sentiment.noPercent,
         totalPickCount: sentiment.totalPickCount,
+        sentimentRevealed,
         status: primary.status,
         viewerSelection: viewerPrediction?.selectedOutcome ?? null,
         isEditable,
@@ -383,6 +391,7 @@ async function enrichFeedRows(
 
     return {
       post: toPost(row),
+      sport: row.fixtures!.sport,
       homeTeamName: row.fixtures!.home_team_name,
       awayTeamName: row.fixtures!.away_team_name,
       homeTeamLogoUrl: row.fixtures!.home_team_logo_url,

@@ -2,7 +2,8 @@ import Link from "next/link";
 import { MessageCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { LocalDateTime } from "@/components/LocalDateTime";
-import { TeamCrest } from "@/components/TeamCrest";
+import { MatchupHeading } from "@/components/posts/MatchupHeading";
+import { formatMatchupScores, formatMatchupSpoken } from "@/lib/sports-data/team-display-order";
 import { PredictionActions } from "@/components/predictions/PredictionActions";
 import { PublicPickChoices } from "@/components/posts/PublicPickChoices";
 import { getCommunityTypeLabel } from "@/lib/communities/presentation";
@@ -35,8 +36,26 @@ function MarketContext({ market }: { market: NonNullable<FeedItem["primaryMarket
   return <p className="text-sm font-medium text-text-primary">{market.marketLabel ?? market.question}</p>;
 }
 
-function gameStatusLabel(internalStatus: string, homeScore: number | null, awayScore: number | null): string | null {
-  if (internalStatus === "COMPLETED" && homeScore != null && awayScore != null) return `Final ${awayScore}-${homeScore}`;
+/**
+ * Brohda's crowd sentiment, Pick-first: percentages for both visible sides and the predicted count appear only AFTER the viewer has made
+ * a Pick (and stay once it changes, locks or is graded). Logged-out visitors can't pick, so they never see them. This is social sentiment,
+ * never a betting probability. Before a Pick, a single nudge says where it comes from.
+ */
+function SentimentLine({ market, isPublic }: { market: NonNullable<FeedItem["primaryMarket"]>; isPublic: boolean }) {
+  if (!isPublic && market.sentimentRevealed) {
+    return (
+      <p className="text-xs text-text-muted">
+        {market.choices.map((c) => `${c.label} ${c.outcome === "YES" ? market.yesPercent : market.noPercent}%`).join(" · ")} · {market.totalPickCount} predicted
+      </p>
+    );
+  }
+  // Nothing to nudge toward when picking isn't possible right now (locked / closed game).
+  if (market.pickDisabledReason) return null;
+  return <p className="text-xs text-text-muted">Make your pick to see how everyone else picked.</p>;
+}
+
+function gameStatusLabel(sport: string, internalStatus: string, homeScore: number | null, awayScore: number | null): string | null {
+  if (internalStatus === "COMPLETED" && homeScore != null && awayScore != null) return `Final ${formatMatchupScores(sport, homeScore, awayScore)}`;
   if (["LIVE", "HALFTIME", "EXTRA_TIME", "PENALTIES"].includes(internalStatus)) return "Live";
   return null;
 }
@@ -59,7 +78,7 @@ function gameStatusLabel(internalStatus: string, homeScore: number | null, awayS
  */
 export function GamePostCard({ item, mode = "member" }: { item: FeedItem; mode?: "member" | "public" }) {
   const isPublic = mode === "public";
-  const statusLabel = gameStatusLabel(item.internalStatus, item.homeScore, item.awayScore);
+  const statusLabel = gameStatusLabel(item.sport, item.internalStatus, item.homeScore, item.awayScore);
   const market = item.primaryMarket;
   // Restraint (spec §20): a Post can belong to several Communities at
   // once (home team, away team, league, sport) — show at most a couple,
@@ -82,9 +101,13 @@ export function GamePostCard({ item, mode = "member" }: { item: FeedItem; mode?:
         </div>
         <Link href={`/post/${item.post.id}`} className="block space-y-3">
           <p className="flex flex-wrap items-center gap-1.5 text-base font-semibold text-text-primary">
-            <TeamCrest logoUrl={item.awayTeamLogoUrl} teamName={item.awayTeamName} />
-            {item.awayTeamName} @ <TeamCrest logoUrl={item.homeTeamLogoUrl} teamName={item.homeTeamName} />
-            {item.homeTeamName}
+            <MatchupHeading
+              sport={item.sport}
+              homeTeamName={item.homeTeamName}
+              awayTeamName={item.awayTeamName}
+              homeTeamLogoUrl={item.homeTeamLogoUrl}
+              awayTeamLogoUrl={item.awayTeamLogoUrl}
+            />
           </p>
 
           <p className="text-sm text-text-secondary">
@@ -100,7 +123,7 @@ export function GamePostCard({ item, mode = "member" }: { item: FeedItem; mode?:
               market.pickDisabledReason ? (
                 <p className="text-sm font-medium text-text-muted">{market.pickDisabledReason}</p>
               ) : (
-                <PublicPickChoices choices={market.choices} />
+                <PublicPickChoices choices={market.choices} postId={item.post.id} />
               )
             ) : market.isEditable ? (
               <PredictionActions
@@ -115,11 +138,7 @@ export function GamePostCard({ item, mode = "member" }: { item: FeedItem; mode?:
               </p>
             )}
 
-            <p className="text-xs text-text-muted">
-              {market.totalPickCount > 0
-                ? `${market.choices.map((c) => `${c.label} ${c.outcome === "YES" ? market.yesPercent : market.noPercent}%`).join(" · ")} · ${market.totalPickCount} predicted`
-                : "No one has predicted yet."}
-            </p>
+            <SentimentLine market={market} isPublic={isPublic} />
           </div>
         )}
 
@@ -158,5 +177,5 @@ export function GamePostCard({ item, mode = "member" }: { item: FeedItem; mode?:
     </Card>
   );
 
-  return <article aria-label={`Game: ${item.awayTeamName} at ${item.homeTeamName}`}>{card}</article>;
+  return <article aria-label={`Game: ${formatMatchupSpoken(item.sport, item.homeTeamName, item.awayTeamName)}`}>{card}</article>;
 }

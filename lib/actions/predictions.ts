@@ -35,7 +35,7 @@ export interface SubmitPredictionState {
   error: string | null;
   /** True when the request was rejected specifically because the Pick is locked (cutoff passed, Game no longer open, or already permanently locked) — lets the UI show "locked" copy/state rather than a generic retryable error. */
   locked: boolean;
-  confirmation: { selectedOutcome: "YES" | "NO"; probabilityPercent: number } | null;
+  confirmation: { selectedOutcome: "YES" | "NO" } | null;
 }
 
 export async function submitPredictionAction(input: {
@@ -116,11 +116,7 @@ export async function submitPredictionAction(input: {
   revalidatePath(`/markets/${marketId}`);
   revalidatePath("/profile");
 
-  const probability = prediction.selectedOutcome === "YES" ? prediction.yesProbabilitySnapshot : prediction.noProbabilitySnapshot;
-  return {
-    success: true,
-    error: null,
-    locked: false,
-    confirmation: { selectedOutcome: prediction.selectedOutcome, probabilityPercent: Math.round(probability * 100) },
-  };
+  // What was recorded, in canonical terms — the UI words it with the visible choice. No probability is returned or shown: the percentage a
+  // sportsbook or provider quotes is never presented as Brohda's own number.
+  return { success: true, error: null, locked: false, confirmation: { selectedOutcome: prediction.selectedOutcome } };
 }

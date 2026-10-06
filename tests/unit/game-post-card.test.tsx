@@ -5,6 +5,8 @@ import { GamePostCard } from "@/components/posts/GamePostCard";
 import type { FeedItem } from "@/lib/communities/feed";
 import { choiceFields, nflMoneyline } from "./helpers/choices";
 
+const nflMoneylineFor = (sport: string) => choiceFields({ marketTemplate: "MONEYLINE", yesSide: "HOME", lineValue: null, homeTeamName: "Home Test NFL", awayTeamName: "Away Test NFL", sport });
+
 afterEach(() => cleanup());
 
 vi.mock("@/lib/actions/predictions", () => ({
@@ -14,6 +16,7 @@ vi.mock("@/lib/actions/predictions", () => ({
 function makeItem(overrides: Partial<FeedItem> = {}): FeedItem {
   return {
     post: { id: "post-1", fixtureId: "fixture-1", publishedAt: new Date().toISOString(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    sport: "american_football",
     homeTeamName: "Home Test NFL",
     awayTeamName: "Away Test NFL",
     homeTeamLogoUrl: null,
@@ -27,9 +30,10 @@ function makeItem(overrides: Partial<FeedItem> = {}): FeedItem {
       id: "market-1",
       question: "Will the Home Test NFL win?",
       ...nflMoneyline("Home Test NFL", "Away Test NFL"),
-      yesPercent: 67,
-      noPercent: 33,
-      totalPickCount: 3,
+      yesPercent: null,
+      noPercent: null,
+      totalPickCount: 0,
+      sentimentRevealed: false,
       status: "ACTIVE",
       viewerSelection: null,
       isEditable: true,
@@ -59,32 +63,54 @@ describe("GamePostCard", () => {
     }
   });
 
-  it("shows real sentiment with both semantic labels and the predicted count, never a raw provider price", () => {
-    render(<GamePostCard item={makeItem()} />);
-    // Sentiment sits against the visible sides, in matchup order — the canonical YES 67% / NO 33% relabelled, never "YES 67%".
-    expect(screen.getByText("Away Test NFL 33% · Home Test NFL 67% · 3 predicted")).toBeInTheDocument();
-  });
+  // Pick-first reveal (a locked product rule): Brohda's crowd sentiment is social sentiment, not a betting probability, and appears only once
+  // the viewer has made a Pick. Before that — and for anyone logged out — there are no percentages and no count.
+  describe("sentiment is revealed by a Pick, never before", () => {
+    const picked = (overrides: Record<string, unknown> = {}) =>
+      makeItem({ primaryMarket: { ...makeItem().primaryMarket!, yesPercent: 67, noPercent: 33, totalPickCount: 3, sentimentRevealed: true, viewerSelection: "YES", ...overrides } as never });
 
-  it("shows an honest empty-sentiment state when nobody has predicted yet", () => {
-    render(
-      <GamePostCard
-        item={makeItem({
-          primaryMarket: {
-            id: "market-1",
-            question: "Will the Home Test NFL win?",
-            ...nflMoneyline("Home Test NFL", "Away Test NFL"),
-            yesPercent: null,
-            noPercent: null,
-            totalPickCount: 0,
-            status: "ACTIVE",
-            viewerSelection: null,
-            isEditable: true,
-            pickDisabledReason: null,
-          },
-        })}
-      />,
-    );
-    expect(screen.getByText("No one has predicted yet.")).toBeInTheDocument();
+    it("no Pick: no percentages, no count — only a nudge", () => {
+      const { container } = render(<GamePostCard item={makeItem()} />);
+      expect(container.textContent).not.toMatch(/\d+%|predicted/);
+      expect(screen.getByText("Make your pick to see how everyone else picked.")).toBeInTheDocument();
+    });
+
+    it("after a Pick: both visible sides with their percentages, in matchup order, and the predicted count", () => {
+      render(<GamePostCard item={picked()} />);
+      // The canonical YES 67% / NO 33% relabelled against the visible sides — never "YES 67%".
+      expect(screen.getByText("Away Test NFL 33% · Home Test NFL 67% · 3 predicted")).toBeInTheDocument();
+      expect(screen.queryByText(/Make your pick to see/)).toBeNull();
+    });
+
+    it("after the Pick changes sides: still revealed", () => {
+      render(<GamePostCard item={picked({ viewerSelection: "NO" })} />);
+      expect(screen.getByText("Away Test NFL 33% · Home Test NFL 67% · 3 predicted")).toBeInTheDocument();
+    });
+
+    it("once the Pick is locked (read-only): still revealed", () => {
+      render(<GamePostCard item={picked({ isEditable: false, pickDisabledReason: "Picks are locked for this game." })} />);
+      expect(screen.getByText("Away Test NFL 33% · Home Test NFL 67% · 3 predicted")).toBeInTheDocument();
+    });
+
+    it("once the Game is final and the Pick graded: still revealed", () => {
+      render(<GamePostCard item={{ ...picked({ isEditable: false, pickDisabledReason: "Picks are locked for this game." }), internalStatus: "COMPLETED", homeScore: 24, awayScore: 10 }} />);
+      expect(screen.getByText("Away Test NFL 33% · Home Test NFL 67% · 3 predicted")).toBeInTheDocument();
+    });
+
+    it("logged out: never revealed, even if the data were present", () => {
+      const { container } = render(<GamePostCard item={picked()} mode="public" />);
+      expect(container.textContent).not.toMatch(/\d+%|predicted/);
+    });
+
+    it("no nudge toward picking when picking isn't possible (locked / closed game)", () => {
+      const { container } = render(<GamePostCard item={makeItem({ primaryMarket: { ...makeItem().primaryMarket!, isEditable: false, pickDisabledReason: "Picks are locked for this game." } as never })} />);
+      expect(container.textContent).not.toMatch(/Make your pick to see/);
+    });
+
+    it("no sportsbook or implied-probability copy anywhere on the card", () => {
+      const { container } = render(<GamePostCard item={picked()} />);
+      expect(container.textContent).not.toMatch(/implied|odds|chance|probabilit|sportsbook|moneyline odds|picked at/i);
+    });
   });
 
   it("renders interactive Pick buttons that are the two teams, in matchup order, never Yes/No or win / do not win", () => {
@@ -133,6 +159,7 @@ describe("GamePostCard", () => {
             yesPercent: 100,
             noPercent: 0,
             totalPickCount: 1,
+            sentimentRevealed: true,
             status: "ACTIVE",
             viewerSelection: "YES",
             isEditable: false,
@@ -163,5 +190,29 @@ describe("GamePostCard", () => {
     render(<GamePostCard item={makeItem()} />);
     const headerLink = screen.getByText(/Away Test NFL @/).closest("a");
     expect(headerLink).toHaveAttribute("href", "/post/post-1");
+  });
+
+  describe("the matchup follows the sport, not a hard-coded order", () => {
+    it("American football reads Away @ Home — header, accessible name and final score", () => {
+      const { container } = render(<GamePostCard item={makeItem({ sport: "american_football", internalStatus: "COMPLETED", homeScore: 24, awayScore: 10 })} />);
+      expect(screen.getByText(/Away Test NFL @/)).toBeInTheDocument();
+      expect(screen.getByRole("article", { name: "Game: Away Test NFL at Home Test NFL" })).toBeInTheDocument();
+      expect(container.textContent).toContain("Final 10-24"); // away score first, as the teams read
+    });
+
+    it("football (soccer) reads Home vs Away — the same card, the other order", () => {
+      const { container } = render(<GamePostCard item={makeItem({ sport: "football", internalStatus: "COMPLETED", homeScore: 24, awayScore: 10 })} />);
+      expect(screen.getByText(/Home Test NFL vs/)).toBeInTheDocument();
+      expect(screen.getByRole("article", { name: "Game: Home Test NFL vs Away Test NFL" })).toBeInTheDocument();
+      expect(container.textContent).toContain("Final 24-10");
+      expect(container.textContent).not.toMatch(/Away Test NFL @/);
+    });
+
+    it("the Pick choices follow the same order as the header", () => {
+      const football = { ...makeItem({ sport: "football" }) };
+      football.primaryMarket = { ...football.primaryMarket!, ...nflMoneylineFor("football") };
+      render(<GamePostCard item={football} />);
+      expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Home Test NFL", "Away Test NFL"]);
+    });
   });
 });

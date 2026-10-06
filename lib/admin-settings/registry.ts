@@ -421,4 +421,5 @@ export const NOT_EXPOSED_SETTINGS: Array<{ column: string; reason: string }> = [
   { column: "discovery_fresh_within_minutes", reason: "Pre-existing Milestone 2 discovery-freshness policy, orthogonal to the R1-R11 domains this milestone's own task text enumerates; no existing admin UI exposes it today either — deferred rather than expanding scope without an explicit product ask." },
   { column: "discovery_stale_within_minutes", reason: "Same as discovery_fresh_within_minutes." },
   { column: "post_primary_market_template_priority", reason: "A display-ordering array over the fixed MONEYLINE/SPREAD/TOTAL set, not an enable/disable policy. No operator-control signal exists for reordering it; the underlying template set itself is a hard-coded technical capability (a Postgres enum), not configurable at all." },
+  { column: "legal_reconsent_required", reason: "A deliberate owner switch (which of the Terms / Privacy Policy every member must re-accept), set only by an owner with a legal decision behind it — never a routine operator toggle, and never changed by an admin-UI click. See docs/legal/TERMS_PRIVACY_OWNER_COUNSEL_REVIEW.md section 7." },
 ];

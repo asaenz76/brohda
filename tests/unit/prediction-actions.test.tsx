@@ -57,19 +57,21 @@ describe("PredictionActions — what is shown versus what is stored", () => {
     ["total (over)", total, "Pick Over 47.5 total points", "YES"],
     ["total (under)", total, "Pick Under 47.5 total points", "NO"],
   ] as const)("%s: tapping '%s' submits the canonical %s", async (_n, choices, name, outcome) => {
-    vi.mocked(submitPredictionAction).mockResolvedValue({ success: true, confirmation: { selectedOutcome: outcome, probabilityPercent: 55 } } as never);
+    vi.mocked(submitPredictionAction).mockResolvedValue({ success: true, confirmation: { selectedOutcome: outcome } } as never);
     render(<PredictionActions marketId="m1" disabledReason={null} choices={choices} />);
     fireEvent.click(screen.getByRole("button", { name }));
     await waitFor(() => expect(submitPredictionAction).toHaveBeenCalledWith(expect.objectContaining({ marketId: "m1", selectedOutcome: outcome })));
   });
 
   it("changing the Pick moves the selected state to the other visible choice and confirms in the visible words", async () => {
-    vi.mocked(submitPredictionAction).mockResolvedValue({ success: true, confirmation: { selectedOutcome: "NO", probabilityPercent: 40 } } as never);
+    vi.mocked(submitPredictionAction).mockResolvedValue({ success: true, confirmation: { selectedOutcome: "NO" } } as never);
     render(<PredictionActions marketId="m1" disabledReason={null} currentSelection="YES" choices={moneyline} />);
     fireEvent.click(screen.getByRole("button", { name: "Pick Washington Commanders to win" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("You picked Washington Commanders (40%).");
+    expect(await screen.findByRole("status")).toHaveTextContent("You picked Washington Commanders.");
     expect(screen.getByRole("button", { name: "Pick Washington Commanders to win" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Pick Indianapolis Colts to win" })).toHaveAttribute("aria-pressed", "false");
+    // No probability of any kind is shown with the confirmation.
+    expect(screen.getByRole("status").textContent).not.toMatch(/%|odds|chance|probabilit/i);
   });
 
   it("falls back to generic labels for a Market the presentation can't describe, without crashing", () => {

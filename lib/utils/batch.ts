@@ -18,3 +18,21 @@ export async function fetchInChunks<Row>(
   const results = await Promise.all(chunks.map(fetchChunk));
   return results.flatMap((r) => r.data ?? []);
 }
+
+// PostgREST silently truncates any single response at the project's `max_rows` (1000 by default) — no error, no flag, just fewer rows.
+// A whole-table integrity read must therefore page. The page size stays well under that ceiling so a short page reliably means "the end",
+// and callers must order by a unique column so pages never overlap or skip.
+const FULL_READ_PAGE_SIZE = 500;
+
+export async function fetchAllRows<Row>(
+  fetchPage: (from: number, to: number) => PromiseLike<{ data: Row[] | null; error: { message: string } | null }>,
+): Promise<Row[]> {
+  const rows: Row[] = [];
+  for (let from = 0; ; from += FULL_READ_PAGE_SIZE) {
+    const { data, error } = await fetchPage(from, from + FULL_READ_PAGE_SIZE - 1);
+    if (error) throw error;
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < FULL_READ_PAGE_SIZE) return rows;
+  }
+}

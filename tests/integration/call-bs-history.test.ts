@@ -121,6 +121,11 @@ let C = "";
 const games: Record<string, Awaited<ReturnType<typeof resolvedChallenge>>> = {};
 
 beforeAll(async () => {
+  // This file needs Call BS on. It used to pass only because some earlier file happened to leave it enabled; every file now starts from the
+  // schema defaults (helpers/isolation.ts), so it says so itself.
+  const { error: policyError } = await admin.from("platform_settings").update({ call_bs_enabled: true }).eq("id", true);
+  if (policyError) throw policyError;
+
   A = await createUser("andre");
   B = await createUser("carlos");
   C = await createUser("marco");

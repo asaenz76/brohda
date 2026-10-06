@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { deleteFixtureAction } from "@/lib/actions/fixtures";
 import { Button } from "@/components/ui/button";
+import { formatMatchup } from "@/lib/sports-data/team-display-order";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -171,7 +172,7 @@ function FixtureManagementRow({
       <CardContent className="flex items-center gap-4 pt-6">
         <div className="flex-1">
           <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-text-primary">
-            {fixture.homeTeamName} vs {fixture.awayTeamName}
+            {formatMatchup(fixture.sport ?? "", fixture.homeTeamName, fixture.awayTeamName)}
             {/* Internal provider ID — only meaningful for super admins
                 debugging imports/duplicates, so it's hidden from regular
                 admins rather than shown as a normal-looking meta detail. */}

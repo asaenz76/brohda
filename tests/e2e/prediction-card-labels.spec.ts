@@ -217,7 +217,7 @@ for (const template of TEMPLATES) {
         await page.goto("/profile");
         const history = page.getByRole("link", { name: `${away} @ ${home} · ${template.marketLabel}` });
         await expect(history).toBeVisible();
-        await expect(page.getByText(new RegExp(`You picked ${yes.label.replace(/[+.]/g, "\\$&")} \\(`))).toBeVisible();
+        await expect(page.getByText(new RegExp(`You picked ${yes.label.replace(/[+.]/g, "\\$&")} · `))).toBeVisible();
         await expect(page.getByRole("main")).not.toContainText(/You picked (YES|NO)\b/);
 
         // The other side reads its own visible choice and an incorrect result.

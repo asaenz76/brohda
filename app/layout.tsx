@@ -25,8 +25,8 @@ export const metadata: Metadata = {
   metadataBase: new URL(process.env.APP_URL ?? "http://localhost:3000"),
   title: "brohda.",
   description: "A social network for people who think they know sports. Pick a side, join the conversation, call BS, and see who was right.",
-  // Belt-and-suspenders alongside app/robots.ts: invite-only means no page
-  // should ever be indexed, even if a crawler ignores robots.txt.
+  // Belt-and-suspenders alongside app/robots.ts: today no page is indexed, even if a crawler ignores robots.txt. That is a current
+  // setting, not a claim the product is private (see docs/SEO_AUDIT.md); changing it is an owner decision.
   robots: { index: false, follow: false },
   // iOS has no install API at all (no beforeinstallprompt) — this is what
   // makes "Add to Home Screen" open the app full-screen, without Safari's

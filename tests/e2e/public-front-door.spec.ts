@@ -40,7 +40,7 @@ async function seedGame(home: string, away: string, minutesAhead: number) {
   const { data: fixture } = await admin
     .from("fixtures")
     .insert({
-      external_fixture_id: `e2e-fd-${randomUUID()}`, home_team_name: home, away_team_name: away, competition_name: "NFL",
+      sport: "american_football", external_fixture_id: `e2e-fd-${randomUUID()}`, home_team_name: home, away_team_name: away, competition_name: "NFL",
       scheduled_start_utc: new Date(Date.now() + minutesAhead * 60_000).toISOString(), internal_status: "NOT_STARTED",
     })
     .select("id")
@@ -145,7 +145,7 @@ const gameArticle = (page: Page) => page.getByRole("article", { name: `Game: ${A
 test.describe("Logged-out front door — desktop", () => {
   test.use({ viewport: { width: 1280, height: 900 } });
 
-  test("is the public face of the network: platform-published Games, aggregate sentiment, a comment count, two ways in", async ({ page }) => {
+  test("is the public face of the network: platform-published Games, a comment count, two ways in — and no crowd sentiment before a Pick", async ({ page }) => {
     const response = await page.goto("/");
     expect(response?.status()).toBe(200);
     await expect(page).toHaveURL(/\/$/);
@@ -160,7 +160,9 @@ test.describe("Logged-out front door — desktop", () => {
     await expect(game).toContainText(`${AWAY} @`);
     await expect(game).toContainText("Brohda · NFL");
     await expect(game.getByText("Game published by")).toBeAttached();
-    await expect(game).toContainText("2 predicted");
+    // Pick-first: a visitor can't have picked, so the crowd split (percentages / predicted count) is never shown — just the nudge.
+    await expect(game).toContainText("Make your pick to see how everyone else picked.");
+    expect(await game.innerText()).not.toMatch(/\d+%|\d+ predicted/);
     await expect(game).toContainText("1 comment");
     await expect(page.getByRole("link", { name: "Create account" })).toHaveAttribute("href", "/register");
     await expect(page.getByRole("link", { name: "Log in" }).first()).toHaveAttribute("href", "/login");
@@ -211,13 +213,13 @@ test.describe("Logged-out front door — desktop", () => {
     const picksOnThisGame = async () => (await admin.from("predictions").select("id", { count: "exact", head: true }).eq("market_id", seeded.marketId)).count;
     const before = await picksOnThisGame();
     await game.getByRole("link", { name: /^Pick .* \(create an account/ }).first().click();
-    await expect(page).toHaveURL(/\/register$/);
+    await expect(page).toHaveURL(new RegExp(`/register\\?next=%2Fpost%2F${seeded.postId}$`));
     expect(await picksOnThisGame()).toBe(before);
 
-    // A Post link is real; Post detail needs an account today, so the visitor is sent to log in.
+    // A Post link is real; Post detail needs an account today, so the visitor is sent to log in — and brought back to that Post afterwards (login ?next=).
     await page.goto("/");
     await gameArticle(page).getByRole("link", { name: new RegExp(`${AWAY} @`) }).click();
-    await expect(page).toHaveURL(/\/login$/);
+    await expect(page).toHaveURL(new RegExp(`/login\\?next=%2Fpost%2F${seeded.postId}$`));
   });
 
   test("centre column: Upcoming games over Sports | Leagues | Teams, Sports by default; tabs switch real content", async ({ page }) => {
@@ -248,7 +250,7 @@ test.describe("Logged-out front door — desktop", () => {
     await main.getByRole("tab", { name: "Teams" }).click();
     await expect(main.getByRole("link", { name: TEAM_NAME })).toHaveAttribute("href", `/community/${TEAM_SLUG}`);
     await main.getByRole("link", { name: TEAM_NAME }).click();
-    await expect(page).toHaveURL(/\/login$/);
+    await expect(page).toHaveURL(new RegExp(`/login\\?next=%2Fcommunity%2F${TEAM_SLUG}$`));
     await page.goto("/");
     await main.getByRole("tab", { name: "Sports" }).click();
     await expect(gameArticle(page)).toBeVisible();
@@ -446,7 +448,7 @@ test.describe("Logged-out front door — mobile (Mastodon pattern: the feed is t
         await page.getByRole("main").getByRole("tab", { name: "Sports" }).click();
         await expect(gameArticle(page)).toBeVisible();
         await gameArticle(page).getByRole("link", { name: /^Pick .* \(create an account/ }).first().click();
-        await expect(page).toHaveURL(/\/register$/);
+        await expect(page).toHaveURL(new RegExp(`/register\\?next=%2Fpost%2F${seeded.postId}$`));
       });
 
       test("long names stay inside the screen and nothing overflows horizontally", async ({ page }) => {

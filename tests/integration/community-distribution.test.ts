@@ -635,12 +635,21 @@ describe("Home feed sentiment/comments/Pick state (Phase C)", () => {
     await createPrediction(voter2, marketId, "YES");
     await createPrediction(voter3, marketId, "NO");
 
+    // Pick-first: until the viewer has made a Pick, none of the crowd split is exposed — not the percentages, not the count.
     const viewerId = await createTestUser();
-    const feed = await getSocialFeed(viewerId);
-    const item = feed.find((i) => i.post.id === postId);
-    expect(item?.primaryMarket?.totalPickCount).toBe(3);
-    expect(item?.primaryMarket?.yesPercent).toBe(67);
-    expect(item?.primaryMarket?.noPercent).toBe(33);
+    const before = (await getSocialFeed(viewerId)).find((i) => i.post.id === postId);
+    expect(before?.primaryMarket?.sentimentRevealed).toBe(false);
+    expect(before?.primaryMarket?.totalPickCount).toBe(0);
+    expect(before?.primaryMarket?.yesPercent).toBeNull();
+    expect(before?.primaryMarket?.noPercent).toBeNull();
+
+    // Once the viewer picks (YES), the real Pick-share appears: 3 YES / 1 NO = 75/25 — neither the provider's 60/40 nor anything else.
+    await createPrediction(viewerId, marketId, "YES");
+    const after = (await getSocialFeed(viewerId)).find((i) => i.post.id === postId);
+    expect(after?.primaryMarket?.sentimentRevealed).toBe(true);
+    expect(after?.primaryMarket?.totalPickCount).toBe(4);
+    expect(after?.primaryMarket?.yesPercent).toBe(75);
+    expect(after?.primaryMarket?.noPercent).toBe(25);
   });
 
   it("never fabricates a percentage when nobody has predicted yet", async () => {

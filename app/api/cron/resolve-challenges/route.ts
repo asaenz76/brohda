@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
-import { resolveAcceptedChallenges } from "@/lib/challenges/resolution";
+import { runChallengeLifecycleJob } from "@/lib/challenges/lifecycle";
 import { recordJobRun } from "@/lib/jobs/record";
 
+// Call BS lifecycle: expires PENDING challenges that can no longer be accepted, then resolves ACCEPTED ones (runChallengeLifecycleJob).
+//
 // Milestone R13.5: resolves R13's PRODUCTION OPERATIONS DECISION REQUIRED
 // finding for Call BS Challenge resolution. Invokes the exact same
 // resolveAcceptedChallenges() scripts/resolve-challenges.ts already uses
@@ -20,6 +22,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const result = await recordJobRun("resolve-challenges", () => resolveAcceptedChallenges());
+  const result = await recordJobRun("resolve-challenges", () => runChallengeLifecycleJob());
   return NextResponse.json(result);
 }

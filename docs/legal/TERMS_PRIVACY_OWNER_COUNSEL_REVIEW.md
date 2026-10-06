@@ -127,76 +127,62 @@ the losing amount; money Positions visible only to the two members and super-adm
 initiate, process, guarantee, or reverse any transfer" in §3, the §3 allocation of disputes, §9/§10 references to off-platform payments "between members",
 and the §5 characterization of the fee) — all part of B2–B6 above.
 
-### 2b. Deferred to the later legal/privacy cleanup milestone (explicitly out of scope here)
+### 2b. Handled in the r42 cleanup milestone (see sections 3, 4 and 7)
 
-formal conduct policy · Terms version acceptance/history · re-consent on material Terms changes · profile-field disclosures (G1) · Sentry disclosure (G3) ·
-Resend disclosure (G4) · withdrawal-destination wording (G5) · deletion vs. append-only ledger reconciliation (G9) · audit-log IP discrepancy (G7).
+Conduct policy (section 3) · Terms/Privacy version identifiers and an append-only acceptance record + a deliberate re-consent switch (section 7) ·
+profile-field, Sentry, Resend and withdrawal-destination disclosures, the deletion-vs-ledger reconciliation and the audit-log IP discrepancy
+(section 4). Every item below is still **OWNER/COUNSEL REVIEW REQUIRED**; engineering corrected facts only.
 
 ---
 
-## 3. Conduct and moderation — what the Terms cover today
+## 3. Conduct and moderation — what the Terms now say (r42)
 
-| Topic | In Terms? | Implementation / note |
+| Topic | In Terms? | Implementation behind it |
 |---|---|---|
-| Harassment | **No** | — |
-| Threats | **No** | — |
-| Spam | **No** | comments are rate-limited in code |
-| Abuse of the Service | Partly (§6: manipulate outcomes, interfere with others' use, circumvent security, fraud/laundering) | — |
-| Prohibited content | **No** | — |
-| Moderator removal authority | **No** | moderators (admin/super admin) can remove comments; the Rules page says so and says "what isn't allowed … is covered in the Terms" — **the Terms do not cover it, so that cross-reference currently points at nothing** |
-| Account suspension/termination | Yes (§11; also §1) | — |
+| Harassment, threats, abuse | **Yes** (§6) | no automated detection; handled by moderators/admins |
+| Content attacking people for who they are | **Yes** (§6) | same |
+| Spam, scams, impersonation | **Yes** (§6) | comments are rate-limited in code (not described in the Terms) |
+| Unlawful content / others' private information | **Yes** (§6) | same |
+| Moderator removal authority | **Yes** (§6: "We and our moderators may remove content, including comments…") | moderators (admin / super admin) can remove comments (`removePostCommentAction`) |
+| Account suspension/closure | **Yes** (§6 points to §11; also §1, §11) | a super admin can deactivate an account (`setUserActiveAction`) |
+| Reporting | **Yes** — "tell us at support@brohda.com" | there is **no in-app report button**; the Terms promise nothing beyond email |
 
-This milestone did not implement moderation and did not publish new conduct language. The **proposed draft below is for review only** and
-is deliberately short. Until it is reviewed, the Rules sentence that defers to the Terms is a known mismatch (P1).
+The Rules page's sentence "What isn't allowed on Brohda is covered in the Terms." now points at something (Terms §6; guarded by a unit test).
 
-### Proposed conduct section — DRAFT — OWNER/COUNSEL REVIEW REQUIRED
+**Deliberately not stated** (so the Terms promise nothing the product does not do): strikes, warnings, appeals, response times, automated
+enforcement, limiting features (the earlier draft said "limit features"; there is no such tool, so it was removed), shadow-banning, any
+guaranteed review of reports.
 
-> **Conduct and content.** Be respectful. You may not use the Service to harass, threaten, or abuse other people; to post spam, scams, or
-> content that impersonates someone else; to post unlawful content or other people's private information; or to post content that is
-> hateful or that targets people for who they are. We may remove content, limit features, or suspend or end an account at our
-> discretion, with or without notice, including for conduct we consider harmful to members or to the Service. If you see content that
-> breaks these rules, contact support@brohda.com.
+**OWNER/COUNSEL REVIEW REQUIRED (B-class):** the substance of the conduct list (what is prohibited, and the "hateful or targets people for who
+they are" line, which was reduced to "attacks people for who they are"), the authority to remove content and to suspend or close accounts "at
+our discretion, with or without notice", and whether a public product needs a notice-and-takedown / reporting / appeals process. Engineering
+wrote only the minimum that matches the tools that exist.
 
 ---
 
-## 4. Privacy — implementation findings that the policy does not (fully) disclose
+## 4. Privacy — implementation findings, and what the policy now says (r42)
 
-Per the brief these are **reported, not silently normalised**. Items marked ✱ are *also now mentioned in the published text* because they
-describe data the Service already stores about activity the page already listed; counsel should confirm that wording.
+Every item was audited against the code, and the policy now states the fact. The statements remain **OWNER/COUNSEL REVIEW REQUIRED** as legal
+text; engineering only made them match the implementation.
 
-- **G1 — Optional profile fields.** `user_profiles` stores `pronouns`, `gender`, `bio` (each with a "show on profile" toggle) and
-  `analytics_timezone`. The policy lists only email, display name, username and photo. The new §4 says "any optional profile details you
-  choose to show" without naming them.
-- **G2 ✱ — Pick change history.** `prediction_revisions` keeps each change to a Pick before it locks. The text now says "(including any
-  changes you make to them before they lock)".
-- **G3 — Error and performance monitoring (Sentry).** `@sentry/nextjs` is initialised on client and server with `NEXT_PUBLIC_SENTRY_DSN`
-  set in production; unhandled errors are captured and 10% of traces sampled. Default Sentry settings (no explicit PII flag). Not
-  named in the policy (§5 lists "infrastructure providers … including a hosting/database/authentication provider and a sports-data
-  provider" — non-exhaustive).
-- **G4 — Email delivery provider (Resend).** `RESEND_API_KEY` is set in production; Supabase Auth's SMTP relay uses it for account email
-  (password reset etc.). The member's email address and message content are processed by that provider. Not named.
-- **G5 — Withdrawal payout destination provided by the member.** `wallet_requests.note` carries the member's payout destination (a
-  handle or wallet address) for withdrawals, and it is copied to the ledger entry. Privacy §2 says destination details "are provided by
-  administrators … not collected from you". That is true for deposit instructions, **not** for withdrawals. Unchanged in the text.
-- **G6 ✱ — Sign-in attempt records.** `rate_limits` counts attempts per `login:<identifier>` (and per user for comments and money
-  offers). The text now says "security-related records such as sign-in attempts".
-- **G7 — IP address.** The policy says device/log data includes IP address. `audit_logs.ip` exists but **no call site populates it**
-  (always null); IP exposure is via the hosting/database providers' request logs.
-- **G8 — Named processors.** Hosting (Vercel), database/auth (Supabase), sports data (API-NFL), error monitoring (Sentry), email (Resend)
-  are described generically.
-- **G9 — Deletion vs. retention.** Policy: contact us to request deletion. Code: account closure removes name, username and photo, the
-  email can never register again, and the wallet ledger is append-only (a member with ledger history cannot be hard-deleted). Counsel should
-  confirm the stated rights match this.
-- **G10 — Terms acceptance not recorded** (also B11).
+| # | Finding | Published now |
+|---|---|---|
+| G1 | `user_profiles` stores optional `pronouns`, `gender`, `bio` (each with a show/hide switch) and `analytics_timezone` | §1 names pronouns, gender and bio and their switches. **Not named:** `analytics_timezone` — it is a column defaulting to `America/Costa_Rica` that no application code reads or writes (verified), so it is not data the member provides; counsel to decide if it needs a line |
+| G2 | `prediction_revisions` keeps each change to a Pick before it locks | named (r41) |
+| G3 | Sentry initialised client + server in production, default settings, 10% trace sampling | "Error monitoring" paragraph: page address, browser/device, timing, error details; no name/email/account id configured; no session recording; **may incidentally contain identifiers** |
+| G4 | Resend relays Supabase Auth account email; admins may also send notices | "Email" paragraph: receives the address and message content |
+| G5 | `wallet_requests.note` carries the member's payout destination, copied to the ledger entry | §2 / §1: entered by the member, visible to the member and processing administrators, recorded on the ledger entry. **Tension for counsel:** the policy also says the Service never receives a "bank account number" — a payout destination can be a handle or wallet address; the wording says "payment-app handle or wallet address" only |
+| G6 | `rate_limits` counts sign-in attempts per identifier | "security-related records such as sign-in attempts" (r41) |
+| G7 | `audit_logs.ip` exists but no call site populates it | **Decision: not populated, not collected.** The policy attributes IP/browser/timestamp logging to "our hosting and infrastructure providers" and claims no IP collection of our own |
+| G8 | Providers: Vercel, Supabase, API-NFL, Sentry, Resend | named in §5 |
+| G9 | Deletion vs. append-only ledger | "deletion" removed from the rights sentence; new "Closing your account" paragraph states exactly what closing removes (name, username, photo, optional profile details; email stays reserved) and what is kept (Picks and comments as "Deleted User", Call BS results, wallet and money ledger, admin-action records that may keep the prior name/username, the acceptance record) |
+| G10 | Terms acceptance was not recorded | recorded from r42 on (section 7); existing members have no row and none was invented |
 
-### Proposed additions — DRAFT — OWNER/COUNSEL REVIEW REQUIRED
-
-> **Information we collect (additions).** Optional profile details you choose to add (such as pronouns, gender, a short bio) and your
-> time zone. When you request a withdrawal, the payout details you provide (for example a payment-app handle or wallet address).
->
-> **Service providers (replace the generic sentence).** We use Vercel (hosting), Supabase (database and sign-in), API-NFL (sports data),
-> Sentry (error and performance monitoring), and Resend (email delivery). They process data on our behalf. We do not sell your information
-> and do not share it with advertisers.
+**OWNER/COUNSEL REVIEW REQUIRED:** whether "contact us for access or correction" is the right rights statement for the jurisdictions the public
+product reaches (the deletion right was removed, not replaced — the policy no longer promises deletion on request); whether retaining the ledger,
+audit records and the acceptance record after closure, and keeping the email permanently reserved, is disclosed and justified adequately; the
+processor list and the Sentry/Resend descriptions; and the timezone gap above. Other jurisdiction-specific content (GDPR/CCPA etc.) was not
+added and is not claimed.
 
 ---
 
@@ -249,3 +235,19 @@ Search: `pool(s)`, `pool organizer`, `entry`, `entry fee`, `owes`, `owed`, `lead
 | "owed … off-platform" | Terms §7 last sentence | Legitimate legal text — B-class, retained |
 | `pool`, `entry fee`, `owes`, `leaderboard`, `likes`, `group`, `invite-only` | — | **No hits remain**; guarded by `tests/unit/legal-copy.test.tsx` |
 | `/how-it-works` | redirect to `/rules` | No standalone copy |
+
+---
+
+## 7. Version identifiers, acceptance record and re-consent (r42) — OWNER DECISION REQUIRED
+
+- `lib/legal/documents.ts` is now the one place for each document's `version` and `effectiveDate`; both pages render the date from it.
+- `legal_acceptances` (append-only: UPDATE/DELETE are refused for every role) stores which version a member accepted, when, and from where
+  (`register` | `invitation` | `reconsent`). Registration and invitation acceptance record both documents. **No backfill:** members who joined before this
+  table have no row, and none was invented.
+- Re-consent is a deliberate switch: `platform_settings.legal_reconsent_required` (default empty). When it lists a document, every signed-in
+  member without an acceptance of the **current** version is routed to `/accept-terms` before continuing. Copy edits never trigger it. It was **not**
+  turned on, in any environment.
+- **Open question for the owner/counsel — NOT chosen by engineering:** both documents still carry "Effective July 22, 2026" (version `2026-07-22`),
+  although their text has changed several times since (r39–r42). Decide (1) the effective date and version of the current text; (2) whether the
+  change is "material" and existing members must re-accept (turn on the switch only then); (3) what the Terms §12 notice should be. Changing the
+  version/date is a one-file edit; enabling re-consent is one settings value.

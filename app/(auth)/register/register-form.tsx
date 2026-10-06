@@ -30,7 +30,7 @@ const STEP_COPY: Record<Step, { label: string; helper?: string }> = {
   },
 };
 
-export function RegisterForm() {
+export function RegisterForm({ next = null }: { next?: string | null }) {
   const [state, formAction, pending] = useActionState(registerAction, initialState);
   const [stepIndex, setStepIndex] = useState(0);
   const formRef = useRef<HTMLFormElement>(null);
@@ -84,6 +84,7 @@ export function RegisterForm() {
             }
           }}
         >
+          {next && <input type="hidden" name="next" value={next} />}
           <div className={step === "displayName" ? "space-y-1.5" : "hidden"}>
             <Label htmlFor="displayName">{STEP_COPY.displayName.label}</Label>
             <Input id="displayName" name="displayName" required maxLength={60} autoFocus={step === "displayName"} />

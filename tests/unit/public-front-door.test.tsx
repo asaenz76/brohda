@@ -20,6 +20,7 @@ afterEach(() => cleanup());
 function item(overrides: Partial<FeedItem> = {}, id = "post-1"): FeedItem {
   return {
     post: { id, fixtureId: "fx-1", publishedAt: "2026-10-01T00:00:00Z", createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z" },
+    sport: "american_football",
     homeTeamName: "Buffalo Bills",
     awayTeamName: "New England Patriots",
     homeTeamLogoUrl: null,
@@ -33,9 +34,10 @@ function item(overrides: Partial<FeedItem> = {}, id = "post-1"): FeedItem {
       id: "m-1",
       question: "Will the Buffalo Bills win?",
       ...nflMoneyline("Buffalo Bills", "New England Patriots"),
-      yesPercent: 67,
-      noPercent: 33,
-      totalPickCount: 42,
+      yesPercent: null,
+      noPercent: null,
+      totalPickCount: 0,
+      sentimentRevealed: false,
       viewerSelection: null,
       isEditable: true,
       pickDisabledReason: null,
@@ -88,10 +90,11 @@ describe("PublicFrontDoor", () => {
     expect(within(article).queryAllByRole("img")).toHaveLength(0);
   });
 
-  it("shows only aggregate public data: sentiment and a comment COUNT — never a person, a comment or a Pick", () => {
+  it("shows only aggregate public data — a comment COUNT, and no crowd sentiment: that is revealed by making a Pick, which a visitor can't", () => {
     const { container } = renderDoor({ feed: [item()] });
-    expect(text(container)).toContain("New England Patriots 33% · Buffalo Bills 67% · 42 predicted");
     expect(text(container)).toContain("8 comments");
+    expect(text(container)).not.toMatch(/\d+%|predicted/); // no percentages, no predicted count
+    expect(text(container)).toContain("Make your pick to see how everyone else picked.");
     expect(text(container)).not.toMatch(/prediction accuracy|you picked/i);
   });
 
@@ -116,7 +119,8 @@ describe("PublicFrontDoor", () => {
     expect(screen.queryAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual(["Open menu"]);
     const picks = screen.getAllByRole("link", { name: /^Pick .* \(create an account/ });
     expect(picks).toHaveLength(2);
-    for (const pick of picks) expect(pick).toHaveAttribute("href", "/register");
+    // An intent click goes to sign-up and then straight back to the Game being looked at.
+    for (const pick of picks) expect(pick).toHaveAttribute("href", expect.stringMatching(/^\/register\?next=%2Fpost%2F[^&]+$/));
   });
 
   it("explains an unavailable Pick instead of offering one", () => {

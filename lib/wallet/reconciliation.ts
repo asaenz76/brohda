@@ -1,5 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchAllRows } from "@/lib/utils/batch";
 
 // Milestone R8 (docs/BROHDA_2_0_MILESTONE_MAP.md, Wallet Reservation
 // Layer), §45: a deterministic consistency check, not a finance
@@ -45,17 +46,14 @@ export async function checkWalletReservationConsistency(): Promise<WalletReserva
   const admin = createAdminClient();
   const anomalies: WalletReservationAnomaly[] = [];
 
-  const { data: wallets, error: walletsError } = await admin
-    .from("wallet_balances")
-    .select("user_id, balance, reserved_balance")
-    .eq("account_type", "user");
-  if (walletsError) throw walletsError;
-
-  const { data: activeReservations, error: activeError } = await admin
-    .from("wallet_reservations")
-    .select("user_id, amount")
-    .eq("status", "ACTIVE");
-  if (activeError) throw activeError;
+  // Paged: a single read would be cut off at PostgREST's max_rows without any signal, and the check would quietly stop covering every
+  // wallet beyond the first page.
+  const wallets = await fetchAllRows((from, to) =>
+    admin.from("wallet_balances").select("user_id, balance, reserved_balance").eq("account_type", "user").order("id").range(from, to),
+  );
+  const activeReservations = await fetchAllRows((from, to) =>
+    admin.from("wallet_reservations").select("user_id, amount").eq("status", "ACTIVE").order("id").range(from, to),
+  );
 
   const derivedReservedByUser = new Map<string, number>();
   for (const row of activeReservations ?? []) {
@@ -81,10 +79,13 @@ export async function checkWalletReservationConsistency(): Promise<WalletReserva
     }
   }
 
-  const { data: allReservations, error: allError } = await admin
-    .from("wallet_reservations")
-    .select("id, user_id, amount, status, released_at, consumed_at, consumed_transaction_id, idempotency_key");
-  if (allError) throw allError;
+  const allReservations = await fetchAllRows((from, to) =>
+    admin
+      .from("wallet_reservations")
+      .select("id, user_id, amount, status, released_at, consumed_at, consumed_transaction_id, idempotency_key")
+      .order("id")
+      .range(from, to),
+  );
 
   const seenIdempotencyKeys = new Set<string>();
   for (const r of allReservations ?? []) {

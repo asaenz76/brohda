@@ -95,7 +95,7 @@ describe("getPublicFrontDoorFeed", () => {
     expect(ids).not.toContain(completed.postId);
   });
 
-  it("is the member feed with no viewer: Game fields and aggregate sentiment are real, nothing is personalised", async () => {
+  it("is the member feed with no viewer: Game fields are real, crowd sentiment is withheld (a visitor has not picked), nothing is personalised", async () => {
     const game = await seedGame({ home: "Sentiment FC" });
     const [a, b, c] = [await seedUser("A"), await seedUser("B"), await seedUser("C")];
     await pick(a, game.marketId, "YES");
@@ -106,9 +106,11 @@ describe("getPublicFrontDoorFeed", () => {
     expect(item.homeTeamName).toBe("Sentiment FC");
     expect(item.awayTeamName).toBe("Away Test NFL");
     expect(item.competitionName).toBe("NFL");
-    expect(item.primaryMarket?.totalPickCount).toBe(3);
-    expect(item.primaryMarket?.yesPercent).toBe(67);
-    expect(item.primaryMarket?.noPercent).toBe(33);
+    // Pick-first: three real Picks exist, and none of the split reaches a logged-out visitor.
+    expect(item.primaryMarket?.sentimentRevealed).toBe(false);
+    expect(item.primaryMarket?.totalPickCount).toBe(0);
+    expect(item.primaryMarket?.yesPercent).toBeNull();
+    expect(item.primaryMarket?.noPercent).toBeNull();
     expect(item.primaryMarket?.viewerSelection).toBeNull();
     expect(item.isFromFollowedCommunity).toBe(false);
   });

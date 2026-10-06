@@ -12,7 +12,7 @@
  * Usage: pnpm grade-predictions [--production]
  *   (requires `pnpm supabase:start` unless --production is passed)
  */
-import { runGradingJob } from "../lib/predictions/grading";
+import { runGradingLifecycleJob } from "../lib/predictions/grading-lifecycle";
 import { recordGradedPredictionResult } from "../lib/predictions/streak";
 import { assertProductionWriteConfirmed } from "./lib/production-guard";
 
@@ -22,7 +22,7 @@ assertProductionWriteConfirmed(SUPABASE_URL, "grade-predictions");
 async function main() {
   console.log("Grading pending predictions...");
 
-  const summary = await runGradingJob(recordGradedPredictionResult);
+  const summary = await runGradingLifecycleJob(recordGradedPredictionResult);
 
   console.log("\nGrading result:");
   console.log(`  examined:      ${summary.examined}`);
@@ -31,6 +31,7 @@ async function main() {
   console.log(`    incorrect:   ${summary.incorrect}`);
   console.log(`    void:        ${summary.voided}`);
   console.log(`  still pending: ${summary.stillPending}`);
+  console.log(`  markets closed: ${summary.marketsClosed}`);
   console.log(`  failures:      ${summary.failures.length}`);
   for (const failure of summary.failures) {
     console.error(`    [error] prediction ${failure.predictionId}: ${failure.error}`);

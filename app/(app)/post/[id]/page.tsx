@@ -5,7 +5,7 @@ import { getPublishedPostById } from "@/lib/posts/repository";
 import { getPostPublicationPolicy } from "@/lib/posts/policy";
 import { selectPrimaryMarket } from "@/lib/posts/primary-market";
 import { getFixtureForPostPresentation } from "@/lib/sports-data/fixture-lookup";
-import { listActiveMarketsForFixture } from "@/lib/prediction-markets/repository";
+import { listDisplayableMarketsForFixture } from "@/lib/prediction-markets/repository";
 import { getChoicePresentation } from "@/lib/prediction-markets/selection-labels";
 import { getMarketDetail } from "@/lib/prediction-markets/discovery/repository";
 import { getPostConversation } from "@/lib/post-comments/repository";
@@ -19,7 +19,8 @@ import { PostConversation } from "@/components/posts/PostConversation";
 import { PostCommunityBadges } from "@/components/communities/PostCommunityBadges";
 import { Card, CardContent } from "@/components/ui/card";
 import { LocalDateTime } from "@/components/LocalDateTime";
-import { TeamCrest } from "@/components/TeamCrest";
+import { MatchupHeading } from "@/components/posts/MatchupHeading";
+import { orderTeamsForDisplay } from "@/lib/sports-data/team-display-order";
 import Link from "next/link";
 import { ColumnHeader } from "@/components/shell/ColumnHeader";
 
@@ -59,7 +60,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
   if (!fixture) notFound();
 
   const [activeMarkets, policy, conversation, communities] = await Promise.all([
-    listActiveMarketsForFixture(post.fixtureId),
+    listDisplayableMarketsForFixture(post.fixtureId),
     getPostPublicationPolicy(),
     getPostConversation(post.id),
     getCommunityRefsForPost(post.id),
@@ -92,16 +93,23 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
               {fixture.competitionName && ` · ${fixture.competitionName}`}
             </p>
             <p className="flex flex-wrap items-center gap-1.5 text-xl font-semibold text-text-primary">
-              <TeamCrest logoUrl={fixture.awayTeamLogoUrl} teamName={fixture.awayTeamName} />
-              {fixture.awayTeamName} @ <TeamCrest logoUrl={fixture.homeTeamLogoUrl} teamName={fixture.homeTeamName} />
-              {fixture.homeTeamName}
+              <MatchupHeading
+                sport={fixture.sport}
+                homeTeamName={fixture.homeTeamName}
+                awayTeamName={fixture.awayTeamName}
+                homeTeamLogoUrl={fixture.homeTeamLogoUrl}
+                awayTeamLogoUrl={fixture.awayTeamLogoUrl}
+              />
             </p>
             <p className="text-sm text-text-secondary">
               <LocalDateTime iso={fixture.scheduledStartUtc} options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
             </p>
             {fixture.internalStatus === "COMPLETED" && fixture.homeScore != null && fixture.awayScore != null && (
               <p className="text-sm font-medium text-text-primary">
-                Final: {fixture.awayTeamName} {fixture.awayScore} — {fixture.homeTeamName} {fixture.homeScore}
+                {(() => {
+                  const [first, second] = orderTeamsForDisplay(fixture.sport, { name: fixture.homeTeamName, score: fixture.homeScore }, { name: fixture.awayTeamName, score: fixture.awayScore });
+                  return `Final: ${first.name} ${first.score} — ${second.name} ${second.score}`;
+                })()}
               </p>
             )}
             {fixture.internalStatus === "CANCELLED" && <p className="text-sm font-medium text-text-primary">This game was cancelled.</p>}

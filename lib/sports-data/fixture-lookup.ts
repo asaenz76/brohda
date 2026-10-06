@@ -48,6 +48,8 @@ export async function getFixtureScheduledStart(id: string): Promise<string | nul
 
 export interface FixtureForPostPresentation {
   id: string;
+  /** Decides the matchup order (lib/sports-data/team-display-order.ts). */
+  sport: string;
   homeTeamName: string;
   awayTeamName: string;
   /** Stage 4B remediation — provider-supplied crest image, already populated by NFL ingestion; simply unused by the Post page until now. Null whenever the provider didn't supply one. */
@@ -64,13 +66,14 @@ export async function getFixtureForPostPresentation(id: string): Promise<Fixture
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("fixtures")
-    .select("id, home_team_name, away_team_name, home_team_logo_url, away_team_logo_url, competition_name, scheduled_start_utc, internal_status, home_score, away_score")
+    .select("id, sport, home_team_name, away_team_name, home_team_logo_url, away_team_logo_url, competition_name, scheduled_start_utc, internal_status, home_score, away_score")
     .eq("id", id)
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
   return {
     id: data.id,
+    sport: data.sport,
     homeTeamName: data.home_team_name,
     awayTeamName: data.away_team_name,
     homeTeamLogoUrl: data.home_team_logo_url,

@@ -12,6 +12,13 @@ import type { MarketTemplate, MarketYesSide, NormalizedMarket } from "./types";
 // its own ad hoc query, so the shape of "a normalized market" stays
 // defined in exactly one place.
 
+/**
+ * The Market statuses a Game's page and feed card render: ACTIVE, and CLOSED — a finished Game's Markets are closed once fully graded
+ * (lib/prediction-markets/lifecycle.ts) but must keep rendering with their labels and the viewer's graded Pick. INACTIVE (a superseded
+ * Total line) and ARCHIVED stay out. Ingestion and discovery keep their own ACTIVE-only reads.
+ */
+export const DISPLAYABLE_MARKET_STATUSES = ["ACTIVE", "CLOSED"] as const;
+
 interface MarketRow {
   id: string;
   provider: string;
@@ -273,6 +280,26 @@ export async function listActiveMarketsForFixtures(fixtureIds: string[]): Promis
   if (fixtureIds.length === 0) return [];
   const admin = createAdminClient();
   const { data, error } = await admin.from("markets").select("*").in("fixture_id", fixtureIds).eq("status", "ACTIVE");
+  if (error) throw error;
+  return (data as MarketRow[]).map(toRecord);
+}
+
+/**
+ * The Markets a Game's page and feed card render: ACTIVE and CLOSED (see DISPLAYABLE_MARKET_STATUSES). Used by the Post page and the feed,
+ * where a finished Game keeps showing its Markets, labels and the viewer's graded Pick after the lifecycle job has closed them. The
+ * ACTIVE-only readers above stay ACTIVE-only: post publication and ingestion mean "a Market that is open", not "a Market that is shown".
+ */
+export async function listDisplayableMarketsForFixture(fixtureId: string): Promise<MarketRecord[]> {
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("markets").select("*").eq("fixture_id", fixtureId).in("status", [...DISPLAYABLE_MARKET_STATUSES]);
+  if (error) throw error;
+  return (data as MarketRow[]).map(toRecord);
+}
+
+export async function listDisplayableMarketsForFixtures(fixtureIds: string[]): Promise<MarketRecord[]> {
+  if (fixtureIds.length === 0) return [];
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("markets").select("*").in("fixture_id", fixtureIds).in("status", [...DISPLAYABLE_MARKET_STATUSES]);
   if (error) throw error;
   return (data as MarketRow[]).map(toRecord);
 }
