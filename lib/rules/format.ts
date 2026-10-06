@@ -32,6 +32,13 @@ export function describeLockWindow(minutes: number | null): string {
   return `${minutes} ${minutes === 1 ? "minute" : "minutes"} before kickoff`;
 }
 
+/** The same cutoff, phrased as a deadline: "until 10 minutes before kickoff". */
+export function describePickDeadline(minutes: number | null): string {
+  if (minutes === null) return "until shortly before kickoff";
+  if (minutes <= 0) return "until kickoff";
+  return `until ${describeLockWindow(minutes)}`;
+}
+
 /** 100 -> "1%", 150 -> "1.5%", 25 -> "0.25%", 0 -> "0%". Null when unknown. */
 export function formatFeePercent(bps: number | null): string | null {
   if (bps === null) return null;
