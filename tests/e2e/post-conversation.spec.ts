@@ -218,9 +218,17 @@ test.describe("Post Conversation", () => {
       await page.getByRole("button", { name: "Post" }).click();
       await expect(page.getByText("100% · 1 predicted")).toBeVisible();
 
-      // The identity byline still links to the canonical public profile.
-      await page.getByRole("link", { name: new RegExp(veteranEmail.split("@")[0]) }).first().click();
-      await expect(page).toHaveURL(/\/profile\//);
+      // The identity byline still links to the canonical public profile. (Not clicked as the veteran: your own profile address
+      // redirects to /profile, so that click only passed when the test happened to observe the URL before the redirect.)
+      const veteranName = new RegExp(veteranEmail.split("@")[0]);
+      await expect(page.getByRole("main").getByRole("link", { name: veteranName }).first()).toHaveAttribute("href", /^\/profile\/[^/]+$/);
+
+      // Someone else following that link lands on the veteran's public profile.
+      await page.context().clearCookies();
+      await loginAs(page, newcomerEmail);
+      await page.goto(`/post/${postId}`);
+      await page.getByRole("main").getByRole("link", { name: veteranName }).first().click();
+      await expect(page).toHaveURL(/\/profile\/[^/]+$/);
 
       await admin.from("predictions").delete().eq("market_id", vetMarket!.id);
       await admin.from("markets").delete().eq("id", vetMarket!.id);
