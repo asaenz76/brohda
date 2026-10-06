@@ -93,10 +93,13 @@ async function cleanup(fixtureId: string, marketId: string, userIds: string[]) {
   for (const id of userIds) await admin.auth.admin.deleteUser(id);
 }
 
+// The seeded Market is a MONEYLINE with the home team as YES, so "Yes" is the home team and "No" the away team — the choices read as teams.
+const TEAM_FOR_SIDE = { Yes: "Home Test FC", No: "Away Test FC" } as const;
 async function pickOn(page: Page, marketId: string, side: "Yes" | "No") {
+  const team = TEAM_FOR_SIDE[side];
   await page.goto(`/markets/${marketId}`);
-  await page.getByRole("button", { name: `Pick: ${side}` }).click();
-  await expect(page.getByText(new RegExp(`You picked ${side}`))).toBeVisible();
+  await page.getByRole("button", { name: `Pick ${team} to win` }).click();
+  await expect(page.getByText(new RegExp(`You picked ${team}`))).toBeVisible();
 }
 
 async function predictionId(userId: string, marketId: string): Promise<string> {
