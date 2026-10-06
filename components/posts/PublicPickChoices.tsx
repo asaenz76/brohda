@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { registerHrefFor } from "@/lib/auth/safe-next";
 import type { Choice } from "@/lib/prediction-markets/selection-labels";
 
 /**
@@ -10,7 +11,9 @@ import type { Choice } from "@/lib/prediction-markets/selection-labels";
  * mutation. A visitor's intent click leads to creating an account; nothing is
  * recorded for an anonymous visitor.
  */
-export function PublicPickChoices({ choices }: { choices: [Choice, Choice] }) {
+export function PublicPickChoices({ choices, postId = null }: { choices: [Choice, Choice]; postId?: string | null }) {
+  // A visitor's intent click goes to sign-up and, afterwards, straight to the Game they were looking at.
+  const href = registerHrefFor(postId ? `/post/${postId}` : null);
   return (
     <div className="space-y-2" data-testid="public-pick-choices">
       <p className="text-sm font-semibold text-text-primary">Make your prediction</p>
@@ -19,7 +22,7 @@ export function PublicPickChoices({ choices }: { choices: [Choice, Choice] }) {
         {choices.map((choice) => (
           <Link
             key={choice.outcome}
-            href="/register"
+            href={href}
             aria-label={`${choice.accessibleName} (create an account to make your pick)`}
             className={cn(buttonVariants({ variant: "outline", size: "lg" }), "h-auto min-h-9 w-full whitespace-normal text-balance py-2 sm:w-auto sm:max-w-full")}
           >

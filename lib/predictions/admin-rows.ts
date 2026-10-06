@@ -12,6 +12,42 @@ import { getChoicePresentation } from "@/lib/prediction-markets/selection-labels
 
 export const ADMIN_PREDICTIONS_LIMIT = 200;
 
+// ---- Search / filter -------------------------------------------------------------------------------------------------------------
+export const ADMIN_PREDICTION_STATES = ["PENDING", "GRADED"] as const;
+export const ADMIN_PREDICTION_RESULTS = ["CORRECT", "INCORRECT", "VOID", "NONE"] as const; // NONE = not graded yet
+export const ADMIN_SEARCH_MAX_LENGTH = 100;
+
+export interface AdminPredictionFilters {
+  /** Free text: username / display name / user id / Prediction id / Market id (ids by prefix, so the short ids shown work) / team / Market question. */
+  query?: string;
+  state?: (typeof ADMIN_PREDICTION_STATES)[number];
+  result?: (typeof ADMIN_PREDICTION_RESULTS)[number];
+  /** Inclusive UTC calendar dates, "YYYY-MM-DD". */
+  from?: string;
+  to?: string;
+}
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const first = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value);
+
+/** Reads the filters out of a page's search params. Anything unrecognised or malformed is dropped (never passed on), so a bad URL just means "no filter". */
+export function parseAdminPredictionFilters(params: Record<string, string | string[] | undefined>): AdminPredictionFilters {
+  const filters: AdminPredictionFilters = {};
+  const query = first(params.q)?.trim().slice(0, ADMIN_SEARCH_MAX_LENGTH);
+  if (query) filters.query = query;
+  const state = first(params.state);
+  if ((ADMIN_PREDICTION_STATES as readonly string[]).includes(state ?? "")) filters.state = state as AdminPredictionFilters["state"];
+  const result = first(params.result);
+  if ((ADMIN_PREDICTION_RESULTS as readonly string[]).includes(result ?? "")) filters.result = result as AdminPredictionFilters["result"];
+  for (const key of ["from", "to"] as const) {
+    const value = first(params[key]);
+    if (value && DATE_ONLY.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`))) filters[key] = value;
+  }
+  return filters;
+}
+
+export const hasActiveAdminPredictionFilters = (f: AdminPredictionFilters) => Boolean(f.query || f.state || f.result || f.from || f.to);
+
 export interface AdminPredictionRaw {
   id: string;
   user_id: string;
@@ -120,17 +156,47 @@ export function buildAdminPredictionRows(input: {
   });
 }
 
-type AdminClient = Pick<ReturnType<typeof createAdminClient>, "from">;
+type AdminClient = Pick<ReturnType<typeof createAdminClient>, "from"> & Partial<Pick<ReturnType<typeof createAdminClient>, "rpc">>;
 
 /** The most recent Predictions with their user, Game and Market resolved in batches. `client` is injectable so tests can count queries. */
-export async function listAdminPredictionRows(limit: number = ADMIN_PREDICTIONS_LIMIT, client: AdminClient = createAdminClient()): Promise<AdminPredictionRow[]> {
-  const { data: predictions, error } = await client
-    .from("predictions")
-    .select("id, user_id, market_id, selected_outcome, yes_probability_snapshot, no_probability_snapshot, lifecycle_state, result, graded_at, created_at")
-    .order("created_at", { ascending: false })
-    .limit(limit);
-  if (error) throw error;
-  const rows = (predictions ?? []) as AdminPredictionRaw[];
+export async function listAdminPredictionRows(
+  limit: number = ADMIN_PREDICTIONS_LIMIT,
+  client: AdminClient = createAdminClient(),
+  filters: AdminPredictionFilters = {},
+): Promise<AdminPredictionRow[]> {
+  const columns = "id, user_id, market_id, selected_outcome, yes_probability_snapshot, no_probability_snapshot, lifecycle_state, result, graded_at, created_at";
+  let rows: AdminPredictionRaw[];
+  if (hasActiveAdminPredictionFilters(filters)) {
+    // Filtered: one bounded server-side search for the matching ids (real joins, literal matching), then the same batched row loading as
+    // the unfiltered view — no per-row lookups, and never a client-side filter over an unbounded table.
+    if (!client.rpc) throw new Error("admin prediction search needs an RPC-capable client");
+    const { data: ids, error: searchError } = await client.rpc("admin_search_predictions", {
+      p_query: filters.query ?? null,
+      p_state: filters.state ?? null,
+      p_result: filters.result ?? null,
+      p_from: filters.from ?? null,
+      p_to: filters.to ?? null,
+      p_limit: limit,
+    });
+    if (searchError) throw searchError;
+    const matched = ((ids ?? []) as string[]).map(String);
+    if (matched.length === 0) return [];
+    const loaded = await fetchInChunks<AdminPredictionRaw>(matched, (chunk) =>
+      client
+        .from("predictions")
+        .select(columns)
+        .in("id", chunk)
+        .then((result: { data: unknown; error: { message: string } | null }) => {
+          if (result.error) throw result.error;
+          return { data: result.data as AdminPredictionRaw[] | null };
+        }),
+    );
+    rows = loaded.sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
+  } else {
+    const { data: predictions, error } = await client.from("predictions").select(columns).order("created_at", { ascending: false }).limit(limit);
+    if (error) throw error;
+    rows = (predictions ?? []) as AdminPredictionRaw[];
+  }
   if (rows.length === 0) return [];
 
   const userIds = [...new Set(rows.map((r) => r.user_id))];

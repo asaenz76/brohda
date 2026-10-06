@@ -1,16 +1,16 @@
 import type { Metadata } from "next";
 import { LegalPage } from "@/components/legal/LegalPage";
+import { LEGAL_DOCUMENTS } from "@/lib/legal/documents";
 
 export const metadata: Metadata = {
   title: "Privacy Policy — brohda.",
   robots: { index: false, follow: false },
 };
 
-const EFFECTIVE_DATE = "July 22, 2026";
 
 export default function PrivacyPage() {
   return (
-    <LegalPage title="Privacy Policy" effectiveDate={EFFECTIVE_DATE}>
+    <LegalPage title="Privacy Policy" effectiveDate={LEGAL_DOCUMENTS.privacy.effectiveDate}>
       <section>
         <p>
           This Privacy Policy describes how <strong>brohda</strong> (&quot;we&quot;,
@@ -27,7 +27,9 @@ export default function PrivacyPage() {
         <ul>
           <li>
             <strong>Account information</strong>: the email address you registered or were invited
-            with, your display name, username, and optional profile photo.
+            with, your display name, username, and optional profile photo. You may also add pronouns,
+            a gender, and a short bio to your profile; each is optional and has its own switch to show
+            or hide it on your profile.
           </li>
           <li>
             <strong>Activity within the App</strong>: your Picks (including any changes you make to
@@ -40,7 +42,8 @@ export default function PrivacyPage() {
             (amounts, holds, and settlements), and the entries recorded when an administrator
             confirms an off-platform payment (amount, date, payment method you selected, and any
             reference note you provide — never a card number or bank credential, since we never
-            handle the payment itself).
+            handle the payment itself). When you request a withdrawal you also enter where you want to
+            be paid (for example a payment-app handle or wallet address); we store it with your request.
           </li>
           <li>
             <strong>Administrative and security records</strong>: records of actions taken by
@@ -48,8 +51,8 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong>Device and log data</strong>: basic technical information such as IP address,
-            browser type, and timestamps of requests, used for security and to keep the Service
-            running reliably.
+            browser type, and timestamps of requests, which our hosting and infrastructure providers
+            log when you use the Service, used for security and to keep the Service running reliably.
           </li>
         </ul>
       </section>
@@ -60,9 +63,11 @@ export default function PrivacyPage() {
           Because actual money transfers into and out of the App happen through third-party payment
           services outside the App, we never receive, process, or store your bank account number, card
           number, payment app login credentials, or government identification. The &quot;destination&quot;
-          details (such as a Venmo handle or wallet address) shown in the App are provided by
-          administrators to tell members where to send funds off-platform — they are not
-          collected from you as sensitive account credentials.
+          details (such as a Venmo handle or wallet address) shown in the App for deposits are
+          provided by administrators to tell members where to send funds off-platform. The payout
+          destination you enter when you request a withdrawal is provided by you; it is visible to
+          you and to the administrators who process the request, and is recorded on the resulting
+          ledger entry. Neither is collected as a sensitive account credential.
         </p>
       </section>
 
@@ -105,11 +110,25 @@ export default function PrivacyPage() {
       <section>
         <h2>5. Third-party services we use</h2>
         <p>
-          We use infrastructure providers to run the Service, including a hosting/database/authentication
-          provider and a sports-data provider that supplies fixture and match information displayed
-          in the App. These providers process data on our behalf under their own security and
-          privacy commitments. We do not sell your information to anyone, and we do not share it
-          with advertisers.
+          We use providers to run the Service: Vercel (hosting), Supabase (database, sign-in, and
+          file storage), API-NFL (the sports data that supplies fixture and match information
+          displayed in the App), Sentry (error and performance monitoring), and Resend (email
+          delivery). These providers process data on our behalf under their own security and privacy
+          commitments. We do not sell your information to anyone, and we do not share it with
+          advertisers.
+        </p>
+        <p>
+          <strong>Error monitoring.</strong> When something goes wrong, or for a sample of page loads,
+          diagnostic information is sent to our error-monitoring provider: for example the page
+          address, browser and device type, timing, and the technical details of the error. We do not
+          configure it to attach your name, email address, or account identifier, and it does not
+          record your session, but an error message or page address can incidentally include
+          identifiers.
+        </p>
+        <p>
+          <strong>Email.</strong> Account emails, such as password-reset messages, are sent through our
+          email provider, which receives your email address and the content of the message. Service
+          administrators may also send occasional service notices by email.
         </p>
       </section>
 
@@ -118,7 +137,8 @@ export default function PrivacyPage() {
         <p>
           We retain account and activity information for as long as your account is active, and for
           a reasonable period afterward as needed to maintain the accuracy of the Service&apos;s
-          historical ledger, resolve disputes, or comply with legal obligations.
+          historical ledger, resolve disputes, or comply with legal obligations. Wallet and money-Position records are kept as permanent
+          records of the Service&apos;s ledger.
         </p>
       </section>
 
@@ -144,8 +164,19 @@ export default function PrivacyPage() {
         <h2>9. Your choices</h2>
         <p>
           You can review and update your profile information in the App at any time. To request
-          access to, correction of, or deletion of your information, or to close your account,
-          contact an administrator or email us at the address below.
+          access to or correction of your information, contact an administrator or email us at the
+          address below.
+        </p>
+        <p>
+          <strong>Closing your account.</strong> You can close your account from your profile
+          settings once your wallet balance is zero and you have no pending wallet requests. Closing
+          deactivates the account and permanently removes your name, username, photo, and optional
+          profile details from your profile; your email address stays reserved and cannot be used to
+          register again. Some records are kept rather than erased because they are part of the
+          Service&apos;s history: your Picks and comments (shown as &quot;Deleted User&quot;), Call BS
+          results, the wallet and money ledger, records of administrator actions (which may keep the
+          name and username the account had before it was closed), and the record of which versions
+          of the Terms and Privacy Policy you accepted.
         </p>
       </section>
 

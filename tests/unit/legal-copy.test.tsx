@@ -5,6 +5,7 @@ import TermsPage from "@/app/terms/page";
 import PrivacyPage from "@/app/privacy/page";
 import { RulesContent } from "@/components/rules/RulesContent";
 import { UNKNOWN_RULES_POLICY } from "@/lib/rules/format";
+import { LEGAL_DOCUMENTS } from "@/lib/legal/documents";
 
 afterEach(() => cleanup());
 
@@ -144,5 +145,90 @@ describe("Rules, Terms and Privacy use one vocabulary", () => {
   it("Rules says a tied Moneyline is voided, and Terms and Privacy don't contradict it with another grading model", () => {
     expect(rules).toContain("if a Moneyline ends tied (so neither team won)");
     expect(terms + privacy).not.toMatch(/\bdraw\b|\btie\b|ties resolve/i);
+  });
+});
+
+describe("Terms cover conduct, in plain language, without inventing enforcement tools", () => {
+  const terms = text(<TermsPage />);
+
+  it("names harassment, threats, abuse, spam, scams, impersonation, unlawful content and other people's private information", () => {
+    expect(terms).toContain("Harass, threaten, or abuse other people");
+    expect(terms).toContain("post content that attacks people for who they are");
+    expect(terms).toContain("Post spam or scams, or pretend to be someone else");
+    expect(terms).toContain("Post unlawful content, or other people's private information");
+  });
+
+  it("states the authority the product actually has: moderators remove content (comments), accounts can be suspended or closed", () => {
+    expect(terms).toContain("We and our moderators may remove content, including comments");
+    expect(terms).toContain("suspend or close an account at our discretion, with or without notice (see Section 11)");
+    expect(terms).toContain("tell us at support@brohda.com");
+  });
+
+  it("promises no tool that doesn't exist: no strikes, appeals, warnings systems, automated enforcement, or feature limits", () => {
+    expect(terms).not.toMatch(/strike|appeal|warning system|automated|automatic(ally)? (remove|suspend)|limit (your )?features|shadow|ban list|probation/i);
+  });
+
+  it("the Rules' pointer to the Terms for what isn't allowed now points at something", () => {
+    const rules = text(<RulesContent policy={UNKNOWN_RULES_POLICY} />);
+    expect(rules).toContain("What isn't allowed on Brohda is covered in the Terms.");
+    expect(terms).toContain("6. Your conduct");
+  });
+});
+
+describe("Privacy matches what the audit proved the implementation does", () => {
+  const privacy = text(<PrivacyPage />);
+
+  it("discloses the optional profile fields (pronouns, gender, bio) and their show/hide switch", () => {
+    expect(privacy).toContain("pronouns, a gender, and a short bio");
+    expect(privacy).toContain("each is optional and has its own switch to show or hide it");
+  });
+
+  it("states that a withdrawal payout destination is entered by the member, and who can see it", () => {
+    expect(privacy).toContain("When you request a withdrawal you also enter where you want to be paid");
+    expect(privacy).toContain("The payout destination you enter when you request a withdrawal is provided by you");
+    expect(privacy).toContain("visible to you and to the administrators who process the request, and is recorded on the resulting ledger entry");
+  });
+
+  it("names the providers and describes error monitoring and email without claiming less data than is sent", () => {
+    for (const vendor of ["Vercel", "Supabase", "API-NFL", "Sentry", "Resend"]) expect(privacy).toContain(vendor);
+    expect(privacy).toContain("the page address, browser and device type, timing, and the technical details of the error");
+    expect(privacy).toContain("an error message or page address can incidentally include identifiers");
+    expect(privacy).toContain("it does not record your session");
+    expect(privacy).toContain("receives your email address and the content of the message");
+    expect(privacy).not.toMatch(/never (send|share|transmit)|anonymi[sz]ed|no personal data|we do not send/i);
+  });
+
+  it("attributes IP / browser logs to the providers that log them, and claims no IP collection of our own", () => {
+    expect(privacy).toContain("which our hosting and infrastructure providers log when you use the Service");
+    expect(privacy).not.toMatch(/we (record|store|collect|log) your ip/i);
+  });
+
+  it("describes account closure truthfully: what is removed, and what is kept because it is the Service's history", () => {
+    expect(privacy).toContain("once your wallet balance is zero and you have no pending wallet requests");
+    expect(privacy).toContain("permanently removes your name, username, photo, and optional profile details from your profile");
+    expect(privacy).toContain("your email address stays reserved and cannot be used to register again");
+    expect(privacy).toContain("your Picks and comments (shown as \"Deleted User\")");
+    expect(privacy).toContain("the wallet and money ledger");
+    expect(privacy).toContain("records of administrator actions (which may keep the name and username the account had before it was closed)");
+    expect(privacy).toContain("which versions of the Terms and Privacy Policy you accepted");
+    expect(privacy).toContain("kept as permanent records of the Service's ledger");
+  });
+
+  it("no longer promises deletion of everything on request, which the append-only ledger and audit records can't honour", () => {
+    expect(privacy).not.toMatch(/deletion of your information/i);
+  });
+});
+
+describe("the effective date and version come from one place", () => {
+  it("each page shows the date configured in lib/legal/documents.ts", () => {
+    expect(text(<TermsPage />)).toContain(`Effective ${LEGAL_DOCUMENTS.terms.effectiveDate}`);
+    expect(text(<PrivacyPage />)).toContain(`Effective ${LEGAL_DOCUMENTS.privacy.effectiveDate}`);
+  });
+
+  it("every document has a non-empty version identifier (what an acceptance records)", () => {
+    for (const doc of Object.values(LEGAL_DOCUMENTS)) {
+      expect(doc.version.length).toBeGreaterThan(0);
+      expect(doc.effectiveDate.length).toBeGreaterThan(0);
+    }
   });
 });

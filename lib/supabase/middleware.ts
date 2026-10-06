@@ -1,4 +1,5 @@
 import { createServerClient } from "@supabase/ssr";
+import { loginHrefFor, REQUEST_PATH_HEADER } from "@/lib/auth/safe-next";
 import { NextResponse, type NextRequest } from "next/server";
 import { needsProfileCompletionRedirect } from "@/lib/auth/profile-gate";
 
@@ -6,7 +7,12 @@ const PROTECTED_PREFIXES = ["/feed", "/my-picks", "/activity", "/profile", "/adm
 const ADMIN_PREFIX = "/admin";
 
 export async function updateSession(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request });
+  // Hand server components the path (and query) the visitor actually asked for, so requireUser() can send a logged-out visitor to
+  // /login?next=<that page> for every authenticated route, not only the few prefixes guarded below. Always overwritten here — a
+  // client-supplied value is never trusted — and sanitised again before it is ever used.
+  const forwardedHeaders = new Headers(request.headers);
+  forwardedHeaders.set(REQUEST_PATH_HEADER, `${request.nextUrl.pathname}${request.nextUrl.search}`);
+  let supabaseResponse = NextResponse.next({ request: { headers: forwardedHeaders } });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -18,7 +24,7 @@ export async function updateSession(request: NextRequest) {
         },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-          supabaseResponse = NextResponse.next({ request });
+          supabaseResponse = NextResponse.next({ request: { headers: forwardedHeaders } });
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options),
           );
@@ -50,9 +56,8 @@ export async function updateSession(request: NextRequest) {
   const isProtected = PROTECTED_PREFIXES.some((prefix) => path.startsWith(prefix));
 
   if (isProtected && !user && !isServerAction) {
-    const redirectUrl = new URL("/login", request.url);
-    redirectUrl.searchParams.set("next", path);
-    return NextResponse.redirect(redirectUrl);
+    // Keep the query string (a bare pathname loses it) and refuse anything that isn't a safe internal path.
+    return NextResponse.redirect(new URL(loginHrefFor(`${path}${request.nextUrl.search}`), request.url));
   }
 
   if (user) {

@@ -1,5 +1,7 @@
 import "server-only";
 import { cache } from "react";
+import { headers } from "next/headers";
+import { loginHrefFor, REQUEST_PATH_HEADER } from "@/lib/auth/safe-next";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { isUsableSession, isSuperAdmin, isAdminOrAbove } from "./guards";
@@ -38,7 +40,10 @@ export const getCurrentUser = cache(async (): Promise<UserProfile | null> => {
 export async function requireUser(): Promise<UserProfile> {
   const profile = await getCurrentUser();
   if (!isUsableSession(profile)) {
-    redirect("/login");
+    // Send them to sign in and then straight back to the page they asked for (the proxy forwards that path; it is sanitised again here,
+    // so a bad value just yields the plain /login).
+    const requested = (await headers()).get(REQUEST_PATH_HEADER);
+    redirect(loginHrefFor(requested));
   }
   return profile;
 }

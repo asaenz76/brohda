@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { checkLoginRateLimit } from "@/lib/rate-limit/login";
 import { checkRegisterRateLimit } from "@/lib/rate-limit/register";
+import { loginHrefFor, sanitizeNextPath } from "@/lib/auth/safe-next";
+import { recordLegalAcceptance } from "@/lib/legal/acceptance";
 import { getRegistrationEnabled } from "@/lib/settings/registration";
 import { loginSchema, registerSchema } from "@/lib/validations/profile";
 
@@ -35,7 +37,8 @@ export async function loginAction(
     return { error: "Invalid email or password." };
   }
 
-  redirect("/feed");
+  // Back to the page they were sent from — only ever a safe internal path; anything else (or nothing) means /feed.
+  redirect(sanitizeNextPath(formData.get("next")) ?? "/feed");
 }
 
 export async function logoutAction() {
@@ -173,6 +176,16 @@ export async function registerAction(
     };
   }
 
+  // What they agreed to, and when: a durable record of the CURRENT Terms and Privacy versions. If it can't be written, the account isn't kept
+  // — an account whose consent can't be shown is worse than a failed sign-up the person can simply retry.
+  try {
+    await recordLegalAcceptance(created.user.id, "register");
+  } catch {
+    await adminClient.from("user_profiles").delete().eq("id", created.user.id);
+    await adminClient.auth.admin.deleteUser(created.user.id);
+    return { error: "Could not finish setting up your account." };
+  }
+
   const supabase = await createClient();
   const { error: signInError } = await supabase.auth.signInWithPassword({
     email: parsed.data.email,
@@ -180,8 +193,8 @@ export async function registerAction(
   });
 
   if (signInError) {
-    redirect("/login");
+    redirect(loginHrefFor(formData.get("next")));
   }
 
-  redirect("/feed");
+  redirect(sanitizeNextPath(formData.get("next")) ?? "/feed");
 }

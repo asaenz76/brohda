@@ -67,9 +67,6 @@ function PredictionHistoryRow({
   choiceSource: SelectionLabelSource | null;
   postId: string | null;
 }) {
-  const predictedPercent = Math.round(
-    (prediction.selectedOutcome === "YES" ? prediction.yesProbabilitySnapshot : prediction.noProbabilitySnapshot) * 100,
-  );
   const predictedAt = new Date(prediction.createdAt).toLocaleDateString(undefined, {
     year: "numeric",
     month: "short",
@@ -88,7 +85,7 @@ function PredictionHistoryRow({
           {title}
         </Link>
         <p className="text-xs text-text-muted">
-          You picked {pickedLabel} ({predictedPercent}%) · {predictedAt}
+          You picked {pickedLabel} · {predictedAt}
         </p>
         <ResultBadge prediction={prediction} />
       </CardContent>

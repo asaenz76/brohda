@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
-import { runGradingJob } from "@/lib/predictions/grading";
+import { runGradingLifecycleJob } from "@/lib/predictions/grading-lifecycle";
 import { recordGradedPredictionResult } from "@/lib/predictions/streak";
 import { recordJobRun } from "@/lib/jobs/record";
 
+// Grading lifecycle: grades pending Picks, then closes Markets that are now fully graded on a finished Game (runGradingLifecycleJob).
+//
 // Milestone R13.5: resolves R13's PRODUCTION OPERATIONS DECISION REQUIRED
 // finding for Prediction grading. Invokes the exact same runGradingJob()
 // scripts/grade-predictions.ts already uses — no grading logic is
@@ -17,6 +19,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const result = await recordJobRun("grade-predictions", () => runGradingJob(recordGradedPredictionResult));
+  const result = await recordJobRun("grade-predictions", () => runGradingLifecycleJob(recordGradedPredictionResult));
   return NextResponse.json(result);
 }

@@ -1,16 +1,16 @@
 import type { Metadata } from "next";
 import { LegalPage } from "@/components/legal/LegalPage";
+import { LEGAL_DOCUMENTS } from "@/lib/legal/documents";
 
 export const metadata: Metadata = {
   title: "Terms of Service — brohda.",
   robots: { index: false, follow: false },
 };
 
-const EFFECTIVE_DATE = "July 22, 2026";
 
 export default function TermsPage() {
   return (
-    <LegalPage title="Terms of Service" effectiveDate={EFFECTIVE_DATE}>
+    <LegalPage title="Terms of Service" effectiveDate={LEGAL_DOCUMENTS.terms.effectiveDate}>
       <section>
         <p>
           These Terms of Service (&quot;Terms&quot;) govern your access to and use of brohda.
@@ -118,6 +118,9 @@ export default function TermsPage() {
         <h2>6. Your conduct</h2>
         <p>You agree that you will not:</p>
         <ul>
+          <li>Harass, threaten, or abuse other people, or post content that attacks people for who they are.</li>
+          <li>Post spam or scams, or pretend to be someone else.</li>
+          <li>Post unlawful content, or other people&apos;s private information.</li>
           <li>Use the Service for money laundering, fraud, or any other illegal purpose.</li>
           <li>
             Misrepresent whether a real-world payment was sent or received, or otherwise submit
@@ -126,6 +129,16 @@ export default function TermsPage() {
           <li>Attempt to manipulate the outcome of any Market, Pick, Call BS, or Position, or interfere with other members&apos; use of the Service.</li>
           <li>Circumvent, disable, or interfere with any security feature of the Service.</li>
         </ul>
+        <p>
+          We and our moderators may remove content, including comments, that we consider to break
+          these rules or to be harmful to members or to the Service. We may also suspend or close
+          an account at our discretion, with or without notice (see Section 11).
+          If you see something that breaks these rules, tell us at{" "}
+          <a href="mailto:support@brohda.com" className="underline underline-offset-4">
+            support@brohda.com
+          </a>
+          .
+        </p>
       </section>
 
       <section>

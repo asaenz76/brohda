@@ -62,6 +62,7 @@ async function seedFixture(homeTeamName: string, awayTeamName: string, homeExter
     .from("fixtures")
     .insert({
       provider: PROVIDER,
+      sport: "american_football",
       external_fixture_id: `e2e-feed-${randomUUID()}`,
       home_team_external_id: homeExternalId,
       home_team_name: homeTeamName,

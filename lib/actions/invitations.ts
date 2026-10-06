@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { recordLegalAcceptance } from "@/lib/legal/acceptance";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdminOrAbove } from "@/lib/auth/session";
@@ -159,6 +160,16 @@ export async function acceptInvitationAction(
   });
 
   if (profileError) {
+    return { error: "Could not finish setting up your profile. Contact your admin." };
+  }
+
+  // A durable record of the CURRENT Terms and Privacy versions this member accepted. Failing to write it undoes the account (and leaves the
+  // invitation usable), rather than creating a member whose consent can't be shown.
+  try {
+    await recordLegalAcceptance(created.user.id, "invitation");
+  } catch {
+    await adminClient.from("user_profiles").delete().eq("id", created.user.id);
+    await adminClient.auth.admin.deleteUser(created.user.id);
     return { error: "Could not finish setting up your profile. Contact your admin." };
   }
 

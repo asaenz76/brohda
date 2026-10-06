@@ -81,6 +81,7 @@ async function seedFixtureAndPost(homeTeamName: string, awayTeamName: string, qu
     .from("fixtures")
     .insert({
       provider: PROVIDER,
+      sport: "american_football",
       external_fixture_id: `e2e-comm-fixture-${randomUUID()}`,
       home_team_name: homeTeamName,
       away_team_name: awayTeamName,
@@ -162,7 +163,8 @@ test.describe("Community", () => {
       await expect(header.getByRole("button", { name: "Follow" })).toBeVisible();
 
       await expect(gameCard(page, teamName)).toBeVisible();
-      await expect(page.getByText(/predicted|no one has predicted yet/i)).toBeVisible();
+      // Pick-first: this viewer hasn't picked, so the crowd split stays hidden behind the nudge.
+      await expect(page.getByText("Make your pick to see how everyone else picked.")).toBeVisible();
       await expect(page.getByText(/comment/i)).toBeVisible();
     } finally {
       await cleanup({ fixtureIds: [fixtureId], teamIds: [teamId], communityIds: [communityId] });

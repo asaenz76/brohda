@@ -4,6 +4,7 @@ import { Suspense, useActionState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { loginAction, type LoginState } from "@/lib/actions/auth";
+import { registerHrefFor, sanitizeNextPath } from "@/lib/auth/safe-next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -19,6 +20,8 @@ function LoginForm() {
   const [state, formAction, pending] = useActionState(loginAction, initialState);
   const searchParams = useSearchParams();
   const justClosed = searchParams.get("closed") === "1";
+  // Where to return after signing in. Sanitised here and again on the server; an unsafe or missing value means /feed.
+  const next = sanitizeNextPath(searchParams.get("next"));
 
   return (
     <Card>
@@ -29,6 +32,7 @@ function LoginForm() {
           </p>
         )}
         <form action={formAction} className="space-y-4">
+          {next && <input type="hidden" name="next" value={next} />}
           <div className="space-y-1.5">
             <Label htmlFor="email">Email</Label>
             <Input id="email" name="email" type="email" autoComplete="email" required />
@@ -59,7 +63,7 @@ function LoginForm() {
           </p>
           <p>
             New here?{" "}
-            <Link href="/register" className="underline underline-offset-4">
+            <Link href={registerHrefFor(next)} className="underline underline-offset-4">
               Create an account
             </Link>
           </p>

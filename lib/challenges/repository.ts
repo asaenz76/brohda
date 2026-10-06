@@ -12,6 +12,18 @@ import type { PredictionOutcome } from "@/lib/predictions/types";
 // exactly (a plain, idempotency-guarded admin update, not an RPC — the
 // same precedent for a trusted, server-only batch operation).
 
+/**
+ * Wraps expire_stale_challenges(): PENDING Call BS that can no longer be accepted (cutoff passed, Game started, Market no longer ACTIVE)
+ * become EXPIRED. Only PENDING rows are ever touched; row-locked against a concurrent accept/decline; idempotent; no notification.
+ * Returns the challenges expired by THIS call.
+ */
+export async function expireStaleChallenges(limit = 200): Promise<Challenge[]> {
+  const admin = createAdminClient();
+  const { data, error } = await admin.rpc("expire_stale_challenges", { p_limit: limit });
+  if (error) throw error;
+  return ((data ?? []) as ChallengeRow[]).map(toDomain);
+}
+
 interface ChallengeRow {
   id: string;
   market_id: string;

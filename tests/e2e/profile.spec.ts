@@ -159,7 +159,7 @@ test.describe("Profile", () => {
     const pendingRow = page.locator(`a[href="/post/${postId2}"]`);
     await expect(gradedRow).toHaveText("Home vs Away · Moneyline");
     await expect(pendingRow).toHaveText("Home vs Away · Moneyline");
-    await expect(page.getByText(/You picked Home \(/).first()).toBeVisible();
+    await expect(page.getByText(/You picked Home · /).first()).toBeVisible();
     await expect(page.getByRole("main")).not.toContainText(/Will the|do not win|You picked (YES|NO)\b/);
     await expect(page.getByText("Correct", { exact: true })).toBeVisible();
     await expect(page.getByText("Pending", { exact: true })).toBeVisible();

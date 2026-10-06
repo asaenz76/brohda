@@ -18,7 +18,7 @@ function Cell({ primary, secondary, known, fullId, className }: { primary: strin
   );
 }
 
-export function AdminPredictionsTable({ rows }: { rows: AdminPredictionRow[] }) {
+export function AdminPredictionsTable({ rows, emptyMessage = "No predictions yet." }: { rows: AdminPredictionRow[]; emptyMessage?: string }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-border-subtle">
       <table className="w-full min-w-[1040px] text-sm">
@@ -65,7 +65,7 @@ export function AdminPredictionsTable({ rows }: { rows: AdminPredictionRow[] }) 
           {rows.length === 0 && (
             <tr>
               <td colSpan={9} className="px-3 py-8 text-center text-text-muted">
-                No predictions yet.
+                {emptyMessage}
               </td>
             </tr>
           )}

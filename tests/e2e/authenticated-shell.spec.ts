@@ -39,7 +39,7 @@ async function createUser(label: string, displayName: string, username: string) 
 async function seedGame(home: string, away: string, minutesAhead: number) {
   const { data: fixture } = await admin
     .from("fixtures")
-    .insert({ external_fixture_id: `e2e-shell-${randomUUID()}`, home_team_name: home, away_team_name: away, competition_name: "NFL", scheduled_start_utc: new Date(Date.now() + minutesAhead * 60_000).toISOString(), internal_status: "NOT_STARTED" })
+    .insert({ sport: "american_football", external_fixture_id: `e2e-shell-${randomUUID()}`, home_team_name: home, away_team_name: away, competition_name: "NFL", scheduled_start_utc: new Date(Date.now() + minutesAhead * 60_000).toISOString(), internal_status: "NOT_STARTED" })
     .select("id")
     .single();
   seeded.fixtures.push(fixture!.id);

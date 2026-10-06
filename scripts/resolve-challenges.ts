@@ -14,7 +14,7 @@
  * Usage: pnpm resolve-challenges [--production]
  *   (requires `pnpm supabase:start` unless --production is passed)
  */
-import { resolveAcceptedChallenges } from "../lib/challenges/resolution";
+import { runChallengeLifecycleJob } from "../lib/challenges/lifecycle";
 import { assertProductionWriteConfirmed } from "./lib/production-guard";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
@@ -23,9 +23,10 @@ assertProductionWriteConfirmed(SUPABASE_URL, "resolve-challenges");
 async function main() {
   console.log("Resolving accepted Call BS Challenges...");
 
-  const summary = await resolveAcceptedChallenges();
+  const summary = await runChallengeLifecycleJob();
 
   console.log("\nResolution result:");
+  console.log(`  expired (pending, no longer acceptable): ${summary.expired}`);
   console.log(`  examined:       ${summary.examined}`);
   console.log(`  resolved:       ${summary.resolved}`);
   console.log(`    challenger won: ${summary.challengerWon}`);

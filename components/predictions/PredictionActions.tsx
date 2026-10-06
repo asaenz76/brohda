@@ -43,7 +43,7 @@ export function PredictionActions({
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [selection, setSelection] = useState<"YES" | "NO" | null>(currentSelection);
   const [pending, setPending] = useState(false);
-  const [confirmation, setConfirmation] = useState<{ selectedOutcome: "YES" | "NO"; probabilityPercent: number } | null>(null);
+  const [confirmation, setConfirmation] = useState<{ selectedOutcome: "YES" | "NO" } | null>(null);
   const [locked, setLocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -111,7 +111,7 @@ export function PredictionActions({
       </div>
       {confirmation && (
         <p role="status" className="text-sm font-semibold text-text-primary">
-          You picked {choices.find((c) => c.outcome === confirmation.selectedOutcome)?.label} ({confirmation.probabilityPercent}%).
+          You picked {choices.find((c) => c.outcome === confirmation.selectedOutcome)?.label}.
         </p>
       )}
       {disabledReason && <p className="text-xs text-text-muted">{disabledReason}</p>}

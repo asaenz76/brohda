@@ -48,7 +48,7 @@ export function AcceptInvitationForm({ token, email }: { token: string; email: s
               <Link href="/privacy" target="_blank" className="underline underline-offset-4">
                 Privacy Policy
               </Link>
-              , for this pool platform.
+              .
             </Label>
           </div>
           {state.error && (

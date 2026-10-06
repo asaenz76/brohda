@@ -119,7 +119,7 @@ test.describe("Brohda Prediction layer", () => {
       await page.getByRole("button", { name: "Pick Home Test FC to win" }).click();
       // Stage 4A remediation (Stage 4 audit §16): semantic Pick confirmation
       // language, never the raw YES/NO enum.
-      await expect(page.getByText(/You picked Home Test FC \(\d+%\)\./)).toBeVisible();
+      await expect(page.getByText(/You picked Home Test FC\./)).toBeVisible();
 
       const bodyTextAfter = await page.getByRole("main").innerText();
       for (const pattern of FORBIDDEN_TERMS) expect(bodyTextAfter).not.toMatch(pattern);
@@ -137,7 +137,7 @@ test.describe("Brohda Prediction layer", () => {
 
       // Milestone R5: change the Pick from YES to NO while still eligible.
       await page.getByRole("button", { name: "Pick Away Test FC to win" }).click();
-      await expect(page.getByText(/You picked Away Test FC \(\d+%\)\./)).toBeVisible();
+      await expect(page.getByText(/You picked Away Test FC\./)).toBeVisible();
       await page.reload();
       await expect(page.getByRole("button", { name: "Pick Away Test FC to win" })).toHaveAttribute("aria-pressed", "true");
 

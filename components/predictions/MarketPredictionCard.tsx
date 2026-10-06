@@ -93,7 +93,9 @@ export async function MarketPredictionCard({
         <p className="text-sm font-medium text-text-primary">{market.resolvedOutcome === "YES" ? market.yesLabel : market.noLabel}</p>
       )}
 
-      {hasPicks ? (
+      {existingPrediction === null ? (
+        <p className="text-xs text-text-muted">Make your pick to see how everyone else picked.</p>
+      ) : hasPicks ? (
         <div className="space-y-1">
           <div className="flex items-start gap-8">
             {/* Sentiment sits against the visible sides, in the same order as the choices: the canonical YES/NO percentages, relabelled — nothing re-aggregated. */}

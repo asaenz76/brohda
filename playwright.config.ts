@@ -102,7 +102,7 @@ export default defineConfig({
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
-      testIgnore: /admin-brohda-settings|monetary-capability-gating/,
+      testIgnore: /admin-brohda-settings|monetary-capability-gating|legal-reconsent/,
     },
     {
       name: "chromium-admin-settings",
@@ -119,6 +119,15 @@ export default defineConfig({
       testMatch: /monetary-capability-gating/,
       fullyParallel: false,
       dependencies: ["chromium-admin-settings"],
+    },
+    // Flips platform_settings.legal_reconsent_required, which holds EVERY signed-in member at /accept-terms while it is on — so it must not
+    // overlap any other spec either (files of one project run on separate workers; only a project dependency guarantees no overlap).
+    {
+      name: "chromium-legal-reconsent",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: /legal-reconsent/,
+      fullyParallel: false,
+      dependencies: ["chromium-money-gating"],
     },
   ],
 });

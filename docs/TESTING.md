@@ -79,6 +79,29 @@ mismatch. `pnpm supabase:start` on an *already-running* instance does NOT
 pick up new migration files added since it last booted; only `reset` (or a
 fresh `start`) does.
 
+#### Test isolation and file order
+
+Every integration test file starts in a pristine world: `tests/integration/helpers/isolation.ts` (a Vitest `setupFile`) purges the
+transient domain tables (including rows the API refuses to delete, such as `challenges`) and resets `platform_settings` to the schema
+defaults before and after each file. A file that needs a non-default setting (e.g. `call_bs_enabled`) sets it itself — that is
+intentional, and it is what makes the result independent of file order. Accounts and wallet rows are *not* purged, so the database keeps
+growing across runs; code under test must not assume a small table (reads of a whole table must page past PostgREST's `max_rows` —
+see `fetchAllRows` in `lib/utils/batch.ts`).
+
+Check order-independence after touching shared state, with two seeds as well as the normal order:
+
+```bash
+pnpm test:integration
+pnpm test:integration --sequence.shuffle.files --sequence.seed=101
+pnpm test:integration --sequence.shuffle.files --sequence.seed=202
+```
+
+E2E specs that write the `platform_settings` singleton each get their own chained project in `playwright.config.ts`
+(`chromium-admin-settings`, `chromium-money-gating`, `chromium-legal-reconsent`) — files of one project run on separate workers, so only a
+project `dependencies` chain guarantees they never overlap. Running such a spec alone needs `--no-deps`
+(`--project=chromium-legal-reconsent --no-deps`). Running the
+whole e2e suite with many workers on one `next dev` server can overload it (login timeouts, "aborted" errors) — CI uses 2 workers.
+
 ### E2E tests (Playwright)
 
 ```bash

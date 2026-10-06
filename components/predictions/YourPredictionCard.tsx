@@ -10,15 +10,11 @@ import type { Choice } from "@/lib/prediction-markets/selection-labels";
 // no-duplicated-copy precedent from Milestone 2).
 
 export function YourPredictionCard({ prediction, choices }: { prediction: Prediction; choices: [Choice, Choice] }) {
-  const predictedPercent = Math.round(
-    (prediction.selectedOutcome === "YES" ? prediction.yesProbabilitySnapshot : prediction.noProbabilitySnapshot) * 100,
-  );
   const pickedLabel = choices.find((c) => c.outcome === prediction.selectedOutcome)?.label;
 
   return (
     <div className="space-y-1 rounded-lg border-2 border-text-primary bg-secondary p-4">
       <p className="text-sm font-semibold text-text-primary">You picked: {pickedLabel}</p>
-      <p className="text-xs text-text-muted">Picked at {predictedPercent}%.</p>
       <ResultLine prediction={prediction} />
     </div>
   );

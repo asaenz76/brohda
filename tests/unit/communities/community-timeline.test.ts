@@ -39,6 +39,7 @@ describe("isCommunityTimelineEligible", () => {
 function makeItem(overrides: Partial<FeedItem> = {}): FeedItem {
   return {
     post: { id: "post-1", fixtureId: "fixture-1", publishedAt: new Date().toISOString(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    sport: "american_football",
     homeTeamName: "Home",
     awayTeamName: "Away",
     homeTeamLogoUrl: null,
