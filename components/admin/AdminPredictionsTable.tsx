@@ -50,7 +50,10 @@ export function AdminPredictionsTable({ rows }: { rows: AdminPredictionRow[] }) 
               <td className="px-3 py-1.5">
                 <Cell primary={r.market.primary} secondary={r.market.shortId} known={r.market.known} fullId={r.market.id} />
               </td>
-              <td className="px-3 py-1.5 text-text-primary">{r.selectedOutcome}</td>
+              <td className="px-3 py-1.5">
+                {/* The human label leads; the canonical stored value stays beside it for diagnostics. */}
+                <Cell primary={r.selectedLabel ?? r.selectedOutcome} secondary={r.selectedLabel ? r.selectedOutcome : "canonical"} known={r.selectedLabel !== null} fullId={r.selectedOutcome} className="max-w-[14rem]" />
+              </td>
               <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary">
                 {r.yesPercent}% / {r.noPercent}%
               </td>

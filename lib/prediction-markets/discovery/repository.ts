@@ -1,6 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getMarketById, listActiveMarkets, type MarketRecord } from "../repository";
+import { getMarketById, listActiveMarkets, listFixtureTeamNames, type MarketRecord } from "../repository";
 import { computeMarketCategoryIds, type CategoryMappingRow } from "./category-mapping";
 import { compareDiscoveryMarkets, DEFAULT_SORT_POLICY, type SortCriterion, type SortDirection, type SortPolicy } from "./ordering";
 import { getFreshnessPolicy } from "./policy";
@@ -268,7 +268,7 @@ async function buildCategoryIndex(markets: MarketRecord[]): Promise<Map<string, 
  */
 export async function getDiscoveryFeed(categorySlug?: string): Promise<DiscoveryMarketCard[]> {
   const [markets, freshnessPolicy, sortPolicy] = await Promise.all([listActiveMarkets(200), getFreshnessPolicy(), getSortPolicy()]);
-  const index = await buildCategoryIndex(markets);
+  const [index, teamsByFixture] = await Promise.all([buildCategoryIndex(markets), listFixtureTeamNames(markets.map((m) => m.fixtureId))]);
 
   let targetCategoryId: string | null = null;
   if (categorySlug) {
@@ -283,7 +283,7 @@ export async function getDiscoveryFeed(categorySlug?: string): Promise<Discovery
     const categories = index.get(market.id) ?? [];
     if (targetCategoryId && !categories.some((c) => c.id === targetCategoryId)) continue;
 
-    const card = toDiscoveryMarketCard(market, categories, freshnessPolicy);
+    const card = toDiscoveryMarketCard(market, categories, freshnessPolicy, teamsByFixture.get(market.fixtureId) ?? null);
     if (card) cards.push({ ...card, liquidity: market.liquidity });
   }
 
@@ -299,6 +299,8 @@ export async function getDiscoveryFeed(categorySlug?: string): Promise<Discovery
     freshness: card.freshness,
     yesLabel: card.yesLabel,
     noLabel: card.noLabel,
+    choices: card.choices,
+    marketLabel: card.marketLabel,
   }));
 }
 
@@ -324,17 +326,18 @@ export async function getMarketDetail(id: string): Promise<DiscoveryMarketDetail
   const market = await getMarketById(id);
   if (!market || !isDetailReachable(market)) return null;
 
-  const [mappingRows, categories, freshnessPolicy, pickAggregates] = await Promise.all([
+  const [mappingRows, categories, freshnessPolicy, pickAggregates, teamsByFixture] = await Promise.all([
     listEnabledMappingRows(),
     listEnabledCategories(),
     getFreshnessPolicy(),
     getPickAggregatesForMarkets([id]),
+    listFixtureTeamNames([market.fixtureId]),
   ]);
   const categoryById = new Map(categories.map((c) => [c.id, toCategoryRef(c)]));
   const categoryIds = computeMarketCategoryIds(market.provider, market.categoryTags, mappingRows);
   const refs = categoryIds.map((cid) => categoryById.get(cid)).filter((c): c is DiscoveryCategoryRef => c != null);
 
-  const detail = toDiscoveryMarketDetail(market, refs, freshnessPolicy);
+  const detail = toDiscoveryMarketDetail(market, refs, freshnessPolicy, teamsByFixture.get(market.fixtureId) ?? null);
   if (!detail) return null;
   const sentiment = computePickSentiment(pickAggregates.get(id));
   return { ...detail, yesPercent: sentiment.yesPercent, noPercent: sentiment.noPercent, totalPickCount: sentiment.totalPickCount };

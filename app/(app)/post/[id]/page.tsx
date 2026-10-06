@@ -6,6 +6,7 @@ import { getPostPublicationPolicy } from "@/lib/posts/policy";
 import { selectPrimaryMarket } from "@/lib/posts/primary-market";
 import { getFixtureForPostPresentation } from "@/lib/sports-data/fixture-lookup";
 import { listActiveMarketsForFixture } from "@/lib/prediction-markets/repository";
+import { getChoicePresentation } from "@/lib/prediction-markets/selection-labels";
 import { getMarketDetail } from "@/lib/prediction-markets/discovery/repository";
 import { getPostConversation } from "@/lib/post-comments/repository";
 import { getCommunityRefsForPost } from "@/lib/communities/feed";
@@ -119,13 +120,18 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
             <div className="space-y-2 border-t border-border-subtle pt-4">
               <p className="text-xs font-medium uppercase tracking-wide text-text-muted">More markets for this game</p>
               <ul className="space-y-1">
-                {otherMarkets.map((m) => (
-                  <li key={m.id}>
-                    <Link href={`/markets/${m.id}`} className="text-sm text-text-primary underline">
-                      {m.question}
-                    </Link>
-                  </li>
-                ))}
+                {otherMarkets.map((m) => {
+                  // Same shared presentation as everywhere else: "Total 47.5 — Over 47.5 or Under 47.5", not the old question text.
+                  const presentation = getChoicePresentation({ ...m, homeTeamName: fixture.homeTeamName, awayTeamName: fixture.awayTeamName });
+                  return (
+                    <li key={m.id}>
+                      <Link href={`/markets/${m.id}`} className="text-sm text-text-primary underline">
+                        {presentation.marketLabel ?? m.question}
+                      </Link>
+                      {presentation.templateAware && <span className="text-sm text-text-muted"> — {presentation.choices.map((c) => c.label).join(" or ")}</span>}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}
@@ -144,8 +150,6 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
               <MarketParticipants
                 marketId={primaryMarketDetail.id}
                 viewerId={user.id}
-                yesLabel={primaryMarketDetail.yesLabel}
-                noLabel={primaryMarketDetail.noLabel}
                 viewerHasPick={Boolean(viewerPrediction)}
               />
             </div>

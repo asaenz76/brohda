@@ -3,6 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GamePostCard } from "@/components/posts/GamePostCard";
 import type { FeedItem } from "@/lib/communities/feed";
+import { choiceFields, nflMoneyline } from "./helpers/choices";
 
 afterEach(() => cleanup());
 
@@ -25,8 +26,7 @@ function makeItem(overrides: Partial<FeedItem> = {}): FeedItem {
     primaryMarket: {
       id: "market-1",
       question: "Will the Home Test NFL win?",
-      yesLabel: "Home Test NFL win",
-      noLabel: "Home Test NFL do not win",
+      ...nflMoneyline("Home Test NFL", "Away Test NFL"),
       yesPercent: 67,
       noPercent: 33,
       totalPickCount: 3,
@@ -61,7 +61,8 @@ describe("GamePostCard", () => {
 
   it("shows real sentiment with both semantic labels and the predicted count, never a raw provider price", () => {
     render(<GamePostCard item={makeItem()} />);
-    expect(screen.getByText("Home Test NFL win 67% · Home Test NFL do not win 33% · 3 predicted")).toBeInTheDocument();
+    // Sentiment sits against the visible sides, in matchup order — the canonical YES 67% / NO 33% relabelled, never "YES 67%".
+    expect(screen.getByText("Away Test NFL 33% · Home Test NFL 67% · 3 predicted")).toBeInTheDocument();
   });
 
   it("shows an honest empty-sentiment state when nobody has predicted yet", () => {
@@ -71,8 +72,7 @@ describe("GamePostCard", () => {
           primaryMarket: {
             id: "market-1",
             question: "Will the Home Test NFL win?",
-            yesLabel: "Home Test NFL win",
-            noLabel: "Home Test NFL do not win",
+            ...nflMoneyline("Home Test NFL", "Away Test NFL"),
             yesPercent: null,
             noPercent: null,
             totalPickCount: 0,
@@ -87,10 +87,39 @@ describe("GamePostCard", () => {
     expect(screen.getByText("No one has predicted yet.")).toBeInTheDocument();
   });
 
-  it("renders interactive Pick buttons with semantic labels, never raw YES/NO", () => {
+  it("renders interactive Pick buttons that are the two teams, in matchup order, never Yes/No or win / do not win", () => {
+    const { container } = render(<GamePostCard item={makeItem()} />);
+    const buttons = screen.getAllByRole("button");
+    expect(buttons.map((b) => b.textContent)).toEqual(["Away Test NFL", "Home Test NFL"]);
+    expect(screen.getByRole("button", { name: "Pick Home Test NFL to win" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pick Away Test NFL to win" })).toBeInTheDocument();
+    const picker = container.querySelector("[data-testid='prediction-actions']")!.textContent!;
+    expect(picker).not.toMatch(/\bYes\b|\bNo\b|do not win|\bwin\b/);
+  });
+
+  it("a moneyline needs no question line: the team choices already say what is being picked", () => {
     render(<GamePostCard item={makeItem()} />);
-    expect(screen.getByRole("button", { name: "Pick: Home Test NFL win" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Pick: Home Test NFL do not win" })).toBeInTheDocument();
+    expect(screen.queryByText("Will the Home Test NFL win?")).toBeNull();
+    expect(screen.queryByText("Moneyline")).toBeNull();
+  });
+
+  it("names a Spread or Total by its compact label and shows its own choices", () => {
+    const spread = makeItem({ primaryMarket: { ...makeItem().primaryMarket!, ...choiceFields({ marketTemplate: "SPREAD", yesSide: "HOME", lineValue: 3.5, homeTeamName: "Home Test NFL", awayTeamName: "Away Test NFL", sport: "american_football" }) } });
+    const { unmount } = render(<GamePostCard item={spread} />);
+    expect(screen.getByText("Spread")).toBeInTheDocument();
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Away Test NFL -3.5", "Home Test NFL +3.5"]);
+    unmount();
+    const total = makeItem({ primaryMarket: { ...makeItem().primaryMarket!, ...choiceFields({ marketTemplate: "TOTAL", yesSide: null, lineValue: 47.5 }) } });
+    render(<GamePostCard item={total} />);
+    expect(screen.getByText("Total 47.5")).toBeInTheDocument();
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Over 47.5", "Under 47.5"]);
+  });
+
+  it("falls back to the original question and generic labels for a Market it can't describe — no crash, no guess", () => {
+    const legacy = makeItem({ primaryMarket: { ...makeItem().primaryMarket!, question: "Some older question?", ...choiceFields({}) } });
+    render(<GamePostCard item={legacy} />);
+    expect(screen.getByText("Some older question?")).toBeInTheDocument();
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Yes", "No"]);
   });
 
   it("shows a read-only locked state instead of interactive buttons once the viewer's Pick is locked", () => {
@@ -100,8 +129,7 @@ describe("GamePostCard", () => {
           primaryMarket: {
             id: "market-1",
             question: "Will the Home Test NFL win?",
-            yesLabel: "Home Test NFL win",
-            noLabel: "Home Test NFL do not win",
+            ...nflMoneyline("Home Test NFL", "Away Test NFL"),
             yesPercent: 100,
             noPercent: 0,
             totalPickCount: 1,
@@ -114,7 +142,7 @@ describe("GamePostCard", () => {
       />,
     );
     expect(screen.queryByRole("button", { name: /Pick:/ })).toBeNull();
-    expect(screen.getByText("You picked Home Test NFL win — Picks are locked for this game.")).toBeInTheDocument();
+    expect(screen.getByText("You picked Home Test NFL — Picks are locked for this game.")).toBeInTheDocument();
   });
 
   it("caps visible Community badges and shows a remainder count instead of a wall of badges", () => {
@@ -131,9 +159,9 @@ describe("GamePostCard", () => {
     expect(commentLink).toHaveAttribute("href", "/post/post-1");
   });
 
-  it("links the team/question header to the canonical Post, never to /markets/[id]", () => {
+  it("links the matchup header to the canonical Post, never to /markets/[id]", () => {
     render(<GamePostCard item={makeItem()} />);
-    const headerLink = screen.getByText("Will the Home Test NFL win?").closest("a");
+    const headerLink = screen.getByText(/Away Test NFL @/).closest("a");
     expect(headerLink).toHaveAttribute("href", "/post/post-1");
   });
 });

@@ -268,7 +268,9 @@ describe("recent history", () => {
       opponent: { id: C, label: `marco ${suffix}`, username: `cbhmarco${suffix}`, known: true },
       game: { label: `Five Away ${suffix} @ Five Home ${suffix}`, known: true },
       question: `Will Five Home ${suffix} win?`,
-      pickLabel: "Five Home win", // A's own snapshot (YES), in the Market's words
+      marketLabel: "Moneyline",
+      pickLabel: `Five Home ${suffix}`, // A's own snapshot (YES = the home team), as the Game reads it — not "YES", not "… win"
+      opponentPickLabel: `Five Away ${suffix}`, // the opponent's snapshot (NO = the other team)
       postId: games.g5.postId,
     });
     expect(entries.find((e) => e.challengeId === games.g2.challengeId)!.outcome).toBe("LOST");
@@ -279,7 +281,8 @@ describe("recent history", () => {
     const entries = await listCallBsHistory(B, 50);
     const g1 = entries.find((e) => e.challengeId === games.g1.challengeId)!;
     expect(g1.outcome).toBe("LOST");
-    expect(g1.pickLabel).toBe("One Home do not win"); // B picked NO
+    expect(g1.pickLabel).toBe(`One Away ${suffix}`); // B picked NO = the away team
+    expect(g1.opponentPickLabel).toBe(`One Home ${suffix}`); // A picked YES = the home team
     expect(g1.opponent.id).toBe(A);
   });
 

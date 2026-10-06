@@ -997,7 +997,9 @@ describe("grading notification copy (final copy-configuration remediation)", () 
       .eq("type", "prediction_graded")
       .single();
     expect(notification?.title).toBe("Nailed it");
-    expect(notification?.body).toContain("configured-copy test question");
+    // The {{question}} placeholder now carries what the Market is about — the matchup and its label — not the old question text.
+    expect(notification?.body).toMatch(/^Your (prediction|call) on "Home Test FC vs .+ · Moneyline" /);
+    expect(notification?.body).not.toContain("configured-copy test question");
   });
 
   it("the database itself refuses a malformed (empty) copy value — a bad row can never exist in the first place", async () => {
@@ -1051,7 +1053,8 @@ describe("grading notification copy (final copy-configuration remediation)", () 
       .eq("type", "prediction_graded")
       .single();
     expect(notification?.title).toBe("Nailed it");
-    expect(notification?.body).toContain("fallback test question");
+    expect(notification?.body).toMatch(/Home Test FC vs .+ · Moneyline/);
+    expect(notification?.body).not.toContain("fallback test question");
   });
 
   it("ordinary (anon) client cannot mutate notification copy directly", async () => {

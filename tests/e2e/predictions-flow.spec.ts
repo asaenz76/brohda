@@ -106,8 +106,8 @@ test.describe("Brohda Prediction layer", () => {
       await loginAs(page, email);
       await page.goto(`/markets/${marketId}`);
 
-      await expect(page.getByRole("button", { name: "Pick: Home Test FC wins" })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Pick: Home Test FC does not win" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Pick Home Test FC to win" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Pick Away Test FC to win" })).toBeVisible();
 
       // The page's content, not the app shell: the left rail has a quiet "Wallet" utility link by design.
       const bodyTextBefore = await page.getByRole("main").innerText();
@@ -116,10 +116,10 @@ test.describe("Brohda Prediction layer", () => {
       // equal, non-monetary belief, never a stake.
       await expect(page.locator('input[type="number"]')).toHaveCount(0);
 
-      await page.getByRole("button", { name: "Pick: Home Test FC wins" }).click();
+      await page.getByRole("button", { name: "Pick Home Test FC to win" }).click();
       // Stage 4A remediation (Stage 4 audit §16): semantic Pick confirmation
       // language, never the raw YES/NO enum.
-      await expect(page.getByText(/You picked Home Test FC wins \(\d+%\)\./)).toBeVisible();
+      await expect(page.getByText(/You picked Home Test FC \(\d+%\)\./)).toBeVisible();
 
       const bodyTextAfter = await page.getByRole("main").innerText();
       for (const pattern of FORBIDDEN_TERMS) expect(bodyTextAfter).not.toMatch(pattern);
@@ -132,20 +132,20 @@ test.describe("Brohda Prediction layer", () => {
       // pick — both selection buttons remain, now labeled as a change.
       await page.reload();
       await expect(page.getByText("Change your prediction")).toBeVisible();
-      await expect(page.getByRole("button", { name: "Pick: Home Test FC wins" })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Pick: Home Test FC wins" })).toHaveAttribute("aria-pressed", "true");
+      await expect(page.getByRole("button", { name: "Pick Home Test FC to win" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Pick Home Test FC to win" })).toHaveAttribute("aria-pressed", "true");
 
       // Milestone R5: change the Pick from YES to NO while still eligible.
-      await page.getByRole("button", { name: "Pick: Home Test FC does not win" }).click();
-      await expect(page.getByText(/You picked Home Test FC does not win \(\d+%\)\./)).toBeVisible();
+      await page.getByRole("button", { name: "Pick Away Test FC to win" }).click();
+      await expect(page.getByText(/You picked Away Test FC \(\d+%\)\./)).toBeVisible();
       await page.reload();
-      await expect(page.getByRole("button", { name: "Pick: Home Test FC does not win" })).toHaveAttribute("aria-pressed", "true");
+      await expect(page.getByRole("button", { name: "Pick Away Test FC to win" })).toHaveAttribute("aria-pressed", "true");
 
       // Profile's Predictions tab shows the latest (NO) selection — not
       // the original YES — matching "the final selection is the permanent
       // record" (§7).
       await page.goto("/profile?tab=predictions");
-      await expect(page.getByText("You picked Home Test FC does not win", { exact: false })).toBeVisible();
+      await expect(page.getByText("You picked Away Test FC", { exact: false })).toBeVisible();
     } finally {
       await cleanup(provider, userIds);
     }
@@ -164,7 +164,7 @@ test.describe("Brohda Prediction layer", () => {
       await loginAs(page, email);
       await page.goto(`/markets/${marketId}`);
 
-      const yesButton = page.getByRole("button", { name: "Pick: Home Test FC wins" });
+      const yesButton = page.getByRole("button", { name: "Pick Home Test FC to win" });
       await expect(yesButton).toBeVisible();
       await expect(yesButton).toBeDisabled();
       await expect(page.getByText("This market is closed to new predictions.")).toBeVisible();
@@ -214,12 +214,12 @@ test.describe("Brohda Prediction layer", () => {
       // outcome renders as its semantic label ("Home Test FC wins"), never
       // "Result: YES" — kept visually/conceptually distinct from the
       // Pick's own graded result ("Correct"/"Incorrect"/"Void").
-      await expect(page.getByText("You picked: Home Test FC wins")).toBeVisible();
+      await expect(page.getByText("You picked: Home Test FC")).toBeVisible();
       // The Market's own resolved-outcome line and its Yes/No percentage
       // breakdown label now render the same semantic text ("Home Test FC
       // wins") — expected and harmless duplication, not a raw-enum leak —
       // so this checks at least one such element renders, not exactly one.
-      await expect(page.getByText("Home Test FC wins", { exact: true }).first()).toBeVisible();
+      await expect(page.getByText("Home Test FC", { exact: true }).first()).toBeVisible();
       await expect(page.getByText("Result: Correct")).toBeVisible();
 
       await page.goto("/profile?tab=predictions");

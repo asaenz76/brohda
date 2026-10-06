@@ -35,9 +35,12 @@ export async function MarketPredictionCard({
   market,
   userId,
   includeParticipants = true,
+  matchup = null,
 }: {
   market: DiscoveryMarketDetail;
   userId: string;
+  /** "Away @ Home" — shown above the Market label when this card is a page on its own (the Market page); the Post detail page already carries the Game header. */
+  matchup?: string | null;
   /** Post detail renders the participants (Call BS / money) itself, after the conversation. */
   includeParticipants?: boolean;
 }) {
@@ -80,7 +83,9 @@ export async function MarketPredictionCard({
         </p>
       )}
 
-      <p className="text-xl font-semibold text-text-primary">{market.question}</p>
+      {matchup && <p className="text-xl font-semibold text-text-primary">{matchup}</p>}
+      {/* The Market is named by its compact label ("Moneyline", "Spread", "Total 47.5"); only a Market without a template-aware label keeps its original question as context. */}
+      <p className={matchup ? "text-sm font-medium text-text-secondary" : "text-lg font-semibold text-text-primary"}>{market.marketLabel ?? market.question}</p>
 
       <DiscoveryStatusPill status={market.status} />
 
@@ -90,15 +95,14 @@ export async function MarketPredictionCard({
 
       {hasPicks ? (
         <div className="space-y-1">
-          <div className="flex items-center gap-8">
-            <div>
-              <p className="text-3xl font-bold text-text-primary">{market.yesPercent}%</p>
-              <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{market.yesLabel}</p>
-            </div>
-            <div>
-              <p className="text-3xl font-bold text-text-primary">{market.noPercent}%</p>
-              <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{market.noLabel}</p>
-            </div>
+          <div className="flex items-start gap-8">
+            {/* Sentiment sits against the visible sides, in the same order as the choices: the canonical YES/NO percentages, relabelled — nothing re-aggregated. */}
+            {market.choices.map((choice) => (
+              <div key={choice.outcome} className="min-w-0">
+                <p className="text-3xl font-bold text-text-primary">{choice.outcome === "YES" ? market.yesPercent : market.noPercent}%</p>
+                <p className="break-words text-xs font-medium uppercase tracking-wide text-text-muted">{choice.label}</p>
+              </div>
+            ))}
           </div>
           <p className="text-xs text-text-muted">{market.totalPickCount} predicted</p>
         </div>
@@ -115,15 +119,14 @@ export async function MarketPredictionCard({
           marketId={market.id}
           disabledReason={predictionDisabledReason}
           currentSelection={existingPrediction?.selectedOutcome ?? null}
-          yesLabel={market.yesLabel}
-          noLabel={market.noLabel}
+          choices={market.choices}
         />
       ) : (
-        <YourPredictionCard prediction={existingPrediction!} yesLabel={market.yesLabel} noLabel={market.noLabel} />
+        <YourPredictionCard prediction={existingPrediction!} choices={market.choices} />
       )}
 
       {includeParticipants && (
-        <MarketParticipants marketId={market.id} viewerId={userId} yesLabel={market.yesLabel} noLabel={market.noLabel} viewerHasPick={Boolean(existingPrediction)} />
+        <MarketParticipants marketId={market.id} viewerId={userId} viewerHasPick={Boolean(existingPrediction)} />
       )}
     </div>
   );

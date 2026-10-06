@@ -7,6 +7,7 @@ import { PredictionActions } from "@/components/predictions/PredictionActions";
 import { PublicPickChoices } from "@/components/posts/PublicPickChoices";
 import { getCommunityTypeLabel } from "@/lib/communities/presentation";
 import type { FeedItem } from "@/lib/communities/feed";
+import { MONEYLINE_MARKET_LABEL } from "@/lib/prediction-markets/selection-labels";
 
 // Phase C (Brohda 2.0 redesign) — the canonical Home timeline's Game Post,
 // refined from Stage 4A's SocialFeedCard (components/discovery/
@@ -23,6 +24,16 @@ import type { FeedItem } from "@/lib/communities/feed";
 // and would fight the Link's own click) — only the identity/status/
 // question block above them is a Link; the Pick control and comment link
 // below are separate, sibling interactive regions.
+
+/**
+ * What names the Market on a Game Post card. The two team (or Over/Under) choices below already say what is being picked, so a Moneyline
+ * needs no line of its own; a Spread or Total gets its compact label; and only a Market without a template-aware label (a historical or
+ * unsupported one) falls back to its original question.
+ */
+function MarketContext({ market }: { market: NonNullable<FeedItem["primaryMarket"]> }) {
+  if (market.marketLabel === MONEYLINE_MARKET_LABEL) return null;
+  return <p className="text-sm font-medium text-text-primary">{market.marketLabel ?? market.question}</p>;
+}
 
 function gameStatusLabel(internalStatus: string, homeScore: number | null, awayScore: number | null): string | null {
   if (internalStatus === "COMPLETED" && homeScore != null && awayScore != null) return `Final ${awayScore}-${homeScore}`;
@@ -80,7 +91,7 @@ export function GamePostCard({ item, mode = "member" }: { item: FeedItem; mode?:
             {statusLabel ?? <LocalDateTime iso={item.scheduledStartUtc} options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />}
           </p>
 
-          {market && <p className="text-sm font-medium text-text-primary">{market.question}</p>}
+          {market && <MarketContext market={market} />}
         </Link>
 
         {market && (
@@ -89,25 +100,24 @@ export function GamePostCard({ item, mode = "member" }: { item: FeedItem; mode?:
               market.pickDisabledReason ? (
                 <p className="text-sm font-medium text-text-muted">{market.pickDisabledReason}</p>
               ) : (
-                <PublicPickChoices yesLabel={market.yesLabel} noLabel={market.noLabel} />
+                <PublicPickChoices choices={market.choices} />
               )
             ) : market.isEditable ? (
               <PredictionActions
                 marketId={market.id}
                 disabledReason={market.pickDisabledReason}
                 currentSelection={market.viewerSelection}
-                yesLabel={market.yesLabel}
-                noLabel={market.noLabel}
+                choices={market.choices}
               />
             ) : (
               <p className="text-sm font-medium text-text-muted">
-                You picked {market.viewerSelection === "YES" ? market.yesLabel : market.noLabel} — {market.pickDisabledReason}
+                You picked {market.choices.find((c) => c.outcome === market.viewerSelection)?.label} — {market.pickDisabledReason}
               </p>
             )}
 
             <p className="text-xs text-text-muted">
               {market.totalPickCount > 0
-                ? `${market.yesLabel} ${market.yesPercent}% · ${market.noLabel} ${market.noPercent}% · ${market.totalPickCount} predicted`
+                ? `${market.choices.map((c) => `${c.label} ${c.outcome === "YES" ? market.yesPercent : market.noPercent}%`).join(" · ")} · ${market.totalPickCount} predicted`
                 : "No one has predicted yet."}
             </p>
           </div>

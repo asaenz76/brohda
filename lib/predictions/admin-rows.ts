@@ -1,7 +1,8 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchInChunks } from "@/lib/utils/batch";
-import { getMatchupSeparator, orderTeamsForDisplay } from "@/lib/sports-data/team-display-order";
+import { formatMatchup } from "@/lib/sports-data/team-display-order";
+import { getChoicePresentation } from "@/lib/prediction-markets/selection-labels";
 
 // Read-only, operator-facing view model for /admin/predictions: each
 // Prediction with the human context an operator needs (who, which Game,
@@ -32,6 +33,10 @@ export interface AdminMarketRaw {
   id: string;
   question: string | null;
   fixture_id: string | null;
+  market_template?: "MONEYLINE" | "SPREAD" | "TOTAL" | null;
+  line_value?: number | string | null;
+  yes_side?: "HOME" | "AWAY" | null;
+  price_outcome_labels?: { yes?: string | null; no?: string | null } | null;
 }
 export interface AdminFixtureRaw {
   id: string;
@@ -43,7 +48,10 @@ export interface AdminFixtureRaw {
 export interface AdminPredictionRow {
   id: string;
   createdAt: string;
+  /** The canonical stored selection ("YES" | "NO") — kept for diagnostics. */
   selectedOutcome: string;
+  /** What the person actually picked, as the Game reads it ("Washington Commanders"); null when the Market can't be described. */
+  selectedLabel: string | null;
   yesPercent: number;
   noPercent: number;
   lifecycleState: string;
@@ -80,18 +88,26 @@ export function buildAdminPredictionRows(input: {
 
     const market = marketById.get(p.market_id);
     const fixture = market?.fixture_id ? fixtureById.get(market.fixture_id) : undefined;
-    const matchLabel = fixture
-      ? (() => {
-          const [first, second] = orderTeamsForDisplay(fixture.sport, fixture.home_team_name, fixture.away_team_name);
-          return `${first} ${getMatchupSeparator(fixture.sport)} ${second}`;
-        })()
+    const matchLabel = fixture ? formatMatchup(fixture.sport, fixture.home_team_name, fixture.away_team_name) : null;
+    const presentation = market
+      ? getChoicePresentation({
+          marketTemplate: market.market_template ?? null,
+          lineValue: market.line_value != null ? Number(market.line_value) : null,
+          yesSide: market.yes_side ?? null,
+          homeTeamName: fixture?.home_team_name ?? null,
+          awayTeamName: fixture?.away_team_name ?? null,
+          sport: fixture?.sport ?? null,
+          priceOutcomeLabels: market.price_outcome_labels ? { yes: market.price_outcome_labels.yes ?? null, no: market.price_outcome_labels.no ?? null } : null,
+        })
       : null;
+    const selectedLabel = presentation?.templateAware ? (presentation.choices.find((c) => c.outcome === p.selected_outcome)?.label ?? null) : null;
     const question = market?.question?.trim() || null;
 
     return {
       id: p.id,
       createdAt: p.created_at,
       selectedOutcome: p.selected_outcome,
+      selectedLabel,
       yesPercent: Math.round(Number(p.yes_probability_snapshot) * 100),
       noPercent: Math.round(Number(p.no_probability_snapshot) * 100),
       lifecycleState: p.lifecycle_state,
@@ -135,7 +151,7 @@ export async function listAdminPredictionRows(limit: number = ADMIN_PREDICTIONS_
 
   const [profiles, markets] = await Promise.all([
     fetchInChunks<AdminProfileRaw>(userIds, readChunk<AdminProfileRaw>("user_profiles", "id, username, display_name")),
-    fetchInChunks<AdminMarketRaw>(marketIds, readChunk<AdminMarketRaw>("markets", "id, question, fixture_id")),
+    fetchInChunks<AdminMarketRaw>(marketIds, readChunk<AdminMarketRaw>("markets", "id, question, fixture_id, market_template, line_value, yes_side, price_outcome_labels")),
   ]);
 
   const fixtureIds = [...new Set(markets.map((m) => m.fixture_id).filter((id): id is string => Boolean(id)))];

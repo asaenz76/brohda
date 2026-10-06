@@ -2,8 +2,8 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchInChunks } from "@/lib/utils/batch";
 import { listPostIdsForFixtures } from "@/lib/predictions/post-links";
-import { getMatchupSeparator, orderTeamsForDisplay } from "@/lib/sports-data/team-display-order";
-import { getSelectionLabel } from "@/lib/prediction-markets/selection-labels";
+import { formatMatchup } from "@/lib/sports-data/team-display-order";
+import { getChoicePresentation } from "@/lib/prediction-markets/selection-labels";
 import type { PredictionOutcome } from "@/lib/predictions/types";
 import type { ChallengeResult } from "./types";
 
@@ -129,10 +129,14 @@ export interface CallBsHistoryEntry {
   resolvedAt: string | null;
   opponent: { id: string; label: string; username: string | null; known: boolean };
   game: { label: string; known: boolean };
-  /** The Market question, when the Market is still available. */
+  /** The Market question, when the Market is still available — only context for a Market without a template-aware label. */
   question: string | null;
-  /** What `userId` picked, in the Market's own words ("Washington Commanders win"). */
+  /** "Moneyline" | "Spread" | "Total 47.5", when the Market has a template-aware label. */
+  marketLabel: string | null;
+  /** What `userId` picked, as the Game reads it ("Washington Commanders", "Patriots +3.5", "Over 47.5"). */
   pickLabel: string | null;
+  /** What the opponent picked, the same way. */
+  opponentPickLabel: string | null;
   /** The Game's canonical Post, when one is published — the destination every row links to. */
   postId: string | null;
 }
@@ -147,6 +151,9 @@ export interface HistoryMarketRaw {
   id: string;
   question: string | null;
   fixture_id: string | null;
+  market_template?: "MONEYLINE" | "SPREAD" | "TOTAL" | null;
+  line_value?: number | string | null;
+  yes_side?: "HOME" | "AWAY" | null;
   price_outcome_labels: { yes?: string; no?: string } | null;
 }
 export interface HistoryFixtureRaw {
@@ -182,15 +189,24 @@ export function buildCallBsHistory(input: {
 
     const market = marketById.get(row.market_id);
     const fixture = market?.fixture_id ? fixtureById.get(market.fixture_id) : undefined;
-    const gameLabel = fixture
-      ? (() => {
-          const [first, second] = orderTeamsForDisplay(fixture.sport, fixture.home_team_name, fixture.away_team_name);
-          return `${first} ${getMatchupSeparator(fixture.sport)} ${second}`;
-        })()
-      : null;
+    const gameLabel = fixture ? formatMatchup(fixture.sport, fixture.home_team_name, fixture.away_team_name) : null;
 
     const mySnapshot = row.challenger_user_id === input.userId ? row.challenger_selection_snapshot : row.recipient_selection_snapshot;
-    const pickLabel = market ? getSelectionLabel({ priceOutcomeLabels: market.price_outcome_labels as never }, mySnapshot) : null;
+    // The same shared presentation as the Post, the Profile history and the notifications: "You picked Bills", not "YES".
+    const presentation = market
+      ? getChoicePresentation({
+          marketTemplate: market.market_template ?? null,
+          lineValue: market.line_value != null ? Number(market.line_value) : null,
+          yesSide: market.yes_side ?? null,
+          homeTeamName: fixture?.home_team_name ?? null,
+          awayTeamName: fixture?.away_team_name ?? null,
+          sport: fixture?.sport ?? null,
+          priceOutcomeLabels: market.price_outcome_labels ? { yes: market.price_outcome_labels.yes ?? null, no: market.price_outcome_labels.no ?? null } : null,
+        })
+      : null;
+    const theirSnapshot = row.challenger_user_id === input.userId ? row.recipient_selection_snapshot : row.challenger_selection_snapshot;
+    const pickLabel = presentation ? presentation.choices.find((c) => c.outcome === mySnapshot)!.label : null;
+    const opponentPickLabel = presentation ? presentation.choices.find((c) => c.outcome === theirSnapshot)!.label : null;
 
     return {
       challengeId: row.id,
@@ -199,7 +215,9 @@ export function buildCallBsHistory(input: {
       opponent: { id: opponentId, label: opponentLabel ?? "Unavailable user", username: available ? profile.username : null, known: opponentLabel !== null },
       game: { label: gameLabel ?? "Unavailable game", known: gameLabel !== null },
       question: market?.question?.trim() || null,
+      marketLabel: presentation?.marketLabel ?? null,
       pickLabel,
+      opponentPickLabel,
       postId: market?.fixture_id ? (input.postIdByFixtureId.get(market.fixture_id) ?? null) : null,
     };
   });
@@ -233,7 +251,7 @@ export async function listCallBsHistory(userId: string, limit: number = CALL_BS_
 
   const [profiles, markets] = await Promise.all([
     fetchInChunks<HistoryProfileRaw>(opponentIds, readChunk<HistoryProfileRaw>("user_profiles", "id, username, display_name, is_active")),
-    fetchInChunks<HistoryMarketRaw>(marketIds, readChunk<HistoryMarketRaw>("markets", "id, question, fixture_id, price_outcome_labels")),
+    fetchInChunks<HistoryMarketRaw>(marketIds, readChunk<HistoryMarketRaw>("markets", "id, question, fixture_id, market_template, line_value, yes_side, price_outcome_labels")),
   ]);
   const fixtureIds = [...new Set(markets.map((m) => m.fixture_id).filter((id): id is string => Boolean(id)))];
   const [fixtures, postIdByFixtureId] = await Promise.all([

@@ -62,10 +62,15 @@ export function CallBsHistory({
                 )}
               </p>
               <p className="text-xs text-text-muted [overflow-wrap:anywhere]">
-                {e.question && <>{e.question} · </>}
+                {(e.marketLabel ?? e.question) && <>{e.marketLabel ?? e.question} · </>}
                 {e.pickLabel && (
                   <>
                     {subjectIsViewer ? "You picked" : "Picked"} {e.pickLabel} ·{" "}
+                  </>
+                )}
+                {e.opponentPickLabel && (
+                  <>
+                    {e.opponent.known ? e.opponent.label : "They"} picked {e.opponentPickLabel} ·{" "}
                   </>
                 )}
                 {e.resolvedAt ? <LocalDateTime iso={e.resolvedAt} options={{ month: "short", day: "numeric" }} /> : "—"}

@@ -10,6 +10,7 @@ const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push, refresh }) }));
 
 import { PublicFrontDoor } from "@/components/landing/PublicFrontDoor";
+import { nflMoneyline } from "./helpers/choices";
 import { GamePostCard } from "@/components/posts/GamePostCard";
 import type { FeedItem } from "@/lib/communities/feed";
 import type { CommunityListItem } from "@/lib/communities/discovery";
@@ -31,8 +32,7 @@ function item(overrides: Partial<FeedItem> = {}, id = "post-1"): FeedItem {
     primaryMarket: {
       id: "m-1",
       question: "Will the Buffalo Bills win?",
-      yesLabel: "Buffalo Bills win",
-      noLabel: "Buffalo Bills do not win",
+      ...nflMoneyline("Buffalo Bills", "New England Patriots"),
       yesPercent: 67,
       noPercent: 33,
       totalPickCount: 42,
@@ -90,7 +90,7 @@ describe("PublicFrontDoor", () => {
 
   it("shows only aggregate public data: sentiment and a comment COUNT — never a person, a comment or a Pick", () => {
     const { container } = renderDoor({ feed: [item()] });
-    expect(text(container)).toContain("Buffalo Bills win 67% · Buffalo Bills do not win 33% · 42 predicted");
+    expect(text(container)).toContain("New England Patriots 33% · Buffalo Bills 67% · 42 predicted");
     expect(text(container)).toContain("8 comments");
     expect(text(container)).not.toMatch(/prediction accuracy|you picked/i);
   });
@@ -114,7 +114,7 @@ describe("PublicFrontDoor", () => {
     renderDoor({ feed: [item()] });
     // The only button on the page is the menu trigger; tabs are role=tab, Picks are links.
     expect(screen.queryAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual(["Open menu"]);
-    const picks = screen.getAllByRole("link", { name: /^Pick: / });
+    const picks = screen.getAllByRole("link", { name: /^Pick .* \(create an account/ });
     expect(picks).toHaveLength(2);
     for (const pick of picks) expect(pick).toHaveAttribute("href", "/register");
   });
@@ -123,7 +123,7 @@ describe("PublicFrontDoor", () => {
     const market = { ...item().primaryMarket!, pickDisabledReason: "Picks are locked for this game." };
     renderDoor({ feed: [item({ primaryMarket: market })] });
     expect(screen.getAllByText("Picks are locked for this game.").length).toBeGreaterThan(0);
-    expect(screen.queryAllByRole("link", { name: /^Pick: / })).toHaveLength(0);
+    expect(screen.queryAllByRole("link", { name: /^Pick .* \(create an account/ })).toHaveLength(0);
   });
 
   it("shows restrained empty copy — not marketing filler — when no Games are on the board", () => {
@@ -273,7 +273,7 @@ describe("GamePostCard modes", () => {
 
   it("member mode is the same card with real controls: Pick buttons, linked Community chips, the same Brohda authorship line", () => {
     const { container } = render(<GamePostCard item={item()} />);
-    expect(screen.getAllByRole("button", { name: /^Pick: / })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /^Pick / })).toHaveLength(2);
     expect(screen.getByRole("link", { name: /^NFL/ })).toHaveAttribute("href", "/community/nfl");
     const article = screen.getByRole("article", { name: "Game: New England Patriots at Buffalo Bills" });
     expect(text(article)).toContain("Game published by");

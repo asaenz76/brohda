@@ -8,7 +8,7 @@ import { listCommunityIdsForPost } from "./distribution";
 import { getPostPublicationPolicy } from "@/lib/posts/policy";
 import { listActiveMarketsForFixtures } from "@/lib/prediction-markets/repository";
 import { selectPrimaryMarket } from "@/lib/posts/primary-market";
-import { getSelectionLabel } from "@/lib/prediction-markets/selection-labels";
+import { getChoicePresentation, type Choice } from "@/lib/prediction-markets/selection-labels";
 import { getPickAggregatesForMarkets, listLatestUserPredictionsForMarkets } from "@/lib/predictions/repository";
 import { computePickSentiment } from "@/lib/predictions/sentiment";
 import { checkMarketEligibility, getPredictionPolicy } from "@/lib/predictions/policy";
@@ -93,6 +93,7 @@ export async function getFeedPolicy(): Promise<FeedPolicy> {
 }
 
 interface FeedFixtureRow {
+  sport: string;
   internal_status: string;
   scheduled_start_utc: string;
   updated_at: string;
@@ -114,6 +115,10 @@ export interface FeedMarketSummary {
   question: string;
   yesLabel: string;
   noLabel: string;
+  /** Both choices in display (matchup) order, each with its canonical outcome and accessible name. */
+  choices: [Choice, Choice];
+  /** "Moneyline" | "Spread" | "Total 47.5", or null when only the generic fallback labels exist (then the question is the context). */
+  marketLabel: string | null;
   /**
    * Phase C (Brohda 2.0 redesign, spec §13-14 "do not fake sentiment") —
    * real Brohda Pick-share sentiment (lib/predictions/sentiment.ts),
@@ -261,7 +266,7 @@ export async function getSocialFeed(userId: string | null, limit = 50): Promise<
   // 5x-overfetch precedent.
   const { data, error } = await admin
     .from("posts")
-    .select("*, fixtures!inner(internal_status, scheduled_start_utc, updated_at, home_team_name, away_team_name, home_team_logo_url, away_team_logo_url, competition_name, home_score, away_score)")
+    .select("*, fixtures!inner(sport, internal_status, scheduled_start_utc, updated_at, home_team_name, away_team_name, home_team_logo_url, away_team_logo_url, competition_name, home_score, away_score)")
     .not("published_at", "is", null)
     .order("published_at", { ascending: false })
     .limit(Math.min(limit * 10, 500));
@@ -358,11 +363,14 @@ async function enrichFeedRows(
         pickDisabledReason = "Picks are locked for this game.";
       }
 
+      const presentation = getChoicePresentation({ ...primary, homeTeamName: row.fixtures!.home_team_name, awayTeamName: row.fixtures!.away_team_name, sport: row.fixtures!.sport });
       primaryMarket = {
         id: primary.id,
         question: primary.question,
-        yesLabel: getSelectionLabel(primary, "YES"),
-        noLabel: getSelectionLabel(primary, "NO"),
+        yesLabel: presentation.choices.find((c) => c.outcome === "YES")!.label,
+        noLabel: presentation.choices.find((c) => c.outcome === "NO")!.label,
+        choices: presentation.choices,
+        marketLabel: presentation.marketLabel,
         yesPercent: sentiment.yesPercent,
         noPercent: sentiment.noPercent,
         totalPickCount: sentiment.totalPickCount,
@@ -441,7 +449,7 @@ export async function getCommunityTimeline(communityId: string, userId: string |
 
   const { data, error } = await admin
     .from("posts")
-    .select("*, fixtures!inner(internal_status, scheduled_start_utc, updated_at, home_team_name, away_team_name, home_team_logo_url, away_team_logo_url, competition_name, home_score, away_score)")
+    .select("*, fixtures!inner(sport, internal_status, scheduled_start_utc, updated_at, home_team_name, away_team_name, home_team_logo_url, away_team_logo_url, competition_name, home_score, away_score)")
     .in("id", candidatePostIds)
     .not("published_at", "is", null);
   if (error) throw error;

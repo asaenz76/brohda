@@ -9,7 +9,8 @@ import { getMonetaryParticipants } from "@/lib/monetary/discovery";
 import { listMonetaryProposalsForMarketAndUser, listMonetaryPositionsByIds, listMonetaryPositionSettlementsByPositionIds } from "@/lib/monetary/repository";
 import { getWalletBalanceSummary } from "@/lib/wallet/reservations";
 import { getFixtureScheduledStart } from "@/lib/sports-data/fixture-lookup";
-import { getMarketById } from "@/lib/prediction-markets/repository";
+import { getMarketById, listChoiceSourcesByMarketIds } from "@/lib/prediction-markets/repository";
+import { getSelectionLabel } from "@/lib/prediction-markets/selection-labels";
 import { Avatar } from "@/components/Avatar";
 import { ChallengeAction } from "@/components/predictions/ChallengeAction";
 import { HeadToHeadLine } from "@/components/profile/CallBsRecordLine";
@@ -40,20 +41,18 @@ import { isConsumerMonetaryEnabled } from "@/lib/monetary/capability";
 export async function MarketParticipants({
   marketId,
   viewerId,
-  yesLabel,
-  noLabel,
   viewerHasPick,
 }: {
   marketId: string;
   viewerId: string;
   /** Participants (and Call BS) only appear once the viewer has picked; before that, a one-line hint says so. */
   viewerHasPick: boolean;
-  /** Stage 4A remediation (§13): semantic per-side labels, so "Picked X" never renders the raw YES/NO enum. */
-  yesLabel: string;
-  noLabel: string;
 }) {
   const rawMarket = await getMarketById(marketId);
   if (rawMarket === null) return null;
+  // What each canonical side reads as ("Picked Washington Commanders"), from the same shared presentation every other surface uses.
+  const choiceSource = (await listChoiceSourcesByMarketIds([marketId])).get(marketId) ?? rawMarket;
+  const labelFor = (outcome: "YES" | "NO") => getSelectionLabel(choiceSource, outcome);
 
   const scheduledStartUtc = await getFixtureScheduledStart(rawMarket.fixtureId);
   if (scheduledStartUtc === null) return null;
@@ -166,7 +165,7 @@ export async function MarketParticipants({
                   <Link href={profileHref} className="block truncate text-sm font-medium text-text-primary hover:underline">
                     {participant.displayName}
                   </Link>
-                  <p className="break-words text-xs text-text-muted">Picked {participant.selectedOutcome === "YES" ? yesLabel : noLabel}</p>
+                  <p className="break-words text-xs text-text-muted">Picked {labelFor(participant.selectedOutcome)}</p>
                   {(() => {
                     const record = headToHead.get(participant.userId);
                     return record ? <HeadToHeadLine opponentName={participant.displayName} wins={record.wins} losses={record.losses} /> : null;
@@ -184,8 +183,8 @@ export async function MarketParticipants({
                     state={monetaryAction}
                     context={{
                       opponentName: participant.displayName,
-                      yourPickLabel: viewerOutcome === "YES" ? yesLabel : noLabel,
-                      theirPickLabel: participant.selectedOutcome === "YES" ? yesLabel : noLabel,
+                      yourPickLabel: labelFor(viewerOutcome ?? "YES"),
+                      theirPickLabel: labelFor(participant.selectedOutcome),
                       feeBps,
                       availableCents: walletSummary.available,
                       minStakeCents: stakeLimits?.minStakeCents ?? 0,

@@ -44,13 +44,13 @@ async function getDisplayName(userId: string): Promise<string> {
 
 /** §40 "Sent": the recipient learns a specific user called BS on their Pick. */
 export async function createChallengeReceivedNotification(challenge: Challenge): Promise<void> {
-  const [challengerName, { question, postId }] = await Promise.all([getDisplayName(challenge.challengerUserId), getMarketNotificationContext(challenge.marketId)]);
+  const [challengerName, { subject, postId }] = await Promise.all([getDisplayName(challenge.challengerUserId), getMarketNotificationContext(challenge.marketId)]);
 
   await insertNotifications("CALL_BS_RECEIVED", {
     user_id: challenge.recipientUserId,
     type: "CALL_BS_RECEIVED",
     title: "Someone called BS",
-    body: `${challengerName} called BS on your pick on "${question}".`,
+    body: `${challengerName} called BS on your pick on "${subject}".`,
     challenge_id: challenge.id,
     market_id: challenge.marketId,
     post_id: postId,
@@ -59,13 +59,13 @@ export async function createChallengeReceivedNotification(challenge: Challenge):
 
 /** §40 "Accepted": the challenger learns the recipient accepted. */
 export async function createChallengeAcceptedNotification(challenge: Challenge): Promise<void> {
-  const [recipientName, { question, postId }] = await Promise.all([getDisplayName(challenge.recipientUserId), getMarketNotificationContext(challenge.marketId)]);
+  const [recipientName, { subject, postId }] = await Promise.all([getDisplayName(challenge.recipientUserId), getMarketNotificationContext(challenge.marketId)]);
 
   await insertNotifications("CALL_BS_ACCEPTED", {
     user_id: challenge.challengerUserId,
     type: "CALL_BS_ACCEPTED",
     title: "Call BS accepted",
-    body: `${recipientName} accepted your Call BS on "${question}". Both picks are locked in.`,
+    body: `${recipientName} accepted your Call BS on "${subject}". Both picks are locked in.`,
     challenge_id: challenge.id,
     market_id: challenge.marketId,
     post_id: postId,
@@ -74,13 +74,13 @@ export async function createChallengeAcceptedNotification(challenge: Challenge):
 
 /** §40 "Declined": the challenger learns the recipient declined. No penalty, no locking — purely informational. */
 export async function createChallengeDeclinedNotification(challenge: Challenge): Promise<void> {
-  const [recipientName, { question, postId }] = await Promise.all([getDisplayName(challenge.recipientUserId), getMarketNotificationContext(challenge.marketId)]);
+  const [recipientName, { subject, postId }] = await Promise.all([getDisplayName(challenge.recipientUserId), getMarketNotificationContext(challenge.marketId)]);
 
   await insertNotifications("CALL_BS_DECLINED", {
     user_id: challenge.challengerUserId,
     type: "CALL_BS_DECLINED",
     title: "Call BS declined",
-    body: `${recipientName} declined your Call BS on "${question}".`,
+    body: `${recipientName} declined your Call BS on "${subject}".`,
     challenge_id: challenge.id,
     market_id: challenge.marketId,
     post_id: postId,
@@ -89,14 +89,14 @@ export async function createChallengeDeclinedNotification(challenge: Challenge):
 
 /** §40 "Resolved": both participants learn the result. Fires exactly once per newly-resolved Challenge (lib/challenges/resolution.ts's own idempotency guard ensures this is never called twice for the same row — §36). */
 export async function createChallengeResolvedNotifications({ challenge }: { challenge: Challenge }): Promise<void> {
-  const [challengerName, recipientName, { question, postId }] = await Promise.all([
+  const [challengerName, recipientName, { subject, postId }] = await Promise.all([
     getDisplayName(challenge.challengerUserId),
     getDisplayName(challenge.recipientUserId),
     getMarketNotificationContext(challenge.marketId),
   ]);
 
   if (challenge.result === "VOID") {
-    const body = `Your Call BS on "${question}" was void — no result.`;
+    const body = `Your Call BS on "${subject}" was void — no result.`;
     await insertNotifications("CALL_BS_RESOLVED", [
       { user_id: challenge.challengerUserId, type: "CALL_BS_RESOLVED", title: "Call BS void", body, challenge_id: challenge.id, market_id: challenge.marketId, post_id: postId },
       { user_id: challenge.recipientUserId, type: "CALL_BS_RESOLVED", title: "Call BS void", body, challenge_id: challenge.id, market_id: challenge.marketId, post_id: postId },
@@ -110,7 +110,7 @@ export async function createChallengeResolvedNotifications({ challenge }: { chal
       user_id: challenge.challengerUserId,
       type: "CALL_BS_RESOLVED",
       title: challengerWon ? "You won a Call BS" : "You lost a Call BS",
-      body: challengerWon ? `You beat ${recipientName} on "${question}".` : `${recipientName} beat you on "${question}".`,
+      body: challengerWon ? `You beat ${recipientName} on "${subject}".` : `${recipientName} beat you on "${subject}".`,
       challenge_id: challenge.id,
       market_id: challenge.marketId,
       post_id: postId,
@@ -119,7 +119,7 @@ export async function createChallengeResolvedNotifications({ challenge }: { chal
       user_id: challenge.recipientUserId,
       type: "CALL_BS_RESOLVED",
       title: challengerWon ? "You lost a Call BS" : "You won a Call BS",
-      body: challengerWon ? `${challengerName} beat you on "${question}".` : `You beat ${challengerName} on "${question}".`,
+      body: challengerWon ? `${challengerName} beat you on "${subject}".` : `You beat ${challengerName} on "${subject}".`,
       challenge_id: challenge.id,
       market_id: challenge.marketId,
       post_id: postId,
