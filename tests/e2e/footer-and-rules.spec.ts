@@ -8,7 +8,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { getTestAdminClient } from "./helpers/test-env";
-import { describeLockWindow, describeStakeLimits, formatFeePercent } from "../../lib/rules/format";
+import { describeLockWindow, describePickDeadline, describeStakeLimits, formatFeePercent } from "../../lib/rules/format";
 
 const admin = getTestAdminClient();
 const PASSWORD = "e2e-password-123";
@@ -163,6 +163,10 @@ test.describe("Rules page", () => {
     await page.goto("/rules");
     const main = page.getByRole("main");
     await expect(main).toContainText(`Picks lock ${lock}`);
+    await expect(main).toContainText(`You can make or change your Pick ${describePickDeadline(data!.pick_lock_minutes_before_kickoff)}.`);
+    // One cutoff for Picks, Call BS and money; no separate Game/Market lock time is promised.
+    await expect(main).toContainText("closes at the same time");
+    await expect(main).not.toContainText(/more than once|Game and Markets lock|5 minutes/i);
     await expect(main).toContainText(`The fee is currently ${fee}.`);
     await expect(main).toContainText(`Each offer must be ${limits}.`);
   });

@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { RulesContent } from "@/components/rules/RulesContent";
-import { describeLockWindow, describeStakeLimits, formatDollars, formatFeePercent, UNKNOWN_RULES_POLICY, type RulesPolicy } from "@/lib/rules/format";
+import { describeLockWindow, describePickDeadline, describeStakeLimits, formatDollars, formatFeePercent, UNKNOWN_RULES_POLICY, type RulesPolicy } from "@/lib/rules/format";
 
 afterEach(() => cleanup());
 
@@ -16,6 +16,10 @@ describe("rules value formatting (pure)", () => {
     expect(describeLockWindow(0)).toBe("at kickoff");
     expect(describeLockWindow(25)).toBe("25 minutes before kickoff");
     expect(describeLockWindow(null)).toBe("shortly before kickoff");
+    expect(describePickDeadline(10)).toBe("until 10 minutes before kickoff");
+    expect(describePickDeadline(1)).toBe("until 1 minute before kickoff");
+    expect(describePickDeadline(0)).toBe("until kickoff");
+    expect(describePickDeadline(null)).toBe("until shortly before kickoff");
   });
   it("formats the fee from basis points", () => {
     expect(formatFeePercent(100)).toBe("1%");
@@ -104,7 +108,51 @@ describe("RulesContent", () => {
     expect(t).toContain("decided by the Market's result");
     // The visible record, and what doesn't count.
     expect(t).toContain("Call BS: 8–4");
-    expect(t).toContain("Declined, expired and never-accepted Call BS don't count, and neither do voided ones.");
+    expect(t).toContain("Waiting, declined, expired and unavailable Call BS don't count.");
+    expect(t).toContain("A voided Call BS is neither a win nor a loss, so it doesn't count either.");
+    expect(t).toContain("Only accepted Call BS that have been decided count, each as a win or a loss.");
+  });
+
+  it("no longer carries the obsolete 'resolved against the same person more than once' line — the product never reaches that state", () => {
+    for (const policy of [live, { ...live, monetaryEnabled: false }, UNKNOWN_RULES_POLICY]) {
+      const { container, unmount } = render(<RulesContent policy={policy} />);
+      expect(text(container)).not.toMatch(/more than once|counts once|same person more than/i);
+      unmount();
+    }
+  });
+
+  it("states the exclusivity rule completely: several waiting, one accepted opponent per Market, accepting locks both Picks, conflicting ones become unavailable", () => {
+    const { container } = render(<RulesContent policy={live} />);
+    const t = text(container);
+    expect(t).toContain("You can have several Call BS waiting at once, and the other person decides whether to accept.");
+    expect(t).toContain("Each person can be in only one accepted Call BS per Market.");
+    expect(t).toContain("Accepting locks both Picks right away, and every other waiting Call BS involving either of you on that Market becomes unavailable.");
+    expect(t).toContain("A Call BS is decided by the Market's result");
+  });
+
+  it("separates the Pick cutoff from nothing else: one T-minus cutoff for Picks, Call BS and money — no second Game/Market lock time is invented", () => {
+    const { container } = render(<RulesContent policy={{ ...live, lockMinutesBeforeKickoff: 10 }} />);
+    const t = text(container);
+    expect(t).toContain("You can make or change your Pick until 10 minutes before kickoff.");
+    expect(t).toContain("When that cutoff passes, your Pick locks: ordinary Pick changes stop, and your final Pick is the one on your record.");
+    expect(t).toContain("Picks lock 10 minutes before kickoff");
+    expect(t).toContain("Sending or accepting a Call BS, or a money offer, closes at the same time.");
+    // Exactly one distinct "N minutes before kickoff" figure appears, and no separate Game/Market lock.
+    expect([...new Set(t.match(/\d+ minutes? before kickoff/g))]).toEqual(["10 minutes before kickoff"]);
+    expect(t).not.toMatch(/\b5 minutes\b|game (and|or) markets? lock|markets? lock|locks the game/i);
+  });
+
+  it("follows the live cutoff for every mention, and without money speaks of Call BS only", () => {
+    const { container } = render(<RulesContent policy={{ ...live, lockMinutesBeforeKickoff: 20, monetaryEnabled: false }} />);
+    const t = text(container);
+    expect(t).toContain("You can make or change your Pick until 20 minutes before kickoff.");
+    expect(t).toContain("Sending or accepting a Call BS closes at the same time.");
+    expect(t).not.toMatch(/money offer|\b10 minutes\b/);
+  });
+
+  it("goes generic, never invents a number, when the cutoff can't be read", () => {
+    const { container } = render(<RulesContent policy={UNKNOWN_RULES_POLICY} />);
+    expect(text(container)).toContain("You can make or change your Pick until shortly before kickoff.");
   });
 
   it("matches the live prediction record math: accuracy = correct ÷ (correct + incorrect), void excluded; predicted = graded Picks incl. void", () => {

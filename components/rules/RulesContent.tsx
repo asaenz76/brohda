@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { describeLockWindow, describeStakeLimits, formatFeePercent, type RulesPolicy } from "@/lib/rules/format";
+import { describeLockWindow, describePickDeadline, describeStakeLimits, formatFeePercent, type RulesPolicy } from "@/lib/rules/format";
 
 // The one source of truth for how Brohda works, in plain language. Both the
 // logged-out and the signed-in /rules render exactly this. Every statement
@@ -35,6 +35,7 @@ const list = "list-disc space-y-2 pl-5 text-sm leading-relaxed text-text-seconda
 
 export function RulesContent({ policy }: { policy: RulesPolicy }) {
   const lock = describeLockWindow(policy.lockMinutesBeforeKickoff);
+  const until = describePickDeadline(policy.lockMinutesBeforeKickoff);
   const fee = formatFeePercent(policy.feeBps);
   const limits = describeStakeLimits(policy.minStakeCents, policy.maxStakeCents);
   const money = policy.monetaryEnabled === true;
@@ -73,14 +74,17 @@ export function RulesContent({ policy }: { policy: RulesPolicy }) {
         <ul className={list}>
           <li>A Pick is your opinion on a Market: one side of its question.</li>
           <li>{money ? "A Pick is free. Money is a separate, optional layer, and nothing about Picks needs it." : "A Pick is free."}</li>
-          <li>You can change your Pick until it locks.</li>
-          <li>Your final Pick before it locks is the one on your record. Once a Pick is locked it can&apos;t be changed.</li>
+          <li>You can make or change your Pick {until}.</li>
+          <li>When that cutoff passes, your Pick locks: ordinary Pick changes stop, and your final Pick is the one on your record.</li>
         </ul>
       </Section>
 
       <Section id="rules-locking" title="When Picks lock">
         <p className={body}>
           Picks lock {lock}, or as soon as the game is no longer waiting to start. After that you can&apos;t make a Pick or change one.
+        </p>
+        <p className={body}>
+          {money ? "Sending or accepting a Call BS, or a money offer, closes at the same time." : "Sending or accepting a Call BS closes at the same time."}
         </p>
         <p className={body}>
           Your Pick stays editable until then unless you enter something that needs it to hold still: {money ? "accepting a Call BS, or a money Position being accepted," : "accepting a Call BS"}{" "}
@@ -103,9 +107,9 @@ export function RulesContent({ policy }: { policy: RulesPolicy }) {
         </ul>
         <h3 className="pt-1 text-sm font-semibold text-text-primary">Your Call BS record</h3>
         <ul className={list}>
-          <li>Only accepted Call BS that reach a win or a loss count. They show on your Profile as, for example, Call BS: 8–4.</li>
-          <li>Declined, expired and never-accepted Call BS don&apos;t count, and neither do voided ones.</li>
-          <li>If one of your Picks is resolved against the same person more than once, it counts once.</li>
+          <li>Only accepted Call BS that have been decided count, each as a win or a loss. They show on your Profile as, for example, Call BS: 8–4.</li>
+          <li>Waiting, declined, expired and unavailable Call BS don&apos;t count.</li>
+          <li>A voided Call BS is neither a win nor a loss, so it doesn&apos;t count either.</li>
           <li>On someone else&apos;s Profile, and next to their Pick on a game, you&apos;ll see your own record against them once you have results with them.</li>
         </ul>
       </Section>
