@@ -296,3 +296,49 @@ for (const template of TEMPLATES) {
     }
   });
 }
+
+// A tied Moneyline resolves VOID (the grading itself is proven through the real jobs in tests/integration/moneyline-tie-void.test.ts).
+// This is what a person sees: the same two team labels, "Void", and neither team shown as correct.
+test.describe("A tied Moneyline", () => {
+  test("keeps both team labels, reads Void on the Post and the Profile, and marks neither team correct", async ({ page }) => {
+    const suffix = randomUUID().slice(0, 8);
+    const home = `Hometeam ${suffix}`;
+    const away = `Awayteam ${suffix}`;
+    const moneyline = TEMPLATES.find((t) => t.key === "moneyline")!;
+    const game = await seedGame(moneyline, home, away);
+    const one = await createPlayer("tieone");
+    const two = await createPlayer("tietwo");
+    try {
+      await loginAs(page, one.email);
+      await page.goto("/feed");
+      await article(page, home, away).getByRole("button", { name: `Pick ${home} to win`, exact: true }).click();
+      await expect.poll(() => storedSelection(one.id, game.marketId)).toBe("YES");
+      await loginAs(page, two.email);
+      await page.goto("/feed");
+      await article(page, home, away).getByRole("button", { name: `Pick ${away} to win`, exact: true }).click();
+      await expect.poll(() => storedSelection(two.id, game.marketId)).toBe("NO");
+
+      // 14–14: both stored sides grade VOID, with no resolved side.
+      await admin.from("fixtures").update({ internal_status: "COMPLETED", home_score: 14, away_score: 14 }).eq("id", game.fixtureId);
+      await admin.from("predictions").update({ lifecycle_state: "GRADED", result: "VOID", resolved_outcome_snapshot: null, graded_at: new Date().toISOString() }).eq("market_id", game.marketId);
+
+      await page.goto(`/post/${game.postId}`);
+      await expect(page.getByText(`You picked: ${away}`)).toBeVisible(); // the visible Pick is unchanged
+      await expect(page.getByText(/^Result: Void/)).toBeVisible();
+      await expect(page.getByRole("main")).not.toContainText(/Result: (Correct|Incorrect)/);
+
+      await page.goto("/profile");
+      await expect(page.getByText(new RegExp(`You picked ${away}`))).toBeVisible();
+      await expect(page.getByText("Void", { exact: true })).toBeVisible();
+      await expect(page.getByText(/^(Correct|Incorrect)$/)).toHaveCount(0);
+
+      // The other side of the same tied game reads the same way.
+      await loginAs(page, one.email);
+      await page.goto(`/post/${game.postId}`);
+      await expect(page.getByText(`You picked: ${home}`)).toBeVisible();
+      await expect(page.getByText(/^Result: Void/)).toBeVisible();
+    } finally {
+      await cleanup(game, [one.id, two.id]);
+    }
+  });
+});

@@ -82,8 +82,24 @@ describe("computeSportsMarketOutcome — MONEYLINE", () => {
     expect(computeSportsMarketOutcome(moneyline({ yesSide: "AWAY" }), fixture({ homeScore: 20, awayScore: 10 }))).toBe("NO");
   });
 
-  it("a draw resolves NO for the yes_side — MONEYLINE is a strict 'wins outright' proposition, not VOID", () => {
-    expect(computeSportsMarketOutcome(moneyline({ yesSide: "HOME" }), fixture({ homeScore: 14, awayScore: 14 }))).toBe("NO");
+  it("a tie is VOID — the two choices are the two teams, and a tied game means neither won", () => {
+    expect(computeSportsMarketOutcome(moneyline({ yesSide: "HOME" }), fixture({ homeScore: 14, awayScore: 14 }))).toBe("VOID");
+    expect(computeSportsMarketOutcome(moneyline({ yesSide: "AWAY" }), fixture({ homeScore: 14, awayScore: 14 }))).toBe("VOID");
+    expect(computeSportsMarketOutcome(moneyline({ yesSide: "HOME" }), fixture({ homeScore: 0, awayScore: 0 }))).toBe("VOID");
+  });
+
+  it("only the equality case changed: a one-point game is still decided, in both directions and for both yes_sides", () => {
+    for (const [home, away] of [[21, 20], [20, 21]] as const) {
+      const homeWon = home > away;
+      expect(computeSportsMarketOutcome(moneyline({ yesSide: "HOME" }), fixture({ homeScore: home, awayScore: away }))).toBe(homeWon ? "YES" : "NO");
+      expect(computeSportsMarketOutcome(moneyline({ yesSide: "AWAY" }), fixture({ homeScore: home, awayScore: away }))).toBe(homeWon ? "NO" : "YES");
+    }
+  });
+
+  it("a tied game does not void a Spread or Total that the score still decides", () => {
+    // 14–14: the home side +6.5 covers; the combined 28 is under 47.5. Equal scores are not a push on those lines.
+    expect(computeSportsMarketOutcome(spread({ lineValue: 6.5, yesSide: "HOME" }), fixture({ homeScore: 14, awayScore: 14 }))).toBe("YES");
+    expect(computeSportsMarketOutcome(total({ lineValue: 47.5 }), fixture({ homeScore: 14, awayScore: 14 }))).toBe("NO");
   });
 });
 
