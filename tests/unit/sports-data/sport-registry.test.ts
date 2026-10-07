@@ -101,9 +101,9 @@ describe("the shared sport registry", () => {
     expect(formatMatchup("football", "Arsenal", "Chelsea")).toBe("Arsenal vs Chelsea");
   });
 
-  it("templates are the three canonical ones only, and the NFL's inventory is exactly what is live today", () => {
+  it("templates are the three canonical ones only (every live sport offers all three)", () => {
     for (const c of SPORT_CONFIGS) for (const t of c.marketTemplates) expect(["MONEYLINE", "SPREAD", "TOTAL"]).toContain(t);
-    expect(getSportConfig("american_football")!.marketTemplates).toEqual(["MONEYLINE", "TOTAL"]);
+    expect(getSportConfig("american_football")!.marketTemplates).toEqual(["MONEYLINE", "SPREAD", "TOTAL"]); // enabled 2026-10-07 after 13 real games verified
     expect(getSportConfig("hockey")!.marketTemplates).toEqual(["MONEYLINE", "SPREAD", "TOTAL"]); // puck line verified on real 2026 NHL payloads
     expect(getSportConfig("basketball")!.marketTemplates).toEqual(["MONEYLINE", "SPREAD", "TOTAL"]); // NBA spread verified on real 2026-27 payloads
     expect(getSportConfig("hockey")!.spreadMainLineBand).toEqual([0.25, 0.75]);

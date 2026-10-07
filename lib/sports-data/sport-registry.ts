@@ -95,8 +95,9 @@ export const SPORT_CONFIGS: readonly SportConfig[] = [
     // season "2026".) Same July rollover as the other autumn-start sports.
     seasonFor: autumnStartSeason,
     betIds: { moneyline: 1, spread: 2, total: 3 },
-    // NFL inventory is exactly what is live today (Moneyline + Total). Adding SPREAD here is an owner decision, not part of this milestone.
-    marketTemplates: ["MONEYLINE", "TOTAL"],
+    // SPREAD enabled for the NFL on the owner's instruction (2026-10-07), after verifying 13 real games (4-6 bookmakers each): orientation, sign, canonical
+    // YES-side mapping, grading and presentation — see tests/unit/prediction-markets/ingestion/aggregate-spread.test.ts.
+    marketTemplates: ["MONEYLINE", "SPREAD", "TOTAL"],
     spreadMainLineBand: [0.35, 0.65],
     oddsWindow: { kind: "sportsbook-week" },
     oddsMinRefreshMinutes: 0,

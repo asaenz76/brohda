@@ -218,6 +218,39 @@ describe("Market creation", () => {
   });
 });
 
+describe("SPREAD (enabled for the NFL on 2026-10-07)", () => {
+  function withHandicap(externalFixtureId: string, home: Array<[string, number]>) {
+    const odds = oddsFixture(externalFixtureId, { totalPoint: 44.5 });
+    return { ...odds, bookmakers: odds.bookmakers.map((b) => ({ ...b, asianHandicap: home.map(([value, odd]) => ({ value, odd })) })) };
+  }
+
+  it("creates the NFL Spread Market from the shared pipeline: HOME-anchored, the home handicap as the line, NFL ingestion source", async () => {
+    const fixture = await createFixture();
+    // moneyline home 1.5-ish (a clear favourite) and a balanced -6.5 line quoted on both sides by both books
+    getFixtureRawOddsMock.mockResolvedValueOnce(withHandicap(fixture.externalFixtureId, [["Home -6.5", 1.91], ["Away -6.5", 1.91]]));
+    const outcome = await ingestNflMarketsForFixture(fixture, 2);
+    expect(outcome).toMatchObject({ moneyline: "inserted", total: "inserted", spread: "inserted" });
+    const spread = (await marketsFor(fixture.id)).find((m) => m.market_template === "SPREAD")!;
+    expect(spread).toMatchObject({ provider: "api_nfl", line_value: -6.5, yes_side: "HOME", ingestion_source: "nfl_market_ingestion", status: "ACTIVE" });
+  });
+
+  it("an inverted reading (a clear home favourite quoted as taking points) creates NO Spread Market, and the NFL's Moneyline and Total are unaffected", async () => {
+    const fixture = await createFixture();
+    getFixtureRawOddsMock.mockResolvedValueOnce(withHandicap(fixture.externalFixtureId, [["Home +6.5", 1.91], ["Away +6.5", 1.91]]));
+    const outcome = await ingestNflMarketsForFixture(fixture, 2);
+    expect(outcome).toMatchObject({ moneyline: "inserted", total: "inserted", spread: "skipped-insufficient-bookmakers" });
+    expect((await marketsFor(fixture.id)).map((m) => m.market_template).sort()).toEqual(["MONEYLINE", "TOTAL"]);
+  });
+
+  it("no handicap quoted at all -> no Spread (never fabricated), exactly as before", async () => {
+    const fixture = await createFixture();
+    getFixtureRawOddsMock.mockResolvedValueOnce(oddsFixture(fixture.externalFixtureId, { totalPoint: 44.5 }));
+    const outcome = await ingestNflMarketsForFixture(fixture, 2);
+    expect(outcome.spread).toBe("skipped-no-data");
+    expect((await marketsFor(fixture.id)).some((m) => m.market_template === "SPREAD")).toBe(false);
+  });
+});
+
 describe("idempotency — price movement never creates a duplicate or changes proposition identity", () => {
   it("re-ingesting the same line with a different price updates the existing rows in place", async () => {
     const fixture = await createFixture();
