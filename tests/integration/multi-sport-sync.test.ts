@@ -188,15 +188,15 @@ describe("Markets — template-aware, never fabricated", () => {
     return { id: data!.id as string, externalFixtureId: data!.external_fixture_id as string, homeTeamName: data!.home_team_name as string, awayTeamName: data!.away_team_name as string };
   }
 
-  it("NBA (no spread in its registry templates): Moneyline and Total only, with the sport's identity and labels", async () => {
+  it("NBA: Moneyline, Spread and Total with the sport's identity and labels", async () => {
     const game = await seedSyncedGame(NBA);
-    state.odds.set(game.externalFixtureId, odds(game.externalFixtureId, { total: 224.5, handicap: [["Home -4.5", 1.95], ["Away -4.5", 1.9]] }));
+    state.odds.set(game.externalFixtureId, odds(game.externalFixtureId, { total: 224.5, homeOdd: 1.6, awayOdd: 2.4, handicap: [["Home -4.5", 1.95], ["Away -4.5", 1.9]] }));
     const outcome = await ingestMarketsForFixture(NBA, game, 2);
-    expect(outcome).toMatchObject({ moneyline: "inserted", total: "inserted" });
-    expect(outcome.spread).toBeUndefined();
+    expect(outcome).toMatchObject({ moneyline: "inserted", total: "inserted", spread: "inserted" });
     const { data: markets } = await admin.from("markets").select("provider, market_template, line_value, yes_side, ingestion_source, status").eq("fixture_id", game.id).order("market_template");
     expect(markets).toEqual([
       { provider: "api_nba", market_template: "MONEYLINE", line_value: null, yes_side: "HOME", ingestion_source: "nba_market_ingestion", status: "ACTIVE" },
+      { provider: "api_nba", market_template: "SPREAD", line_value: -4.5, yes_side: "HOME", ingestion_source: "nba_market_ingestion", status: "ACTIVE" },
       { provider: "api_nba", market_template: "TOTAL", line_value: 224.5, yes_side: null, ingestion_source: "nba_market_ingestion", status: "ACTIVE" },
     ]);
   });

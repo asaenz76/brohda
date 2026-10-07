@@ -123,3 +123,83 @@ describe("aggregateSpread on real 2026 NHL odds (the puck line)", () => {
     expect(total.line).toBe(5.5);
   });
 });
+
+// ---- REAL NBA payloads (2026-27 season, captured read-only the day the Basketball plan was upgraded) -------------------------------------
+import nbaOdds from "../../../fixtures/provider/nba-odds-2026-sample.json";
+import { getChoicePresentation } from "@/lib/prediction-markets/selection-labels";
+import { computeSportsMarketOutcome } from "@/lib/predictions/sports-resolution";
+
+describe("NBA spread on real 2026-27 payloads — the proof that gates enabling SPREAD for the NBA", () => {
+  const nba = getSportConfig("basketball")!;
+  const games = Object.entries(nbaOdds.odds).map(([id, item]) => {
+    const books = (item as { bookmakers: Parameters<typeof normalizeBookmaker>[1][] }).bookmakers.map((b) => normalizeBookmaker(nba, b));
+    const ml = aggregateMoneyline(books, 2)!;
+    const spread = aggregateSpread(books, 2, ml.homeProbability, nba.spreadMainLineBand);
+    const names = (nbaOdds.games as Record<string, { home: string; away: string }>)[id];
+    return { id, books, ml, spread, ...names };
+  });
+
+  it("every captured game (8–9 bookmakers each) yields a spread — none refused, none from fewer than 2 books", () => {
+    expect(games).toHaveLength(6);
+    for (const g of games) {
+      expect(g.spread, g.id).not.toBeNull();
+      expect(g.spread!.bookmakerCount).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("TEAM / SIDE ORIENTATION: the line is the HOME handicap — a home moneyline favourite lays points, a home underdog gets them (6 of 6 real games)", () => {
+    for (const g of games) {
+      if (g.ml.homeProbability > 0.55) expect(g.spread!.homeLine, `${g.home} (home favourite)`).toBeLessThan(0);
+      if (g.ml.homeProbability < 0.45) expect(g.spread!.homeLine, `${g.home} (home underdog)`).toBeGreaterThan(0);
+    }
+    const byHome = Object.fromEntries(games.map((g) => [g.home, g.spread!.homeLine]));
+    expect(byHome["Golden State Warriors"]).toBe(-7); // home favourite (moneyline 0.68)
+    expect(byHome["Milwaukee Bucks"]).toBe(5.5); // home underdog (0.36) to the Timberwolves
+    expect(byHome["Charlotte Hornets"]).toBe(-5); // home favourite (0.63)
+  });
+
+  it("SIGN ORIENTATION: the HOME side's fair cover probability is a coin flip at the chosen line, which is only true if the sign is the home handicap's (a flipped reading would put it far from 0.5)", () => {
+    for (const g of games) expect(Math.abs(g.spread!.homeCoverProbability - 0.5)).toBeLessThan(0.05);
+  });
+
+  it("CANONICAL YES-SIDE MAPPING + PRESENTATION: YES = the home team at the signed line; the two buttons read in Away @ Home order with the opposite sign on the opponent", () => {
+    for (const g of games) {
+      const line = g.spread!.homeLine;
+      const p = getChoicePresentation({ marketTemplate: "SPREAD", lineValue: line, yesSide: "HOME", homeTeamName: g.home, awayTeamName: g.away, sport: "basketball" });
+      const yes = p.choices.find((c) => c.outcome === "YES")!;
+      const no = p.choices.find((c) => c.outcome === "NO")!;
+      const sign = (n: number) => (n === 0 ? "PK" : n > 0 ? `+${n}` : `-${Math.abs(n)}`);
+      expect(yes.label).toBe(`${g.home} ${sign(line)}`);
+      expect(no.label).toBe(`${g.away} ${sign(-line)}`);
+      expect(p.choices.map((c) => c.outcome)).toEqual(["NO", "YES"]); // away first for the NBA
+      expect(yes.accessibleName).toBe(`Pick ${g.home} ${line > 0 ? "plus" : "minus"} ${Math.abs(line)}`);
+      expect(p.marketLabel).toBe("Spread");
+    }
+  });
+
+  it("GRADING on the real lines: cover / non-cover / push, for the home side (YES) at each real line", () => {
+    for (const g of games) {
+      const line = g.spread!.homeLine;
+      const def = { marketTemplate: "SPREAD" as const, lineValue: line, yesSide: "HOME" as const };
+      const final = (home: number, away: number) => ({ id: "x", sport: "basketball", internalStatus: "COMPLETED", homeScore: home, awayScore: away });
+      // the home side covers when (home + line) > away. (A basketball final can never be level, so the constructed scores avoid a tie.)
+      const away = 110;
+      const homeFor = (margin: number) => {
+        const home = away - line + margin;
+        return home === away ? home + Math.sign(margin) * 2 : home; // never a level final
+      };
+      expect(computeSportsMarketOutcome(def, final(homeFor(1), away)), `${g.home} covers`).toBe("YES");
+      expect(computeSportsMarketOutcome(def, final(homeFor(-1), away)), `${g.home} does not cover`).toBe("NO");
+      if (Number.isInteger(line) && away - line !== away) expect(computeSportsMarketOutcome(def, final(away - line, away)), `${g.home} push`).toBe("VOID");
+    }
+  });
+
+  it("the Total on the same real games: a coin-flip line from 4–9 books, graded Over/Under with the sport's own unit ('points')", () => {
+    for (const g of games) {
+      const total = aggregateTotal(g.books, 2)!;
+      expect(Math.abs(total.overProbability - 0.5)).toBeLessThan(0.05);
+      const p = getChoicePresentation({ marketTemplate: "TOTAL", lineValue: total.line, yesSide: null, homeTeamName: g.home, awayTeamName: g.away, sport: "basketball" });
+      expect(p.choices.find((c) => c.outcome === "YES")!.accessibleName).toBe(`Pick Over ${total.line} total points`);
+    }
+  });
+});
