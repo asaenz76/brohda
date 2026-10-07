@@ -102,7 +102,7 @@ catalog fails closed.
 
 **Locked product decision (2026-10-07): SPREAD is approved for NBA and NHL once a real provider odds payload has been verified for that sport,** independently per sport. Before enabling a sport:
 inspect real payloads; prove team/side orientation, sign orientation and the canonical YES-side mapping; run grading and presentation tests; then add `"SPREAD"` to that sport's `marketTemplates` in
-`sport-registry.ts`. **NHL: done** (§5a — real 2026 payloads, enabled in r45). **NBA: done** (§5b — real 2026-27 payloads, enabled in r47). The NFL stays Moneyline + Total.
+`sport-registry.ts`. **NHL: done** (§5a — real 2026 payloads, enabled in r45). **NBA: done** (§5b — real 2026-27 payloads, enabled in r47). **NFL: enabled on the owner's instruction (2026-10-07)** after 13 real games (week of 2026-10-08, 4–6 bookmakers each) passed the same gate: 13/13 orientation, cover probability 0.50 ± 0.02 at every line, canonical mapping, grading and presentation tests.
 
 ## 5a. Real 2026 NHL data (captured the day the Hockey plan was upgraded, read-only)
 
