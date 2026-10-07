@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { aggregateSpread, SPREAD_MAIN_LINE_BAND } from "@/lib/prediction-markets/ingestion/aggregate-spread";
-import { aggregateMoneyline } from "@/lib/prediction-markets/ingestion/aggregate-nfl-odds";
+import { aggregateMoneyline, aggregateTotal } from "@/lib/prediction-markets/ingestion/aggregate-nfl-odds";
 import { normalizeBookmaker } from "@/lib/sports-data/api-sports-provider";
 import { getSportConfig } from "@/lib/sports-data/sport-registry";
 import type { RawBookmakerOdds } from "@/lib/sports-data/types";
@@ -73,5 +73,53 @@ describe("aggregateSpread — the SPREAD template for every sport (puck line / r
   it("ignores values it cannot parse", () => {
     const books = [book(1, [{ value: "garbage", odd: 1.9 }, { value: "Home -3", odd: 1.9 }, { value: "Away -3", odd: 1.9 }])];
     expect(aggregateSpread(books, 1, 0.6)!.homeLine).toBe(-3);
+  });
+});
+
+// ---- REAL NHL payloads (2026 season, captured read-only the day the Hockey plan was upgraded) ---------------------------------------------
+import nhlOdds from "../../../fixtures/provider/nhl-odds-2026-sample.json";
+
+describe("aggregateSpread on real 2026 NHL odds (the puck line)", () => {
+  const nhl = getSportConfig("hockey")!;
+  const normalize = (item: (typeof nhlOdds)["gameA"]) => (item.bookmakers as Parameters<typeof normalizeBookmaker>[1][]).map((b) => normalizeBookmaker(nhl, b));
+  const moneyline = (books: RawBookmakerOdds[]) => aggregateMoneyline(books, 2)!.homeProbability;
+
+  it("the real handicap payload follows the verified convention: the number is the HOME handicap, 'Away' is the other side of the same line", () => {
+    const books = normalize(nhlOdds.gameA);
+    const betvictor = books.find((b) => b.bookmakerName === "BetVictor")!;
+    // Home is the 1.57 moneyline favourite: Home -1.5 pays 2.38 (laying 1.5), the Away entry at the same number is the cheap side (1.53) = away +1.5.
+    expect(betvictor.asianHandicap.find((v) => v.value === "Home -1.5")!.odd).toBe(2.38);
+    expect(betvictor.asianHandicap.find((v) => v.value === "Away -1.5")!.odd).toBe(1.53);
+  });
+
+  it("game with two books quoting the puck line: finds home -1.5 even though its prices are lopsided (fair 0.30) — the NHL band accepts it, the floating-line default would not", () => {
+    const books = normalize(nhlOdds.gameB);
+    const home = moneyline(books);
+    const spread = aggregateSpread(books, 2, home, nhl.spreadMainLineBand)!;
+    expect(spread).not.toBeNull();
+    expect(spread.homeLine).toBe(-1.5);
+    expect(spread.homeCoverProbability).toBeGreaterThan(0.25);
+    expect(spread.homeCoverProbability).toBeLessThan(0.35);
+    expect(aggregateSpread(books, 2, home)).toBeNull(); // default band [0.35, 0.65] would have refused a real puck line
+  });
+
+  it("real availability: exactly two books (BetVictor, Betano) quote the puck line in both captured games — enough at the standard minimum of 2, never at 3 (correctness beats completeness)", () => {
+    for (const game of [nhlOdds.gameA, nhlOdds.gameB]) {
+      const books = normalize(game);
+      expect(books.filter((b) => b.asianHandicap.length > 0).map((b) => b.bookmakerName).sort()).toEqual(["BetVictor", "Betano"]);
+      expect(aggregateSpread(books, 2, moneyline(books), nhl.spreadMainLineBand)!.homeLine).toBe(-1.5);
+      expect(aggregateSpread(books, 3, moneyline(books), nhl.spreadMainLineBand)).toBeNull();
+    }
+  });
+
+  it("an alternate-only quote (-2.5 / -3.5) is still refused under the NHL band", () => {
+    const alt: RawBookmakerOdds[] = [1, 2].map((id) => ({ bookmakerId: id, bookmakerName: `b${id}`, moneyline: [], gameTotal: [], asianHandicap: [{ value: "Home -3.5", odd: 6 }, { value: "Away -3.5", odd: 1.09 }] }));
+    expect(aggregateSpread(alt, 2, 0.62, nhl.spreadMainLineBand)).toBeNull();
+  });
+
+  it("the Total on the same real game: line 5.5 is chosen (closest to a coin flip) when two books quote it", () => {
+    const books = normalize(nhlOdds.gameB);
+    const total = aggregateTotal(books, 2)!;
+    expect(total.line).toBe(5.5);
   });
 });

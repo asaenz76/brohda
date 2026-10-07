@@ -169,7 +169,7 @@ async function ingestSpread(
 ): Promise<NonNullable<FixtureIngestionOutcome["spread"]>> {
   const hasAnyHandicap = bookmakers.some((b) => b.asianHandicap.length > 0);
   if (!hasAnyHandicap) return "skipped-no-data";
-  const aggregate = aggregateSpread(bookmakers, minBookmakerCount, moneylineHomeProbability);
+  const aggregate = aggregateSpread(bookmakers, minBookmakerCount, moneylineHomeProbability, config.spreadMainLineBand);
   if (!aggregate) return moneylineHomeProbability === null ? "skipped-unverifiable" : "skipped-insufficient-bookmakers";
 
   const currentlyActive = await getActiveMarketByFixtureAndTemplate(fixture.id, "SPREAD");

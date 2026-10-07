@@ -1,0 +1,506 @@
+{
+ "shootouts": [
+  {
+   "id": 432515,
+   "date": "2026-09-20T21:00:00+00:00",
+   "time": "21:00",
+   "timestamp": 1789938000,
+   "timezone": "UTC",
+   "week": null,
+   "timer": null,
+   "status": {
+    "long": "After Penalties",
+    "short": "AP"
+   },
+   "country": {
+    "id": 31,
+    "name": "USA",
+    "code": "US",
+    "flag": "https://media.api-sports.io/flags/us.svg"
+   },
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "type": "League",
+    "logo": "https://media.api-sports.io/hockey/leagues/57.png",
+    "season": 2026
+   },
+   "teams": {
+    "home": {
+     "id": 673,
+     "name": "Boston Bruins",
+     "logo": "https://media.api-sports.io/hockey/teams/673.png"
+    },
+    "away": {
+     "id": 703,
+     "name": "Washington Capitals",
+     "logo": "https://media.api-sports.io/hockey/teams/703.png"
+    }
+   },
+   "scores": {
+    "home": 3,
+    "away": 2
+   },
+   "periods": {
+    "first": "0-1",
+    "second": "1-0",
+    "third": "1-1",
+    "overtime": "0-0",
+    "penalties": "1-0"
+   },
+   "events": true
+  },
+  {
+   "id": 444569,
+   "date": "2026-09-21T23:00:00+00:00",
+   "time": "23:00",
+   "timestamp": 1790031600,
+   "timezone": "UTC",
+   "week": null,
+   "timer": null,
+   "status": {
+    "long": "After Penalties",
+    "short": "AP"
+   },
+   "country": {
+    "id": 31,
+    "name": "USA",
+    "code": "US",
+    "flag": "https://media.api-sports.io/flags/us.svg"
+   },
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "type": "League",
+    "logo": "https://media.api-sports.io/hockey/leagues/57.png",
+    "season": 2026
+   },
+   "teams": {
+    "home": {
+     "id": 680,
+     "name": "Columbus Blue Jackets",
+     "logo": "https://media.api-sports.io/hockey/teams/680.png"
+    },
+    "away": {
+     "id": 682,
+     "name": "Detroit Red Wings",
+     "logo": "https://media.api-sports.io/hockey/teams/682.png"
+    }
+   },
+   "scores": {
+    "home": 1,
+    "away": 0
+   },
+   "periods": {
+    "first": "0-0",
+    "second": "0-0",
+    "third": "0-0",
+    "overtime": "0-0",
+    "penalties": "1-0"
+   },
+   "events": true
+  },
+  {
+   "id": 444576,
+   "date": "2026-09-22T23:00:00+00:00",
+   "time": "23:00",
+   "timestamp": 1790118000,
+   "timezone": "UTC",
+   "week": null,
+   "timer": null,
+   "status": {
+    "long": "After Penalties",
+    "short": "AP"
+   },
+   "country": {
+    "id": 31,
+    "name": "USA",
+    "code": "US",
+    "flag": "https://media.api-sports.io/flags/us.svg"
+   },
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "type": "League",
+    "logo": "https://media.api-sports.io/hockey/leagues/57.png",
+    "season": 2026
+   },
+   "teams": {
+    "home": {
+     "id": 676,
+     "name": "Carolina Hurricanes",
+     "logo": "https://media.api-sports.io/hockey/teams/676.png"
+    },
+    "away": {
+     "id": 684,
+     "name": "Florida Panthers",
+     "logo": "https://media.api-sports.io/hockey/teams/684.png"
+    }
+   },
+   "scores": {
+    "home": 3,
+    "away": 2
+   },
+   "periods": {
+    "first": "1-2",
+    "second": "1-0",
+    "third": "0-0",
+    "overtime": "0-0",
+    "penalties": "2-0"
+   },
+   "events": true
+  },
+  {
+   "id": 432524,
+   "date": "2026-09-23T02:00:00+00:00",
+   "time": "02:00",
+   "timestamp": 1790128800,
+   "timezone": "UTC",
+   "week": null,
+   "timer": null,
+   "status": {
+    "long": "After Penalties",
+    "short": "AP"
+   },
+   "country": {
+    "id": 31,
+    "name": "USA",
+    "code": "US",
+    "flag": "https://media.api-sports.io/flags/us.svg"
+   },
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "type": "League",
+    "logo": "https://media.api-sports.io/hockey/leagues/57.png",
+    "season": 2026
+   },
+   "teams": {
+    "home": {
+     "id": 697,
+     "name": "San Jose Sharks",
+     "logo": "https://media.api-sports.io/hockey/teams/697.png"
+    },
+    "away": {
+     "id": 702,
+     "name": "Vegas Golden Knights",
+     "logo": "https://media.api-sports.io/hockey/teams/702.png"
+    }
+   },
+   "scores": {
+    "home": 1,
+    "away": 2
+   },
+   "periods": {
+    "first": "0-0",
+    "second": "0-0",
+    "third": "1-1",
+    "overtime": "0-0",
+    "penalties": "1-2"
+   },
+   "events": true
+  },
+  {
+   "id": 444584,
+   "date": "2026-09-24T23:00:00+00:00",
+   "time": "23:00",
+   "timestamp": 1790290800,
+   "timezone": "UTC",
+   "week": null,
+   "timer": null,
+   "status": {
+    "long": "After Penalties",
+    "short": "AP"
+   },
+   "country": {
+    "id": 31,
+    "name": "USA",
+    "code": "US",
+    "flag": "https://media.api-sports.io/flags/us.svg"
+   },
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "type": "League",
+    "logo": "https://media.api-sports.io/hockey/leagues/57.png",
+    "season": 2026
+   },
+   "teams": {
+    "home": {
+     "id": 692,
+     "name": "New York Rangers",
+     "logo": "https://media.api-sports.io/hockey/teams/692.png"
+    },
+    "away": {
+     "id": 690,
+     "name": "New Jersey Devils",
+     "logo": "https://media.api-sports.io/hockey/teams/690.png"
+    }
+   },
+   "scores": {
+    "home": 4,
+    "away": 3
+   },
+   "periods": {
+    "first": "0-1",
+    "second": "0-1",
+    "third": "3-1",
+    "overtime": "0-0",
+    "penalties": "1-0"
+   },
+   "events": true
+  },
+  {
+   "id": 432530,
+   "date": "2026-09-25T01:40:00+00:00",
+   "time": "01:40",
+   "timestamp": 1790300400,
+   "timezone": "UTC",
+   "week": null,
+   "timer": null,
+   "status": {
+    "long": "After Penalties",
+    "short": "AP"
+   },
+   "country": {
+    "id": 31,
+    "name": "USA",
+    "code": "US",
+    "flag": "https://media.api-sports.io/flags/us.svg"
+   },
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "type": "League",
+    "logo": "https://media.api-sports.io/hockey/leagues/57.png",
+    "season": 2026
+   },
+   "teams": {
+    "home": {
+     "id": 1436,
+     "name": "Seattle Kraken",
+     "logo": "https://media.api-sports.io/hockey/teams/1436.png"
+    },
+    "away": {
+     "id": 675,
+     "name": "Calgary Flames",
+     "logo": "https://media.api-sports.io/hockey/teams/675.png"
+    }
+   },
+   "scores": {
+    "home": 4,
+    "away": 3
+   },
+   "periods": {
+    "first": "1-1",
+    "second": "0-2",
+    "third": "2-0",
+    "overtime": "0-0",
+    "penalties": "2-1"
+   },
+   "events": true
+  },
+  {
+   "id": 444591,
+   "date": "2026-09-26T22:00:00+00:00",
+   "time": "22:00",
+   "timestamp": 1790460000,
+   "timezone": "UTC",
+   "week": null,
+   "timer": null,
+   "status": {
+    "long": "After Penalties",
+    "short": "AP"
+   },
+   "country": {
+    "id": 31,
+    "name": "USA",
+    "code": "US",
+    "flag": "https://media.api-sports.io/flags/us.svg"
+   },
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "type": "League",
+    "logo": "https://media.api-sports.io/hockey/leagues/57.png",
+    "season": 2026
+   },
+   "teams": {
+    "home": {
+     "id": 684,
+     "name": "Florida Panthers",
+     "logo": "https://media.api-sports.io/hockey/teams/684.png"
+    },
+    "away": {
+     "id": 699,
+     "name": "Tampa Bay Lightning",
+     "logo": "https://media.api-sports.io/hockey/teams/699.png"
+    }
+   },
+   "scores": {
+    "home": 2,
+    "away": 3
+   },
+   "periods": {
+    "first": "1-1",
+    "second": "1-0",
+    "third": "0-1",
+    "overtime": "0-0",
+    "penalties": "1-2"
+   },
+   "events": true
+  }
+ ],
+ "live": [
+  {
+   "id": 444647,
+   "date": "2026-10-07T00:00:00+00:00",
+   "time": "00:00",
+   "timestamp": 1791331200,
+   "timezone": "UTC",
+   "week": null,
+   "timer": "20",
+   "status": {
+    "long": "Third Period",
+    "short": "P3"
+   },
+   "country": {
+    "id": 31,
+    "name": "USA",
+    "code": "US",
+    "flag": "https://media.api-sports.io/flags/us.svg"
+   },
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "type": "League",
+    "logo": "https://media.api-sports.io/hockey/leagues/57.png",
+    "season": 2026
+   },
+   "teams": {
+    "home": {
+     "id": 678,
+     "name": "Chicago Blackhawks",
+     "logo": "https://media.api-sports.io/hockey/teams/678.png"
+    },
+    "away": {
+     "id": 698,
+     "name": "St. Louis Blues",
+     "logo": "https://media.api-sports.io/hockey/teams/698.png"
+    }
+   },
+   "scores": {
+    "home": 3,
+    "away": 2
+   },
+   "periods": {
+    "first": "0-1",
+    "second": "2-0",
+    "third": "1-1",
+    "overtime": null,
+    "penalties": null
+   },
+   "events": true
+  },
+  {
+   "id": 444648,
+   "date": "2026-10-07T01:40:00+00:00",
+   "time": "01:40",
+   "timestamp": 1791337200,
+   "timezone": "UTC",
+   "week": null,
+   "timer": "1",
+   "status": {
+    "long": "Second Period",
+    "short": "P2"
+   },
+   "country": {
+    "id": 31,
+    "name": "USA",
+    "code": "US",
+    "flag": "https://media.api-sports.io/flags/us.svg"
+   },
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "type": "League",
+    "logo": "https://media.api-sports.io/hockey/leagues/57.png",
+    "season": 2026
+   },
+   "teams": {
+    "home": {
+     "id": 1436,
+     "name": "Seattle Kraken",
+     "logo": "https://media.api-sports.io/hockey/teams/1436.png"
+    },
+    "away": {
+     "id": 702,
+     "name": "Vegas Golden Knights",
+     "logo": "https://media.api-sports.io/hockey/teams/702.png"
+    }
+   },
+   "scores": {
+    "home": 0,
+    "away": 2
+   },
+   "periods": {
+    "first": "0-2",
+    "second": "0-0",
+    "third": null,
+    "overtime": null,
+    "penalties": null
+   },
+   "events": true
+  },
+  {
+   "id": 444649,
+   "date": "2026-10-07T02:00:00+00:00",
+   "time": "02:00",
+   "timestamp": 1791338400,
+   "timezone": "UTC",
+   "week": null,
+   "timer": "17",
+   "status": {
+    "long": "First Period",
+    "short": "P1"
+   },
+   "country": {
+    "id": 31,
+    "name": "USA",
+    "code": "US",
+    "flag": "https://media.api-sports.io/flags/us.svg"
+   },
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "type": "League",
+    "logo": "https://media.api-sports.io/hockey/leagues/57.png",
+    "season": 2026
+   },
+   "teams": {
+    "home": {
+     "id": 685,
+     "name": "Los Angeles Kings",
+     "logo": "https://media.api-sports.io/hockey/teams/685.png"
+    },
+    "away": {
+     "id": 684,
+     "name": "Florida Panthers",
+     "logo": "https://media.api-sports.io/hockey/teams/684.png"
+    }
+   },
+   "scores": {
+    "home": 0,
+    "away": 0
+   },
+   "periods": {
+    "first": "0-0",
+    "second": null,
+    "third": null,
+    "overtime": null,
+    "penalties": null
+   },
+   "events": true
+  }
+ ]
+}

@@ -221,3 +221,31 @@ describe("MLB — shared-architecture compatibility (real baseball 2024 payloads
     expect(games.filter((g) => g.status.short === "CANC").map((g) => normalizeApiBaseballStatus(g.status.short))).toEqual(["CANCELLED"]);
   });
 });
+
+// ---- REAL current-season (2026) NHL games: live statuses and shootouts, captured the day the Hockey plan was upgraded -----------------------
+import nhl2026 from "../../fixtures/provider/nhl-2026-live-sample.json";
+
+describe("NHL 2026 season, real payloads", () => {
+  it("live games carry the period codes P1 / P2 / P3 (now OBSERVED, not just vendor-listed) and map to LIVE, with the live score untouched", () => {
+    const live = nhl2026.live as unknown as RawHockeyGame[];
+    expect(live.map((g) => g.status.short).sort()).toEqual(["P1", "P2", "P3"]);
+    for (const raw of live) {
+      const game = mapHockeyGame(NHL, raw);
+      expect(game.internalStatus).toBe("LIVE");
+      expect([game.homeScore, game.awayScore]).toEqual([raw.scores.home, raw.scores.away]);
+    }
+  });
+
+  it("every shootout of the current season (AP) also credits the winner exactly one goal: final == regulation + overtime goals, plus one for the winner", () => {
+    const shootouts = nhl2026.shootouts as unknown as RawHockeyGame[];
+    expect(shootouts.length).toBeGreaterThan(0);
+    for (const raw of shootouts) {
+      const game = mapHockeyGame(NHL, raw);
+      expect(game.internalStatus).toBe("COMPLETED");
+      const level = (game.regulationHomeScore as number) + (game.extraTimeHomeScore ?? 0) === (game.regulationAwayScore as number) + (game.extraTimeAwayScore ?? 0);
+      expect(level).toBe(true);
+      expect(Math.abs((game.homeScore as number) - (game.awayScore as number))).toBe(1);
+      expect((game.homeScore as number) > (game.awayScore as number)).toBe((game.penaltyHomeScore as number) > (game.penaltyAwayScore as number));
+    }
+  });
+});
