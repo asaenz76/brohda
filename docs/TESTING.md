@@ -97,7 +97,7 @@ pnpm test:integration --sequence.shuffle.files --sequence.seed=202
 ```
 
 E2E specs that write the `platform_settings` singleton each get their own chained project in `playwright.config.ts`
-(`chromium-admin-settings`, `chromium-money-gating`, `chromium-legal-reconsent`) — files of one project run on separate workers, so only a
+(`chromium-admin-settings`, `chromium-money-gating`, `chromium-legal-reconsent`, `chromium-legal-money`) — files of one project run on separate workers, so only a
 project `dependencies` chain guarantees they never overlap. Running such a spec alone needs `--no-deps`
 (`--project=chromium-legal-reconsent --no-deps`). Running the
 whole e2e suite with many workers on one `next dev` server can overload it (login timeouts, "aborted" errors) — CI uses 2 workers.

@@ -251,3 +251,32 @@ Search: `pool(s)`, `pool organizer`, `entry`, `entry fee`, `owes`, `owed`, `lead
   although their text has changed several times since (r39–r42). Decide (1) the effective date and version of the current text; (2) whether the
   change is "material" and existing members must re-accept (turn on the switch only then); (3) what the Terms §12 notice should be. Changing the
   version/date is a one-file edit; enabling re-consent is one settings value.
+
+---
+
+## 8. Money-capability gating of the legal pages (r44) — OWNER/COUNSEL REVIEW REQUIRED
+
+Rules already hid money copy when `monetary_p2p_enabled = false`. Terms and Privacy now follow the **same single capability** (no second flag), composed at
+section level from one derived `LegalMoneyMode` (`lib/legal/money-mode.ts`, `components/legal/TermsDocument.tsx`, `PrivacyDocument.tsx`):
+
+| Mode | When | What the pages say |
+|---|---|---|
+| `active` | money ON | The complete documents — **text-identical to before** (verified by rendering the old and new pages and comparing). |
+| `retained` | money OFF **and** financial records exist (or the check can't be read) | No current-feature copy (offers, funding, settlement mechanics, the fee, who sees an active Position). The **disclosure the records require stays**: Terms §3 "Wallet records and withdrawals" (what is kept; an existing balance is withdrawn through an administrator; third-party-transfer responsibility; admin authority over the records; closing an account does not erase them); Privacy keeps the wallet/money-records item, the withdrawal-destination handling, who can see the records, permanent retention and the account-closure paragraph. |
+| `free` | money OFF **and** no financial record was ever stored | No money language at all (only the Company's classification disclaimer, below). |
+
+"Records exist" is a **fact** (any row in `wallet_transactions`, `wallet_requests`, `monetary_positions`, `monetary_proposals`, or a user balance > 0), not a flag. Fail-safe is
+deliberately asymmetric: an unreadable *setting* hides the consumer money copy; an unreadable *records check* keeps the disclosure — the page never claims "no financial data" on a guess.
+Production holds 3 Positions / 3 settlements and ledger history, so production renders `retained` when money is off.
+
+Terms numbering and "Section N" cross-references are derived from the sections actually shown (a reference to a hidden section throws in tests and cannot ship).
+
+**Flagged for owner/counsel (engineering changed wording only to remove current-feature copy; no legal classification was added):**
+1. The Company's classification disclaimer ("not a bank, money transmitter, payment processor, escrow agent, broker, bookmaker, gambling operator, or party to any wager…") is shown
+   in **every** mode, including `free` — it is a legal statement, not feature copy; whether to drop it in the clean state is a counsel decision.
+2. The `retained` Terms §3 is new wording assembled from existing sentences (it deliberately avoids saying the feature is unavailable). Counsel to confirm it is the right
+   statement of obligations for members with existing balances and for withdrawal rights.
+3. Limitation of liability and indemnity keep their "off-platform payment / dispute over money" clauses in `retained` (they cover withdrawals and history) and drop them in `free`.
+4. Wind-down: nothing needed to recover an existing balance is hidden — the wallet remains reachable for balance-holders (`canSeeWallet`), and the legal pages keep the withdrawal process
+   in `retained`.
+
