@@ -1,8 +1,12 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import TermsPage from "@/app/terms/page";
-import PrivacyPage from "@/app/privacy/page";
+import { TermsDocument } from "@/components/legal/TermsDocument";
+import { PrivacyDocument } from "@/components/legal/PrivacyDocument";
+
+// These assertions describe the complete documents (optional money ON). What changes when money is off is covered in legal-money-gating.test.tsx.
+const TermsPage = () => <TermsDocument mode="active" />;
+const PrivacyPage = () => <PrivacyDocument mode="active" />;
 import { RulesContent } from "@/components/rules/RulesContent";
 import { UNKNOWN_RULES_POLICY } from "@/lib/rules/format";
 import { LEGAL_DOCUMENTS } from "@/lib/legal/documents";

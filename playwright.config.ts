@@ -105,7 +105,7 @@ export default defineConfig({
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
-      testIgnore: /admin-brohda-settings|monetary-capability-gating|legal-reconsent/,
+      testIgnore: /admin-brohda-settings|monetary-capability-gating|legal-reconsent|legal-money-gating/,
     },
     {
       name: "chromium-admin-settings",
@@ -131,6 +131,14 @@ export default defineConfig({
       testMatch: /legal-reconsent/,
       fullyParallel: false,
       dependencies: ["chromium-money-gating"],
+    },
+    // Flips monetary_p2p_enabled, which every money surface reads — same rule: its own project, chained after the others.
+    {
+      name: "chromium-legal-money",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: /legal-money-gating/,
+      fullyParallel: false,
+      dependencies: ["chromium-legal-reconsent"],
     },
   ],
 });
