@@ -280,3 +280,4 @@ Terms numbering and "Section N" cross-references are derived from the sections a
 4. Wind-down: nothing needed to recover an existing balance is hidden — the wallet remains reachable for balance-holders (`canSeeWallet`), and the legal pages keep the withdrawal process
    in `retained`.
 
+**Owner instruction (2026-10-07):** the retained classification language (e.g. "The Company is not a bank, money transmitter…") is not to be rewritten by engineering; the capability-gating implementation stays as built. All substantive legal classification remains OWNER/COUNSEL REVIEW REQUIRED.

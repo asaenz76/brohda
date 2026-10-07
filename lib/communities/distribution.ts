@@ -4,7 +4,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureLeagueCommunity, ensureSportCommunity, ensureTeamCommunity } from "./repository";
 import { resolveFixtureSportsEntities } from "./fixture-resolution";
 import { getCommunityDistributionPolicy } from "./policy";
-import { getSportLabel } from "@/lib/sports-data/sport-registry";
+import { activeSportConfigs, getSportLabel } from "@/lib/sports-data/sport-registry";
+import { fetchAllRows, fetchInChunks } from "@/lib/utils/batch";
 
 // Milestone R4 (docs/BROHDA_2_0_MILESTONE_MAP.md, §13-17): the canonical
 // many-to-many Post <-> Community distribution. Never copies a Post —
@@ -93,9 +94,42 @@ export async function distributePostForFixture(postId: string, fixtureId: string
   return { distributedCommunityIds, skippedReasons };
 }
 
+
+/**
+ * Every ACTIVE sport's Communities exist as soon as its Teams and League are synced — not only after a Team's first published Game Post. Without
+ * this a member could not find or follow, say, the Ducks until Anaheim had a Game with a Market. Idempotent and set-based (one read of the sport's
+ * Teams, one read of which already have a Community; only the missing ones are created), and it honours the same distribution policy flags as the
+ * Post distribution itself. Returns how many Communities it created.
+ */
+export async function ensureCommunitiesForActiveSports(
+  policy: { teamEnabled: boolean; leagueEnabled: boolean; sportEnabled: boolean },
+  env: Record<string, string | undefined> = process.env,
+): Promise<number> {
+  const admin = createAdminClient();
+  let created = 0;
+  for (const config of activeSportConfigs(env)) {
+    if (policy.teamEnabled) {
+      const teams = await fetchAllRows((from, to) => admin.from("teams").select("id").eq("provider", config.provider).order("id").range(from, to));
+      const ids = teams.map((t) => t.id as string);
+      const have = new Set((await fetchInChunks<{ team_id: string }>(ids, (chunk) => admin.from("communities").select("team_id").eq("type", "TEAM").in("team_id", chunk))).map((c) => c.team_id));
+      for (const id of ids.filter((teamId) => !have.has(teamId))) if ((await ensureTeamCommunity(id)).outcome === "created") created++;
+    }
+    if (policy.leagueEnabled) {
+      const leagues = await fetchAllRows((from, to) => admin.from("leagues").select("id").eq("provider", config.provider).order("id").range(from, to));
+      const ids = leagues.map((l) => l.id as string);
+      const have = new Set((await fetchInChunks<{ league_id: string }>(ids, (chunk) => admin.from("communities").select("league_id").eq("type", "LEAGUE").in("league_id", chunk))).map((c) => c.league_id));
+      for (const id of ids.filter((leagueId) => !have.has(leagueId))) if ((await ensureLeagueCommunity(id)).outcome === "created") created++;
+    }
+    if (policy.sportEnabled && (await ensureSportCommunity(config.sport, config.sportLabel)).outcome === "created") created++;
+  }
+  return created;
+}
+
 export interface CommunityDistributionSummary {
   ranAt: string;
   policyEnabled: boolean;
+  /** Communities created this run for teams / leagues / sports that had none (see ensureCommunitiesForActiveSports). */
+  communitiesEnsured?: number;
   postsExamined: number;
   outcomes: Array<{ postId: string } & FixtureDistributionOutcome>;
   failures: Array<{ postId: string; error: string }>;
@@ -118,11 +152,19 @@ export async function runCommunityDistribution(): Promise<CommunityDistributionS
   }
 
   const admin = createAdminClient();
-  const { data: posts, error } = await admin.from("posts").select("id, fixture_id").not("published_at", "is", null);
-  if (error) throw error;
-
   const outcomes: CommunityDistributionSummary["outcomes"] = [];
   const failures: CommunityDistributionSummary["failures"] = [];
+
+  // Own failure domain: a problem creating Communities never blocks distributing Posts (and is reported, so job health reads degraded).
+  let communitiesEnsured = 0;
+  try {
+    communitiesEnsured = await ensureCommunitiesForActiveSports(policy);
+  } catch (err) {
+    failures.push({ postId: "(ensure communities)", error: errorMessage(err) });
+  }
+
+  const { data: posts, error } = await admin.from("posts").select("id, fixture_id").not("published_at", "is", null);
+  if (error) throw error;
 
   for (const post of posts ?? []) {
     try {
@@ -133,5 +175,5 @@ export async function runCommunityDistribution(): Promise<CommunityDistributionS
     }
   }
 
-  return { ranAt: new Date().toISOString(), policyEnabled: true, postsExamined: (posts ?? []).length, outcomes, failures };
+  return { ranAt: new Date().toISOString(), policyEnabled: true, communitiesEnsured, postsExamined: (posts ?? []).length, outcomes, failures };
 }
