@@ -296,3 +296,17 @@ Terms **and Privacy** numbering and "Section N" cross-references are derived fro
    in `retained`.
 
 **Owner instruction (2026-10-07):** the retained classification language (e.g. "The Company is not a bank, money transmitter…") is not to be rewritten by engineering; the capability-gating implementation stays as built. All substantive legal classification remains OWNER/COUNSEL REVIEW REQUIRED.
+
+---
+
+## 9. Sponsored Game Posts (r52) — OWNER/COUNSEL DECISIONS REQUIRED
+
+Engineering did **not** change the Terms or the Privacy Policy for sponsorship (as instructed). The items below need an owner/counsel decision before the feature is turned ON in production:
+
+1. **Terms of service for sponsors** (a commercial agreement: pricing, payment, approval discretion, refund policy, takedown, content warranties, indemnity). None exists; sponsors are onboarded manually by Super Admin. The refund policy is deliberately *not* encoded — refunds are an explicit manual step.
+2. **Advertising disclosure wording.** Members see "Sponsored · Presented by …" (a plain-language label). Confirm it satisfies the advertising-disclosure rules that apply where Brohda operates.
+3. **Promotion disclosure wording** shown on the Post: "This promotion is run by the sponsor, not by Brohda. Brohda does not take entries, choose winners, hold prizes or deliver them. See the official rules for who is eligible and how it works." (`PROMOTION_DISCLOSURE`). Counsel to confirm, and to decide whether sponsor promotions need any jurisdictional restrictions or registration — Brohda takes no role in them by design.
+4. **Privacy.** New processing: sponsor contact details (admin-entered), and internal impression/click records tied to a signed-in member (never shown to sponsors; aggregate-only reporting is planned). The Privacy Policy currently lists none of this. Decide whether it must be disclosed (what is collected, purpose, retention) before launch.
+5. **Third-party click-outs.** Following a sponsor link leaves Brohda; the Terms already say third-party services have their own terms, but counsel may want an explicit sentence for sponsored links.
+6. **Classification.** Nothing here changes "The Company is not a bank, money transmitter…" or any monetary language; sponsorship revenue is advertising revenue, separate from player money.
+

@@ -18,6 +18,8 @@ import { deriveConsumerStatus } from "@/lib/prediction-markets/discovery/status"
 import { getFreshnessPolicy } from "@/lib/prediction-markets/discovery/policy";
 import { getPostCommentCountsForPosts } from "@/lib/post-comments/repository";
 import type { PredictionOutcome } from "@/lib/predictions/types";
+import { loadPublicSponsorships } from "@/lib/sponsorship/public";
+import type { PublicSponsorship } from "@/lib/sponsorship/types";
 
 // Milestone R4 (§21-22) established the canonical Post-centric discovery
 // queries; Stage 4A (R13.10 remediation of the Stage 4 audit's P0 finding
@@ -173,6 +175,8 @@ export interface FeedItem {
   isFromFollowedCommunity: boolean;
   /** Phase C — non-tombstoned comment count, batched (lib/post-comments/repository.ts's getPostCommentCountsForPosts). */
   commentCount: number;
+  /** The active, approved, paid sponsorship for this Post (null when none / capability off) — presentation only, never part of the Post's identity. */
+  sponsorship?: PublicSponsorship | null;
 }
 
 /**
@@ -286,7 +290,7 @@ export async function getSocialFeed(userId: string | null, limit = 50): Promise<
 
   const items = await enrichFeedRows(rows, userId, followedPostIds, publicationPolicy, predictionPolicy, freshnessPolicy);
   items.sort(compareFeedItems);
-  return items.slice(0, limit);
+  return withSponsorships(items.slice(0, limit));
 }
 
 /**
@@ -480,7 +484,15 @@ export async function getCommunityTimeline(communityId: string, userId: string |
   }));
 
   deNoised.sort(compareCommunityTimelineItems);
-  return deNoised.slice(0, limit);
+  return withSponsorships(deNoised.slice(0, limit));
+}
+
+/** Presentation only: attaches the active sponsorship (if any) to each returned item. Never changes which Posts appear, their order, or any sports content. */
+async function withSponsorships(items: FeedItem[]): Promise<FeedItem[]> {
+  if (items.length === 0) return items;
+  const sponsorships = await loadPublicSponsorships(items.map((i) => i.post.id));
+  if (sponsorships.size === 0) return items;
+  return items.map((item) => ({ ...item, sponsorship: sponsorships.get(item.post.id) ?? null }));
 }
 
 async function listPostIdsInCommunities(postIds: string[], communityIds: string[]): Promise<Set<string>> {

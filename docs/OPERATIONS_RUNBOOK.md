@@ -117,6 +117,36 @@ Run as a **real member** (not an admin) on https://brohda.com, once after a rele
 8. Profile → Communities tab loads; Notifications opens; the wallet link is absent (money OFF) unless you hold a balance.
 9. Admin (separate admin account): **Job Health** all healthy/no-op; **Events** shows each active sport.
 
+## Sponsored Game Posts — operating it (Super Admin)
+
+Architecture and the invariants: `docs/architecture/sponsorship.md`. **V1 is manual**: no payment provider is integrated; Brohda invoices/collects outside the app and Super Admin records it. Only a **Super Admin** can do anything below (an `admin` role cannot).
+
+**Turn it on/off.** Admin → Settings → Brohda → *Sponsorship* → "Sponsored Game Posts". Default OFF. OFF = no sponsor presentation or promotion anywhere (feed, Community, Post, front door, click links), sponsors cannot create or submit; Game Posts, Picks, comments and Call BS are untouched, nothing is deleted, and you keep full admin access. Turning it ON again shows **only** sponsorships that are still paid, approved, unchanged and inside their window — nothing expired is revived. The same card holds the default currency, logo size limit, default campaign end (hours after kickoff), unpaid-hold hours (0 = never) and the *payment instructions* shown to sponsors.
+
+**One-time setup after deploy.** Add the cron-job.org entry for `/api/cron/advance-sponsorships` (every 5 minutes, `Authorization: Bearer $CRON_SECRET`) — it only keeps stored labels current; public rendering never depends on it.
+
+**Create a Sponsor.** Admin → Sponsorship → Sponsors → *Create sponsor* (display name, optional legal name/contact email). Upload the logo there (JPEG/PNG/WebP). *Add a member* by the email of an **existing account** — that person then signs in normally and opens `/sponsor` (the area is not linked from member navigation; send them the address). Set status ACTIVE / SUSPENDED / DISABLED to allow or stop all new commercial activity (a disabled sponsor's live sponsorships go dark immediately).
+
+**Set inventory and price.** Admin → Sponsorship → Inventory lists upcoming published Game Posts. For each Game you want to sell: tick *Sponsorable*, set price, currency, market (leave `GLOBAL` — see below) and the campaign window (UTC), then Save. Nothing is sponsorable until you do. A Game already held by a sponsor shows who and in what state. Repricing inventory never changes a sponsorship that was already submitted.
+
+**What the sponsor does.** `/sponsor/games` → *Start sponsorship* → fill sponsor name, logo, destination link, optional call-to-action text, optional promotion → *Submit for review* → they see the price, "How to pay" (your instructions) and a status that says **"Submitted — awaiting payment and review"**. Submitting reserves the Game for them (a second sponsor cannot take it); an unpaid reservation is released after the configured hours.
+
+**Confirm payment.** Admin → Sponsorship → open the item → *Payment reference* → *Mark payment received*. Recorded with your name, time and reference; pressing twice does nothing extra. This **never** publishes by itself.
+
+**Approve / reject / ask for changes.** Same page. Review everything the public would see: sponsor name, logo, copy, destination link, geography, price, and — if present — the promotion (title, prize, **official rules link**, who runs it). **Approve** records an immutable snapshot of what you approved. **Request changes** returns it to the sponsor (they edit and resubmit; you must approve again). **Reject** needs a reason. You can approve before payment arrives; it goes live only once **both** payment and approval stand. If a paid sponsorship is rejected, payment is left exactly as recorded and nothing is refunded automatically — decide the refund with the owner, then use *Mark refund pending* / *Mark refunded* (which also ends the campaign).
+
+**Schedule / live / completed.** Automatic: once paid and approved it is SCHEDULED until its window opens, LIVE during it, COMPLETED after (the label disappears from the Post when it ends; the record stays). A sponsor cannot change anything after submitting; if approved content is changed by any route the approval is voided automatically.
+
+**Suspend / cancel.** *Suspend* (reason required) removes it from the public at once and keeps every record; *Unsuspend* restores it only if it is still paid, approved and unchanged. *Cancel* ends it and frees the Game. Neither touches the Game Post.
+
+**Audit.** Each sponsorship page has *Audit history* (every action: who, what, when, reason) and *What was approved* (the immutable snapshots). Settings changes appear in Settings → Brohda → change history.
+
+**Geography.** Brohda has no trustworthy viewer location, so only `GLOBAL` inventory is ever shown. You may sell a country-coded market, but it will not display until a reliable location signal is added.
+
+**Sponsor-run promotions.** The sponsor runs the promotion, not Brohda: Brohda shows the approved details and a link to the sponsor's official rules plus a disclosure, and never takes entries, picks winners, holds prizes or delivers them. Review the rules link and the named runner before approving. The disclosure wording (`PROMOTION_DISCLOSURE` in `components/sponsorship/SponsorPromotion.tsx`) is owner/counsel-controlled.
+
+**Still manual / not built.** Payment collection and refunds; sponsor emails are best-effort and only sent when Resend is configured; sponsor analytics (Sponsor Intelligence — next milestone: aggregate-only reporting on the impression/click hooks already being recorded); a permanent historical "Presented by" credit after a campaign ends.
+
 ## Grading stopped
 
 **Symptom**: Picks stay PENDING past their Market's resolution; no

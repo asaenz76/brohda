@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { MessageCircle } from "lucide-react";
 import { LeagueCrest } from "@/components/LeagueCrest";
+import { SponsoredLabel } from "@/components/sponsorship/SponsoredLabel";
 import { resolveLeagueIdentity } from "@/lib/sports-data/league-crest";
 import { Card, CardContent } from "@/components/ui/card";
 import { LocalDateTime } from "@/components/LocalDateTime";
@@ -101,6 +102,7 @@ export function GamePostCard({ item, mode = "member" }: { item: FeedItem; mode?:
             <span className="shrink-0 rounded-full bg-accent-primary/10 px-2 py-0.5 text-xs font-medium text-accent-primary">Following</span>
           )}
         </div>
+        {item.sponsorship && <SponsoredLabel sponsorship={item.sponsorship} trackImpression={!isPublic} />}
         <Link href={`/post/${item.post.id}`} className="block space-y-3">
           <p className="flex flex-wrap items-center gap-1.5 text-base font-semibold text-text-primary">
             <MatchupHeading

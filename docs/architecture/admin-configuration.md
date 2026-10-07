@@ -60,6 +60,7 @@ Save action:
 | Communities | Distribution master switch + 3 per-type switches (team/league/sport) | Disabling never deletes existing Post/Community relationships |
 | Conversation | Max comment length, rate-limit window/attempts | Comment length additionally capped by an absolute DB CHECK of 2000 |
 | Call BS | Master switch, rate-limit window/attempts | Disabling never affects an already-PENDING/ACCEPTED Challenge |
+| Sponsorship | `sponsorship_enabled` (Sponsored Game Posts), default currency, logo max size, default campaign end, unpaid-hold hours, payment instructions | Disabling hides every sponsorship and blocks new sponsor proposals; nothing is deleted — see docs/architecture/sponsorship.md |
 | Monetary P2P | Master switch, proposal rate-limit window/attempts, P2P settlement fee | Financial domain — see snapshot semantics below |
 | Reputation | Leaderboard minimum decided-picks sample | Query-derived; takes effect immediately, rewrites no history |
 | Operations | Settlement batch size | Pure throughput; new in this milestone, closes an R10 caveat |

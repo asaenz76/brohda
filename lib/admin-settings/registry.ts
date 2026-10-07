@@ -354,6 +354,60 @@ export const SETTINGS_REGISTRY: SettingRegistryEntry[] = [
     impactNote: "Applies only to Positions committed AFTER this change. An already-committed Position keeps the exact fee rate that was in effect the moment it was accepted, forever — this change is never retroactive.",
   },
 
+  // Sponsorship
+  {
+    domain: "Sponsorship",
+    key: "sponsorshipEnabled",
+    column: "sponsorship_enabled",
+    label: "Sponsored Game Posts",
+    description: "Master switch for sponsored Game Posts: sponsor proposals, and any sponsor presentation on Game Posts.",
+    type: "boolean",
+    impactNote: "OFF hides every sponsorship (and any sponsor-run promotion) from members immediately and blocks new sponsor proposals. Nothing is deleted; Game Posts, Picks, comments and Call BS are unaffected. Turning it back ON shows only sponsorships that are still paid, approved and inside their campaign window.",
+  },
+  {
+    domain: "Sponsorship",
+    key: "sponsorshipDefaultCurrency",
+    column: "sponsorship_default_currency",
+    label: "Default currency",
+    description: "ISO-4217 code pre-filled when you create sponsorship inventory. Each inventory row and sponsorship carries its own currency.",
+    type: "text",
+    impactNote: "Only pre-fills new inventory; never re-prices existing inventory or any sponsorship.",
+  },
+  {
+    domain: "Sponsorship",
+    key: "sponsorshipLogoMaxBytes",
+    column: "sponsorship_logo_max_bytes",
+    label: "Sponsor logo max size (bytes)",
+    description: "Largest sponsor logo file accepted on upload.",
+    type: "integer",
+  },
+  {
+    domain: "Sponsorship",
+    key: "sponsorshipEndAfterKickoffHours",
+    column: "sponsorship_end_after_kickoff_hours",
+    label: "Default campaign end (hours after kickoff)",
+    description: "When you create inventory for a Game, its campaign window ends this many hours after kickoff unless you set it explicitly.",
+    type: "integer",
+    impactNote: "Only pre-fills new inventory.",
+  },
+  {
+    domain: "Sponsorship",
+    key: "sponsorshipReservationHours",
+    column: "sponsorship_reservation_hours",
+    label: "Unpaid hold (hours)",
+    description: "A submitted but unpaid sponsorship holds its Game for this many hours, then it is released back to draft. 0 = never released.",
+    type: "integer",
+    impactNote: "Applies to holds evaluated from now on; paid sponsorships never expire.",
+  },
+  {
+    domain: "Sponsorship",
+    key: "sponsorshipPaymentInstructions",
+    column: "sponsorship_payment_instructions",
+    label: "Payment instructions",
+    description: "Shown to a sponsor after they submit: how to pay Brohda (for example invoice or bank-transfer details). Never put secrets here.",
+    type: "text",
+  },
+
   // Reputation
   {
     domain: "Reputation",

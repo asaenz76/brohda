@@ -84,6 +84,20 @@ export interface OperationsSettings {
   jobStalenessMultiplier: number;
 }
 
+export interface SponsorshipSettings {
+  /** The canonical Sponsored Game Posts capability. OFF (or unreadable) = nothing sponsored is visible and sponsors cannot create/submit; records are kept. */
+  sponsorshipEnabled: boolean;
+  /** ISO-4217 code pre-filled on new inventory. Each inventory row and each sponsorship snapshot carries its own currency. */
+  sponsorshipDefaultCurrency: string;
+  sponsorshipLogoMaxBytes: number;
+  /** Default campaign end, in hours after kickoff, offered when inventory is created. */
+  sponsorshipEndAfterKickoffHours: number;
+  /** How long an unpaid submission holds its inventory before it is released (0 = never). */
+  sponsorshipReservationHours: number;
+  /** Shown to sponsors after they submit (how to pay Brohda). Operator-written; empty means "Brohda will contact you". */
+  sponsorshipPaymentInstructions: string;
+}
+
 /** The full effective Brohda 2.0 settings snapshot, plus the concurrency token every domain's own update action must echo back. */
 export interface BrohdaSettings {
   predictions: PredictionSettings;
@@ -95,6 +109,7 @@ export interface BrohdaSettings {
   monetary: MonetarySettings;
   reputation: ReputationSettings;
   operations: OperationsSettings;
+  sponsorship: SponsorshipSettings;
   /** Optimistic-concurrency token (platform_settings.updated_at) — every domain update action must echo the value it read back, or receive a `conflict` outcome instead of silently overwriting a newer change (§42, §74, §89). */
   updatedAt: string;
   updatedByDisplayName: string | null;

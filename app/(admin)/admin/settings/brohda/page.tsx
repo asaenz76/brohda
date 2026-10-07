@@ -8,6 +8,7 @@ import {
   CommunitySettingsSection,
   ConversationSettingsSection,
   CallBsSettingsSection,
+  SponsorshipSettingsSection,
   MonetarySettingsSection,
   ReputationSettingsSection,
   OperationsSettingsSection,
@@ -49,6 +50,7 @@ export default async function BrohdaSettingsPage() {
       <MonetarySettingsSection initial={settings.monetary} updatedAt={settings.updatedAt} />
       <ReputationSettingsSection initial={settings.reputation} updatedAt={settings.updatedAt} />
       <OperationsSettingsSection initial={settings.operations} updatedAt={settings.updatedAt} />
+      <SponsorshipSettingsSection initial={settings.sponsorship} updatedAt={settings.updatedAt} />
     </div>
   );
 }

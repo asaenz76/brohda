@@ -34,6 +34,16 @@ export interface JobDefinition {
 
 export const JOB_REGISTRY: readonly JobDefinition[] = [
   {
+    // Sponsorship housekeeping (SCHEDULED -> LIVE -> COMPLETED, expired unpaid holds). Public rendering re-verifies eligibility on every read, so this only
+    // keeps stored labels current; it needs its own external cron entry (docs/DEPLOYMENT.md §5).
+    id: "advance-sponsorships",
+    displayName: "Advance sponsorships",
+    route: "/api/cron/advance-sponsorships",
+    category: "brohda-social",
+    criticality: "standard",
+    expectedCadenceMinutes: 5,
+  },
+  {
     id: "sync-fixtures-nfl",
     displayName: "Sync NFL fixtures",
     route: "/api/cron/sync-fixtures-nfl",
