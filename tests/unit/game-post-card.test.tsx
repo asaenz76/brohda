@@ -258,4 +258,31 @@ describe("GamePostCard", () => {
       expect(container.querySelector('[data-slot="league-identity"]')).toHaveTextContent("NBA");
     });
   });
+
+  describe("sponsorship presentation", () => {
+    const sponsorship = { id: "22222222-2222-4222-8222-222222222222", presentedBy: "Acme Sports", tagline: null, ctaText: "Learn more", logoUrl: null, promotion: null };
+
+    it("an item without a sponsorship renders no sponsor line at all", () => {
+      const { container } = render(<GamePostCard item={makeItem()} />);
+      expect(container.querySelector('[data-slot="sponsored-label"]')).toBeNull();
+    });
+
+    it("an item with one shows a single restrained 'Sponsored · Presented by' line, above the matchup, without touching the Pick controls or the sports content", () => {
+      const withSponsor = render(<GamePostCard item={makeItem({ sponsorship })} />);
+      const label = withSponsor.container.querySelector('[data-slot="sponsored-label"]')!;
+      expect(label).toHaveTextContent("Sponsored · Presented by Acme Sports");
+      expect(withSponsor.container.querySelectorAll('[data-slot="sponsored-label"]')).toHaveLength(1);
+      const sponsoredHtml = withSponsor.container.innerHTML;
+      cleanup();
+      const plain = render(<GamePostCard item={makeItem()} />).container;
+      // Everything outside the label is identical: same matchup, same Pick buttons, same sentiment line, same communities.
+      const stripped = sponsoredHtml.replace(/<p[^>]*data-slot="sponsored-label"[\s\S]*?<\/p>/, "");
+      expect(stripped).toBe(plain.innerHTML);
+    });
+
+    it("renders in public mode too (the front door), where nothing is tracked", () => {
+      const { container } = render(<GamePostCard item={makeItem({ sponsorship })} mode="public" />);
+      expect(container.querySelector('[data-slot="sponsored-label"]')).not.toBeNull();
+    });
+  });
 });

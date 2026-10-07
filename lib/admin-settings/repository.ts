@@ -8,6 +8,7 @@ import type {
   CommunitySettings,
   ConversationSettings,
   CallBsSettings,
+  SponsorshipSettings,
   MonetarySettings,
   ReputationSettings,
   OperationsSettings,
@@ -51,6 +52,12 @@ interface PlatformSettingsRow {
   post_comment_max_length: number;
   post_comment_rate_limit_window_seconds: number;
   post_comment_rate_limit_max_attempts: number;
+  sponsorship_enabled: boolean;
+  sponsorship_default_currency: string;
+  sponsorship_logo_max_bytes: number;
+  sponsorship_end_after_kickoff_hours: number;
+  sponsorship_reservation_hours: number;
+  sponsorship_payment_instructions: string;
   call_bs_enabled: boolean;
   call_bs_rate_limit_window_seconds: number;
   call_bs_rate_limit_max_attempts: number;
@@ -142,6 +149,18 @@ function toMonetary(row: PlatformSettingsRow): MonetarySettings {
   };
 }
 
+function toSponsorship(row: PlatformSettingsRow): SponsorshipSettings {
+  return {
+    // Fail closed: only a literal true is ON.
+    sponsorshipEnabled: row.sponsorship_enabled === true,
+    sponsorshipDefaultCurrency: row.sponsorship_default_currency,
+    sponsorshipLogoMaxBytes: row.sponsorship_logo_max_bytes,
+    sponsorshipEndAfterKickoffHours: row.sponsorship_end_after_kickoff_hours,
+    sponsorshipReservationHours: row.sponsorship_reservation_hours,
+    sponsorshipPaymentInstructions: row.sponsorship_payment_instructions,
+  };
+}
+
 function toReputation(row: PlatformSettingsRow): ReputationSettings {
   return { leaderboardMinDecidedPicks: row.leaderboard_min_decided_picks };
 }
@@ -172,13 +191,14 @@ async function toBrohdaSettings(row: PlatformSettingsRow): Promise<BrohdaSetting
     monetary: toMonetary(row),
     reputation: toReputation(row),
     operations: toOperations(row),
+    sponsorship: toSponsorship(row),
     updatedAt: row.updated_at,
     updatedByDisplayName,
   };
 }
 
 const SETTINGS_COLUMNS =
-  "pick_lock_minutes_before_kickoff, prediction_cutoff_minutes_before_close, prediction_allow_repeat, prediction_allow_stale_price, prediction_allow_unavailable_price, prediction_allow_closed_market, prediction_notifications_enabled, prediction_notify_on_correct, prediction_notify_on_incorrect, prediction_notify_on_void, prediction_notify_title_correct, prediction_notify_body_correct, prediction_notify_title_incorrect, prediction_notify_body_incorrect, prediction_notify_title_void, prediction_notify_body_void, market_ingestion_enabled, market_ingestion_min_bookmaker_count, post_publication_enabled, post_publication_requires_active_market, social_prediction_enabled, feed_completed_game_retention_hours, community_distribution_enabled, community_team_distribution_enabled, community_league_distribution_enabled, community_sport_distribution_enabled, post_comment_max_length, post_comment_rate_limit_window_seconds, post_comment_rate_limit_max_attempts, call_bs_enabled, call_bs_rate_limit_window_seconds, call_bs_rate_limit_max_attempts, monetary_p2p_enabled, monetary_proposal_rate_limit_window_seconds, monetary_proposal_rate_limit_max_attempts, monetary_p2p_min_stake_cents, monetary_p2p_max_stake_cents, p2p_fee_bps, leaderboard_min_decided_picks, settlement_batch_size, grading_batch_size, challenge_resolution_batch_size, job_staleness_multiplier, updated_at, updated_by";
+  "pick_lock_minutes_before_kickoff, prediction_cutoff_minutes_before_close, prediction_allow_repeat, prediction_allow_stale_price, prediction_allow_unavailable_price, prediction_allow_closed_market, prediction_notifications_enabled, prediction_notify_on_correct, prediction_notify_on_incorrect, prediction_notify_on_void, prediction_notify_title_correct, prediction_notify_body_correct, prediction_notify_title_incorrect, prediction_notify_body_incorrect, prediction_notify_title_void, prediction_notify_body_void, market_ingestion_enabled, market_ingestion_min_bookmaker_count, post_publication_enabled, post_publication_requires_active_market, social_prediction_enabled, feed_completed_game_retention_hours, community_distribution_enabled, community_team_distribution_enabled, community_league_distribution_enabled, community_sport_distribution_enabled, post_comment_max_length, post_comment_rate_limit_window_seconds, post_comment_rate_limit_max_attempts, call_bs_enabled, call_bs_rate_limit_window_seconds, call_bs_rate_limit_max_attempts, monetary_p2p_enabled, monetary_proposal_rate_limit_window_seconds, monetary_proposal_rate_limit_max_attempts, monetary_p2p_min_stake_cents, monetary_p2p_max_stake_cents, p2p_fee_bps, leaderboard_min_decided_picks, settlement_batch_size, grading_batch_size, challenge_resolution_batch_size, job_staleness_multiplier, sponsorship_enabled, sponsorship_default_currency, sponsorship_logo_max_bytes, sponsorship_end_after_kickoff_hours, sponsorship_reservation_hours, sponsorship_payment_instructions, updated_at, updated_by";
 
 /** The full effective Brohda 2.0 settings snapshot — the one place "what policy is Brohda using right now?" (§14) is answered, for both the admin UI and any test/script that needs it. */
 export async function getBrohdaSettings(): Promise<BrohdaSettings> {
@@ -342,6 +362,24 @@ export async function updateOperationsSettings(adminId: string, expectedUpdatedA
       p_grading_batch_size: values.gradingBatchSize,
       p_challenge_resolution_batch_size: values.challengeResolutionBatchSize,
       p_job_staleness_multiplier: values.jobStalenessMultiplier,
+    })
+    .single();
+  if (error) throw error;
+  return toResult(data as RpcRow);
+}
+
+export async function updateSponsorshipSettings(adminId: string, expectedUpdatedAt: string, values: SponsorshipSettings): Promise<SettingsUpdateResult> {
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .rpc("update_sponsorship_settings", {
+      p_admin_id: adminId,
+      p_expected_updated_at: expectedUpdatedAt,
+      p_sponsorship_enabled: values.sponsorshipEnabled,
+      p_default_currency: values.sponsorshipDefaultCurrency,
+      p_logo_max_bytes: values.sponsorshipLogoMaxBytes,
+      p_end_after_kickoff_hours: values.sponsorshipEndAfterKickoffHours,
+      p_reservation_hours: values.sponsorshipReservationHours,
+      p_payment_instructions: values.sponsorshipPaymentInstructions,
     })
     .single();
   if (error) throw error;

@@ -8,6 +8,7 @@ import {
   updateCommunitySettingsAction,
   updateConversationSettingsAction,
   updateCallBsSettingsAction,
+  updateSponsorshipSettingsAction,
   updateMonetarySettingsAction,
   updateReputationSettingsAction,
   updateOperationsSettingsAction,
@@ -20,6 +21,7 @@ import type {
   CommunitySettings,
   ConversationSettings,
   CallBsSettings,
+  SponsorshipSettings,
   MonetarySettings,
   ReputationSettings,
   OperationsSettings,
@@ -548,6 +550,57 @@ export function OperationsSettingsSection({ initial, updatedAt }: { initial: Ope
       <SectionFeedback result={result} />
       <Button type="button" disabled={isPending} onClick={save}>
         {isPending ? "Saving…" : "Save Operations"}
+      </Button>
+    </SectionCard>
+  );
+}
+
+export function SponsorshipSettingsSection({ initial, updatedAt }: { initial: SponsorshipSettings; updatedAt: string }) {
+  const [values, setValues] = useState(initial);
+  const [currentUpdatedAt, setCurrentUpdatedAt] = useState(updatedAt);
+  const [result, setResult] = useState<BrohdaSettingsActionResult | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  function save() {
+    setResult(null);
+    startTransition(async () => {
+      const r = await updateSponsorshipSettingsAction(currentUpdatedAt, values);
+      setResult(r);
+      if (r.settings) {
+        setCurrentUpdatedAt(r.settings.updatedAt);
+        if (r.conflict) setValues(r.settings.sponsorship);
+      }
+    });
+  }
+
+  return (
+    <SectionCard title="Sponsorship">
+      <FieldRow label="Sponsored Game Posts" description="Master switch. OFF hides every sponsorship and blocks new sponsor proposals; nothing is deleted. Turning it back ON shows only sponsorships that are still paid, approved and inside their campaign window.">
+        <Switch aria-label="Sponsored Game Posts" checked={values.sponsorshipEnabled} onCheckedChange={(checked) => setValues((v) => ({ ...v, sponsorshipEnabled: checked }))} />
+      </FieldRow>
+      <FieldRow label="Default currency" description="3-letter code pre-filled on new inventory (each inventory row and sponsorship keeps its own).">
+        <Input className="w-24 uppercase" maxLength={3} value={values.sponsorshipDefaultCurrency} onChange={(e) => setValues((v) => ({ ...v, sponsorshipDefaultCurrency: e.target.value }))} />
+      </FieldRow>
+      <FieldRow label="Logo max size (bytes)" description="Largest sponsor logo accepted on upload.">
+        <Input type="number" className="w-32" value={values.sponsorshipLogoMaxBytes} onChange={(e) => setValues((v) => ({ ...v, sponsorshipLogoMaxBytes: Number(e.target.value) }))} />
+      </FieldRow>
+      <FieldRow label="Default campaign end (hours after kickoff)" description="Pre-fills a new inventory item's window.">
+        <Input type="number" className="w-24" value={values.sponsorshipEndAfterKickoffHours} onChange={(e) => setValues((v) => ({ ...v, sponsorshipEndAfterKickoffHours: Number(e.target.value) }))} />
+      </FieldRow>
+      <FieldRow label="Unpaid hold (hours)" description="A submitted, unpaid sponsorship holds its Game this long, then is released. 0 = never.">
+        <Input type="number" className="w-24" value={values.sponsorshipReservationHours} onChange={(e) => setValues((v) => ({ ...v, sponsorshipReservationHours: Number(e.target.value) }))} />
+      </FieldRow>
+      <FieldRow label="Payment instructions" description="Shown to a sponsor after they submit. Never put secrets here.">
+        <textarea
+          className="min-h-24 w-full rounded-md border border-border-subtle bg-background px-3 py-2 text-sm text-text-primary"
+          maxLength={2000}
+          value={values.sponsorshipPaymentInstructions}
+          onChange={(e) => setValues((v) => ({ ...v, sponsorshipPaymentInstructions: e.target.value }))}
+        />
+      </FieldRow>
+      <SectionFeedback result={result} />
+      <Button type="button" disabled={isPending} onClick={save}>
+        {isPending ? "Saving…" : "Save Sponsorship"}
       </Button>
     </SectionCard>
   );

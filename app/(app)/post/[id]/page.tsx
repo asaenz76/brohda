@@ -23,6 +23,9 @@ import { MatchupHeading } from "@/components/posts/MatchupHeading";
 import { orderTeamsForDisplay } from "@/lib/sports-data/team-display-order";
 import Link from "next/link";
 import { LeagueCrest } from "@/components/LeagueCrest";
+import { SponsoredLabel } from "@/components/sponsorship/SponsoredLabel";
+import { SponsorPromotion } from "@/components/sponsorship/SponsorPromotion";
+import { loadPublicSponsorshipForPost } from "@/lib/sponsorship/public";
 import { resolveLeagueIdentity } from "@/lib/sports-data/league-crest";
 import { ColumnHeader } from "@/components/shell/ColumnHeader";
 
@@ -62,11 +65,12 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
   if (!fixture) notFound();
   const league = resolveLeagueIdentity({ competitionName: fixture.competitionName, competitionLogoUrl: fixture.competitionLogoUrl });
 
-  const [activeMarkets, policy, conversation, communities] = await Promise.all([
+  const [activeMarkets, policy, conversation, communities, sponsorship] = await Promise.all([
     listDisplayableMarketsForFixture(post.fixtureId),
     getPostPublicationPolicy(),
     getPostConversation(post.id),
     getCommunityRefsForPost(post.id),
+    loadPublicSponsorshipForPost(post.id),
   ]);
   const primaryMarket = selectPrimaryMarket(activeMarkets, policy.primaryMarketTemplatePriority);
   const primaryMarketDetail = primaryMarket ? await getMarketDetail(primaryMarket.id) : null;
@@ -115,6 +119,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
               </p>
             )}
             {fixture.internalStatus === "CANCELLED" && <p className="text-sm font-medium text-text-primary">This game was cancelled.</p>}
+            {sponsorship && <SponsoredLabel sponsorship={sponsorship} trackImpression />}
             <PostCommunityBadges communities={communities} />
           </div>
 
@@ -125,6 +130,12 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
               <p className="text-sm text-text-secondary">No markets are available for this game yet.</p>
             )}
           </div>
+
+          {sponsorship?.promotion && (
+            <div className="border-t border-border-subtle pt-4">
+              <SponsorPromotion promotion={sponsorship.promotion} />
+            </div>
+          )}
 
           {otherMarkets.length > 0 && (
             <div className="space-y-2 border-t border-border-subtle pt-4">

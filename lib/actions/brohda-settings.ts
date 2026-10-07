@@ -12,6 +12,7 @@ import {
   updateMonetarySettings,
   updateReputationSettings,
   updateOperationsSettings,
+  updateSponsorshipSettings,
 } from "@/lib/admin-settings/repository";
 import type {
   PredictionSettings,
@@ -23,6 +24,7 @@ import type {
   MonetarySettings,
   ReputationSettings,
   OperationsSettings,
+  SponsorshipSettings,
   BrohdaSettings,
 } from "@/lib/admin-settings/types";
 import { parseDollarsToCents, parsePercentToBps } from "@/lib/utils/money";
@@ -279,5 +281,33 @@ export async function updateOperationsSettingsAction(expectedUpdatedAt: string, 
   }
 
   revalidateBrohdaSettings();
+  return { success: true, error: null, conflict: false, settings: result.settings };
+}
+
+export async function updateSponsorshipSettingsAction(expectedUpdatedAt: string, values: SponsorshipSettings): Promise<BrohdaSettingsActionResult> {
+  const admin = await requireSuperAdmin();
+
+  const currency = values.sponsorshipDefaultCurrency.trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(currency)) return { success: false, error: "Currency must be a 3-letter code (for example USD).", conflict: false, settings: null };
+  if (!Number.isInteger(values.sponsorshipLogoMaxBytes) || values.sponsorshipLogoMaxBytes < 10240 || values.sponsorshipLogoMaxBytes > 5242880) return { success: false, error: "Logo max size must be between 10,240 and 5,242,880 bytes.", conflict: false, settings: null };
+  if (!Number.isInteger(values.sponsorshipEndAfterKickoffHours) || values.sponsorshipEndAfterKickoffHours < 0 || values.sponsorshipEndAfterKickoffHours > 168) return { success: false, error: "Campaign end must be between 0 and 168 hours after kickoff.", conflict: false, settings: null };
+  if (!Number.isInteger(values.sponsorshipReservationHours) || values.sponsorshipReservationHours < 0 || values.sponsorshipReservationHours > 720) return { success: false, error: "Unpaid hold must be between 0 and 720 hours.", conflict: false, settings: null };
+  if (values.sponsorshipPaymentInstructions.length > 2000) return { success: false, error: "Payment instructions are limited to 2,000 characters.", conflict: false, settings: null };
+
+  let result;
+  try {
+    result = await updateSponsorshipSettings(admin.id, expectedUpdatedAt, { ...values, sponsorshipDefaultCurrency: currency });
+  } catch {
+    return { success: false, error: "Could not update Sponsorship settings.", conflict: false, settings: null };
+  }
+
+  if (result.outcome === "conflict") {
+    return { success: false, error: "Someone else changed these settings since you loaded this page. Review the current values and try again.", conflict: true, settings: result.settings };
+  }
+
+  revalidateBrohdaSettings();
+  // Presentation on Game Posts follows the switch immediately.
+  revalidatePath("/feed");
+  revalidatePath("/");
   return { success: true, error: null, conflict: false, settings: result.settings };
 }

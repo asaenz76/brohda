@@ -109,6 +109,11 @@ Legal-page and money-capability coverage: `tests/unit/legal-money-gating.test.ts
 Privacy: numbering, "Section N" cross-references, and a per-section classification of every remaining money word), `tests/integration/legal-money-mode.test.ts` (one flag, every reader agrees after each flip),
 `tests/e2e/legal-money-gating.spec.ts` (the rendered pages). Sport readiness statuses: `tests/unit/sports-data/readiness.test.ts`.
 
+Sponsorship coverage: `tests/unit/sponsorship/*` (the single eligibility policy, URL safety, status copy, fail-closed capability, the sponsored label and its impression rule),
+`tests/integration/sponsorship.test.ts` (the paid + approved invariant in the database, authorization, RLS isolation, exclusivity and races, idempotency, material-edit invalidation,
+the public read boundary, audit, and "no prize engine" in the schema) and `tests/e2e/sponsorship-flow.spec.ts` (own Playwright project `chromium-sponsorship`: it flips
+`sponsorship_enabled`, so run it alone with `--project=chromium-sponsorship --no-deps`).
+
 ### E2E tests (Playwright)
 
 ```bash

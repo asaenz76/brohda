@@ -58,6 +58,7 @@ function fakeSettings(overrides: Partial<BrohdaSettings> = {}): BrohdaSettings {
     monetary: { monetaryP2pEnabled: true, monetaryProposalRateLimitWindowSeconds: 60, monetaryProposalRateLimitMaxAttempts: 10, p2pFeeBps: 0, monetaryP2pMinStakeCents: 100, monetaryP2pMaxStakeCents: 10000 },
     reputation: { leaderboardMinDecidedPicks: 5 },
     operations: { settlementBatchSize: 500, gradingBatchSize: 200, challengeResolutionBatchSize: 200, jobStalenessMultiplier: 3 },
+    sponsorship: { sponsorshipEnabled: false, sponsorshipDefaultCurrency: "USD", sponsorshipLogoMaxBytes: 524288, sponsorshipEndAfterKickoffHours: 6, sponsorshipReservationHours: 72, sponsorshipPaymentInstructions: "" },
     updatedAt: "2026-01-01T00:00:00.000Z",
     updatedByDisplayName: "Test Admin",
     ...overrides,

@@ -117,7 +117,7 @@ local dev and CI both work today with no Sentry account at all.
 
 ## 5. Cron jobs (cron-job.org, not Vercel Cron)
 
-The app exposes **10** cron-secret-gated routes under `app/api/cron/*`,
+The app exposes **11** cron-secret-gated routes under `app/api/cron/*`,
 all meant to be scheduled — 4 pre-existing (legacy pools + provider
 hygiene), 3 added for Brohda 2.0's sports-prediction-network (R1-R4:
 market ingestion, Post publication, Community distribution), and 3 added
@@ -179,6 +179,7 @@ can never stack, and one job's lock never affects another job's.
 | `/api/cron/ingest-nfl-markets` | api_nfl | Yes | `runNflMarketIngestion` — no-ops unless `platform_settings.market_ingestion_enabled` | **Once daily, 07:00 UTC** — see incident note below |
 | `/api/cron/publish-posts` | none (DB-only) | No | `runPostPublication` — no-ops unless `platform_settings.post_publication_enabled` | Every 5 minutes (recommended) |
 | `/api/cron/distribute-posts` | none (DB-only) | No | `runCommunityDistribution` — no-ops unless `platform_settings.community_distribution_enabled` | Every 5-15 minutes (recommended — a full reconciliation scan, not just new Posts) |
+| `/api/cron/advance-sponsorships` | none (DB-only) | No | `advance_sponsorships()` — SCHEDULED → LIVE → COMPLETED and release of expired unpaid holds. Housekeeping only: public rendering re-verifies every condition on each read, so a missed run never shows or hides a sponsorship wrongly | Every 5 minutes (**add this cron-job.org entry**; Job Health shows "never run" until you do) |
 | `/api/cron/grade-predictions` | none (DB-only) | No | `runGradingJob` — batch size from `platform_settings.grading_batch_size` | Every 2 minutes (recommended) |
 | `/api/cron/resolve-challenges` | none (DB-only) | No | `resolveAcceptedChallenges` — batch size from `platform_settings.challenge_resolution_batch_size` | Every 2 minutes, after grading (recommended) |
 | `/api/cron/settle-monetary-positions` | none (DB-only) | No | `runSettlementJob` — batch size from `platform_settings.settlement_batch_size` | Every 2 minutes, after grading (recommended) |
@@ -261,6 +262,7 @@ cron-job.org's own settings and the Vercel env var):
 | Ingest NFL markets | `https://brohda.com/api/cron/ingest-nfl-markets` | Once daily, 07:00 UTC | `Authorization: Bearer <CRON_SECRET>` |
 | Publish posts | `https://brohda.com/api/cron/publish-posts` | Every 5 minutes | `Authorization: Bearer <CRON_SECRET>` |
 | Distribute posts | `https://brohda.com/api/cron/distribute-posts` | Every 5-15 minutes | `Authorization: Bearer <CRON_SECRET>` |
+| Advance sponsorships | `https://brohda.com/api/cron/advance-sponsorships` | Every 5 minutes | `Authorization: Bearer <CRON_SECRET>` |
 | Grade predictions | `https://brohda.com/api/cron/grade-predictions` | Every 2 minutes | `Authorization: Bearer <CRON_SECRET>` |
 | Resolve Call BS Challenges | `https://brohda.com/api/cron/resolve-challenges` | Every 2 minutes, offset after grading | `Authorization: Bearer <CRON_SECRET>` |
 | Settle monetary Positions | `https://brohda.com/api/cron/settle-monetary-positions` | Every 2 minutes, offset after grading | `Authorization: Bearer <CRON_SECRET>` |
