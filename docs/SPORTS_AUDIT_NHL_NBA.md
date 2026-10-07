@@ -61,10 +61,10 @@ Live `/status` for the account's single key:
 |---|---|---|---|
 | American football (NFL) | **Pro** | 7,500 | subscription **ends 2026-11-12 — renew before then** (NFL season runs to Feb) |
 | Basketball (NBA) | **Free** | 100 | reading `season=2026-2027` returns `errors.plan: "Free plans do not have access to this season, try from 2022 to 2024."` |
-| Hockey (NHL) | **Free** | 100 | same error for `season=2026` |
+| Hockey (NHL) | **Pro** (upgraded 2026-10-06) | 7,500 | reads the 2026 season (1,409 games). **Subscription ends 2026-11-07 — renew** |
 | Baseball (MLB) | Free | 100 | not needed (MLB is not launching) |
 
-Until the Basketball and Hockey plans are upgraded, `sync-fixtures` for those sports reports a failure (visible in job health and Sentry, per sport) and
+Until a sport's plan is upgraded (Basketball still is not), `sync-fixtures` for that sport reports a failure (visible in job health and Sentry, per sport) and
 imports nothing. Request budgets once upgraded (Pro, 7,500/day each): fixture sync 288/day/sport (one season request per 5 minutes), standings ≤ 4/day,
 odds ≈ 25–40/day/sport (48-hour window at the existing daily ingestion cadence) — far inside the limits.
 
@@ -96,12 +96,26 @@ catalog fails closed.
 
 | Template | NHL | NBA |
 |---|---|---|
-| MONEYLINE | AVAILABLE (catalog) — payload unverified | AVAILABLE (catalog) — payload unverified |
-| SPREAD (puck line / point spread) | AVAILABLE (catalog) — implemented, **gated off until a real payload is verified** | same |
-| TOTAL | AVAILABLE (catalog) — payload unverified | AVAILABLE (catalog) — payload unverified |
+| MONEYLINE | AVAILABLE (catalog) — see §5a for the NHL's observed payloads | AVAILABLE (catalog) — payload unverified |
+| SPREAD (puck line / point spread) | AVAILABLE — **observed and enabled** (§5a) | AVAILABLE (catalog) — implemented, **gated off until a real payload is verified** |
+| TOTAL | AVAILABLE — observed (§5a) | AVAILABLE (catalog) — payload unverified |
 
 To enable SPREAD for a sport after verifying one real payload: add `"SPREAD"` to its `marketTemplates` in `sport-registry.ts` (one reviewed line; the ingestion,
 orientation guard, presentation and grading are already in place and tested). The NFL stays at Moneyline + Total (unchanged); adding Spread there is an owner decision.
+
+## 5a. Real 2026 NHL data (captured the day the Hockey plan was upgraded, read-only)
+
+- **Season 2026:** 1,409 games, 2026-09-19 → 2027-04-11, exactly 32 franchises (standings → 32 distinct ids). Statuses now observed: `NS` 1292, `FT` 87, `AOT` 20, `AP` 7, and **live `P1` / `P2` / `P3`** (promoted from "vendor list" to observed). 72 games fall in September (preseason); the regular season opens 2026-10-06/07 — three games were live when captured.
+- **Shootouts again:** all 7 current-season `AP` games credit the winner exactly one goal (e.g. periods 0-1,1-0,1-1 = 2-2, shootout 1-0 → final 3-2); a scoreless-period shootout is final 1-0. Final games are never level.
+- **Offline dry run:** all 1,409 games map without error through the adapter — no `UNKNOWN` status, every team a standings franchise, unique ids, every completed game decisive.
+- **Odds (real payloads):** 5 bookmakers per upcoming game. **Moneyline** (bet 2 "Home/Away") from 4–5 books. **Asian Handicap** (bet 3) and **Over/Under** (bet 4) from exactly **two** books (BetVictor, Betano) — enough at the standard minimum of 2, none at 3. The handicap convention is confirmed on NHL data: `Home -1.5 @ 2.38 / Away -1.5 @ 1.53` for a 1.57 moneyline home favourite (home lays 1.5; the Away entry is the other side of the same line).
+- **Puck-line band:** a puck line is always ±1.5, so its sides are lopsided (home -1.5 fair 0.31 and 0.39 in the two captured games). The original "near a coin flip" guard (0.35–0.65) would have refused real puck lines, so the main-line band is now per sport in the registry (`spreadMainLineBand`: NHL 0.25–0.75; the orientation and both-sides guards are unchanged).
+
+| Template | NHL | NBA |
+|---|---|---|
+| MONEYLINE | **AVAILABLE — observed** (4–5 books) | catalog only (plan still Free) |
+| SPREAD (puck line / spread) | **AVAILABLE — observed** (2 books); **enabled for the NHL** | catalog only; off until a real NBA payload is verified |
+| TOTAL | **AVAILABLE — observed** (2 books) | catalog only |
 
 ## 6. Result semantics and the policy layer
 

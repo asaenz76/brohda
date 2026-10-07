@@ -14,7 +14,7 @@ import type { RawBookmakerOdds } from "@/lib/sports-data/types";
 // The earlier NFL milestone refused to ingest spreads over exactly this ambiguity (a lone `Home -1` priced like the moneyline is not a quote).
 // This module resolves it with three guards instead of trusting the labels blindly:
 //   1. a line counts only when a bookmaker quotes BOTH the Home and the Away entry for the same number;
-//   2. the line used is the one whose consensus is closest to a coin flip, and it must actually be near one (a "main line", not an alternate);
+//   2. the line used is the one whose consensus is closest to a coin flip, and it must actually be within the sport's main-line band (a "main line", not an alternate);
 //   3. the line's sign must agree with the moneyline favourite, so an inverted reading can never be ingested silently.
 // Failing any guard returns null: no Spread Market is created (we never guess a line or an orientation).
 
@@ -26,7 +26,12 @@ function median(values: number[]): number {
 
 const HANDICAP_PATTERN = /^(Home|Away)\s+([+-]?\d+(?:\.\d+)?)$/;
 
-/** A main line is priced near even money on both sides; anything further out is an alternate line. */
+/**
+ * A main line is the one the book actually offers as THE line; its two sides are priced near even money, anything further out is an alternate. The
+ * width of "near" is a property of the sport, so it is a parameter (sport-registry `spreadMainLineBand`), not a constant here: a point spread floats
+ * to even money, but a hockey puck line is always ±1.5, so its real prices are lopsided (observed on real NHL payloads: home -1.5 at 3.05 / 1.34 is a
+ * fair 0.31). This default suits floating-line sports.
+ */
 export const SPREAD_MAIN_LINE_BAND: readonly [number, number] = [0.35, 0.65];
 /** A moneyline this lopsided fixes which side must be giving points. Closer than this, the line's sign is not constrained. */
 export const SPREAD_FAVOURITE_THRESHOLD = 0.55;
@@ -43,7 +48,12 @@ export interface SpreadAggregate {
  * @param moneylineHomeProbability HOME's fair moneyline win probability (aggregateMoneyline), used only as the orientation cross-check. When it
  *   is unavailable the cross-check cannot run, and the spread is refused — orientation must be verifiable, not assumed.
  */
-export function aggregateSpread(bookmakers: RawBookmakerOdds[], minBookmakerCount: number, moneylineHomeProbability: number | null): SpreadAggregate | null {
+export function aggregateSpread(
+  bookmakers: RawBookmakerOdds[],
+  minBookmakerCount: number,
+  moneylineHomeProbability: number | null,
+  band: readonly [number, number] = SPREAD_MAIN_LINE_BAND,
+): SpreadAggregate | null {
   if (moneylineHomeProbability === null) return null;
 
   const byLine = new Map<number, Array<{ homeOdd: number; awayOdd: number }>>();
@@ -76,7 +86,7 @@ export function aggregateSpread(bookmakers: RawBookmakerOdds[], minBookmakerCoun
   }
   if (!best) return null;
 
-  if (best.homeCoverProbability < SPREAD_MAIN_LINE_BAND[0] || best.homeCoverProbability > SPREAD_MAIN_LINE_BAND[1]) return null; // only alternate lines were quoted
+  if (best.homeCoverProbability < band[0] || best.homeCoverProbability > band[1]) return null; // only alternate lines were quoted
 
   // Orientation cross-check against the moneyline: a clear home favourite lays points (negative line), a clear away favourite takes them.
   if (moneylineHomeProbability > SPREAD_FAVOURITE_THRESHOLD && best.homeLine > 0) return null;

@@ -188,21 +188,34 @@ describe("Markets — template-aware, never fabricated", () => {
     return { id: data!.id as string, externalFixtureId: data!.external_fixture_id as string, homeTeamName: data!.home_team_name as string, awayTeamName: data!.away_team_name as string };
   }
 
-  it("NHL: Moneyline and Total are created with the sport's identity and labels; no spread unless the registry lists it", async () => {
-    const game = await seedSyncedGame(NHL);
-    state.odds.set(game.externalFixtureId, odds(game.externalFixtureId, { total: 6.5, handicap: [["Home -1.5", 2.2], ["Away -1.5", 1.68]] }));
-    const outcome = await ingestMarketsForFixture(NHL, game, 2);
+  it("NBA (no spread in its registry templates): Moneyline and Total only, with the sport's identity and labels", async () => {
+    const game = await seedSyncedGame(NBA);
+    state.odds.set(game.externalFixtureId, odds(game.externalFixtureId, { total: 224.5, handicap: [["Home -4.5", 1.95], ["Away -4.5", 1.9]] }));
+    const outcome = await ingestMarketsForFixture(NBA, game, 2);
     expect(outcome).toMatchObject({ moneyline: "inserted", total: "inserted" });
     expect(outcome.spread).toBeUndefined();
     const { data: markets } = await admin.from("markets").select("provider, market_template, line_value, yes_side, ingestion_source, status").eq("fixture_id", game.id).order("market_template");
     expect(markets).toEqual([
-      { provider: "api_nhl", market_template: "MONEYLINE", line_value: null, yes_side: "HOME", ingestion_source: "nhl_market_ingestion", status: "ACTIVE" },
-      { provider: "api_nhl", market_template: "TOTAL", line_value: 6.5, yes_side: null, ingestion_source: "nhl_market_ingestion", status: "ACTIVE" },
+      { provider: "api_nba", market_template: "MONEYLINE", line_value: null, yes_side: "HOME", ingestion_source: "nba_market_ingestion", status: "ACTIVE" },
+      { provider: "api_nba", market_template: "TOTAL", line_value: 224.5, yes_side: null, ingestion_source: "nba_market_ingestion", status: "ACTIVE" },
+    ]);
+  });
+
+  it("NHL: Moneyline, Spread (the puck line) and Total from the sport's own identity", async () => {
+    const game = await seedSyncedGame(NHL);
+    state.odds.set(game.externalFixtureId, odds(game.externalFixtureId, { total: 6.5, homeOdd: 1.75, awayOdd: 2.05, handicap: [["Home -1.5", 2.9], ["Away -1.5", 1.36]] }));
+    const outcome = await ingestMarketsForFixture(NHL, game, 2);
+    expect(outcome).toMatchObject({ moneyline: "inserted", total: "inserted", spread: "inserted" });
+    const { data: markets } = await admin.from("markets").select("provider, market_template, line_value, yes_side, ingestion_source").eq("fixture_id", game.id).order("market_template");
+    expect(markets).toEqual([
+      { provider: "api_nhl", market_template: "MONEYLINE", line_value: null, yes_side: "HOME", ingestion_source: "nhl_market_ingestion" },
+      { provider: "api_nhl", market_template: "SPREAD", line_value: -1.5, yes_side: "HOME", ingestion_source: "nhl_market_ingestion" },
+      { provider: "api_nhl", market_template: "TOTAL", line_value: 6.5, yes_side: null, ingestion_source: "nhl_market_ingestion" },
     ]);
   });
 
   it("SPREAD (puck line / point spread) is created generically when a sport lists it — HOME-anchored, orientation-checked against the moneyline", async () => {
-    const withSpread = { ...NHL, marketTemplates: ["MONEYLINE", "SPREAD", "TOTAL"] as const };
+    const withSpread = NHL;
     const game = await seedSyncedGame(NHL);
     state.odds.set(game.externalFixtureId, odds(game.externalFixtureId, { total: 6, homeOdd: 1.55, awayOdd: 2.5, handicap: [["Home -1.5", 2.2], ["Away -1.5", 1.68]] }));
     const outcome = await ingestMarketsForFixture(withSpread, game, 2);
@@ -217,7 +230,7 @@ describe("Markets — template-aware, never fabricated", () => {
   });
 
   it("an inverted spread (home 78% favourite quoted as taking points) is refused — no Market, reported as insufficient/unverifiable", async () => {
-    const withSpread = { ...NHL, marketTemplates: ["MONEYLINE", "SPREAD", "TOTAL"] as const };
+    const withSpread = NHL;
     const game = await seedSyncedGame(NHL);
     state.odds.set(game.externalFixtureId, odds(game.externalFixtureId, { homeOdd: 1.25, awayOdd: 4.0, handicap: [["Home +1.5", 1.9], ["Away +1.5", 1.9]] }));
     const outcome = await ingestMarketsForFixture(withSpread, game, 2);

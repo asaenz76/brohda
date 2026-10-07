@@ -51,6 +51,8 @@ export interface SportConfig {
   betIds: { moneyline: number; spread: number; total: number };
   /** Which canonical templates ingestion may create for this sport. Gradeable and presentable ones only; widening it is a one-line, reviewed change. */
   marketTemplates: readonly MarketTemplate[];
+  /** The fair-probability band a quoted line must fall in to count as THE line rather than an alternate (see aggregate-spread.ts). */
+  spreadMainLineBand: readonly [number, number];
   /** How far ahead of puck drop / tipoff odds are refreshed (48h: comfortably more than the daily ingestion cadence, so every Game is picked up at least once before it starts). `sportsbook-week` is the NFL's established window; `hours` bounds a daily-schedule sport. */
   oddsWindow: { kind: "sportsbook-week" } | { kind: "hours"; hours: number };
   /** Minimum minutes between odds refreshes for one Game (0 = every run). Protects a daily request budget. */
@@ -95,6 +97,7 @@ export const SPORT_CONFIGS: readonly SportConfig[] = [
     betIds: { moneyline: 1, spread: 2, total: 3 },
     // NFL inventory is exactly what is live today (Moneyline + Total). Adding SPREAD here is an owner decision, not part of this milestone.
     marketTemplates: ["MONEYLINE", "TOTAL"],
+    spreadMainLineBand: [0.35, 0.65],
     oddsWindow: { kind: "sportsbook-week" },
     oddsMinRefreshMinutes: 0,
     franchiseSource: "none",
@@ -122,6 +125,7 @@ export const SPORT_CONFIGS: readonly SportConfig[] = [
     },
     betIds: { moneyline: 2, spread: 3, total: 4 },
     marketTemplates: ["MONEYLINE", "TOTAL"],
+    spreadMainLineBand: [0.35, 0.65],
     oddsWindow: { kind: "hours", hours: 48 },
     oddsMinRefreshMinutes: 60,
     franchiseSource: "standings",
@@ -145,7 +149,10 @@ export const SPORT_CONFIGS: readonly SportConfig[] = [
     // Provider seasons are the start year (season 2026 = 2026-09-19 .. 2027-04-11, confirmed live).
     seasonFor: (now) => String(autumnStartYear(now)),
     betIds: { moneyline: 2, spread: 3, total: 4 },
-    marketTemplates: ["MONEYLINE", "TOTAL"],
+    // SPREAD (the puck line) is on for the NHL: its Asian Handicap convention was verified on real 2026 NHL payloads (BetVictor, Betano), see docs/SPORTS_AUDIT_NHL_NBA.md.
+    marketTemplates: ["MONEYLINE", "SPREAD", "TOTAL"],
+    // The puck line is always ±1.5, so its two sides are lopsided by nature (confirmed on real 2026 NHL payloads: a fair 0.31 / 0.39 for the home -1.5).
+    spreadMainLineBand: [0.25, 0.75],
     oddsWindow: { kind: "hours", hours: 48 },
     oddsMinRefreshMinutes: 60,
     franchiseSource: "standings",
@@ -169,6 +176,7 @@ export const SPORT_CONFIGS: readonly SportConfig[] = [
     seasonFor: (now) => String(utcYear(now)),
     betIds: { moneyline: 2, spread: 3, total: 4 },
     marketTemplates: ["MONEYLINE", "TOTAL"],
+    spreadMainLineBand: [0.35, 0.65],
     oddsWindow: { kind: "hours", hours: 48 },
     oddsMinRefreshMinutes: 60,
     franchiseSource: "none",
