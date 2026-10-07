@@ -39,6 +39,8 @@ export interface CommunityIdentity {
   displayName: string;
   /** From teams.logo_url / leagues.logo_url — always null for SPORT (no logo concept exists for it; spec §5). Never a hard-coded URL. */
   logoUrl: string | null;
+  /** SPORT Communities only: the sport key, for the sport's own icon. */
+  sportKey?: string | null;
 }
 
 /**
@@ -50,7 +52,7 @@ export interface CommunityIdentity {
  * page header never needs batched.
  */
 export async function getCommunityIdentity(community: Community): Promise<CommunityIdentity> {
-  if (community.type === "SPORT") return { displayName: community.displayName ?? community.sportKey ?? "Sport", logoUrl: null };
+  if (community.type === "SPORT") return { displayName: community.displayName ?? community.sportKey ?? "Sport", logoUrl: null, sportKey: community.sportKey };
 
   const admin = createAdminClient();
   if (community.type === "TEAM" && community.teamId) {

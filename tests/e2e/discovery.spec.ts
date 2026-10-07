@@ -76,6 +76,36 @@ test.describe("Discovery", () => {
     await expect(page.getByRole("tab", { name: "Teams" })).toBeVisible();
   });
 
+  test("the Sports tab shows each sport's own icon next to its name (no crest exists for a sport), and the same icon on its Community page", async ({ page }) => {
+    const suffix = randomUUID().slice(0, 8);
+    const sportKey = "hockey";
+    const { data: existing } = await admin.from("communities").select("id").eq("type", "SPORT").eq("sport_key", sportKey).maybeSingle();
+    let createdId: string | null = null;
+    let slug = "hockey";
+    if (!existing) {
+      const { data: created } = await admin.from("communities").insert({ type: "SPORT", sport_key: sportKey, slug: `hockey-e2e-${suffix}`, display_name: "Hockey", active: true }).select("id, slug").single();
+      createdId = created!.id;
+      slug = created!.slug;
+    } else {
+      slug = (await admin.from("communities").select("slug").eq("id", existing.id).single()).data!.slug;
+    }
+    const email = `e2e-disc-sporticon-${suffix}@example.com`;
+    await createPlayer(email);
+    try {
+      await loginAs(page, email);
+      await page.goto("/discovery");
+      const row = page.getByRole("listitem").filter({ hasText: "Hockey" }).first();
+      await expect(row.getByTestId("sport-icon")).toBeVisible();
+      await expect(row.getByTestId("sport-icon")).toHaveAttribute("data-sport", "hockey");
+      const box = (await row.getByTestId("sport-icon").boundingBox())!;
+      expect(box.width).toBeGreaterThan(8); // really drawn, not collapsed
+      await page.goto(`/community/${slug}`);
+      await expect(page.getByTestId("sport-icon").first()).toHaveAttribute("data-sport", "hockey");
+    } finally {
+      if (createdId) await admin.from("communities").delete().eq("id", createdId);
+    }
+  });
+
   test("clicking a tab (client-side navigation, not a fresh page load) actually swaps the list content", async ({ page }) => {
     const suffix = randomUUID();
     const teamName = `E2E Client Nav Team ${suffix}`;

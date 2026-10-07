@@ -379,6 +379,7 @@ describe("getCommunityIdentity", () => {
 
   it("resolves a SPORT Community's stored display name with a null logo (no logo concept exists for SPORT)", async () => {
     const identity = await getCommunityIdentity(communityOf("SPORT", { displayName: "American Football", sportKey: "american_football" }));
-    expect(identity).toEqual({ displayName: "American Football", logoUrl: null });
+    // The sport has no logo, but it carries its sport key so the UI can show the sport's own icon.
+    expect(identity).toEqual({ displayName: "American Football", logoUrl: null, sportKey: "american_football" });
   });
 });

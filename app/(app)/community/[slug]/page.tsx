@@ -7,7 +7,7 @@ import { isFollowingCommunity } from "@/lib/communities/follows";
 import { getCommunityTimeline } from "@/lib/communities/feed";
 import { CommunityFollowButton } from "@/components/communities/CommunityFollowButton";
 import { Card, CardContent } from "@/components/ui/card";
-import { TeamCrest } from "@/components/TeamCrest";
+import { CommunityMark } from "@/components/identity/CommunityMark";
 import { GamePostCard } from "@/components/posts/GamePostCard";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
 import { ColumnHeader } from "@/components/shell/ColumnHeader";
@@ -58,7 +58,7 @@ export default async function CommunityDetailPage({ params }: { params: Promise<
       <Card>
         <CardContent className="flex items-center justify-between gap-3 pt-6">
           <div className="flex items-center gap-3">
-            <TeamCrest logoUrl={identity.logoUrl} teamName={identity.displayName} className="size-10" />
+            <CommunityMark logoUrl={identity.logoUrl} name={identity.displayName} sportKey={identity.sportKey} className="size-10" />
             <div>
               <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{getCommunityTypeLabel(community.type)}</p>
               <p className="text-xl font-semibold text-text-primary">{identity.displayName}</p>

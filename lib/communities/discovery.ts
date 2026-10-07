@@ -19,6 +19,8 @@ export interface CommunityListItem {
   displayName: string;
   /** From teams.logo_url / leagues.logo_url — always null for SPORT (no logo concept exists for it). Never a hard-coded URL. */
   logoUrl: string | null;
+  /** SPORT Communities only (they have no crest): the sport key, so the UI can show the sport's own icon. Null for teams and leagues. */
+  sportKey?: string | null;
   isFollowing: boolean;
   /**
    * Ordering signal ONLY — never rendered as a follower-count-style vanity
@@ -162,6 +164,7 @@ export async function listCommunitiesByType(type: CommunityType, userId: string 
       type: row.type as CommunityType,
       displayName: resolved?.displayName ?? "Community",
       logoUrl: resolved?.logoUrl ?? null,
+      sportKey: row.type === "SPORT" ? row.sport_key : null,
       isFollowing: followedIds.has(row.id),
       mostRecentPostAt: mostRecentPostAt.get(row.id) ?? null,
     };
