@@ -4,7 +4,7 @@ import { getMarketById, type MarketRecord } from "@/lib/prediction-markets/repos
 import { deriveConsumerStatus } from "@/lib/prediction-markets/discovery/status";
 import { maybeCreatePredictionGradedNotification } from "@/lib/notifications/predictions";
 import { getMarketNotificationContext } from "@/lib/notifications/market-context";
-import { computeSportsMarketOutcome } from "./sports-resolution";
+import { computeSportsMarketOutcome, inconsistentFinalReason } from "./sports-resolution";
 import { getFixtureForGrading, type FixtureForGrading } from "@/lib/sports-data/fixture-lookup";
 import { getPostByFixtureId } from "@/lib/posts/repository";
 import { listPendingPredictions, markPredictionGraded } from "./repository";
@@ -29,7 +29,7 @@ import type { Prediction, PredictionOutcome, PredictionResult } from "./types";
  */
 
 export type GradingDecision =
-  | { decision: "still-pending" }
+  | { decision: "still-pending"; /** Set when the Game is final but its result is not safe to grade — reported by the job, once per Game. */ anomaly?: string }
   | { decision: "graded"; result: PredictionResult; resolvedOutcomeSnapshot: PredictionOutcome | null };
 
 /**
@@ -96,7 +96,10 @@ export function decideGradingForMarket(market: MarketRecord | null, fixture: Fix
 
   const outcome = computeSportsMarketOutcome({ marketTemplate: market.marketTemplate, lineValue: market.lineValue, yesSide: market.yesSide }, fixture);
 
-  if (outcome === "PENDING") return { decision: "still-pending" };
+  if (outcome === "PENDING") {
+    const anomaly = inconsistentFinalReason(fixture);
+    return anomaly ? { decision: "still-pending", anomaly } : { decision: "still-pending" };
+  }
   if (outcome === "VOID") return { decision: "graded", result: "VOID", resolvedOutcomeSnapshot: null };
 
   const result: PredictionResult = outcome === selectedOutcome ? "CORRECT" : "INCORRECT";
@@ -151,6 +154,7 @@ export async function runGradingJob(
   resultRecorder: (prediction: Prediction, result: Extract<PredictionResult, "CORRECT" | "INCORRECT">) => Promise<void>,
 ): Promise<GradingRunSummary> {
   const pending = await listPendingPredictions();
+  const reportedAnomalies = new Set<string>();
   const summary: GradingRunSummary = { examined: 0, graded: 0, correct: 0, incorrect: 0, voided: 0, stillPending: 0, failures: [] };
 
   // One human subject per Market per run ("Washington Commanders @ Indianapolis Colts · Moneyline"), for the notification copy only.
@@ -174,6 +178,11 @@ export async function runGradingJob(
 
       if (decision.decision === "still-pending") {
         summary.stillPending += 1;
+        // An unsafe final result is reported once per Game per run (not once per Pick), so job health reads degraded until someone looks.
+        if (decision.anomaly && fixture && !reportedAnomalies.has(fixture.id)) {
+          reportedAnomalies.add(fixture.id);
+          summary.failures.push({ predictionId: `(game ${fixture.id})`, error: decision.anomaly });
+        }
         continue;
       }
 

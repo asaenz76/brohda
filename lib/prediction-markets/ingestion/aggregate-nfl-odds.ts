@@ -1,5 +1,8 @@
+// NOTE: despite the file name this is the shared aggregation for EVERY sport (NFL, NBA, NHL): it reads only the generic RawBookmakerOdds
+// shape each provider adapter produces. SPREAD aggregation lives beside it in ./aggregate-spread.ts.
+//
 // Milestone R2 (docs/BROHDA_2_0_MILESTONE_MAP.md, Sports Market Ingestion):
-// pure multi-bookmaker aggregation for the two NFL Market templates R2
+// pure multi-bookmaker aggregation for the two Market templates R2
 // ingests automatically (MONEYLINE, TOTAL — see the R2 completion report
 // for why SPREAD is deliberately excluded). Reuses `devig2Way`
 // (./odds-devig.ts, generic/shared) for vig removal. The underlying
@@ -17,7 +20,7 @@
 // SPREAD until a future milestone does.
 
 import { devig2Way } from "./odds-devig";
-import type { NflBookmakerOdds } from "@/lib/sports-data/types";
+import type { RawBookmakerOdds } from "@/lib/sports-data/types";
 
 function median(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
@@ -37,7 +40,7 @@ export interface MoneylineAggregate {
  * robust to one outlier book without needing curation. Returns null if
  * fewer than `minBookmakerCount` bookmakers have a usable price.
  */
-export function aggregateMoneyline(bookmakers: NflBookmakerOdds[], minBookmakerCount: number): MoneylineAggregate | null {
+export function aggregateMoneyline(bookmakers: RawBookmakerOdds[], minBookmakerCount: number): MoneylineAggregate | null {
   const fair: number[] = [];
   for (const bm of bookmakers) {
     const home = bm.moneyline.find((v) => v.value === "Home");
@@ -77,7 +80,7 @@ const OVER_UNDER_PATTERN = /^(Over|Under)\s+(-?\d+(?:\.\d+)?)$/;
  * (R1), so a whole-number line here is fully meaningful, not a defect to
  * round away.
  */
-export function aggregateTotal(bookmakers: NflBookmakerOdds[], minBookmakerCount: number): TotalAggregate | null {
+export function aggregateTotal(bookmakers: RawBookmakerOdds[], minBookmakerCount: number): TotalAggregate | null {
   const byPoint = new Map<number, Array<{ overOdd: number; underOdd: number }>>();
 
   for (const bm of bookmakers) {

@@ -1,0 +1,163 @@
+# Shared sports architecture — NHL + NBA production-readiness audit
+
+Audit date: 2026-10-06. Baseline: `main` @ `2bbe314` + migration 179. Everything below was read from the code, from production (read-only) and from
+the live provider (read-only; the key's own `/status`, `/leagues`, `/standings`, `/teams`, one NFL `/odds`, and **historical** seasons for
+NBA / NHL / MLB). No production writes, no fabricated data. "Confirmed live" = observed in a real payload; "vendor list" = taken from the
+provider's published status/bet catalog and not yet observed on a real game.
+
+## 1. Verdict in one paragraph
+
+The product domain was already sport-agnostic (Game → Post → Market → Pick → Call BS → Position → grading → history, one grading function, T-10 and
+started-game checks in the database). What was NFL-only was the **data edge**: the provider adapter, fixture sync, odds/Market ingestion, Post
+publication filter, admin Events/Data/Settings surfaces, and a handful of constants. This milestone makes that edge one shared pipeline driven by a
+single registry row per sport (`lib/sports-data/sport-registry.ts`). **No schema migration was needed.** The remaining blocker for NHL and NBA is not code:
+**the API-Sports Hockey and Basketball subscriptions are on the Free plan, which cannot read the 2026 season at all** (§4).
+
+## 2. Per-sport audit (production + code, before this change)
+
+| | NFL | NBA | NHL | MLB |
+|---|---|---|---|---|
+| Provider sport key / host | `american_football` / v1.american-football | `basketball` / v1.basketball | `hockey` / v1.hockey | `baseball` / v1.baseball |
+| League id | 1 | 12 | 57 | 1 |
+| Ingestion support | yes | **none** | **none** | none |
+| Team sync | yes (34 rows: 32 + 2 leaked test teams) | none | none | none |
+| Logos | yes (league logo self-hosted) | none | none | none |
+| Fixtures in production | 321 (113 completed) | 0 | 0 | 0 |
+| Score / status updates | yes | none | none | none |
+| Post creation | yes (NFL-only filter) | blocked by filter | blocked by filter | — |
+| Market creation | Moneyline + Total | none | none | — |
+| Spread | schema + grading yes; ingestion never | same | same | same |
+| Grading | generic (one function) | works | works | works |
+| Matchup order | Away @ Home | **wrong** (home-first default) | **wrong** | wrong |
+| Communities | 32 team + league + sport | none | none | none |
+| Discovery / feed | generic by Community | generic | generic | generic |
+| Notifications | generic | generic | generic | generic |
+| Production blockers | none | **plan, ingestion** | **plan, ingestion** | not launching |
+
+So "NHL exists in the generic tables" was true, and "NHL is surfaced" was false for a single reason: **there was no NHL ingestion**, so no row ever existed
+to be gated.
+
+## 3. What changed (all generic; the NFL runs the same code)
+
+- `sport-registry.ts` — one row per sport: provider identity (`api_nfl|api_nba|api_nhl|api_mlb`), league allowlist, season naming, bet-catalog ids,
+  Market templates offered, odds window / refresh interval, matchup order, start/score vocabulary, franchise source, whether a game can end level,
+  expected franchise count. Activation is configuration: `API_<X>_ENABLED=true` (+ key). MLB is `declared`, with no adapter, so it cannot launch.
+- `api-sports-provider.ts` — one adapter class for the basketball and hockey APIs (their game records differ; everything else is the shared code path).
+- `sync-fixtures.ts` — the NFL's sync, parameterised; the one cron runs every active sport in parallel, each failure-isolated and reported with
+  sport + provider. Franchise filter from the league's own standings (no hard-coded team list).
+- `ingestion/sports.ts` + `aggregate-spread.ts` — the NFL's Market ingestion, parameterised; SPREAD aggregation implemented once for point spread / puck line /
+  run line.
+- `publication.ts` — eligibility generalised and batched (an NBA/NHL season has ~1,300 future Games).
+- Admin Events / Data / Settings pages are registry-driven (NFL, NBA, NHL).
+- Grading policy hook (`canEndLevel`): a COMPLETED level score in basketball/hockey/baseball is never graded (see §6).
+- Presentation: Total accessible names use the sport's own unit (points / goals / runs).
+- Repeatable readiness check: `pnpm check-sport-readiness nhl|nba|nfl`.
+
+## 4. Provider plans — the production blocker (not code)
+
+Live `/status` for the account's single key:
+
+| Product | Plan | Daily limit | Note |
+|---|---|---|---|
+| American football (NFL) | **Pro** | 7,500 | subscription **ends 2026-11-12 — renew before then** (NFL season runs to Feb) |
+| Basketball (NBA) | **Free** | 100 | reading `season=2026-2027` returns `errors.plan: "Free plans do not have access to this season, try from 2022 to 2024."` |
+| Hockey (NHL) | **Free** | 100 | same error for `season=2026` |
+| Baseball (MLB) | Free | 100 | not needed (MLB is not launching) |
+
+Until the Basketball and Hockey plans are upgraded, `sync-fixtures` for those sports reports a failure (visible in job health and Sentry, per sport) and
+imports nothing. Request budgets once upgraded (Pro, 7,500/day each): fixture sync 288/day/sport (one season request per 5 minutes), standings ≤ 4/day,
+odds ≈ 25–40/day/sport (48-hour window at the existing daily ingestion cadence) — far inside the limits.
+
+## 5. Provider facts (confirmed live on historical seasons)
+
+**NHL (league 57, season 2024, 1,503 games).** Statuses observed: `FT` 1194, `AOT` 229, `AP` 79, `CANC` 1. Scores are plain integers (`scores.home/away`) plus
+`periods{first,second,third,overtime,penalties}` as `"h-a"` strings. **Shootout:** in all 79 shootout games the final score equals regulation + overtime goals
+(level) **plus exactly one goal for the shootout winner**; the shootout winner (more `penalties` goals) is always the team with the higher final; **no
+completed game was ever level.** The provider's final therefore already is the official NHL final, and the mapping adds nothing. Overtime (`AOT`): final = period sum.
+32 franchises in standings (name "Utah Mammoth" for Utah).
+
+**NBA (league 12, season "2024-2025", 1,387 games).** Statuses: `FT` 1316, `AOT` 70, `CANC` 1. `total` = four quarters + `over_time` in every `AOT` game
+(overtime is included; `over_time` is the combined overtime points). No ties. The game list and `/teams` also contain **four All-Star exhibition "teams"**
+(three games): they are excluded by the standings-based franchise filter (standings = exactly the 30 franchises), so they never become Teams or Communities.
+
+**MLB (league 1, season 2024, 2,946 games).** `FT` 2927, `POST` 9, `CANC` 6, `ABD` 4; integer `scores.*.total` including extra innings.
+
+**Stage / preseason.** The provider does **not** classify preseason vs regular season for NBA or NHL: `stage` is always null and `week` carries playoff-round labels
+(and, in the NBA, the All-Star bracket shares "NBA - Semi-finals"/"NBA - Final" with real playoff labels), so it is not a usable flag. Preseason games are in the
+season's game list (NHL: 66 games in September 2024). **Effect:** a preseason Game is published only if ≥2 bookmakers quote odds for it (ingestion creates no Market
+without them, and a Post is only published with an ACTIVE Market). That self-gates but is not a policy. **Owner decision needed:** should preseason Games be
+public? The code makes no choice and does not label preseason as regular season. NBA opening-day readiness does not depend on preseason inventory.
+Playoffs need nothing special (the architecture has no regular-season-only assumption; `round` carries the provider label).
+
+**Odds.** Bet catalogs list `2 Home/Away`, `3 Asian Handicap`, `4 Over/Under` for both NBA and NHL (NFL: 1/2/3). Historical odds are not retained (empty responses) and
+the current season cannot be read on the Free plan, so **no NBA/NHL odds payload has been observed**. The Asian Handicap convention (the number is the *home* handicap; the
+`Away` entry is the other side of the same line) **was verified on a real NFL payload** (§7). The adapter reads a bet only when id *and* name match, so a renumbered
+catalog fails closed.
+
+| Template | NHL | NBA |
+|---|---|---|
+| MONEYLINE | AVAILABLE (catalog) — payload unverified | AVAILABLE (catalog) — payload unverified |
+| SPREAD (puck line / point spread) | AVAILABLE (catalog) — implemented, **gated off until a real payload is verified** | same |
+| TOTAL | AVAILABLE (catalog) — payload unverified | AVAILABLE (catalog) — payload unverified |
+
+To enable SPREAD for a sport after verifying one real payload: add `"SPREAD"` to its `marketTemplates` in `sport-registry.ts` (one reviewed line; the ingestion,
+orientation guard, presentation and grading are already in place and tested). The NFL stays at Moneyline + Total (unchanged); adding Spread there is an owner decision.
+
+## 6. Result semantics and the policy layer
+
+- **One grading function** (`computeSportsMarketOutcome`): official final score; MONEYLINE higher wins; SPREAD `yesScore + line` vs opponent, exact push → VOID (never the
+  opposite side); TOTAL over/under, exact push → VOID; CANCELLED → VOID; every other non-final state stays PENDING (no manufactured settlement).
+- **Overtime / shootout** are resolved where scores are normalised (the provider adapters), so every Market is graded on the official final including overtime. Moneyline in the
+  NHL is **never regulation-only** and never uses the NFL tie rule.
+- **Sport policy (new):** basketball, hockey and baseball cannot end level. A COMPLETED level score there is an *inconsistent provider result* (e.g. a shootout whose
+  deciding goal was not credited yet): it is **not graded and not VOIDed**; it stays PENDING and the grading job reports it as a failure naming sport, league, provider game id
+  and Brohda game id (so job health reads degraded). The NFL keeps "tied Moneyline → VOID".
+- **Total on a shootout game (OWNER DECISION, pinned by a test).** Because the official NHL final credits the shootout winner one goal, a shootout game's total equals
+  regulation + overtime goals + 1 (always odd). Totals are graded on that official final (the brief's default; provider data is unambiguous and internally consistent). If you would
+  rather grade totals on regulation + overtime goals only, that is a one-line change in the policy layer (the provider already supplies `regulation`, `extraTime` and `penalty`
+  scores on the fixture) — it is deliberately not done silently.
+- **Postponed:** Game identity is preserved (the same provider id; rescheduling updates the start on the same row and the same single Post) and the Game is tracked until it ends.
+  **Suspended / abandoned / awarded** stay PENDING until the owner sets a policy (unchanged from the NFL).
+- **Result authority:** structured provider scores only (`fixtures.home_score/away_score`, written by sync). Never UI text, news or sportsbook rules.
+
+## 7. The spread convention (verified on a real NFL payload)
+
+`Home -9.5 @1.91 / Away -9.5 @1.91` (Betfair), `Home +2.5 @1.16 / Away +2.5 @4.70` while Home was the 1.20 moneyline favourite (Marathon), `Home -1 @1.18 / Away -1 @4.36`
+against a moneyline of 1.18 / 5.00 (Bet365): the number is the **home handicap**; the Away entry is the other side of the same line. `aggregateSpread` only accepts a line that
+(1) a bookmaker quotes on both sides, (2) is the consensus coin-flip line (fair probability 0.35–0.65), and (3) has a sign that agrees with the moneyline favourite. Otherwise
+it returns nothing (no Market). On the captured NFL game it finds −9.5.
+
+## 8. Time, lock, started games
+
+Timestamps are provider Unix seconds → UTC (every captured game says `timezone: "UTC"`); nothing converts or assumes Eastern. T-10 and the started-game rule live in the
+database RPCs (`set_pick`, `call_bs`, `accept_call_bs`, `propose_money`, `accept_monetary_proposal`): all compare `now()` with the canonical `scheduled_start_utc − pick_lock_minutes`
+**and** require `internal_status = 'NOT_STARTED'`. They are sport-agnostic, follow a reschedule, and cannot be bypassed by the client clock. (A Pick touched inside T-10 locks permanently
+and one-way, as designed; a reschedule later does not reopen it.)
+
+## 9. Performance
+
+- Fixture sync: one season request per sport per 5 minutes; terminal fixtures are skipped; batched upserts (now chunked at 400 rows — an NBA/NHL season is ~1,500 games with raw payloads).
+- Franchise set: one standings read per league per 12 hours (in-memory).
+- Odds: bounded to a 48-hour window and a 60-minute refresh interval per Game (the NFL keeps its established sportsbook-week window); one request per Game.
+- Post publication: three set-based reads instead of two queries per Game per run (was O(upcoming Games) per tick).
+- Admin Events and local browse already page past PostgREST's 1,000-row cap. **Fixed:** the wallet reconciliation check silently stopped at 1,000 wallets (now pages).
+- Not N+1: Community distribution is per published Post (unchanged).
+
+## 10. Findings outside the milestone's scope (reported, mostly fixed)
+
+- **P1 (fixed): NFL season rule broke in January.** `season = UTC year` would have requested season `2027` from 2027-01-01, silently stopping sync and grading for the last regular-season
+  weeks and the playoffs. Production confirms every game through 2027-01-10 is season `2026`. Fixed in the registry (`seasonFor`), pinned by a test.
+- **P1 (action needed): the NFL provider subscription ends 2026-11-12.**
+- **P3 (not touched — production data): two leaked test teams** in production (`Home Sync Test NFL` id 9101, `Away Sync Test NFL` id 9102; no Communities). The readiness check
+  flags them (34 teams vs 32). Remove with `delete from teams where provider='api_nfl' and external_id in ('9101','9102')` when convenient (check no fixture references them first).
+- **P3:** `nfl_game_results` is the confirmed-result audit table; it is now written for every sport (it is generic in shape; only the name says NFL). A rename is cosmetic.
+- **P3:** the NFL's league logo is self-hosted because the provider CDN copy was unreliable; NBA/NHL use provider URLs (readiness flags a missing one).
+- **P2:** `lib/monetary/reconciliation.ts` has the same unpaged reads (and a long `.in()` list) as the wallet check that was fixed here; fine at current volume.
+
+## 11. Activation runbook (when the plans are upgraded)
+
+1. Upgrade the API-Sports **Hockey** (urgent: the NHL regular season is starting) and **Basketball** plans. Confirm: `GET /status` shows Pro, and `GET /games?league=57&season=2026` no longer errors.
+2. In Vercel production env set `API_NHL_ENABLED=true` and `API_NBA_ENABLED=true` (the existing `API_NFL_KEY` authenticates all products; or set `API_SPORTS_KEY`). Optional budgets: `API_NHL_DAILY_REQUEST_BUDGET`, `API_NBA_DAILY_REQUEST_BUDGET`.
+3. No new cron entries: the existing `sync-fixtures-nfl`, `ingest-nfl-markets`, `publish-posts`, `distribute-posts`, `grade-predictions`, `resolve-challenges`, `settle-monetary-positions` jobs run every active sport.
+4. After the next sync: `pnpm check-sport-readiness nhl` and `... nba` until every item PASSes. Inventory appears as odds are ingested (daily job) and Posts publish.
+5. After the first real odds payload for a sport, decide whether to turn SPREAD on for it (§5).

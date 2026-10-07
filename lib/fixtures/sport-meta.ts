@@ -1,13 +1,7 @@
-// Display metadata for the sports Events currently supports — a lookup
-// table keyed by sport, not a hardcoded per-sport branch scattered through
-// components, so it stays structurally capable of accommodating another
-// sport later without redesigning the page. Adding a sport means adding
-// one entry here (plus real provider support, which this file has nothing
-// to do with) — it does not mean this file predicts what that sport's
-// entry will look like. Brohda's long-term supported-sports direction is
-// NFL, NBA, NHL, and MLB; only NFL is actually implemented today; the
-// other three are deliberately absent from this registry (not stubbed)
-// until they're real.
+// Display metadata for the sports Events supports — derived from the shared sport registry (lib/sports-data/sport-registry.ts), the one place
+// that knows which sports exist, so it stays a lookup keyed by sport, never a hard-coded per-sport branch in a component. A sport appears here
+// only when it is `live` in the registry (MLB is declared with no adapter, so it is not listed until it launches). Client-safe: no server imports.
+import { SPORT_CONFIGS, liveSportConfigs, type SportKey } from "@/lib/sports-data/sport-registry";
 import type { EventSport } from "./local-browse";
 
 export interface SportMeta {
@@ -17,12 +11,17 @@ export interface SportMeta {
   icon: string;
 }
 
-export const SPORT_META: Record<EventSport, SportMeta> = {
-  american_football: { sport: "american_football", label: "NFL", shortLabel: "NFL", icon: "🏈" },
-};
+// Decoration only (not a rule): an emoji per sport key.
+const ICONS: Record<SportKey, string> = { american_football: "🏈", basketball: "🏀", hockey: "🏒", baseball: "⚾" };
 
-export const ALL_EVENT_SPORTS: EventSport[] = ["american_football"];
+const LISTED = liveSportConfigs();
+
+export const SPORT_META = Object.fromEntries(
+  SPORT_CONFIGS.map((c) => [c.sport, { sport: c.sport, label: c.label, shortLabel: c.label, icon: ICONS[c.sport] } satisfies SportMeta]),
+) as Record<EventSport, SportMeta>;
+
+export const ALL_EVENT_SPORTS: EventSport[] = LISTED.map((c) => c.sport);
 
 export function isEventSport(value: string): value is EventSport {
-  return value === "american_football";
+  return ALL_EVENT_SPORTS.includes(value as EventSport);
 }

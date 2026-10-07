@@ -13,11 +13,21 @@ export interface FixtureForGrading {
   internalStatus: string;
   homeScore: number | null;
   awayScore: number | null;
+  /** The Game's sport — lets grading apply the one sport-level fact it needs (can a finished game end level?). Absent in legacy callers/tests = unknown sport. */
+  sport?: string;
+  /** Identity for operator-facing reports about an unsafe result (sport, league, provider game id, Brohda game id). */
+  provider?: string;
+  externalFixtureId?: string;
+  competitionName?: string | null;
 }
 
 export async function getFixtureForGrading(id: string): Promise<FixtureForGrading | null> {
   const admin = createAdminClient();
-  const { data, error } = await admin.from("fixtures").select("id, internal_status, home_score, away_score").eq("id", id).maybeSingle();
+  const { data, error } = await admin
+    .from("fixtures")
+    .select("id, internal_status, home_score, away_score, sport, provider, external_fixture_id, competition_name")
+    .eq("id", id)
+    .maybeSingle();
   if (error) throw error;
   if (!data) return null;
   return {
@@ -25,6 +35,10 @@ export async function getFixtureForGrading(id: string): Promise<FixtureForGradin
     internalStatus: data.internal_status,
     homeScore: data.home_score,
     awayScore: data.away_score,
+    sport: data.sport,
+    provider: data.provider,
+    externalFixtureId: data.external_fixture_id,
+    competitionName: data.competition_name,
   };
 }
 

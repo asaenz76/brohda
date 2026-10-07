@@ -16,6 +16,7 @@
 
 import type { MarketTemplate, MarketYesSide } from "@/lib/prediction-markets/types";
 import type { FixtureForGrading } from "@/lib/sports-data/fixture-lookup";
+import { canEndLevel } from "@/lib/sports-data/sport-registry";
 
 export type SportsMarketOutcome = "YES" | "NO" | "VOID" | "PENDING";
 
@@ -50,6 +51,10 @@ export function computeSportsMarketOutcome(definition: SportsMarketDefinition, f
   // Defensive only — a COMPLETED fixture should always carry both scores;
   // never fabricate a result if that invariant is somehow violated.
   if (fixture.homeScore === null || fixture.awayScore === null) return "PENDING";
+  // Sport policy: in basketball / hockey / baseball a finished game cannot end level, so a COMPLETED level score is an inconsistent provider
+  // result (e.g. a shootout whose deciding goal was not credited yet) — never graded, never read as the NFL's "tie => VOID". See
+  // inconsistentFinalReason(), which the grading job reports so an operator sees it.
+  if (inconsistentFinalReason(fixture) !== null) return "PENDING";
 
   const { marketTemplate, lineValue, yesSide } = definition;
 
@@ -94,4 +99,15 @@ function sidesFor(yesSide: MarketYesSide | null, fixture: FixtureForGrading): [n
 function requireLine(lineValue: number | null, template: MarketTemplate): number {
   if (lineValue === null) throw new Error(`${template} market is missing line_value — schema invariant violated`);
   return lineValue;
+}
+
+/**
+ * Why a COMPLETED Game's result is not safe to grade, or null when it is. Today there is one rule: a level final in a sport where games cannot
+ * end level. The reason names sport, league, provider game id and Brohda game id (no private data) for the grading job's failure report.
+ */
+export function inconsistentFinalReason(fixture: FixtureForGrading): string | null {
+  if (fixture.internalStatus !== RESOLVABLE_STATUS) return null;
+  if (fixture.homeScore === null || fixture.awayScore === null) return null;
+  if (canEndLevel(fixture.sport) || fixture.homeScore !== fixture.awayScore) return null;
+  return `COMPLETED ${fixture.sport ?? "game"} final is level (${fixture.homeScore}-${fixture.awayScore}) but this sport cannot end level — not graded (league ${fixture.competitionName ?? "?"}, provider ${fixture.provider ?? "?"} game ${fixture.externalFixtureId ?? "?"}, Brohda game ${fixture.id})`;
 }

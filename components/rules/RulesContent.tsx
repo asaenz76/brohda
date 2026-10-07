@@ -151,6 +151,7 @@ export function RulesContent({ policy }: { policy: RulesPolicy }) {
       <Section id="rules-results" title="Results and grading">
         <ul className={list}>
           <li>Brohda grades Markets from official sports results once a game is final, and grades the Picks on them automatically. Once a Pick is graded it doesn&apos;t change.</li>
+          <li>Full-game Markets use the official final result of the game. Overtime or extra periods count when they are part of that official final result.</li>
           <li>{money ? "Call BS and money results follow from the Market\u2019s result." : "Call BS results follow from the Market\u2019s result."}</li>
           <li>Comments, community sentiment and what most people picked don&apos;t affect grading.</li>
           <li>Results come from sports data feeds. Brohda works from them as they are and can&apos;t promise that data is perfect.</li>
@@ -159,7 +160,7 @@ export function RulesContent({ policy }: { policy: RulesPolicy }) {
 
       <Section id="rules-void" title="When a game can&apos;t be decided">
         <ul className={list}>
-          <li>If a game is cancelled, if a Moneyline ends tied (so neither team won), or if a line lands exactly on the result (a push), the Market is voided. If a game is postponed or suspended, Picks wait; nothing is guessed.</li>
+          <li>If a game is cancelled, if a Moneyline ends tied (so neither team won), if a line lands exactly on the result (a push), or if a game has no valid official result, the Market is voided. If a game is postponed or suspended, Picks wait; nothing is guessed.</li>
           <li>A voided Pick counts as predicted but as neither correct nor incorrect.</li>
           <li>A voided Call BS is neither a win nor a loss for either person.</li>
           {money && <li>A voided money Position releases what was held on both sides. No fee is taken and nothing moves.</li>}

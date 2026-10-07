@@ -1,4 +1,4 @@
-import { API_NFL_PROVIDER, type FixtureProvider } from "./provider-names";
+import { API_NBA_PROVIDER, API_NFL_PROVIDER, API_NHL_PROVIDER, type FixtureProvider } from "./provider-names";
 
 // Both current providers type-check against SportsDataProvider — every
 // method exists on all of them — but some of NFL's are silent no-op stubs
@@ -14,8 +14,11 @@ import { API_NFL_PROVIDER, type FixtureProvider } from "./provider-names";
 // no shared capability left to gate.)
 export type ProviderCapability = "team_search" | "league_type" | "fixture_events" | "squad_data";
 
-const CAPABILITY_MATRIX: Record<FixtureProvider, ReadonlySet<ProviderCapability>> = {
+// The NBA / NHL adapters (api-sports-provider.ts) stub the same four capabilities as the NFL one, so they are listed with none as well.
+const CAPABILITY_MATRIX: Partial<Record<FixtureProvider, ReadonlySet<ProviderCapability>>> = {
   [API_NFL_PROVIDER]: new Set<ProviderCapability>([]),
+  [API_NBA_PROVIDER]: new Set<ProviderCapability>([]),
+  [API_NHL_PROVIDER]: new Set<ProviderCapability>([]),
 };
 
 /** Whether `provider` genuinely implements `capability` — not merely

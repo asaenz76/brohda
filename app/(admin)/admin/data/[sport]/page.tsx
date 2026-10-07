@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { requireAdminOrAbove } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
-import { NFL_PROVIDER } from "@/lib/sports-data/supported-nfl-competitions";
+import { notFound } from "next/navigation";
+import { liveSportConfigs } from "@/lib/sports-data/sport-registry";
 
 // Phase 4 (spec §15/§20): NFL had zero admin visibility before this —
 // sync is entirely cron-driven (sync-fixtures-nfl, every 5 minutes) with
@@ -13,15 +14,22 @@ import { NFL_PROVIDER } from "@/lib/sports-data/supported-nfl-competitions";
 // isn't an NFL game showing up" has somewhere to look before assuming
 // something is broken. Zero provider calls — DB-only, same discipline as
 // every other page in Data Management.
-export default async function AdminDataNflPage() {
+// Generalised from the NFL-only page: one status page per live sport (/admin/data/nfl, /nba, /nhl), derived from the shared sport registry. The URL
+// segment is the league label in lower case, the same token the Events `?sport=` filter uses.
+export default async function AdminDataSportPage({ params }: { params: Promise<{ sport: string }> }) {
   await requireAdminOrAbove();
+  const { sport: sportParam } = await params;
+  const config = liveSportConfigs().find((c) => c.label.toLowerCase() === sportParam.toLowerCase());
+  if (!config) notFound();
+  const label = config.label;
+  const league = config.leagues[0];
   const supabase = await createClient();
 
   const importResult = await supabase
     .from("league_season_imports")
     .select("season, sync_status, last_synced_at, last_sync_error, fixture_count_imported, upcoming_fixture_count, import_status")
-    .eq("provider", NFL_PROVIDER)
-    .eq("external_league_id", "1")
+    .eq("provider", config.provider)
+    .eq("external_league_id", league.externalLeagueId)
     .order("season", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -29,14 +37,14 @@ export default async function AdminDataNflPage() {
   const fixtureCountResult = await supabase
     .from("fixtures")
     .select("id", { count: "exact", head: true })
-    .eq("provider", NFL_PROVIDER);
+    .eq("provider", config.provider);
 
   // This page exists to answer "why isn't an NFL game showing up" — a
-  // query failure rendering as "No NFL season has been synced yet." would
+  // query failure rendering as "No {label} season has been synced yet." would
   // tell the admin something affirmatively wrong (spec §9/§10), not just
   // uninformative.
   if (importResult.error || fixtureCountResult.error) {
-    console.error("[AdminDataNflPage] failed to load NFL sync status", { importError: importResult.error, fixtureCountError: fixtureCountResult.error });
+    console.error(`[AdminDataSportPage] failed to load ${label} sync status`, { importError: importResult.error, fixtureCountError: fixtureCountResult.error });
   }
   const loadFailed = Boolean(importResult.error || fixtureCountResult.error);
   const importRow = importResult.data;
@@ -45,16 +53,16 @@ export default async function AdminDataNflPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-lg font-semibold text-text-primary">NFL</h1>
+        <h1 className="text-lg font-semibold text-text-primary">{label}</h1>
         <p className="text-sm text-text-muted">
-          NFL sync is fully automatic (cron, every 5 minutes) — there is no manual import or discovery action to trigger here. This is status only, read
+          {label} sync is fully automatic (cron, every 5 minutes) — there is no manual import or discovery action to trigger here. This is status only, read
           from the local database.
         </p>
       </div>
 
       {loadFailed ? (
         <div className="rounded-lg border border-danger/40 bg-danger/5 p-4 text-sm text-danger">
-          <p className="font-medium">NFL sync status could not be loaded.</p>
+          <p className="font-medium">{label} sync status could not be loaded.</p>
           <p className="mt-1 text-text-muted">Try reloading the page. If this keeps happening, check server logs.</p>
         </div>
       ) : importRow ? (
@@ -84,7 +92,7 @@ export default async function AdminDataNflPage() {
             <dd className="text-text-primary">{importRow.upcoming_fixture_count}</dd>
           </div>
           <div>
-            <dt className="text-xs font-medium uppercase tracking-wide text-text-muted">Total NFL fixtures in database</dt>
+            <dt className="text-xs font-medium uppercase tracking-wide text-text-muted">Total {label} fixtures in database</dt>
             <dd className="text-text-primary">{fixtureCount ?? 0}</dd>
           </div>
           {importRow.last_sync_error && (
@@ -95,7 +103,7 @@ export default async function AdminDataNflPage() {
           )}
         </dl>
       ) : (
-        <p className="rounded-lg border border-border-subtle p-4 text-sm text-text-muted">No NFL season has been synced yet.</p>
+        <p className="rounded-lg border border-border-subtle p-4 text-sm text-text-muted">No {label} season has been synced yet.</p>
       )}
 
       <p className="text-sm text-text-muted">

@@ -41,6 +41,7 @@ sourced from `.env.example`):
 | `API_NFL_BASE_URL` | `https://v1.american-football.api-sports.io` |
 | `API_NFL_KEY` | From API-Sports; request it, don't paste it into chat — put it directly in the env file |
 | `API_NFL_ENABLED` | `true` in production once a real key is set |
+| `API_NBA_ENABLED` / `API_NHL_ENABLED` | `true` per sport once its API-Sports plan can read the current season (the Free plan cannot). The same account key authenticates every sport (`API_NFL_KEY` fallback, or `API_SPORTS_KEY`). No new cron entries: the existing jobs run every active sport. See `docs/SPORTS_AUDIT_NHL_NBA.md` §11 |
 | `DEFAULT_TIMEZONE` | `America/Costa_Rica` — used for the same-calendar-day anomaly-void grace window (X.7.2) |
 | `APP_URL` | The deployed app's public URL |
 | `CRON_SECRET` | Random secret; see below |

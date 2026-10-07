@@ -1,9 +1,9 @@
 import { requireSuperAdmin } from "@/lib/auth/session";
 import { getRegistrationEnabled } from "@/lib/settings/registration";
 import { getPaymentMethods } from "@/lib/payment-methods/fetch";
-import { apiNflProvider } from "@/lib/sports-data/api-nfl-provider";
 import { getProviderStatus } from "@/lib/sports-data/provider-gateway";
-import { API_NFL_PROVIDER } from "@/lib/sports-data/provider-names";
+import { getSportsProvider } from "@/lib/sports-data/provider-registry";
+import { liveSportConfigs } from "@/lib/sports-data/sport-registry";
 import { Card, CardContent } from "@/components/ui/card";
 import Link from "next/link";
 import { RegistrationToggle } from "./registration-toggle";
@@ -16,10 +16,11 @@ export default async function AdminSettingsPage() {
   // one provider's status must never reflect or be gated by the other's,
   // and opening this page must never make a live provider request itself
   // (getProviderStatus only ever reads provider_request_log).
-  const [registrationEnabled, paymentMethods, nflStatus] = await Promise.all([
+  const sports = liveSportConfigs();
+  const [registrationEnabled, paymentMethods, ...providerStatuses] = await Promise.all([
     getRegistrationEnabled(),
     getPaymentMethods(),
-    getProviderStatus(apiNflProvider.isEnabled(), API_NFL_PROVIDER),
+    ...sports.map((c) => getProviderStatus(getSportsProvider(c.provider)?.isEnabled() ?? false, c.provider)),
   ]);
 
   return (
@@ -42,12 +43,15 @@ export default async function AdminSettingsPage() {
           <PaymentMethodsSettings methods={paymentMethods} />
         </CardContent>
       </Card>
-      <ProviderStatusPanel
-        provider={API_NFL_PROVIDER}
-        label="API-NFL"
-        enabledEnvHint="The NFL sports data provider isn't enabled. Set API_NFL_ENABLED=true and a valid API_NFL_KEY to use it."
-        status={nflStatus}
-      />
+      {sports.map((c, i) => (
+        <ProviderStatusPanel
+          key={c.provider}
+          provider={c.provider}
+          label={`API-Sports ${c.label}`}
+          enabledEnvHint={`The ${c.label} sports data provider isn't enabled. Set ${c.envPrefix}_ENABLED=true and a valid API key (${c.envPrefix}_KEY, or the shared API_SPORTS_KEY) to use it.`}
+          status={providerStatuses[i]}
+        />
+      ))}
     </div>
   );
 }

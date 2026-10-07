@@ -14,5 +14,11 @@
  * this type.
  */
 export const API_NFL_PROVIDER = "api_nfl" as const;
+export const API_NBA_PROVIDER = "api_nba" as const;
+export const API_NHL_PROVIDER = "api_nhl" as const;
+// Declared so the shared architecture is provably MLB-compatible (see docs/MLB_COMPATIBILITY_AUDIT.md); there is deliberately NO MLB adapter
+// registered in provider-registry.ts, so nothing can ingest or publish MLB until a launch milestone adds one.
+export const API_MLB_PROVIDER = "api_mlb" as const;
 
-export type FixtureProvider = typeof API_NFL_PROVIDER;
+// One identity per upstream API (their numeric ids are only unique inside one API), all sharing one pipeline — see sport-registry.ts.
+export type FixtureProvider = typeof API_NFL_PROVIDER | typeof API_NBA_PROVIDER | typeof API_NHL_PROVIDER | typeof API_MLB_PROVIDER;

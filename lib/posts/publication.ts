@@ -1,7 +1,9 @@
 import { errorMessage } from "@/lib/utils/error-message";
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { API_NFL_PROVIDER } from "@/lib/sports-data/provider-names";
+import { getOddsProvider } from "@/lib/sports-data/provider-registry";
+import { SPORT_CONFIGS } from "@/lib/sports-data/sport-registry";
+import { fetchAllRows, fetchInChunks } from "@/lib/utils/batch";
 import { listActiveMarketsForFixture } from "@/lib/prediction-markets/repository";
 import { ensurePostForFixture, getPostByFixtureId, publishPost } from "./repository";
 import { getPostPublicationPolicy } from "./policy";
@@ -21,16 +23,34 @@ export interface PostPublicationOutcome {
   outcome: "published" | "created-unpublished" | "already-published" | "skipped-no-active-market";
 }
 
-async function listEligibleNflFixtureIds(): Promise<string[]> {
+/**
+ * Not-yet-started Games of every sport that has a registered provider (retired soccer history is excluded by construction) that still NEED
+ * publishing work. Batched, not per-Game: an NBA / NHL season has ~1,300 future Games, and one post lookup plus one market lookup per Game on every
+ * run would be thousands of queries a tick for almost no new work. So the candidate set is narrowed in three set-based reads — the Games, the
+ * subset that has an ACTIVE Market (when policy requires one), and which of those already have a published Post — and only the remainder is touched.
+ */
+async function listEligibleFixtureIds(requiresActiveMarket: boolean): Promise<string[]> {
   const admin = createAdminClient();
-  const { data, error } = await admin
-    .from("fixtures")
-    .select("id")
-    .eq("provider", API_NFL_PROVIDER)
-    .eq("internal_status", "NOT_STARTED")
-    .gt("scheduled_start_utc", new Date().toISOString());
-  if (error) throw error;
-  return (data ?? []).map((row) => row.id);
+  const providers = SPORT_CONFIGS.filter((c) => getOddsProvider(c.provider) !== null).map((c) => c.provider);
+  const nowIso = new Date().toISOString();
+  const rows = await fetchAllRows((from, to) =>
+    admin.from("fixtures").select("id").in("provider", providers).eq("internal_status", "NOT_STARTED").gt("scheduled_start_utc", nowIso).order("id").range(from, to),
+  );
+  const ids = rows.map((r) => r.id as string);
+  if (ids.length === 0) return [];
+
+  const posts = await fetchInChunks<{ fixture_id: string; published_at: string | null }>(ids, (chunk) => admin.from("posts").select("fixture_id, published_at").in("fixture_id", chunk));
+  const published = new Set(posts.filter((p) => p.published_at !== null).map((p) => p.fixture_id));
+  const hasPost = new Set(posts.map((p) => p.fixture_id));
+
+  if (!requiresActiveMarket) return ids.filter((id) => !published.has(id));
+
+  const withMarket = new Set(
+    (await fetchInChunks<{ fixture_id: string }>(ids, (chunk) => admin.from("markets").select("fixture_id").in("fixture_id", chunk).eq("status", "ACTIVE"))).map((m) => m.fixture_id),
+  );
+  // Work remains for a Game that is not yet published AND either has a Market to publish with, or has no Post row yet (the Post is still created
+  // unpublished, ready the moment a Market appears — exactly what publishing has always done).
+  return ids.filter((id) => !published.has(id) && (withMarket.has(id) || !hasPost.has(id)));
 }
 
 /**
@@ -81,7 +101,7 @@ export async function runPostPublication(): Promise<PostPublicationSummary> {
     return { ranAt: new Date().toISOString(), policyEnabled: false, fixturesExamined: 0, outcomes: [], failures: [] };
   }
 
-  const fixtureIds = await listEligibleNflFixtureIds();
+  const fixtureIds = await listEligibleFixtureIds(policy.requiresActiveMarket);
   const outcomes: PostPublicationOutcome[] = [];
   const failures: PostPublicationSummary["failures"] = [];
 

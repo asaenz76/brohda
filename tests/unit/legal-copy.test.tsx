@@ -190,7 +190,7 @@ describe("Privacy matches what the audit proved the implementation does", () => 
   });
 
   it("names the providers and describes error monitoring and email without claiming less data than is sent", () => {
-    for (const vendor of ["Vercel", "Supabase", "API-NFL", "Sentry", "Resend"]) expect(privacy).toContain(vendor);
+    for (const vendor of ["Vercel", "Supabase", "API-Sports", "Sentry", "Resend"]) expect(privacy).toContain(vendor);
     expect(privacy).toContain("the page address, browser and device type, timing, and the technical details of the error");
     expect(privacy).toContain("an error message or page address can incidentally include identifiers");
     expect(privacy).toContain("it does not record your session");

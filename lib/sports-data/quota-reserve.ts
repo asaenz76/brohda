@@ -1,6 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { API_NFL_PROVIDER, type FixtureProvider } from "./provider-names";
+import { getSportConfigByProvider } from "./sport-registry";
 
 // Phase 3 spec §18: protect enough quota for high-value manual operations
 // (pool creation market lookup, troubleshooting, critical sync) by having
@@ -17,8 +17,10 @@ import { API_NFL_PROVIDER, type FixtureProvider } from "./provider-names";
 // provider, this never blocks anything: nothing here fabricates a limit
 // that was never confirmed, matching spec §17's "do not fabricate reset
 // times" in spirit.
-const BUDGET_ENV_VAR: Record<FixtureProvider, string> = {
-  [API_NFL_PROVIDER]: "API_NFL_DAILY_REQUEST_BUDGET",
+// One budget variable per provider, named from the sport registry's env prefix (API_NFL_DAILY_REQUEST_BUDGET, API_NBA_..., API_NHL_...).
+const budgetEnvVar = (provider: string): string | null => {
+  const config = getSportConfigByProvider(provider);
+  return config ? `${config.envPrefix}_DAILY_REQUEST_BUDGET` : null;
 };
 
 const DEFAULT_WARNING_RATIO = 0.7;
@@ -38,7 +40,7 @@ export interface QuotaReserveStatus {
 }
 
 function readBudget(provider: string): number | null {
-  const envVar = BUDGET_ENV_VAR[provider as FixtureProvider];
+  const envVar = budgetEnvVar(provider);
   if (!envVar) return null;
   const raw = process.env[envVar];
   if (!raw) return null;

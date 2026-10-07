@@ -1,4 +1,5 @@
 import type { PredictionOutcome } from "@/lib/predictions/types";
+import { getScoreUnit } from "@/lib/sports-data/sport-registry";
 import { formatMatchup, orderTeamsForDisplay } from "@/lib/sports-data/team-display-order";
 import type { MarketTemplate, MarketYesSide } from "./types";
 
@@ -108,10 +109,12 @@ export function getChoicePresentation(source: SelectionLabelSource): ChoicePrese
   if (marketTemplate === "TOTAL") {
     if (typeof lineValue !== "number" || !Number.isFinite(lineValue)) return fallback(source);
     const line = formatLineNumber(lineValue);
+    // What the total is counted in is the sport's own word (points, goals, runs) — from the shared sport registry, never hard-coded here.
+    const unit = getScoreUnit(source.sport).plural;
     return {
       choices: [
-        { outcome: "YES", label: `Over ${line}`, accessibleName: `Pick Over ${line} total points` },
-        { outcome: "NO", label: `Under ${line}`, accessibleName: `Pick Under ${line} total points` },
+        { outcome: "YES", label: `Over ${line}`, accessibleName: `Pick Over ${line} total ${unit}` },
+        { outcome: "NO", label: `Under ${line}`, accessibleName: `Pick Under ${line} total ${unit}` },
       ],
       marketLabel: `Total ${line}`,
       templateAware: true,

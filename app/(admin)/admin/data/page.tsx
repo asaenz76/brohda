@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireAdminOrAbove } from "@/lib/auth/session";
+import { liveSportConfigs } from "@/lib/sports-data/sport-registry";
 
 // Phase 4 (spec §20): the home for technical/operational admin concerns —
 // the machinery Events deliberately keeps out of everyday browsing.
@@ -41,7 +42,14 @@ export default async function AdminDataPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <DataSection title="NFL" description="Sync status — NFL sync is fully automatic (cron), no manual import." links={[{ href: "/admin/data/nfl", label: "NFL sync status" }]} />
+        {liveSportConfigs().map((c) => (
+          <DataSection
+            key={c.provider}
+            title={c.label}
+            description={`Sync status — ${c.label} sync is fully automatic (cron), no manual import.`}
+            links={[{ href: `/admin/data/${c.label.toLowerCase()}`, label: `${c.label} sync status` }]}
+          />
+        ))}
         <DataSection
           title="Fixture troubleshooting"
           description="Look up a specific fixture by provider ID, discover fixtures by date, or manage a fixture record directly."
@@ -49,7 +57,7 @@ export default async function AdminDataPage() {
         />
         <DataSection
           title="Provider health"
-          description="API-NFL connection status, quota, and circuit breakers. Zero calls on load; explicit test-connection action."
+          description="Sports data provider connection status, quota, and circuit breakers (NFL, NBA, NHL). Zero calls on load; explicit test-connection action."
           links={[{ href: "/admin/settings", label: "Provider Status (Settings)" }]}
         />
         <DataSection title="Jobs" description="Scheduled synchronization job health." links={[{ href: "/admin/reports", label: "Job health (Reports)" }]} />
