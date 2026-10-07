@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { MessageCircle } from "lucide-react";
+import { ChevronRight, MessageCircle } from "lucide-react";
 import { LeagueCrest } from "@/components/LeagueCrest";
 import { SponsoredLabel } from "@/components/sponsorship/SponsoredLabel";
 import { resolveLeagueIdentity } from "@/lib/sports-data/league-crest";
@@ -83,6 +83,7 @@ export function GamePostCard({ item, mode = "member" }: { item: FeedItem; mode?:
   const isPublic = mode === "public";
   const statusLabel = gameStatusLabel(item.sport, item.internalStatus, item.homeScore, item.awayScore);
   const market = item.primaryMarket;
+  const moreMarkets = item.moreMarketsCount ?? 0;
   const league = resolveLeagueIdentity({ competitionName: item.competitionName, competitionLogoUrl: item.competitionLogoUrl });
   // Restraint (spec §20): a Post can belong to several Communities at
   // once (home team, away team, league, sport) — show at most a couple,
@@ -143,6 +144,20 @@ export function GamePostCard({ item, mode = "member" }: { item: FeedItem; mode?:
             )}
 
             <SentimentLine market={market} isPublic={isPublic} />
+
+            {moreMarkets > 0 && (
+              // A visible, separate action: nobody has to discover that the card is clickable to reach the Game's other Markets. Same canonical Post as the
+              // card link (a sibling link, not nested), so there is one destination and Back returns exactly where the user came from.
+              <Link
+                href={`/post/${item.post.id}`}
+                data-slot="see-more-markets"
+                aria-label={`See more markets for ${formatMatchupSpoken(item.sport, item.homeTeamName, item.awayTeamName)}`}
+                className="-mx-1 inline-flex min-h-9 items-center gap-0.5 rounded-md px-1 text-xs font-semibold uppercase tracking-wide text-accent-primary outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+              >
+                See more markets
+                <ChevronRight className="size-3.5" aria-hidden="true" />
+              </Link>
+            )}
           </div>
         )}
 

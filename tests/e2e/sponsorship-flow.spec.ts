@@ -49,8 +49,13 @@ async function seedGamePost(suffix: string) {
     .insert({ provider: "api_nfl", provider_market_id: `sp_${randomUUID()}`, question: "q?", status: "ACTIVE", fixture_id: fixture!.id, yes_price: 0.6, no_price: 0.4, liquidity: 1000, last_synced_at: new Date().toISOString(), ingestion_source: "e2e_test", provider_metadata: {}, market_template: "MONEYLINE", yes_side: "HOME", line_value: null })
     .select("id")
     .single();
+  const { data: total } = await admin
+    .from("markets")
+    .insert({ provider: "api_nfl", provider_market_id: `sp_t_${randomUUID()}`, question: "t?", status: "ACTIVE", fixture_id: fixture!.id, yes_price: 0.5, no_price: 0.5, liquidity: 1000, last_synced_at: new Date().toISOString(), ingestion_source: "e2e_test", provider_metadata: {}, market_template: "TOTAL", yes_side: null, line_value: 44.5 })
+    .select("id")
+    .single();
   const { data: post } = await admin.from("posts").insert({ fixture_id: fixture!.id, published_at: new Date().toISOString() }).select("id").single();
-  return { fixtureId: fixture!.id as string, marketId: market!.id as string, postId: post!.id as string, home, away };
+  return { fixtureId: fixture!.id as string, marketId: market!.id as string, totalMarketId: total!.id as string, postId: post!.id as string, home, away };
 }
 
 async function cleanup(game: { fixtureId: string; marketId: string; postId: string }) {
@@ -133,6 +138,18 @@ test("sponsor drafts and submits â†’ Super Admin confirms payment and approves â
     await expect(cta).toHaveAttribute("rel", /sponsored/);
     await expect(cta).toHaveAttribute("target", "_blank");
     await expect(article.getByTestId("prediction-actions")).toBeVisible(); // the Pick controls are untouched
+    // SEE MORE MARKETS and the sponsor line coexist: both visible, different places, neither covering the other, at the narrowest width too.
+    const more = article.getByRole("link", { name: /^See more markets/i });
+    await expect(more).toBeVisible();
+    for (const width of [320, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      const [lb, mb] = [(await label.boundingBox())!, (await more.boundingBox())!];
+      expect(lb.y + lb.height).toBeLessThanOrEqual(mb.y); // sponsor line above the action
+      expect(mb.x + mb.width).toBeLessThanOrEqual(width);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    }
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await expect(cta).toBeVisible(); // the sponsor CTA is still its own, separate link
     // The first-party click path redirects to the approved destination (and records it).
     const click = await page.request.get(`/sponsorship/click/${sponsorshipId}`, { maxRedirects: 0 });
     expect(click.status()).toBe(302);

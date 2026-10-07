@@ -175,6 +175,11 @@ export interface FeedItem {
   isFromFollowedCommunity: boolean;
   /** Phase C — non-tombstoned comment count, batched (lib/post-comments/repository.ts's getPostCommentCountsForPosts). */
   commentCount: number;
+  /**
+   * How many OTHER Markets of this Game the Post page lists beyond the primary one shown on the card — counted from the same displayable Markets the Post page
+   * reads (hidden, archived and invalid Markets are not in that set). 0 means the card has nothing more to offer.
+   */
+  moreMarketsCount?: number;
   /** The active, approved, paid sponsorship for this Post (null when none / capability off) — presentation only, never part of the Post's identity. */
   sponsorship?: PublicSponsorship | null;
 }
@@ -413,6 +418,7 @@ async function enrichFeedRows(
       communities: communitiesByPost.get(row.id) ?? [],
       isFromFollowedCommunity: followedPostIds.has(row.id),
       commentCount: commentCounts.get(row.id) ?? 0,
+      moreMarketsCount: primary ? Math.max(0, (marketsByFixture.get(row.fixture_id)?.length ?? 0) - 1) : 0,
     };
   });
 }
