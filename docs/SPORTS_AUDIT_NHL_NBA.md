@@ -85,8 +85,8 @@ completed game was ever level.** The provider's final therefore already is the o
 **Stage / preseason.** The provider does **not** classify preseason vs regular season for NBA or NHL: `stage` is always null and `week` carries playoff-round labels
 (and, in the NBA, the All-Star bracket shares "NBA - Semi-finals"/"NBA - Final" with real playoff labels), so it is not a usable flag. Preseason games are in the
 season's game list (NHL: 66 games in September 2024). **Effect:** a preseason Game is published only if ≥2 bookmakers quote odds for it (ingestion creates no Market
-without them, and a Post is only published with an ACTIVE Market). That self-gates but is not a policy. **Owner decision needed:** should preseason Games be
-public? The code makes no choice and does not label preseason as regular season. NBA opening-day readiness does not depend on preseason inventory.
+without them, and a Post is only published with an ACTIVE Market). **Locked product decision (2026-10-07): preseason Games may be public.** A legitimate provider fixture between supported teams with a valid, gradeable Market gets a normal Game Post;
+no date-based or heuristic preseason suppression is built merely because the provider lacks a flag, and nothing labels preseason as regular season. NBA opening-day readiness does not depend on preseason inventory.
 Playoffs need nothing special (the architecture has no regular-season-only assumption; `round` carries the provider label).
 
 **Odds.** Bet catalogs list `2 Home/Away`, `3 Asian Handicap`, `4 Over/Under` for both NBA and NHL (NFL: 1/2/3). Historical odds are not retained (empty responses) and
@@ -100,8 +100,9 @@ catalog fails closed.
 | SPREAD (puck line / point spread) | AVAILABLE — **observed and enabled** (§5a) | AVAILABLE (catalog) — implemented, **gated off until a real payload is verified** |
 | TOTAL | AVAILABLE — observed (§5a) | AVAILABLE (catalog) — payload unverified |
 
-To enable SPREAD for a sport after verifying one real payload: add `"SPREAD"` to its `marketTemplates` in `sport-registry.ts` (one reviewed line; the ingestion,
-orientation guard, presentation and grading are already in place and tested). The NFL stays at Moneyline + Total (unchanged); adding Spread there is an owner decision.
+**Locked product decision (2026-10-07): SPREAD is approved for NBA and NHL once a real provider odds payload has been verified for that sport,** independently per sport. Before enabling a sport:
+inspect real payloads; prove team/side orientation, sign orientation and the canonical YES-side mapping; run grading and presentation tests; then add `"SPREAD"` to that sport's `marketTemplates` in
+`sport-registry.ts`. **NHL: done** (§5a — real 2026 payloads, enabled in r45). **NBA: pending** a real payload (the Basketball plan is still Free). The NFL stays Moneyline + Total.
 
 ## 5a. Real 2026 NHL data (captured the day the Hockey plan was upgraded, read-only)
 
@@ -126,10 +127,8 @@ orientation guard, presentation and grading are already in place and tested). Th
 - **Sport policy (new):** basketball, hockey and baseball cannot end level. A COMPLETED level score there is an *inconsistent provider result* (e.g. a shootout whose
   deciding goal was not credited yet): it is **not graded and not VOIDed**; it stays PENDING and the grading job reports it as a failure naming sport, league, provider game id
   and Brohda game id (so job health reads degraded). The NFL keeps "tied Moneyline → VOID".
-- **Total on a shootout game (OWNER DECISION, pinned by a test).** Because the official NHL final credits the shootout winner one goal, a shootout game's total equals
-  regulation + overtime goals + 1 (always odd). Totals are graded on that official final (the brief's default; provider data is unambiguous and internally consistent). If you would
-  rather grade totals on regulation + overtime goals only, that is a one-line change in the policy layer (the provider already supplies `regulation`, `extraTime` and `penalty`
-  scores on the fixture) — it is deliberately not done silently.
+- **Shootout results — locked product decision (2026-10-07): keep current behaviour.** Full-game NHL Markets are graded from the provider's official final score. When the provider credits the shootout winner one
+  goal in that final, the goal counts for MONEYLINE, SPREAD **and TOTAL**; a regulation+overtime-only score is never reconstructed (a shootout game's total is regulation + overtime goals + 1, always odd). Pinned by tests.
 - **Postponed:** Game identity is preserved (the same provider id; rescheduling updates the start on the same row and the same single Post) and the Game is tracked until it ends.
   **Suspended / abandoned / awarded** stay PENDING until the owner sets a policy (unchanged from the NFL).
 - **Result authority:** structured provider scores only (`fixtures.home_score/away_score`, written by sync). Never UI text, news or sportsbook rules.
@@ -162,8 +161,9 @@ and one-way, as designed; a reschedule later does not reopen it.)
 - **P1 (fixed): NFL season rule broke in January.** `season = UTC year` would have requested season `2027` from 2027-01-01, silently stopping sync and grading for the last regular-season
   weeks and the playoffs. Production confirms every game through 2027-01-10 is season `2026`. Fixed in the registry (`seasonFor`), pinned by a test.
 - **P1 (action needed): the NFL provider subscription ends 2026-11-12.**
-- **P3 (not touched — production data): two leaked test teams** in production (`Home Sync Test NFL` id 9101, `Away Sync Test NFL` id 9102; no Communities). The readiness check
-  flags them (34 teams vs 32). Remove with `delete from teams where provider='api_nfl' and external_id in ('9101','9102')` when convenient (check no fixture references them first).
+- **P3 (resolved by migration 180): two leaked test teams** in production (`Home Sync Test NFL` 9101, `Away Sync Test NFL` 9102). A read-only dependency audit (2026-10-07) proved them fully orphaned — no Community,
+  follow, Game, Post, Market, Pick, Challenge, Position, notification, audit or `team_players` row; the only FK to `teams` is `communities.team_id`. Migration `20260101000180` deletes them with an orphan guard
+  (and any *unused* Community created for them meanwhile); anything referenced stays. Authorised by the owner; applied with `supabase db push`.
 - **P3:** `nfl_game_results` is the confirmed-result audit table; it is now written for every sport (it is generic in shape; only the name says NFL). A rename is cosmetic.
 - **P3:** the NFL's league logo is self-hosted because the provider CDN copy was unreliable; NBA/NHL use provider URLs (readiness flags a missing one).
 - **P2:** `lib/monetary/reconciliation.ts` has the same unpaged reads (and a long `.in()` list) as the wallet check that was fixed here; fine at current volume.
