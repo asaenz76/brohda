@@ -7,17 +7,14 @@
 // SportsDataProvider at all.
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isSupportedNflCompetition } from "@/lib/sports-data/supported-nfl-competitions";
+import { getSportConfig, isSupportedLeague, type SportKey } from "@/lib/sports-data/sport-registry";
 import { isTerminalStatus } from "@/lib/sports-data/status-map";
 import type { FixtureInternalStatus } from "@/lib/sports-data/types";
 import { localDateKeyFor, type FixtureDateWindow } from "./date-window";
 import { ALL_EVENT_SPORTS } from "./sport-meta";
 
-/** The sports currently backed by real provider data — see
- * lib/sports-data/api-nfl-provider.ts. Not a generic "every sport" union;
- * adding another sport means adding a value here deliberately, not
- * something this type accepts implicitly. */
-export type EventSport = "american_football";
+/** A sport key from the shared sport registry (lib/sports-data/sport-registry.ts); the sports actually listed are the ones with a registered provider (./sport-meta.ts). */
+export type EventSport = SportKey;
 
 const IN_CLAUSE_CHUNK_SIZE = 300;
 
@@ -132,7 +129,9 @@ function computeCounts(fixtures: LocalFixture[]): LocalFixtureBrowseCounts {
  * against workspace state — every lookup here is one batched (chunked)
  * query, never N+1. */
 function isRowSupported(row: Pick<RawFixtureRow, "sport" | "competition_external_id">): boolean {
-  return isSupportedNflCompetition(row.competition_external_id);
+  // League ids are only unique inside one provider ("1" is the NFL's league AND MLB's), so support is always judged against the ROW'S OWN sport.
+  const config = getSportConfig(row.sport);
+  return config !== null && isSupportedLeague(config, row.competition_external_id);
 }
 
 async function enrichLocalRows(rows: RawFixtureRow[], timeZone: string): Promise<LocalFixture[]> {

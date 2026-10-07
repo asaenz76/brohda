@@ -9,7 +9,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "brohda. — The Social Prediction Platform",
     short_name: "brohda.",
-    description: "Predict NFL outcomes, join community pools, and prove you know the game better than your group chat.",
+    description: "A social network for people who think they know sports. Pick a side, join the conversation, call BS, and see who was right.",
     start_url: "/",
     display: "standalone",
     background_color: "#fafafa",

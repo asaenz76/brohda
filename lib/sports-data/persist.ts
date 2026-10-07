@@ -130,6 +130,8 @@ export async function upsertFixture(
  * every fixture in the batch is reported failed together (not isolated
  * per-fixture like upsertFixture) — an acceptable tradeoff here since the
  * next cron tick re-fetches and retries the full season anyway. */
+const FIXTURE_UPSERT_CHUNK = 400;
+
 export async function upsertFixturesBatch(
   admin: ReturnType<typeof createAdminClient>,
   fixtures: NormalizedFixture[],
@@ -142,10 +144,14 @@ export async function upsertFixturesBatch(
   }
   const dedupedFixtures = [...fixturesByKey.values()];
 
-  const { error: fixturesError } = await admin
-    .from("fixtures")
-    .upsert(dedupedFixtures.map(toFixtureRow), { onConflict: "provider,external_fixture_id" });
-  if (fixturesError) throw fixturesError;
+  // Chunked: an NBA / NHL season is ~1,500 games each carrying its raw provider payload, which as ONE request is a multi-megabyte body.
+  // (Still one round trip per few hundred rows, never one per fixture.)
+  for (let i = 0; i < dedupedFixtures.length; i += FIXTURE_UPSERT_CHUNK) {
+    const { error: fixturesError } = await admin
+      .from("fixtures")
+      .upsert(dedupedFixtures.slice(i, i + FIXTURE_UPSERT_CHUNK).map(toFixtureRow), { onConflict: "provider,external_fixture_id" });
+    if (fixturesError) throw fixturesError;
+  }
 
   const teamRowsByKey = new Map<string, ReturnType<typeof toTeamRows>[number]>();
   for (const fixture of dedupedFixtures) {

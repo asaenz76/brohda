@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { runNflMarketIngestion } from "@/lib/prediction-markets/ingestion/nfl";
+import { runMarketIngestion } from "@/lib/prediction-markets/ingestion/sports";
 import { recordJobRun } from "@/lib/jobs/record";
 
+// Original path and job name kept (scheduler entry + job-health history untouched); it now ingests Markets for EVERY active sport, each isolated.
 export async function GET(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
   const authHeader = request.headers.get("authorization");
@@ -10,6 +11,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const result = await recordJobRun("ingest-nfl-markets", () => runNflMarketIngestion());
+  const result = await recordJobRun("ingest-nfl-markets", () => runMarketIngestion());
   return NextResponse.json(result);
 }

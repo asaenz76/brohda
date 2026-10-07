@@ -111,8 +111,8 @@ export default function PrivacyPage() {
         <h2>5. Third-party services we use</h2>
         <p>
           We use providers to run the Service: Vercel (hosting), Supabase (database, sign-in, and
-          file storage), API-NFL (the sports data that supplies fixture and match information
-          displayed in the App), Sentry (error and performance monitoring), and Resend (email
+          file storage), API-Sports (the sports data for NFL, NBA, and NHL games that supplies fixture and match
+          information displayed in the App), Sentry (error and performance monitoring), and Resend (email
           delivery). These providers process data on our behalf under their own security and privacy
           commitments. We do not sell your information to anyone, and we do not share it with
           advertisers.

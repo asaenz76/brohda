@@ -1,18 +1,13 @@
-// URL-friendly aliasing for EventSport — "american_football" is the raw DB
-// value (matches fixtures.sport), but "nfl" is what an admin actually
-// types/reads in a shared link. Kept separate from sport-meta.ts (display
-// labels) since this is specifically about the ?sport= query param shape.
+// URL-friendly aliasing for EventSport — "american_football" is the raw DB value (matches fixtures.sport), but "nfl" / "nba" / "nhl" is what an admin
+// actually types/reads in a shared link. Derived from the shared sport registry (the league label, lower-cased), so adding a sport needs no edit here.
+// Kept separate from sport-meta.ts (display labels) since this is specifically about the ?sport= query param shape.
 import { ALL_EVENT_SPORTS, isEventSport } from "@/lib/fixtures/sport-meta";
 import type { EventSport } from "@/lib/fixtures/local-browse";
+import { getSportConfig } from "@/lib/sports-data/sport-registry";
 
-const SPORT_PARAM_ALIASES: Record<string, EventSport> = {
-  nfl: "american_football",
-  american_football: "american_football",
-};
+const SPORT_PARAM_ALIASES: Record<string, EventSport> = Object.fromEntries(ALL_EVENT_SPORTS.map((sport) => [getSportConfig(sport)!.label.toLowerCase(), sport]));
 
-const SPORT_TO_PARAM: Record<EventSport, string> = {
-  american_football: "nfl",
-};
+const SPORT_TO_PARAM: Partial<Record<EventSport, string>> = Object.fromEntries(ALL_EVENT_SPORTS.map((sport) => [sport, getSportConfig(sport)!.label.toLowerCase()]));
 
 /** `sport=nfl` (or omitted) -> the sports to show. Never throws —
  * an unrecognized token is dropped rather than treated as an error, so a
@@ -34,5 +29,5 @@ export function parseSportParam(raw: string | undefined): EventSport[] {
 }
 
 export function serializeSportParam(sports: EventSport[]): string {
-  return sports.map((s) => SPORT_TO_PARAM[s]).join(",");
+  return sports.map((s) => SPORT_TO_PARAM[s] ?? s).join(",");
 }

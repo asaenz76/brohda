@@ -56,8 +56,10 @@ in one of these states instead of `Healthy`/`No-op / healthy`.
    check the audit history there first).
 3. Confirm cron-job.org shows the scheduled hit actually firing (a 401
    there means `CRON_SECRET` mismatch between cron-job.org and Vercel).
-4. Check `API_NFL_ENABLED`/`API_NFL_KEY` are set and the provider isn't
-   reporting an outage (see "Provider outage" below).
+4. Check `API_NFL_ENABLED`/`API_NFL_KEY` (and `API_NBA_ENABLED` / `API_NHL_ENABLED` for those sports) are set and the provider isn't
+   reporting an outage (see "Provider outage" below). A sport-specific failure is named in the job result's `failures` (sport + provider);
+   a Free-plan provider says "Free plans do not have access to this season". To see exactly what is missing for one sport:
+   `pnpm check-sport-readiness nhl|nba|nfl` (read-only, PASS/FAIL per item).
 5. Nothing here risks money — safe to investigate at normal pace.
 
 ## Grading stopped

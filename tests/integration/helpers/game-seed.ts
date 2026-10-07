@@ -7,6 +7,7 @@ import { getTestAdminClient } from "./test-env";
 import { setPick } from "@/lib/predictions/repository";
 import { upsertMarket } from "@/lib/prediction-markets/repository";
 import type { MarketTemplate, NormalizedMarket } from "@/lib/prediction-markets/types";
+import { getSportConfig } from "@/lib/sports-data/sport-registry";
 
 const admin = getTestAdminClient();
 
@@ -17,20 +18,25 @@ export interface SeedGameOptions {
   lineValue?: number | null;
   yesSide?: "HOME" | "AWAY" | null;
   sport?: string;
+  /** Provider identity stored on the Game and its Market. Default: the provider the registry assigns to `sport` (so a basketball Game is an api_nba Game). */
+  provider?: string;
+  homeName?: string;
+  awayName?: string;
 }
 
 export async function seedGame(options: SeedGameOptions = {}): Promise<{ fixtureId: string; marketId: string }> {
   const { startsInMinutes = 24 * 60, template = "MONEYLINE", sport = "american_football" } = options;
+  const provider = options.provider ?? getSportConfig(sport)?.provider ?? "api_nfl";
   const lineValue = options.lineValue === undefined ? (template === "MONEYLINE" ? null : 3.5) : options.lineValue;
   const yesSide = options.yesSide === undefined ? (template === "TOTAL" ? null : "HOME") : options.yesSide;
   const { data: fixture, error } = await admin
     .from("fixtures")
     .insert({
-      provider: "api_nfl",
+      provider,
       external_fixture_id: `seed-${randomUUID()}`,
       sport,
-      home_team_name: "Seed Home",
-      away_team_name: "Seed Away",
+      home_team_name: options.homeName ?? "Seed Home",
+      away_team_name: options.awayName ?? "Seed Away",
       scheduled_start_utc: new Date(Date.now() + startsInMinutes * 60_000).toISOString(),
       internal_status: "NOT_STARTED",
     })
@@ -38,7 +44,7 @@ export async function seedGame(options: SeedGameOptions = {}): Promise<{ fixture
     .single();
   if (error || !fixture) throw error ?? new Error("failed to create fixture");
   const market: NormalizedMarket = {
-    provider: "api_nfl",
+    provider,
     providerMarketId: `seed_${randomUUID()}`,
     providerEventId: null,
     question: "Seed market?",

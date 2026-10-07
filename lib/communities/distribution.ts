@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureLeagueCommunity, ensureSportCommunity, ensureTeamCommunity } from "./repository";
 import { resolveFixtureSportsEntities } from "./fixture-resolution";
 import { getCommunityDistributionPolicy } from "./policy";
+import { getSportLabel } from "@/lib/sports-data/sport-registry";
 
 // Milestone R4 (docs/BROHDA_2_0_MILESTONE_MAP.md, §13-17): the canonical
 // many-to-many Post <-> Community distribution. Never copies a Post —
@@ -83,7 +84,8 @@ export async function distributePostForFixture(postId: string, fixtureId: string
   }
 
   if (policy.sportEnabled) {
-    const { id } = await ensureSportCommunity(entities.sportKey, humanizeSportKey(entities.sportKey));
+    // The sport's display name comes from the shared sport registry; an unknown key (retired history) falls back to a humanised key.
+    const { id } = await ensureSportCommunity(entities.sportKey, getSportLabel(entities.sportKey) ?? humanizeSportKey(entities.sportKey));
     await distributePostToCommunity(postId, id);
     distributedCommunityIds.push(id);
   }

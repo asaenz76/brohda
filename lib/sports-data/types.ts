@@ -207,17 +207,31 @@ export interface NormalizedPlayer {
 // it, not silently baked into normalization.
 // ---------------------------------------------------------------------
 
-export interface NflRawOddsValue {
+export interface RawOddsValue {
   value: string;
   odd: number;
 }
+export type NflRawOddsValue = RawOddsValue;
 
-export interface NflBookmakerOdds {
+/**
+ * The three bets every sport's Markets are built from, in the provider's own raw labels. Bet ids differ per API (NFL 1/2/3, basketball and
+ * hockey 2/3/4 — see sport-registry.ts betIds); the adapter resolves them, so aggregation reads only these names. Same shape for every sport.
+ */
+export interface RawBookmakerOdds {
   bookmakerId: number;
   bookmakerName: string;
-  moneyline: NflRawOddsValue[]; // bet id 1, "Home"/"Away" — unambiguous
-  asianHandicap: NflRawOddsValue[]; // bet id 2, e.g. "Home -3.5" — ambiguous pairing, see nfl-odds.ts
-  gameTotal: NflRawOddsValue[]; // bet id 3, e.g. "Over 37.5" / "Under 37"
+  moneyline: RawOddsValue[]; // "Home" / "Away"
+  asianHandicap: RawOddsValue[]; // e.g. "Home -3.5" — the number is the HOME handicap; see aggregate-spread.ts for the pairing convention
+  gameTotal: RawOddsValue[]; // e.g. "Over 37.5" / "Under 37"
+}
+
+export interface NormalizedRawFixtureOdds {
+  externalFixtureId: string;
+  providerUpdatedAt: string | null;
+  bookmakers: RawBookmakerOdds[];
+}
+
+export interface NflBookmakerOdds extends RawBookmakerOdds {
   homeTeamTotal: NflRawOddsValue[]; // bet id 8, "Total - Home"
   awayTeamTotal: NflRawOddsValue[]; // bet id 9, "Total - Away"
 }
@@ -226,6 +240,13 @@ export interface NormalizedNflFixtureOdds {
   externalFixtureId: string;
   providerUpdatedAt: string | null;
   bookmakers: NflBookmakerOdds[];
+}
+
+/** A provider that can also supply raw bookmaker odds for a fixture — what Market ingestion needs. */
+export interface SportsOddsProvider extends SportsDataProvider {
+  getFixtureRawOdds(externalFixtureId: string): Promise<NormalizedRawFixtureOdds | null>;
+  /** Optional: the league's real franchises, for leagues whose game list also carries exhibition "teams" (sport-registry franchiseSource). */
+  getFranchiseTeamExternalIds?(externalLeagueId: string, season: string): Promise<Set<string> | null>;
 }
 
 export interface SportsDataProvider {

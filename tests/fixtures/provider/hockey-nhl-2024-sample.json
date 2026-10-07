@@ -1,0 +1,1512 @@
+{
+ "games": [
+  {
+   "id": 370289,
+   "date": "2024-09-21T23:00:00+00:00",
+   "time": "23:00",
+   "timestamp": 1726959600,
+   "timezone": "UTC",
+   "week": null,
+   "timer": null,
+   "status": {
+    "long": "Finished",
+    "short": "FT"
+   },
+   "country": {
+    "id": 31,
+    "name": "USA",
+    "code": "US",
+    "flag": "https://media.api-sports.io/flags/us.svg"
+   },
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "type": "League",
+    "logo": "https://media.api-sports.io/hockey/leagues/57.png",
+    "season": 2024
+   },
+   "teams": {
+    "home": {
+     "id": 681,
+     "name": "Dallas Stars",
+     "logo": "https://media.api-sports.io/hockey/teams/681.png"
+    },
+    "away": {
+     "id": 698,
+     "name": "St. Louis Blues",
+     "logo": "https://media.api-sports.io/hockey/teams/698.png"
+    }
+   },
+   "scores": {
+    "home": 2,
+    "away": 1
+   },
+   "periods": {
+    "first": "0-0",
+    "second": "1-0",
+    "third": "1-1",
+    "overtime": null,
+    "penalties": null
+   },
+   "events": true
+  },
+  {
+   "id": 370290,
+   "date": "2024-09-22T00:00:00+00:00",
+   "time": "00:00",
+   "timestamp": 1726963200,
+   "timezone": "UTC",
+   "week": null,
+   "timer": null,
+   "status": {
+    "long": "Finished",
+    "short": "FT"
+   },
+   "country": {
+    "id": 31,
+    "name": "USA",
+    "code": "US",
+    "flag": "https://media.api-sports.io/flags/us.svg"
+   },
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "type": "League",
+    "logo": "https://media.api-sports.io/hockey/leagues/57.png",
+    "season": 2024
+   },
+   "teams": {
+    "home": {
+     "id": 704,
+     "name": "Winnipeg Jets",
+     "logo": "https://media.api-sports.io/hockey/teams/704.png"
+    },
+    "away": {
+     "id": 687,
+     "name": "Minnesota Wild",
+     "logo": "https://media.api-sports.io/hockey/teams/687.png"
+    }
+   },
+   "scores": {
+    "home": 2,
+    "away": 5
+   },
+   "periods": {
+    "first": "1-2",
+    "second": "0-2",
+    "third": "1-1",
+    "overtime": null,
+    "penalties": null
+   },
+   "events": true
+  },
+  {
+   "id": 370293,
+   "date": "2024-09-22T22:00:00+00:00",
+   "time": "22:00",
+   "timestamp": 1727042400,
+   "timezone": "UTC",
+   "week": null,
+   "timer": null,
+   "status": {
+    "long": "After Over Time",
+    "short": "AOT"
+   },
+   "country": {
+    "id": 31,
+    "name": "USA",
+    "code": "US",
+    "flag": "https://media.api-sports.io/flags/us.svg"
+   },
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "type": "League",
+    "logo": "https://media.api-sports.io/hockey/leagues/57.png",
+    "season": 2024
+   },
+   "teams": {
+    "home": {
+     "id": 683,
+     "name": "Edmonton Oilers",
+     "logo": "https://media.api-sports.io/hockey/teams/683.png"
+    },
+    "away": {
+     "id": 704,
+     "name": "Winnipeg Jets",
+     "logo": "https://media.api-sports.io/hockey/teams/704.png"
+    }
+   },
+   "scores": {
+    "home": 3,
+    "away": 2
+   },
+   "periods": {
+    "first": "1-1",
+    "second": "0-0",
+    "third": "1-1",
+    "overtime": "1-0",
+    "penalties": null
+   },
+   "events": true
+  },
+  {
+   "id": 370376,
+   "date": "2024-09-22T23:00:00+00:00",
+   "time": "23:00",
+   "timestamp": 1727046000,
+   "timezone": "UTC",
+   "week": null,
+   "timer": null,
+   "status": {
+    "long": "After Over Time",
+    "short": "AOT"
+   },
+   "country": {
+    "id": 31,
+    "name": "USA",
+    "code": "US",
+    "flag": "https://media.api-sports.io/flags/us.svg"
+   },
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "type": "League",
+    "logo": "https://media.api-sports.io/hockey/leagues/57.png",
+    "season": 2024
+   },
+   "teams": {
+    "home": {
+     "id": 700,
+     "name": "Toronto Maple Leafs",
+     "logo": "https://media.api-sports.io/hockey/teams/700.png"
+    },
+    "away": {
+     "id": 693,
+     "name": "Ottawa Senators",
+     "logo": "https://media.api-sports.io/hockey/teams/693.png"
+    }
+   },
+   "scores": {
+    "home": 5,
+    "away": 6
+   },
+   "periods": {
+    "first": "0-1",
+    "second": "1-2",
+    "third": "4-2",
+    "overtime": "0-1",
+    "penalties": null
+   },
+   "events": true
+  },
+  {
+   "id": 370388,
+   "date": "2024-10-01T01:00:00+00:00",
+   "time": "01:00",
+   "timestamp": 1727744400,
+   "timezone": "UTC",
+   "week": null,
+   "timer": null,
+   "status": {
+    "long": "After Penalties",
+    "short": "AP"
+   },
+   "country": {
+    "id": 31,
+    "name": "USA",
+    "code": "US",
+    "flag": "https://media.api-sports.io/flags/us.svg"
+   },
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "type": "League",
+    "logo": "https://media.api-sports.io/hockey/leagues/57.png",
+    "season": 2024
+   },
+   "teams": {
+    "home": {
+     "id": 683,
+     "name": "Edmonton Oilers",
+     "logo": "https://media.api-sports.io/hockey/teams/683.png"
+    },
+    "away": {
+     "id": 701,
+     "name": "Vancouver Canucks",
+     "logo": "https://media.api-sports.io/hockey/teams/701.png"
+    }
+   },
+   "scores": {
+    "home": 3,
+    "away": 2
+   },
+   "periods": {
+    "first": "0-0",
+    "second": "0-1",
+    "third": "2-1",
+    "overtime": "0-0",
+    "penalties": "2-0"
+   },
+   "events": true
+  },
+  {
+   "id": 370342,
+   "date": "2024-10-05T02:00:00+00:00",
+   "time": "02:00",
+   "timestamp": 1728093600,
+   "timezone": "UTC",
+   "week": null,
+   "timer": null,
+   "status": {
+    "long": "After Penalties",
+    "short": "AP"
+   },
+   "country": {
+    "id": 31,
+    "name": "USA",
+    "code": "US",
+    "flag": "https://media.api-sports.io/flags/us.svg"
+   },
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "type": "League",
+    "logo": "https://media.api-sports.io/hockey/leagues/57.png",
+    "season": 2024
+   },
+   "teams": {
+    "home": {
+     "id": 697,
+     "name": "San Jose Sharks",
+     "logo": "https://media.api-sports.io/hockey/teams/697.png"
+    },
+    "away": {
+     "id": 670,
+     "name": "Anaheim Ducks",
+     "logo": "https://media.api-sports.io/hockey/teams/670.png"
+    }
+   },
+   "scores": {
+    "home": 2,
+    "away": 3
+   },
+   "periods": {
+    "first": "0-0",
+    "second": "1-1",
+    "third": "1-1",
+    "overtime": "0-0",
+    "penalties": "0-1"
+   },
+   "events": true
+  },
+  {
+   "id": 386252,
+   "date": "2024-10-12T02:00:00+00:00",
+   "time": "02:00",
+   "timestamp": 1728698400,
+   "timezone": "UTC",
+   "week": null,
+   "timer": null,
+   "status": {
+    "long": "After Penalties",
+    "short": "AP"
+   },
+   "country": {
+    "id": 31,
+    "name": "USA",
+    "code": "US",
+    "flag": "https://media.api-sports.io/flags/us.svg"
+   },
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "type": "League",
+    "logo": "https://media.api-sports.io/hockey/leagues/57.png",
+    "season": 2024
+   },
+   "teams": {
+    "home": {
+     "id": 701,
+     "name": "Vancouver Canucks",
+     "logo": "https://media.api-sports.io/hockey/teams/701.png"
+    },
+    "away": {
+     "id": 695,
+     "name": "Philadelphia Flyers",
+     "logo": "https://media.api-sports.io/hockey/teams/695.png"
+    }
+   },
+   "scores": {
+    "home": 2,
+    "away": 3
+   },
+   "periods": {
+    "first": "1-1",
+    "second": "1-0",
+    "third": "0-1",
+    "overtime": "0-0",
+    "penalties": "1-2"
+   },
+   "events": true
+  },
+  {
+   "id": 386217,
+   "date": "2024-10-07T23:00:00+00:00",
+   "time": "23:00",
+   "timestamp": 1728342000,
+   "timezone": "UTC",
+   "week": null,
+   "timer": null,
+   "status": {
+    "long": "Cancelled",
+    "short": "CANC"
+   },
+   "country": {
+    "id": 31,
+    "name": "USA",
+    "code": "US",
+    "flag": "https://media.api-sports.io/flags/us.svg"
+   },
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "type": "League",
+    "logo": "https://media.api-sports.io/hockey/leagues/57.png",
+    "season": 2024
+   },
+   "teams": {
+    "home": {
+     "id": 699,
+     "name": "Tampa Bay Lightning",
+     "logo": "https://media.api-sports.io/hockey/teams/699.png"
+    },
+    "away": {
+     "id": 689,
+     "name": "Nashville Predators",
+     "logo": "https://media.api-sports.io/hockey/teams/689.png"
+    }
+   },
+   "scores": {
+    "home": null,
+    "away": null
+   },
+   "periods": {
+    "first": null,
+    "second": null,
+    "third": null,
+    "overtime": null,
+    "penalties": null
+   },
+   "events": false
+  }
+ ],
+ "shootoutProof": [
+  {
+   "id": 370388,
+   "scores": {
+    "home": 3,
+    "away": 2
+   },
+   "periods": {
+    "first": "0-0",
+    "second": "0-1",
+    "third": "2-1",
+    "overtime": "0-0",
+    "penalties": "2-0"
+   }
+  },
+  {
+   "id": 370342,
+   "scores": {
+    "home": 2,
+    "away": 3
+   },
+   "periods": {
+    "first": "0-0",
+    "second": "1-1",
+    "third": "1-1",
+    "overtime": "0-0",
+    "penalties": "0-1"
+   }
+  },
+  {
+   "id": 386252,
+   "scores": {
+    "home": 2,
+    "away": 3
+   },
+   "periods": {
+    "first": "1-1",
+    "second": "1-0",
+    "third": "0-1",
+    "overtime": "0-0",
+    "penalties": "1-2"
+   }
+  },
+  {
+   "id": 386263,
+   "scores": {
+    "home": 4,
+    "away": 5
+   },
+   "periods": {
+    "first": "1-0",
+    "second": "1-2",
+    "third": "2-2",
+    "overtime": "0-0",
+    "penalties": "1-2"
+   }
+  },
+  {
+   "id": 386283,
+   "scores": {
+    "home": 3,
+    "away": 2
+   },
+   "periods": {
+    "first": "0-0",
+    "second": "2-2",
+    "third": "0-0",
+    "overtime": "0-0",
+    "penalties": "3-1"
+   }
+  },
+  {
+   "id": 386311,
+   "scores": {
+    "home": 4,
+    "away": 3
+   },
+   "periods": {
+    "first": "2-1",
+    "second": "0-1",
+    "third": "1-1",
+    "overtime": "0-0",
+    "penalties": "3-2"
+   }
+  },
+  {
+   "id": 386335,
+   "scores": {
+    "home": 4,
+    "away": 3
+   },
+   "periods": {
+    "first": "1-0",
+    "second": "0-1",
+    "third": "2-2",
+    "overtime": "0-0",
+    "penalties": "3-2"
+   }
+  },
+  {
+   "id": 386406,
+   "scores": {
+    "home": 3,
+    "away": 4
+   },
+   "periods": {
+    "first": "1-0",
+    "second": "1-0",
+    "third": "1-3",
+    "overtime": "0-0",
+    "penalties": "2-3"
+   }
+  },
+  {
+   "id": 386428,
+   "scores": {
+    "home": 4,
+    "away": 3
+   },
+   "periods": {
+    "first": "0-0",
+    "second": "1-2",
+    "third": "2-1",
+    "overtime": "0-0",
+    "penalties": "1-0"
+   }
+  },
+  {
+   "id": 386444,
+   "scores": {
+    "home": 1,
+    "away": 2
+   },
+   "periods": {
+    "first": "1-0",
+    "second": "0-0",
+    "third": "0-1",
+    "overtime": "0-0",
+    "penalties": "0-2"
+   }
+  },
+  {
+   "id": 386454,
+   "scores": {
+    "home": 3,
+    "away": 2
+   },
+   "periods": {
+    "first": "2-0",
+    "second": "0-1",
+    "third": "0-1",
+    "overtime": "0-0",
+    "penalties": "1-0"
+   }
+  },
+  {
+   "id": 386455,
+   "scores": {
+    "home": 4,
+    "away": 3
+   },
+   "periods": {
+    "first": "0-1",
+    "second": "3-1",
+    "third": "0-1",
+    "overtime": "0-0",
+    "penalties": "2-1"
+   }
+  },
+  {
+   "id": 386470,
+   "scores": {
+    "home": 4,
+    "away": 3
+   },
+   "periods": {
+    "first": "2-0",
+    "second": "1-2",
+    "third": "0-1",
+    "overtime": "0-0",
+    "penalties": "2-0"
+   }
+  },
+  {
+   "id": 386506,
+   "scores": {
+    "home": 4,
+    "away": 3
+   },
+   "periods": {
+    "first": "2-0",
+    "second": "1-1",
+    "third": "0-2",
+    "overtime": "0-0",
+    "penalties": "3-2"
+   }
+  },
+  {
+   "id": 386529,
+   "scores": {
+    "home": 2,
+    "away": 1
+   },
+   "periods": {
+    "first": "0-0",
+    "second": "0-1",
+    "third": "1-0",
+    "overtime": "0-0",
+    "penalties": "2-0"
+   }
+  },
+  {
+   "id": 386542,
+   "scores": {
+    "home": 3,
+    "away": 2
+   },
+   "periods": {
+    "first": "1-1",
+    "second": "1-0",
+    "third": "0-1",
+    "overtime": "0-0",
+    "penalties": "1-0"
+   }
+  },
+  {
+   "id": 386549,
+   "scores": {
+    "home": 4,
+    "away": 3
+   },
+   "periods": {
+    "first": "1-1",
+    "second": "1-0",
+    "third": "1-2",
+    "overtime": "0-0",
+    "penalties": "2-1"
+   }
+  },
+  {
+   "id": 386552,
+   "scores": {
+    "home": 5,
+    "away": 4
+   },
+   "periods": {
+    "first": "2-1",
+    "second": "1-3",
+    "third": "1-0",
+    "overtime": "0-0",
+    "penalties": "1-0"
+   }
+  },
+  {
+   "id": 386568,
+   "scores": {
+    "home": 4,
+    "away": 5
+   },
+   "periods": {
+    "first": "2-0",
+    "second": "2-3",
+    "third": "0-1",
+    "overtime": "0-0",
+    "penalties": "0-1"
+   }
+  },
+  {
+   "id": 386588,
+   "scores": {
+    "home": 2,
+    "away": 1
+   },
+   "periods": {
+    "first": "0-0",
+    "second": "1-1",
+    "third": "0-0",
+    "overtime": "0-0",
+    "penalties": "1-0"
+   }
+  },
+  {
+   "id": 386622,
+   "scores": {
+    "home": 4,
+    "away": 3
+   },
+   "periods": {
+    "first": "2-1",
+    "second": "0-1",
+    "third": "1-1",
+    "overtime": "0-0",
+    "penalties": "2-0"
+   }
+  },
+  {
+   "id": 386674,
+   "scores": {
+    "home": 5,
+    "away": 6
+   },
+   "periods": {
+    "first": "3-2",
+    "second": "2-1",
+    "third": "0-2",
+    "overtime": "0-0",
+    "penalties": "1-2"
+   }
+  },
+  {
+   "id": 386675,
+   "scores": {
+    "home": 3,
+    "away": 2
+   },
+   "periods": {
+    "first": "1-1",
+    "second": "1-1",
+    "third": "0-0",
+    "overtime": "0-0",
+    "penalties": "2-0"
+   }
+  },
+  {
+   "id": 386684,
+   "scores": {
+    "home": 4,
+    "away": 5
+   },
+   "periods": {
+    "first": "1-0",
+    "second": "0-2",
+    "third": "3-2",
+    "overtime": "0-0",
+    "penalties": "0-1"
+   }
+  },
+  {
+   "id": 386685,
+   "scores": {
+    "home": 1,
+    "away": 2
+   },
+   "periods": {
+    "first": "1-0",
+    "second": "0-1",
+    "third": "0-0",
+    "overtime": "0-0",
+    "penalties": "0-2"
+   }
+  },
+  {
+   "id": 386771,
+   "scores": {
+    "home": 4,
+    "away": 5
+   },
+   "periods": {
+    "first": "2-1",
+    "second": "2-1",
+    "third": "0-2",
+    "overtime": "0-0",
+    "penalties": "0-1"
+   }
+  },
+  {
+   "id": 386827,
+   "scores": {
+    "home": 4,
+    "away": 3
+   },
+   "periods": {
+    "first": "2-1",
+    "second": "0-2",
+    "third": "1-0",
+    "overtime": "0-0",
+    "penalties": "2-1"
+   }
+  },
+  {
+   "id": 386836,
+   "scores": {
+    "home": 3,
+    "away": 4
+   },
+   "periods": {
+    "first": "1-2",
+    "second": "1-0",
+    "third": "1-1",
+    "overtime": "0-0",
+    "penalties": "0-1"
+   }
+  },
+  {
+   "id": 386842,
+   "scores": {
+    "home": 3,
+    "away": 4
+   },
+   "periods": {
+    "first": "1-1",
+    "second": "0-1",
+    "third": "2-1",
+    "overtime": "0-0",
+    "penalties": "0-1"
+   }
+  },
+  {
+   "id": 386845,
+   "scores": {
+    "home": 3,
+    "away": 2
+   },
+   "periods": {
+    "first": "0-0",
+    "second": "1-1",
+    "third": "1-1",
+    "overtime": "0-0",
+    "penalties": "2-0"
+   }
+  },
+  {
+   "id": 386855,
+   "scores": {
+    "home": 1,
+    "away": 2
+   },
+   "periods": {
+    "first": "1-0",
+    "second": "0-0",
+    "third": "0-1",
+    "overtime": "0-0",
+    "penalties": "0-2"
+   }
+  },
+  {
+   "id": 386867,
+   "scores": {
+    "home": 4,
+    "away": 3
+   },
+   "periods": {
+    "first": "1-1",
+    "second": "2-1",
+    "third": "0-1",
+    "overtime": "0-0",
+    "penalties": "2-1"
+   }
+  },
+  {
+   "id": 386874,
+   "scores": {
+    "home": 3,
+    "away": 4
+   },
+   "periods": {
+    "first": "0-1",
+    "second": "1-0",
+    "third": "2-2",
+    "overtime": "0-0",
+    "penalties": "0-2"
+   }
+  },
+  {
+   "id": 386905,
+   "scores": {
+    "home": 1,
+    "away": 2
+   },
+   "periods": {
+    "first": "0-0",
+    "second": "1-1",
+    "third": "0-0",
+    "overtime": "0-0",
+    "penalties": "0-1"
+   }
+  },
+  {
+   "id": 386926,
+   "scores": {
+    "home": 3,
+    "away": 2
+   },
+   "periods": {
+    "first": "1-1",
+    "second": "0-0",
+    "third": "1-1",
+    "overtime": "0-0",
+    "penalties": "2-0"
+   }
+  },
+  {
+   "id": 386928,
+   "scores": {
+    "home": 1,
+    "away": 2
+   },
+   "periods": {
+    "first": "0-0",
+    "second": "0-0",
+    "third": "1-1",
+    "overtime": "0-0",
+    "penalties": "1-2"
+   }
+  },
+  {
+   "id": 386940,
+   "scores": {
+    "home": 4,
+    "away": 3
+   },
+   "periods": {
+    "first": "1-1",
+    "second": "2-1",
+    "third": "0-1",
+    "overtime": "0-0",
+    "penalties": "1-0"
+   }
+  },
+  {
+   "id": 386944,
+   "scores": {
+    "home": 3,
+    "away": 2
+   },
+   "periods": {
+    "first": "1-0",
+    "second": "0-2",
+    "third": "1-0",
+    "overtime": "0-0",
+    "penalties": "3-1"
+   }
+  },
+  {
+   "id": 386953,
+   "scores": {
+    "home": 6,
+    "away": 5
+   },
+   "periods": {
+    "first": "2-2",
+    "second": "1-2",
+    "third": "2-1",
+    "overtime": "0-0",
+    "penalties": "1-0"
+   }
+  },
+  {
+   "id": 386959,
+   "scores": {
+    "home": 1,
+    "away": 0
+   },
+   "periods": {
+    "first": "0-0",
+    "second": "0-0",
+    "third": "0-0",
+    "overtime": "0-0",
+    "penalties": "1-0"
+   }
+  },
+  {
+   "id": 386973,
+   "scores": {
+    "home": 4,
+    "away": 5
+   },
+   "periods": {
+    "first": "1-2",
+    "second": "1-2",
+    "third": "2-0",
+    "overtime": "0-0",
+    "penalties": "1-2"
+   }
+  },
+  {
+   "id": 387049,
+   "scores": {
+    "home": 2,
+    "away": 3
+   },
+   "periods": {
+    "first": "2-0",
+    "second": "0-2",
+    "third": "0-0",
+    "overtime": "0-0",
+    "penalties": "0-2"
+   }
+  },
+  {
+   "id": 387077,
+   "scores": {
+    "home": 2,
+    "away": 3
+   },
+   "periods": {
+    "first": "0-1",
+    "second": "1-1",
+    "third": "1-0",
+    "overtime": "0-0",
+    "penalties": "2-3"
+   }
+  },
+  {
+   "id": 387085,
+   "scores": {
+    "home": 4,
+    "away": 5
+   },
+   "periods": {
+    "first": "1-2",
+    "second": "1-1",
+    "third": "2-1",
+    "overtime": "0-0",
+    "penalties": "0-1"
+   }
+  },
+  {
+   "id": 387105,
+   "scores": {
+    "home": 5,
+    "away": 4
+   },
+   "periods": {
+    "first": "1-1",
+    "second": "2-1",
+    "third": "1-2",
+    "overtime": "0-0",
+    "penalties": "2-0"
+   }
+  },
+  {
+   "id": 387110,
+   "scores": {
+    "home": 6,
+    "away": 5
+   },
+   "periods": {
+    "first": "0-2",
+    "second": "3-0",
+    "third": "2-3",
+    "overtime": "0-0",
+    "penalties": "2-1"
+   }
+  },
+  {
+   "id": 387119,
+   "scores": {
+    "home": 1,
+    "away": 2
+   },
+   "periods": {
+    "first": "0-0",
+    "second": "0-0",
+    "third": "1-1",
+    "overtime": "0-0",
+    "penalties": "0-2"
+   }
+  },
+  {
+   "id": 387120,
+   "scores": {
+    "home": 4,
+    "away": 5
+   },
+   "periods": {
+    "first": "2-3",
+    "second": "0-1",
+    "third": "2-0",
+    "overtime": "0-0",
+    "penalties": "0-1"
+   }
+  },
+  {
+   "id": 387129,
+   "scores": {
+    "home": 3,
+    "away": 4
+   },
+   "periods": {
+    "first": "1-1",
+    "second": "0-1",
+    "third": "2-1",
+    "overtime": "0-0",
+    "penalties": "0-1"
+   }
+  },
+  {
+   "id": 387186,
+   "scores": {
+    "home": 1,
+    "away": 2
+   },
+   "periods": {
+    "first": "1-0",
+    "second": "0-1",
+    "third": "0-0",
+    "overtime": "0-0",
+    "penalties": "0-1"
+   }
+  },
+  {
+   "id": 387197,
+   "scores": {
+    "home": 5,
+    "away": 4
+   },
+   "periods": {
+    "first": "2-0",
+    "second": "1-1",
+    "third": "1-3",
+    "overtime": "0-0",
+    "penalties": "1-0"
+   }
+  },
+  {
+   "id": 387201,
+   "scores": {
+    "home": 2,
+    "away": 3
+   },
+   "periods": {
+    "first": "0-0",
+    "second": "2-0",
+    "third": "0-2",
+    "overtime": "0-0",
+    "penalties": "1-2"
+   }
+  },
+  {
+   "id": 387216,
+   "scores": {
+    "home": 2,
+    "away": 3
+   },
+   "periods": {
+    "first": "1-1",
+    "second": "1-1",
+    "third": "0-0",
+    "overtime": "0-0",
+    "penalties": "1-2"
+   }
+  },
+  {
+   "id": 387254,
+   "scores": {
+    "home": 3,
+    "away": 4
+   },
+   "periods": {
+    "first": "0-2",
+    "second": "3-1",
+    "third": "0-0",
+    "overtime": "0-0",
+    "penalties": "1-2"
+   }
+  },
+  {
+   "id": 387260,
+   "scores": {
+    "home": 2,
+    "away": 1
+   },
+   "periods": {
+    "first": "0-0",
+    "second": "1-0",
+    "third": "0-1",
+    "overtime": "0-0",
+    "penalties": "2-0"
+   }
+  },
+  {
+   "id": 387267,
+   "scores": {
+    "home": 3,
+    "away": 4
+   },
+   "periods": {
+    "first": "1-1",
+    "second": "2-1",
+    "third": "0-1",
+    "overtime": "0-0",
+    "penalties": "1-2"
+   }
+  },
+  {
+   "id": 387272,
+   "scores": {
+    "home": 4,
+    "away": 3
+   },
+   "periods": {
+    "first": "1-1",
+    "second": "2-1",
+    "third": "0-1",
+    "overtime": "0-0",
+    "penalties": "2-1"
+   }
+  },
+  {
+   "id": 387285,
+   "scores": {
+    "home": 4,
+    "away": 3
+   },
+   "periods": {
+    "first": "0-1",
+    "second": "1-1",
+    "third": "2-1",
+    "overtime": "0-0",
+    "penalties": "2-1"
+   }
+  },
+  {
+   "id": 387326,
+   "scores": {
+    "home": 2,
+    "away": 3
+   },
+   "periods": {
+    "first": "0-1",
+    "second": "2-1",
+    "third": "0-0",
+    "overtime": "0-0",
+    "penalties": "2-3"
+   }
+  },
+  {
+   "id": 387342,
+   "scores": {
+    "home": 4,
+    "away": 5
+   },
+   "periods": {
+    "first": "0-2",
+    "second": "1-1",
+    "third": "3-1",
+    "overtime": "0-0",
+    "penalties": "1-2"
+   }
+  },
+  {
+   "id": 387351,
+   "scores": {
+    "home": 4,
+    "away": 3
+   },
+   "periods": {
+    "first": "1-2",
+    "second": "1-1",
+    "third": "1-0",
+    "overtime": "0-0",
+    "penalties": "1-0"
+   }
+  },
+  {
+   "id": 387355,
+   "scores": {
+    "home": 3,
+    "away": 4
+   },
+   "periods": {
+    "first": "0-1",
+    "second": "1-0",
+    "third": "2-2",
+    "overtime": "0-0",
+    "penalties": "1-2"
+   }
+  },
+  {
+   "id": 387356,
+   "scores": {
+    "home": 3,
+    "away": 4
+   },
+   "periods": {
+    "first": "2-0",
+    "second": "1-2",
+    "third": "0-1",
+    "overtime": "0-0",
+    "penalties": "0-1"
+   }
+  },
+  {
+   "id": 387382,
+   "scores": {
+    "home": 6,
+    "away": 5
+   },
+   "periods": {
+    "first": "2-1",
+    "second": "2-2",
+    "third": "1-2",
+    "overtime": "0-0",
+    "penalties": "2-1"
+   }
+  },
+  {
+   "id": 387385,
+   "scores": {
+    "home": 7,
+    "away": 6
+   },
+   "periods": {
+    "first": "0-3",
+    "second": "3-1",
+    "third": "3-2",
+    "overtime": "0-0",
+    "penalties": "1-0"
+   }
+  },
+  {
+   "id": 387408,
+   "scores": {
+    "home": 3,
+    "away": 2
+   },
+   "periods": {
+    "first": "1-0",
+    "second": "0-0",
+    "third": "1-2",
+    "overtime": "0-0",
+    "penalties": "2-0"
+   }
+  },
+  {
+   "id": 387410,
+   "scores": {
+    "home": 2,
+    "away": 3
+   },
+   "periods": {
+    "first": "1-0",
+    "second": "1-0",
+    "third": "0-2",
+    "overtime": "0-0",
+    "penalties": "0-1"
+   }
+  },
+  {
+   "id": 387419,
+   "scores": {
+    "home": 4,
+    "away": 3
+   },
+   "periods": {
+    "first": "3-1",
+    "second": "0-0",
+    "third": "0-2",
+    "overtime": "0-0",
+    "penalties": "1-0"
+   }
+  },
+  {
+   "id": 387425,
+   "scores": {
+    "home": 2,
+    "away": 3
+   },
+   "periods": {
+    "first": "1-0",
+    "second": "1-0",
+    "third": "0-2",
+    "overtime": "0-0",
+    "penalties": "1-2"
+   }
+  },
+  {
+   "id": 387448,
+   "scores": {
+    "home": 3,
+    "away": 2
+   },
+   "periods": {
+    "first": "0-0",
+    "second": "1-2",
+    "third": "1-0",
+    "overtime": "0-0",
+    "penalties": "2-0"
+   }
+  },
+  {
+   "id": 387474,
+   "scores": {
+    "home": 3,
+    "away": 2
+   },
+   "periods": {
+    "first": "0-1",
+    "second": "2-1",
+    "third": "0-0",
+    "overtime": "0-0",
+    "penalties": "1-0"
+   }
+  },
+  {
+   "id": 387484,
+   "scores": {
+    "home": 5,
+    "away": 4
+   },
+   "periods": {
+    "first": "1-2",
+    "second": "3-0",
+    "third": "0-2",
+    "overtime": "0-0",
+    "penalties": "1-0"
+   }
+  },
+  {
+   "id": 387487,
+   "scores": {
+    "home": 3,
+    "away": 4
+   },
+   "periods": {
+    "first": "0-0",
+    "second": "2-1",
+    "third": "1-2",
+    "overtime": "0-0",
+    "penalties": "0-1"
+   }
+  },
+  {
+   "id": 387495,
+   "scores": {
+    "home": 4,
+    "away": 3
+   },
+   "periods": {
+    "first": "0-0",
+    "second": "1-2",
+    "third": "2-1",
+    "overtime": "0-0",
+    "penalties": "1-0"
+   }
+  },
+  {
+   "id": 387498,
+   "scores": {
+    "home": 3,
+    "away": 2
+   },
+   "periods": {
+    "first": "0-1",
+    "second": "2-0",
+    "third": "0-1",
+    "overtime": "0-0",
+    "penalties": "1-0"
+   }
+  },
+  {
+   "id": 387499,
+   "scores": {
+    "home": 4,
+    "away": 5
+   },
+   "periods": {
+    "first": "2-0",
+    "second": "0-2",
+    "third": "2-2",
+    "overtime": "0-0",
+    "penalties": "1-2"
+   }
+  },
+  {
+   "id": 387504,
+   "scores": {
+    "home": 4,
+    "away": 3
+   },
+   "periods": {
+    "first": "0-0",
+    "second": "1-0",
+    "third": "2-3",
+    "overtime": "0-0",
+    "penalties": "3-2"
+   }
+  },
+  {
+   "id": 387515,
+   "scores": {
+    "home": 3,
+    "away": 4
+   },
+   "periods": {
+    "first": "2-1",
+    "second": "0-1",
+    "third": "1-1",
+    "overtime": "0-0",
+    "penalties": "0-1"
+   }
+  },
+  {
+   "id": 388317,
+   "scores": {
+    "home": 5,
+    "away": 4
+   },
+   "periods": {
+    "first": "1-3",
+    "second": "0-0",
+    "third": "3-1",
+    "overtime": "0-0",
+    "penalties": "1-0"
+   }
+  }
+ ]
+}

@@ -2,15 +2,14 @@
 
 import { requireSuperAdmin } from "@/lib/auth/session";
 import { getSportsProvider } from "@/lib/sports-data/provider-registry";
-import { API_NFL_PROVIDER } from "@/lib/sports-data/provider-names";
+import { getSportConfigByProvider } from "@/lib/sports-data/sport-registry";
 
 // A cheap, known single-item lookup per provider — never the season/
 // fixture-list queries background jobs already use, since this is purely
 // a connectivity check (one request maximum, a cheaper supported endpoint
 // rather than an expensive query).
-const TEST_LEAGUE_ID: Record<string, string> = {
-  [API_NFL_PROVIDER]: "1", // NFL's one supported league
-};
+// The sport's own (first) allowlisted league, from the shared sport registry.
+const testLeagueId = (provider: string): string | undefined => getSportConfigByProvider(provider)?.leagues[0]?.externalLeagueId;
 
 export interface ProviderConnectionTestResult {
   success: boolean;
@@ -31,7 +30,7 @@ export async function testProviderConnectionAction(provider: string): Promise<Pr
   if (!sportsProvider) return { success: false, message: `Unknown provider "${provider}".` };
   if (!sportsProvider.isEnabled()) return { success: false, message: "Provider is not enabled." };
 
-  const testId = TEST_LEAGUE_ID[provider];
+  const testId = testLeagueId(provider);
   if (!testId) return { success: false, message: "No connectivity test configured for this provider." };
 
   try {

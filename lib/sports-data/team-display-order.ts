@@ -1,14 +1,12 @@
-const AWAY_FIRST_SPORTS = new Set(["american_football"]);
+import { isAwayFirstSport as registryIsAwayFirstSport } from "./sport-registry";
 
 /**
- * Real-world broadcast convention differs by sport: American sports (NFL)
- * list the away team first ("Away @ Home"), while football/soccer lists
- * home first ("Home vs Away"). Centralized here so every fixture display
- * (pool cards, fixture detail, search) agrees, instead of each screen
- * hardcoding its own home-first order.
+ * Real-world broadcast convention differs by sport: American sports (NFL, NBA, NHL, MLB) list the away team first ("Away @ Home"), while
+ * football/soccer lists home first ("Home vs Away"). The per-sport answer lives in the shared sport registry (lib/sports-data/sport-registry.ts)
+ * — this module is only the formatting helpers, so no component hard-codes an order or a sport.
  */
 export function isAwayFirstSport(sport: string): boolean {
-  return AWAY_FIRST_SPORTS.has(sport);
+  return registryIsAwayFirstSport(sport);
 }
 
 export function getMatchupSeparator(sport: string): string {
