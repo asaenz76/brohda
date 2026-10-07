@@ -8,7 +8,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TermsDocument, termsSectionIds } from "@/components/legal/TermsDocument";
-import { PrivacyDocument } from "@/components/legal/PrivacyDocument";
+import { PrivacyDocument, privacySectionIds } from "@/components/legal/PrivacyDocument";
 import { RulesContent } from "@/components/rules/RulesContent";
 import { UNKNOWN_RULES_POLICY, type RulesPolicy } from "@/lib/rules/format";
 import { byMode, deriveLegalMoneyMode, type LegalMoneyMode } from "@/lib/legal/money-mode";
@@ -114,15 +114,18 @@ describe("Money OFF, financial records still exist — current-feature copy gone
     expect(headings(<TermsDocument mode="retained" />)).not.toContain("5. Service fee");
   });
 
-  it("Privacy still discloses the financial data held: the wallet ledger, offers and Positions, withdrawal destination, who can see it, permanent retention, and what closing an account keeps", () => {
-    expect(privacy).toContain("Wallet and money records");
-    expect(privacy).toContain("your wallet ledger entries, any offers and Positions you took part in");
-    expect(privacy).toContain("When you request a withdrawal you also enter where you want to be paid");
-    expect(privacy).toContain("The payout destination you enter when you request a withdrawal is provided by you");
-    expect(privacy).toContain("Wallet and money records are private to the people involved");
+  it("Privacy still discloses the financial data held — all of it in ONE clearly headed section: the ledger, offers and Positions, withdrawal destination, who can see it, permanent retention, and what closing an account keeps", () => {
+    expect(headings(<PrivacyDocument mode="retained" />)).toContain("5. Financial records we still hold");
+    expect(privacy).toContain("The Service keeps wallet and money records from earlier activity: your wallet ledger entries, any offers and Positions you took part in");
+    expect(privacy).toContain("If you request a withdrawal of an existing balance, you also enter where you want to be paid");
+    expect(privacy).toContain("Who can see these records.");
+    expect(privacy).toContain("visible to you, to the other member in a Position you shared, and to authorized administrators");
     expect(privacy).toContain("Wallet and money-Position records are kept as permanent records of the Service's ledger.");
-    expect(privacy).toContain("once your wallet balance is zero and you have no pending wallet requests");
-    expect(privacy).toContain("the wallet and money ledger");
+    expect(privacy).toContain("You can close your account once your wallet balance is zero and you have no pending wallet requests");
+    const shown = headings(<PrivacyDocument mode="retained" />);
+    const choices = shown.findIndex((h) => /Your choices$/.test(h)) + 1;
+    expect(privacy).toContain(`closing an account does not erase these records (see Section ${choices})`);
+    expect(privacy).toContain("and the financial records described in Section 5.");
   });
 
   it("Privacy never claims there is no financial data", () => {
@@ -130,12 +133,12 @@ describe("Money OFF, financial records still exist — current-feature copy gone
   });
 
   it("Terms keep the stable obligations: what is kept, how an existing balance is withdrawn, who is responsible for off-platform transfers, administrator authority over the records, and that closing an account does not erase them", () => {
-    expect(headings(<TermsDocument mode="retained" />)).toContain("3. Wallet records and withdrawals");
+    expect(headings(<TermsDocument mode="retained" />)).toContain("3. Retained wallet records and existing balances");
     expect(terms).toContain("The Service keeps the wallet and money records from earlier activity");
     expect(terms).toContain("Where a member still has a balance, a withdrawal is paid by an administrator, after review and confirmation");
     expect(terms).toContain("The Company is not responsible for, and bears no liability for, funds that are lost");
-    expect(terms).toContain("Administrators review and approve or reject wallet requests");
     expect(terms).toContain("Closing or ending an account does not erase the wallet records described in Section 3.");
+    expect(terms).toContain("Administrators review and approve or reject withdrawal requests");
     expect(terms).toContain("any loss arising from an off-platform payment made or received between members");
     expect(terms).toContain("including any dispute over money you sent or received off-platform");
   });
@@ -157,14 +160,14 @@ describe("Terms as a whole — no sentence points at a hidden section or an unde
     for (const [full, n] of refs) {
       const title = titleOf(Number(n));
       if (/see Section/.test(full) || /as described in Section/.test(body.slice(Math.max(0, (refs.find((r) => r[0] === full)?.index ?? 0) - 30), (refs.find((r) => r[0] === full)?.index ?? 0) + 20))) {
-        expect(["Termination", "Service fee", "Wallet records and withdrawals"]).toContain(title);
+        expect(["Termination", "Service fee", "Retained wallet records and existing balances"]).toContain(title);
       }
       expect(Number(n)).toBeLessThanOrEqual(shown.length);
     }
     // The conduct section's pointer always lands on "Termination"; the fee pointer (active) on "Service fee"; the records pointer (retained) on the records section.
     expect(body).toContain(`(see Section ${shown.findIndex((h) => /Termination$/.test(h)) + 1})`);
     if (mode === "active") expect(body).toContain(`as described in Section ${shown.findIndex((h) => /Service fee$/.test(h)) + 1}.`);
-    if (mode === "retained") expect(body).toContain(`described in Section ${shown.findIndex((h) => /Wallet records and withdrawals$/.test(h)) + 1}.`);
+    if (mode === "retained") expect(body).toContain(`described in Section ${shown.findIndex((h) => /Retained wallet records and existing balances$/.test(h)) + 1}.`);
   });
 
   it("a section is shown only in the modes that declare it", () => {
@@ -174,6 +177,82 @@ describe("Terms as a whole — no sentence points at a hidden section or an unde
     expect(termsSectionIds("retained")).not.toEqual(expect.arrayContaining(["payments"]));
     expect(termsSectionIds("retained")).not.toContain("fee");
     for (const id of ["payments", "records", "fee"] as const) expect(termsSectionIds("free")).not.toContain(id);
+  });
+});
+
+describe("Privacy as a whole — same numbering and cross-reference guarantees as the Terms", () => {
+  it.each(MODES)("%s: headings are 1..n and every 'Section N' lands on the section it names", (mode) => {
+    const doc = <PrivacyDocument mode={mode} />;
+    const shown = headings(doc);
+    expect(shown.map((h) => Number(h.split(".")[0]))).toEqual(shown.map((_, i) => i + 1));
+    const body = text(doc);
+    const titleOf = (n: number) => shown[n - 1].replace(/^\d+\.\s*/, "");
+    for (const [, n] of body.matchAll(/Section (\d+)/g)) expect(Number(n)).toBeLessThanOrEqual(shown.length);
+    if (mode === "retained") {
+      const records = shown.findIndex((h) => /Financial records we still hold$/.test(h)) + 1;
+      const choices = shown.findIndex((h) => /Your choices$/.test(h)) + 1;
+      expect(body).toContain(`(see Section ${choices})`);
+      expect(titleOf(choices)).toBe("Your choices");
+      expect(body).toContain(`financial records described in Section ${records}.`);
+      expect(titleOf(records)).toBe("Financial records we still hold");
+    } else {
+      expect(body).not.toMatch(/Section \d+/);
+    }
+  });
+
+  it("the retained-only section appears only in the retained mode", () => {
+    expect(privacySectionIds("retained")).toContain("records");
+    expect(privacySectionIds("active")).not.toContain("records");
+    expect(privacySectionIds("free")).not.toContain("records");
+  });
+});
+
+describe("OFF-state structure — financial wording lives ONLY where it is required, and every occurrence is classified", () => {
+  const MONEY = /money|wallet|withdraw|deposit|settle|ledger|balance|payout|\bfees?\b|Positions?\b|payment/i;
+  const sectionsOf = (node: React.ReactElement) => {
+    const { container, unmount } = render(node);
+    const out: Array<{ title: string; text: string }> = [];
+    container.querySelectorAll("section").forEach((sec) => {
+      const h = sec.querySelector("h2")?.textContent?.trim() ?? "(intro)";
+      out.push({ title: h.replace(/^\d+\.\s*/, ""), text: (sec.textContent ?? "").replace(/\s+/g, " ").replace(/attorneys' fees/g, "") });
+    });
+    unmount();
+    return out;
+  };
+
+  it("Privacy (retained): the only section that mentions money, wallets, payments or ledgers is 'Financial records we still hold'", () => {
+    const hits = sectionsOf(<PrivacyDocument mode="retained" />).filter((s) => MONEY.test(s.text)).map((s) => s.title);
+    expect(hits).toEqual([
+      "What we do not collect", // generic data-minimisation statement: no card / bank / payment-app credentials
+      "Financial records we still hold", // REQUIRED RETENTION
+    ]);
+  });
+
+  it("Privacy (free): the only mention is the generic 'we do not collect card / bank / payment-app credentials' data-minimisation line", () => {
+    expect(sectionsOf(<PrivacyDocument mode="free" />).filter((s) => MONEY.test(s.text)).map((s) => s.title)).toEqual(["What we do not collect"]);
+  });
+
+  it("Terms (retained): money wording is confined to the records section and the named legal sections (classification disclaimer, risk allocation, administrator authority over records, conduct about false information) — nothing else", () => {
+    const hits = sectionsOf(<TermsDocument mode="retained" />).filter((s) => MONEY.test(s.text)).map((s) => s.title);
+    expect(hits).toEqual([
+      "What the Service is — and is not", // REQUIRED LEGAL: the Company's classification disclaimer + the pointer to the records section
+      "Retained wallet records and existing balances", // REQUIRED RETENTION
+      "Your conduct", // generic: "money laundering" and false information about a withdrawal or payment
+      "Administrator discretion", // REQUIRED: authority over the retained records and withdrawals
+      "Limitation of liability", // REQUIRED LEGAL: risk allocation that survives
+      "Indemnification", // REQUIRED LEGAL
+      "Termination", // REQUIRED RETENTION: closing an account does not erase the records
+    ]);
+  });
+
+  it("Terms (free): only the classification disclaimer, the generic 'money laundering' conduct rule and the boilerplate 'loss of money' liability wording mention money", () => {
+    const hits = sectionsOf(<TermsDocument mode="free" />).filter((s) => MONEY.test(s.text)).map((s) => s.title);
+    expect(hits).toEqual(["What the Service is — and is not", "Your conduct", "Limitation of liability"]);
+  });
+
+  it("Rules (money off): the only money-ish tokens are the Market name 'Moneyline' — no wallet, fee, Position or payment copy", () => {
+    const rules = text(<RulesContent policy={RULES_OFF} />).replace(/Moneyline/g, "");
+    expect(rules).not.toMatch(MONEY);
   });
 });
 

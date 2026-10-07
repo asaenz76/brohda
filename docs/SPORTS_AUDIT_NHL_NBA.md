@@ -102,7 +102,7 @@ catalog fails closed.
 
 **Locked product decision (2026-10-07): SPREAD is approved for NBA and NHL once a real provider odds payload has been verified for that sport,** independently per sport. Before enabling a sport:
 inspect real payloads; prove team/side orientation, sign orientation and the canonical YES-side mapping; run grading and presentation tests; then add `"SPREAD"` to that sport's `marketTemplates` in
-`sport-registry.ts`. **NHL: done** (§5a — real 2026 payloads, enabled in r45). **NBA: done** (§5b — real 2026-27 payloads, enabled in r47). **NFL: enabled on the owner's instruction (2026-10-07)** after 13 real games (week of 2026-10-08, 4–6 bookmakers each) passed the same gate: 13/13 orientation, cover probability 0.50 ± 0.02 at every line, canonical mapping, grading and presentation tests.
+`sport-registry.ts`. **NHL: done** (§5a — real 2026 payloads, enabled in r45). **NBA: convention verified on real 2026-27 payloads (§5b), but enabling is held at the pre-opening gate (§5c, r50)** — the production market layer has not been proven on real bookmaker inventory. **NFL: enabled on the owner's instruction (2026-10-07)** after 13 real games (week of 2026-10-08, 4–6 bookmakers each) passed the same gate: 13/13 orientation, cover probability 0.50 ± 0.02 at every line, canonical mapping, grading and presentation tests.
 
 ## 5a. Real 2026 NHL data (captured the day the Hockey plan was upgraded, read-only)
 
@@ -115,7 +115,7 @@ inspect real payloads; prove team/side orientation, sign orientation and the can
 | Template | NHL | NBA |
 |---|---|---|
 | MONEYLINE | **AVAILABLE — observed** (4–5 books) | **AVAILABLE — observed** (8–9 books) |
-| SPREAD (puck line / spread) | **AVAILABLE — observed** (2 books); **enabled** | **AVAILABLE — observed** (3–8 books); **enabled** |
+| SPREAD (puck line / spread) | **AVAILABLE — observed** (2 books); **enabled** | **AVAILABLE — observed** (3–8 books); convention verified, **gated OFF pending the pre-opening gate (§5c)** |
 | TOTAL | **AVAILABLE — observed** (2 books) | **AVAILABLE — observed** (4–9 books) |
 
 ## 5b. Real 2026-27 NBA data (captured the day the Basketball plan was upgraded, read-only)
@@ -127,8 +127,29 @@ inspect real payloads; prove team/side orientation, sign orientation and the can
   - *Sign orientation:* at every chosen line the home side's fair cover probability is 0.50 ± 0.011 — only true for the home-handicap reading; a flipped sign would be far from a coin flip.
   - *Canonical YES-side mapping:* YES = HOME at the signed line; NO = the opponent at the opposite sign (presentation shows "Away −x | Home +x" in Away @ Home order).
   - *Grading and presentation tests* run on the real lines (cover / non-cover / push; accessible names "Pick … plus/minus …").
-  - → **SPREAD enabled for the NBA** (`marketTemplates` in the registry), independently of the NHL.
+  - → convention, sign and mapping verified. **NBA SPREAD is gated OFF** (r50) until the pre-opening gate in §5c passes; it was briefly enabled in r47 and is withdrawn — see §5c.
 - Bookmaker coverage is deep for the NBA (3–8 books per spread line), unlike the NHL's two.
+
+## 5c. NBA pre-opening gate (r50) — status: STRUCTURALLY READY, market-layer production proof PENDING BOOKMAKER INVENTORY
+
+The NBA regular season opens **2026-10-20 (19:00 UTC)**. Today the platform side is complete and tested (teams, Communities, fixtures, status mapping, grading, jobs, UI, pipeline integration/e2e),
+but **no production proof exists for the market layer** for the 2026-27 season: bookmakers have not (or only partly) published NBA odds, so ingestion → Market → Post → grading has not been observed on real
+production inventory. Until it has, the NBA is **STRUCTURALLY READY, not production-proven**, and the NBA **Spread stays OFF** (`marketTemplates: ["MONEYLINE", "TOTAL"]`). Spread is not removed from the code:
+mapping, grading and the main-line band stay in place, and any NBA Spread Market that already exists keeps grading.
+
+Readiness reports this with its own status, never as a failure: `pnpm check-sport-readiness nba` →
+`PROVIDER_INVENTORY_UNAVAILABLE` (Games exist; the latest ingestion run recorded "no data"/"too few bookmakers" for them) or `PROOF_PENDING`. It is `BROKEN` only if an odds request errored, a Game was
+never examined, a Market is ungradeable, or a job is failing.
+
+**Gate — all of these, in order, then (and only then) enable NBA Spread:**
+1. Re-run `pnpm check-sport-readiness nba` on/after **2026-10-18** (and again after the first Games of **2026-10-20**). Expect no `FAIL`.
+2. Bookmaker inventory present: ingestion has produced ACTIVE MONEYLINE and TOTAL Markets for in-window Games (`markets-present` = PASS), each with ≥ the configured minimum bookmaker count.
+3. Posts publish for those Games (`posts-present` PASS) and they appear in the NBA feed (`feed` PASS) — checked signed in (see the OPERATIONS_RUNBOOK signed-in checklist).
+4. The first completed NBA Games grade end-to-end (`provider-results` PASS; `grading-green` PASS; Picks settle with notifications).
+5. Re-verify the Asian Handicap convention on the live opening-week payload (home handicap; `Away` is the other side; fair cover ≈ 0.50 at the chosen line) — repeat the §5b check.
+6. Owner approves; add `"SPREAD"` to the basketball `marketTemplates` in `lib/sports-data/sport-registry.ts` and update `tests/unit/sports-data/sport-registry.test.ts`. No other change is needed.
+
+Final-report vocabulary: **NBA STRUCTURALLY READY** / **NBA MARKET-LAYER PRODUCTION PROOF PENDING BOOKMAKER INVENTORY** until steps 1–4 are observed.
 
 ## 6. Result semantics and the policy layer
 
@@ -185,5 +206,5 @@ and one-way, as designed; a reschedule later does not reopen it.)
 1. Upgrade the API-Sports **Hockey** (urgent: the NHL regular season is starting) and **Basketball** plans. Confirm: `GET /status` shows Pro, and `GET /games?league=57&season=2026` no longer errors.
 2. In Vercel production env set `API_NHL_ENABLED=true` and `API_NBA_ENABLED=true` (the existing `API_NFL_KEY` authenticates all products; or set `API_SPORTS_KEY`). Optional budgets: `API_NHL_DAILY_REQUEST_BUDGET`, `API_NBA_DAILY_REQUEST_BUDGET`.
 3. No new cron entries: the existing `sync-fixtures-nfl`, `ingest-nfl-markets`, `publish-posts`, `distribute-posts`, `grade-predictions`, `resolve-challenges`, `settle-monetary-positions` jobs run every active sport.
-4. After the next sync: `pnpm check-sport-readiness nhl` and `... nba` until every item PASSes. Inventory appears as odds are ingested (daily job) and Posts publish.
-5. After the first real odds payload for a sport, decide whether to turn SPREAD on for it (§5).
+4. After the next sync: `pnpm check-sport-readiness nhl` and `... nba`. Items report PASS / FAIL / DISABLED / PROVIDER_INVENTORY_UNAVAILABLE / PROOF_PENDING with one overall verdict (OPERATIONS_RUNBOOK "Reading a sport's readiness verdict"); only FAIL is a defect. Inventory appears as odds are ingested and Posts publish.
+5. After the first real odds payload for a sport, decide whether to turn SPREAD on for it (§5; NBA: §5c gate).

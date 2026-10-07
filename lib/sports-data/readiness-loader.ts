@@ -63,6 +63,22 @@ export async function loadReadinessSnapshot(config: SportConfig, now: Date = new
   const { data: jobs } = await admin.from("background_jobs").select("job_name, status, result, error, started_at, finished_at, duration_ms").order("finished_at", { ascending: false }).limit(300);
   const { data: settings } = await admin.from("platform_settings").select("job_staleness_multiplier, prediction_notifications_enabled").eq("id", true).single();
 
+  // Why do in-window Games without a Market have none? The latest ingestion run recorded a per-Game outcome: "no data" / "too few bookmakers" are the
+  // provider's inventory, a recorded providerError is a failed request, and a Game the run never examined is unexplained (a platform gap).
+  const ingestRow = ((jobs ?? []) as BackgroundJobRow[]).find((j) => j.job_name === "ingest-nfl-markets");
+  const ingestOutcomes = new Map<string, { moneyline?: string; providerError?: string }>();
+  const rawOutcomes = (ingestRow?.result as { outcomes?: Array<{ fixtureId: string; moneyline?: string; providerError?: string }> } | null)?.outcomes;
+  for (const o of Array.isArray(rawOutcomes) ? rawOutcomes : []) ingestOutcomes.set(o.fixtureId, o);
+  const withoutMarket = { providerHasNoOdds: 0, providerInsufficientBookmakers: 0, providerErrored: 0, notExamined: 0 };
+  for (const id of inWindow) {
+    if (withMarket.has(id)) continue;
+    const o = ingestOutcomes.get(id);
+    if (!o) withoutMarket.notExamined++;
+    else if (o.providerError) withoutMarket.providerErrored++;
+    else if (o.moneyline === "skipped-insufficient-bookmakers") withoutMarket.providerInsufficientBookmakers++;
+    else withoutMarket.providerHasNoOdds++;
+  }
+
   return {
     now,
     config,
@@ -91,6 +107,7 @@ export async function loadReadinessSnapshot(config: SportConfig, now: Date = new
       withActiveMarketAndPublishedPost: [...withMarket].filter((id) => publishedFor.has(id)).length,
       duplicatePosts: [...postCounts.values()].filter((n) => n > 1).length,
       marketsWithBadShape: badShape.length,
+      withoutMarket,
     },
     jobs: (jobs ?? []) as BackgroundJobRow[],
     stalenessMultiplier: settings?.job_staleness_multiplier ?? 3,

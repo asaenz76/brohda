@@ -54,14 +54,18 @@ test("money OFF (records on file): no current-feature money copy anywhere, no pl
   await expect(page.getByRole("heading", { name: /Service fee/ })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: /Deposits and withdrawals happen outside the App/ })).toHaveCount(0);
   expect(terms).not.toMatch(/may add funds|commits part of their wallet balance|platform fee|optional money Position/i);
-  await expect(page.getByRole("heading", { name: "3. Wallet records and withdrawals" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "3. Retained wallet records and existing balances" })).toBeVisible();
   expect(terms).toContain("Where a member still has a balance, a withdrawal is paid by an administrator");
 
   await page.goto("/privacy");
   const privacy = await page.locator("body").innerText();
   expect(privacy).not.toContain("Money is private to the people involved");
-  expect(privacy).toContain("Wallet and money records");
+  await expect(page.getByRole("heading", { name: /Financial records we still hold$/ })).toBeVisible();
   expect(privacy).toContain("kept as permanent records of the Service's ledger");
+  // The disclosure is confined to its own section: every other Privacy section is free of money copy.
+  const sections = await page.locator("section").evaluateAll((els) => els.map((el) => ({ title: el.querySelector("h2")?.textContent ?? "", text: el.textContent ?? "" })));
+  const mentioning = sections.filter((x) => /wallet|withdraw|ledger|balance|\bPositions?\b/i.test(x.text)).map((x) => x.title.replace(/^\d+\.\s*/, ""));
+  expect(mentioning).toEqual(["Financial records we still hold"]);
 
   for (const out of [rules, terms, privacy]) expect(out).not.toMatch(/coming soon|money[^.]{0,80}(unavailable|switched off|disabled|paused)/i);
 });
@@ -73,4 +77,10 @@ test("the cross-references in the shortened Terms still land on real sections", 
   expect(headings.map((h) => Number(h.split(".")[0]))).toEqual(headings.map((_, i) => i + 1));
   const termination = headings.findIndex((h) => /Termination$/.test(h)) + 1;
   await expect(page.getByText(`(see Section ${termination})`)).toBeVisible();
+
+  await page.goto("/privacy");
+  const pHeadings = await page.getByRole("heading", { level: 2 }).allInnerTexts();
+  expect(pHeadings.map((h) => Number(h.split(".")[0]))).toEqual(pHeadings.map((_, i) => i + 1));
+  const records = pHeadings.findIndex((h) => /Financial records we still hold$/.test(h)) + 1;
+  await expect(page.getByText(`described in Section ${records}.`)).toBeVisible();
 });
