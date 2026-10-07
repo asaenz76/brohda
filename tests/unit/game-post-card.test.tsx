@@ -285,4 +285,60 @@ describe("GamePostCard", () => {
       expect(container.querySelector('[data-slot="sponsored-label"]')).not.toBeNull();
     });
   });
+
+  describe("SEE MORE MARKETS", () => {
+    const seeMore = (container: HTMLElement) => container.querySelector('[data-slot="see-more-markets"]');
+
+    it("absent for a Game with one eligible Market (count 0 or not supplied)", () => {
+      expect(seeMore(render(<GamePostCard item={makeItem()} />).container)).toBeNull();
+      cleanup();
+      expect(seeMore(render(<GamePostCard item={makeItem({ moreMarketsCount: 0 })} />).container)).toBeNull();
+    });
+
+    it.each([1, 2])("visible, on the card itself, when %i more Market(s) exist — and the same canonical Post is the destination", (count) => {
+      const { container } = render(<GamePostCard item={makeItem({ moreMarketsCount: count })} />);
+      const link = seeMore(container) as HTMLAnchorElement;
+      expect(link).not.toBeNull();
+      expect(link).toHaveAttribute("href", "/post/post-1");
+      expect(link.textContent?.toLowerCase()).toContain("see more markets");
+      expect(link.className).toContain("uppercase"); // shown as SEE MORE MARKETS
+    });
+
+    it("is its own link (never nested inside another link or button) with a visible focus state and a descriptive accessible name", () => {
+      const { container } = render(<GamePostCard item={makeItem({ moreMarketsCount: 1 })} />);
+      const link = seeMore(container) as HTMLAnchorElement;
+      expect(link.parentElement?.closest("a, button")).toBeNull();
+      expect(link.className).toContain("focus-visible:ring");
+      expect(link.className).toContain("min-h-9"); // a reasonable tap target
+      expect(screen.getByRole("link", { name: /^See more markets for / })).toBe(link);
+      expect(link.querySelector("svg")).toHaveAttribute("aria-hidden", "true"); // the chevron is decoration, not the label
+    });
+
+    it("sits below the Pick controls and sentiment, above the communities/comments row, and leaves the Picks untouched", () => {
+      const { container } = render(<GamePostCard item={makeItem({ moreMarketsCount: 2 })} />);
+      const html = container.innerHTML;
+      expect(html.indexOf("prediction-actions")).toBeLessThan(html.indexOf('data-slot="see-more-markets"'));
+      expect(html.indexOf('data-slot="see-more-markets"')).toBeLessThan(html.indexOf("0 comments") > -1 ? html.indexOf("comments") : html.length);
+      expect(screen.getAllByRole("button", { name: /^Pick / })).toHaveLength(2);
+    });
+
+    it("renders in public mode too (the front door)", () => {
+      expect(seeMore(render(<GamePostCard item={makeItem({ moreMarketsCount: 1 })} mode="public" />).container)).not.toBeNull();
+    });
+
+    it("a sponsored card shows BOTH the sponsor line and the action, in separate places, neither hiding the other", () => {
+      const sponsorship = { id: "22222222-2222-4222-8222-222222222222", presentedBy: "Acme Sports", tagline: null, ctaText: "Learn more", logoUrl: null, promotion: null };
+      const { container } = render(<GamePostCard item={makeItem({ moreMarketsCount: 2, sponsorship })} />);
+      const label = container.querySelector('[data-slot="sponsored-label"]')!;
+      const action = seeMore(container)!;
+      expect(label).toHaveTextContent("Sponsored · Presented by Acme Sports");
+      expect(action).not.toBeNull();
+      expect(label.contains(action)).toBe(false);
+      expect(action.contains(label)).toBe(false);
+      expect(label.compareDocumentPosition(action) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // sponsor line first, action later
+      // The sponsor CTA and this action are different links to different places.
+      expect(label.querySelector("a")?.getAttribute("href")).toMatch(/^\/sponsorship\/click\//);
+      expect((action as HTMLAnchorElement).getAttribute("href")).toBe("/post/post-1");
+    });
+  });
 });
