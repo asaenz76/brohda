@@ -22,6 +22,7 @@ function makeItem(overrides: Partial<FeedItem> = {}): FeedItem {
     homeTeamLogoUrl: null,
     awayTeamLogoUrl: null,
     competitionName: "Test League",
+    competitionLogoUrl: null,
     scheduledStartUtc: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     internalStatus: "NOT_STARTED",
     homeScore: null,
@@ -213,6 +214,48 @@ describe("GamePostCard", () => {
       football.primaryMarket = { ...football.primaryMarket!, ...nflMoneylineFor("football") };
       render(<GamePostCard item={football} />);
       expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Home Test NFL", "Away Test NFL"]);
+    });
+  });
+
+  describe("league crest", () => {
+    const crestOf = (item: FeedItem, mode: "member" | "public" = "member") => render(<GamePostCard item={item} mode={mode} />).container.querySelector('[data-slot="league-crest"]');
+
+    it.each([
+      ["NFL", "american_football", "/logo-nfl.png"],
+      ["NBA", "basketball", "https://media.api-sports.io/basketball/leagues/12.png"],
+      ["NHL", "hockey", "https://media.api-sports.io/hockey/leagues/57.png"],
+    ])("a %s Game card shows its own league crest and name, in the metadata line (not the hero)", (name, sport, url) => {
+      const { container } = render(<GamePostCard item={makeItem({ sport, competitionName: name, competitionLogoUrl: url })} />);
+      const header = container.querySelector('[data-slot="league-identity"]')!;
+      expect(header.querySelector("img")).toHaveAttribute("src", url);
+      expect(header).toHaveTextContent(name);
+      // The metadata line, before the matchup link.
+      expect(header.closest("p")).toHaveTextContent(name);
+      // The visible header is the league alone: "Brohda" only survives as screen-reader authorship text.
+      expect(header.closest("p")!.textContent).not.toContain("Brohda ·");
+      expect(header.closest("p")!.querySelector(".sr-only")).toHaveTextContent("Game published by Brohda");
+    });
+
+    it("the same crest in the member and the public (front door) card — one component, one identity", () => {
+      const item = makeItem({ competitionName: "NHL", competitionLogoUrl: "https://media.api-sports.io/hockey/leagues/57.png" });
+      expect(crestOf(item, "member")).toHaveAttribute("src", item.competitionLogoUrl!);
+      cleanup();
+      expect(crestOf(item, "public")).toHaveAttribute("src", item.competitionLogoUrl!);
+    });
+
+    it("the crest comes from the Game, not the Market: a Spread or Total primary Market shows the same crest", () => {
+      const url = "https://media.api-sports.io/basketball/leagues/12.png";
+      const base = makeItem({ sport: "basketball", competitionName: "NBA", competitionLogoUrl: url });
+      const total = { ...base, primaryMarket: { ...base.primaryMarket!, marketLabel: "Total 224.5" } };
+      expect(crestOf(base)).toHaveAttribute("src", url);
+      cleanup();
+      expect(crestOf(total)).toHaveAttribute("src", url);
+    });
+
+    it("missing crest metadata: the league name as text and no <img> at all", () => {
+      const { container } = render(<GamePostCard item={makeItem({ competitionName: "NBA", competitionLogoUrl: null })} />);
+      expect(container.querySelector('[data-slot="league-crest"]')).toBeNull();
+      expect(container.querySelector('[data-slot="league-identity"]')).toHaveTextContent("NBA");
     });
   });
 });

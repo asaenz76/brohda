@@ -1,5 +1,4 @@
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { BackLink } from "@/components/shell/BackLink";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -23,7 +22,7 @@ export function ColumnHeader({
   title: string;
   icon?: LucideIcon;
   headingLevel?: 1 | 2;
-  /** A detail page (a Post) offers a way back to where it came from. */
+  /** A detail page offers a way back to where it came from. This is only the FALLBACK, for a visitor with no in-app previous page (a shared link, a reload); otherwise Back uses real history. */
   backHref?: string;
   backLabel?: string;
   actions?: React.ReactNode;
@@ -40,15 +39,7 @@ export function ColumnHeader({
       )}
     >
       <div className="flex min-h-12 items-center gap-2 px-4 py-2.5">
-        {backHref && (
-          <Link
-            href={backHref}
-            aria-label={backLabel}
-            className="-ml-2 flex size-9 shrink-0 items-center justify-center rounded-md text-text-secondary outline-none hover:bg-surface-secondary hover:text-text-primary focus-visible:ring-3 focus-visible:ring-ring/50"
-          >
-            <ArrowLeft className="size-5" aria-hidden="true" />
-          </Link>
-        )}
+        {backHref && <BackLink fallbackHref={backHref} label={backLabel} />}
         {Icon && !backHref && <Icon className="size-5 shrink-0 text-text-secondary" aria-hidden="true" />}
         <Heading className="min-w-0 flex-1 truncate text-base font-semibold text-text-primary">{title}</Heading>
         {actions}

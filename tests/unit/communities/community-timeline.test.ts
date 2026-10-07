@@ -45,6 +45,7 @@ function makeItem(overrides: Partial<FeedItem> = {}): FeedItem {
     homeTeamLogoUrl: null,
     awayTeamLogoUrl: null,
     competitionName: null,
+    competitionLogoUrl: null,
     scheduledStartUtc: "2026-06-01T18:00:00Z",
     internalStatus: "NOT_STARTED",
     homeScore: null,

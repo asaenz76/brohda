@@ -198,10 +198,10 @@ test.describe("Authenticated shell — desktop (1280)", () => {
     await login(page);
     await page.goto(`/post/${seeded.postId}`);
     await expect(page.getByRole("heading", { level: 1, name: "Post" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Back to Home" })).toHaveAttribute("href", "/feed");
+    await expect(page.getByRole("link", { name: "Back", exact: true })).toHaveAttribute("href", "/feed");
     const main = page.getByRole("main");
     await expect(main.getByText("Game published by")).toBeAttached();
-    await expect(main).toContainText("Brohda · NFL");
+    await expect(main.locator('[data-slot="league-identity"]')).toHaveText("NFL");
     await expect(main).toContainText(`${AWAY} @`);
     await expect(main.getByText("Comments")).toBeVisible();
     await expect(main).toContainText("A very long comment");
@@ -264,7 +264,7 @@ test.describe("Authenticated shell — desktop (1280)", () => {
     await login(page);
     const game = gameArticle(page);
     await expect(game).toBeVisible();
-    await expect(game).toContainText("Brohda · NFL");
+    await expect(game.locator('[data-slot="league-identity"]')).toHaveText("NFL");
     await expect(game.getByText("Game published by")).toBeAttached();
     expect(await game.innerText()).not.toMatch(/posted by|authored by|created by/i);
   });

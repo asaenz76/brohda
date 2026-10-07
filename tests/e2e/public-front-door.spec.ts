@@ -158,7 +158,7 @@ test.describe("Logged-out front door — desktop", () => {
     const game = gameArticle(page);
     await expect(game).toBeVisible();
     await expect(game).toContainText(`${AWAY} @`);
-    await expect(game).toContainText("Brohda · NFL");
+    await expect(game.locator('[data-slot="league-identity"]')).toHaveText("NFL");
     await expect(game.getByText("Game published by")).toBeAttached();
     // Pick-first: a visitor can't have picked, so the crowd split (percentages / predicted count) is never shown — just the nudge.
     await expect(game).toContainText("Make your pick to see how everyone else picked.");

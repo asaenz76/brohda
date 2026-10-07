@@ -214,7 +214,7 @@ for (const sport of [NBA, NHL]) {
           await expect(card).toBeVisible();
           // Away @ Home for every one of these sports, from the shared matchup helper; the league and the sport's own labels.
           await expect(card.getByText(`${away} @ ${home}`)).toBeVisible();
-          await expect(card).toContainText(`Brohda · ${sport.league}`);
+          await expect(card.locator('[data-slot="league-identity"]')).toHaveText(sport.league);
           const picker = card.getByTestId("prediction-actions");
           await expect(picker.getByRole("button")).toHaveText([first.label, second.label]);
           await expect(picker.getByRole("button", { name: first.name, exact: true })).toBeVisible();
