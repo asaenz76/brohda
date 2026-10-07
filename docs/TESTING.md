@@ -102,6 +102,13 @@ project `dependencies` chain guarantees they never overlap. Running such a spec 
 (`--project=chromium-legal-reconsent --no-deps`). Running the
 whole e2e suite with many workers on one `next dev` server can overload it (login timeouts, "aborted" errors) — CI uses 2 workers.
 
+`--sequence.shuffle.files` is the supported shuffle. Shuffling *tests within a file* (`--sequence.shuffle.tests`) is not: a few files (e.g. `wallet`, `legal-acceptance`) are ordered
+narratives by design.
+
+Legal-page and money-capability coverage: `tests/unit/legal-money-gating.test.tsx` (every mode — money ON / OFF with records / OFF with none / setting unreadable / records unreadable — for Terms **and**
+Privacy: numbering, "Section N" cross-references, and a per-section classification of every remaining money word), `tests/integration/legal-money-mode.test.ts` (one flag, every reader agrees after each flip),
+`tests/e2e/legal-money-gating.spec.ts` (the rendered pages). Sport readiness statuses: `tests/unit/sports-data/readiness.test.ts`.
+
 ### E2E tests (Playwright)
 
 ```bash

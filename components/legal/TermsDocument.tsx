@@ -119,7 +119,7 @@ const SECTIONS: readonly SectionDef[] = [
   },
   {
     id: "records",
-    title: "Wallet records and withdrawals",
+    title: "Retained wallet records and existing balances",
     modes: ["retained"],
     body: () => (
       <>
@@ -207,12 +207,7 @@ const SECTIONS: readonly SectionDef[] = [
                 false information to an administrator.
               </li>
             ),
-            retained: (
-              <li>
-                Misrepresent whether a real-world payment was sent or received, or otherwise submit
-                false information to an administrator.
-              </li>
-            ),
+            retained: <li>Submit false information to an administrator, including about a withdrawal or other payment.</li>,
             free: <li>Submit false information to an administrator.</li>,
           })}
           <li>
@@ -255,7 +250,7 @@ const SECTIONS: readonly SectionDef[] = [
         ),
         retained: (
           <p>
-            Administrators review and approve or reject wallet requests, resolve disputes about the
+            Administrators review and approve or reject withdrawal requests, resolve disputes about the
             Service&apos;s records, and may correct errors or reverse recorded entries at their
             discretion in order to keep those records accurate. Their
             good-faith decisions regarding the App&apos;s records are final. This does not affect any

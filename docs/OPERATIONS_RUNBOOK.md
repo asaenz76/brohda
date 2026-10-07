@@ -59,8 +59,63 @@ in one of these states instead of `Healthy`/`No-op / healthy`.
 4. Check `API_NFL_ENABLED`/`API_NFL_KEY` (and `API_NBA_ENABLED` / `API_NHL_ENABLED` for those sports) are set and the provider isn't
    reporting an outage (see "Provider outage" below). A sport-specific failure is named in the job result's `failures` (sport + provider);
    a Free-plan provider says "Free plans do not have access to this season". To see exactly what is missing for one sport:
-   `pnpm check-sport-readiness nhl|nba|nfl` (read-only, PASS/FAIL per item).
+   `pnpm check-sport-readiness nhl|nba|nfl` (read-only; see "Reading a sport's readiness verdict" below).
 5. Nothing here risks money — safe to investigate at normal pace.
+
+## Reading a sport's readiness verdict
+
+`pnpm check-sport-readiness nhl|nba|nfl [--json]` (read-only; database reads only, no provider calls). Each item is exactly one of:
+
+| Status | Meaning | Is it a defect? |
+|---|---|---|
+| `PASS` | proven healthy | no |
+| `FAIL` | the platform is broken: a job failing, inconsistent data, an odds request that errored, a Game inside the odds window that ingestion never examined, ungradeable Markets | **yes** |
+| `DISABLED` | the sport is switched off by configuration (`API_<X>_ENABLED`, or no adapter) | no — nothing else is judged |
+| `PROVIDER_INVENTORY_UNAVAILABLE` | the platform asked and the provider has not published that inventory (no odds yet / too few bookmakers) | no |
+| `PROOF_PENDING` | nothing is wrong; the real-data proof cannot exist yet (no Game inside the odds window; no completed Game) | no |
+
+Overall verdict precedence: `DISABLED` > `BROKEN` > `PROVIDER_INVENTORY_UNAVAILABLE` > `PROOF_PENDING` > `HEALTHY` (printed "PRODUCTION READY"). The exit code is 1 **only** for `BROKEN`.
+"Provider has no odds" is never reported as a platform failure, and an odds request that *errored* is never reported as "no odds". Job health is judged per sport: an ingestion failure that names
+another sport (`failures[].sport`) does not make this sport's jobs unhealthy.
+
+## Provider subscription renewals (API-Sports Pro plans)
+
+One key authenticates every product; each product renews separately. Renew **before** the end date or that sport's fixture sync and odds start failing (visible per sport in Job Health and Sentry).
+
+| Product | Used for | Subscription ends |
+|---|---|---|
+| Basketball (NBA) Pro | NBA fixtures + odds | **2026-11-07** |
+| Hockey (NHL) Pro | NHL fixtures + odds | **2026-11-07** |
+| American football (NFL) Pro | NFL fixtures + odds | **2026-11-12** |
+| *API-NBA* (separate product) | not used (no odds endpoint) — may be cancelled | — |
+
+These dates live here only — nothing in the app, a migration, or a config reads them.
+
+## Money capability and the legal pages (Rules / Terms / Privacy)
+
+* **One flag.** `platform_settings.monetary_p2p_enabled` (Admin → Settings → Brohda) is the only switch. The Rules page, the Terms, the Privacy Policy, wallet navigation and the money server actions all read it
+  (`lib/monetary/capability.ts` is the consumer-facing reader; `tests/integration/legal-money-mode.test.ts` flips the flag and asserts every reader agrees). There is no second flag, mode setting or cached copy.
+* **Rendering and caching.** `/rules`, `/terms` and `/privacy` are `force-dynamic` and answer `cache-control: private, no-store`: every request reads the setting live, so changing the flag in Admin Settings
+  changes the pages on the **next request — no redeploy, no cache purge**. (Verify: toggle in a non-production environment, reload the three pages.)
+* **What each state shows** (`lib/legal/money-mode.ts`):
+  A. money ON → the full documents. B. money OFF and financial records exist → no current-feature money copy anywhere; the records disclosure the law requires appears in ONE titled section
+  ("Retained wallet records and existing balances" in the Terms; "Financial records we still hold" in the Privacy Policy) plus the Company classification disclaimer. C. money OFF and no financial record ever stored → no money copy at all.
+  An unreadable *flag* hides the consumer money copy; an unreadable *records check* keeps the disclosure (the pages never claim "no financial data" on a guess). Production holds ledger history, so it renders B when money is off.
+* Classification of every remaining money word: `docs/legal/TERMS_PRIVACY_OWNER_COUNSEL_REVIEW.md` §8. **Do not toggle `monetary_p2p_enabled` in production to test this** — verify with the tests or a non-production environment.
+
+## Signed-in production spot-check (manual — an automated agent must not sign in to production)
+
+Run as a **real member** (not an admin) on https://brohda.com, once after a release that touches sports, legal pages or feeds. Nothing here changes data.
+
+1. `/rules`, `/terms`, `/privacy` (signed in or out): with money OFF, no section talks about offers, funding, fees, Positions or wallets; the Terms and Privacy each show their one retained-records section; numbering is 1…n with no gaps; every "Section N" lands on the section it names.
+2. Feed → **Discover → Sports**: tabs show NFL / NBA / NHL each with its icon; open one — Games listed, team logos load.
+3. Open an **NFL** Game post: Moneyline, Spread and Total show; "Away @ Home" order; lock notice appears only after kickoff.
+4. Open an **NHL** Game post (when one has a Market): same three Markets; Spread reads as a puck line (±1.5).
+5. **NBA**: Games exist; Moneyline and Total appear once bookmakers publish; **no Spread** is expected until the pre-opening gate (`SPORTS_AUDIT_NHL_NBA.md` §5c). Absence of a Market for a not-yet-priced Game is normal.
+6. Make a Pick on a not-yet-locked Game, change it, confirm the change saves; a locked Game refuses.
+7. Team Community page (any sport): logo, follow / unfollow, posts listed.
+8. Profile → Communities tab loads; Notifications opens; the wallet link is absent (money OFF) unless you hold a balance.
+9. Admin (separate admin account): **Job Health** all healthy/no-op; **Events** shows each active sport.
 
 ## Grading stopped
 

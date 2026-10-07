@@ -9,6 +9,9 @@ import { randomUUID } from "node:crypto";
 import { getTestAdminClient } from "./helpers/test-env";
 import { seedUser } from "./helpers/game-seed";
 import { hasFinancialRecords, loadLegalMoneyMode } from "@/lib/legal/money-mode-loader";
+import { isConsumerMonetaryEnabled } from "@/lib/monetary/capability";
+import { isMonetaryP2pEnabled } from "@/lib/monetary/policy";
+import { getRulesPolicy } from "@/lib/rules/policy";
 
 const admin = getTestAdminClient();
 const setMoney = async (enabled: boolean) => {
@@ -38,5 +41,14 @@ describe("legal money mode (database)", () => {
     const on = await loadLegalMoneyMode();
     await setMoney(false);
     expect([off, on]).toEqual(["retained", "active"]);
+  });
+
+  it("ONE canonical capability: every reader of monetary_p2p_enabled (consumer capability, policy read, Rules, legal mode) agrees after each flip, with no cache between the setting and any page", async () => {
+    for (const enabled of [false, true, false, true]) {
+      await setMoney(enabled);
+      const [capability, policy, rules, mode] = await Promise.all([isConsumerMonetaryEnabled(), isMonetaryP2pEnabled(), getRulesPolicy(), loadLegalMoneyMode()]);
+      expect({ capability, policy, rules: rules.monetaryEnabled, active: mode === "active" }).toEqual({ capability: enabled, policy: enabled, rules: enabled, active: enabled });
+    }
+    await setMoney(false);
   });
 });

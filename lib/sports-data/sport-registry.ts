@@ -125,8 +125,11 @@ export const SPORT_CONFIGS: readonly SportConfig[] = [
       return `${start}-${start + 1}`;
     },
     betIds: { moneyline: 2, spread: 3, total: 4 },
-    // SPREAD is on for the NBA: its Asian Handicap convention, sign and side orientation were verified on real 2026-27 NBA payloads (6 games, 8-9 bookmakers each).
-    marketTemplates: ["MONEYLINE", "SPREAD", "TOTAL"],
+    // NBA SPREAD is OFF until the pre-opening market-layer gate passes (r50): the convention was verified on a handful of real payloads, but the
+    // production market layer (ingestion -> Market -> Post -> grading) has not been proven against real bookmaker inventory for the 2026-27 season
+    // (bookmakers had not published NBA odds yet). Enabling it is this one line plus docs/SPORTS_AUDIT_NHL_NBA.md "NBA pre-opening gate" — nothing else.
+    // Existing NBA Spread Markets (if any) keep grading; only NEW ones stop being created.
+    marketTemplates: ["MONEYLINE", "TOTAL"],
     spreadMainLineBand: [0.35, 0.65],
     oddsWindow: { kind: "hours", hours: 48 },
     oddsMinRefreshMinutes: 60,

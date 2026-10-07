@@ -253,7 +253,8 @@ describe("listCommunitiesByType", () => {
   });
 
   it("resolves the real SPORT display name from the Community's own stored name, not a derived team/league lookup", async () => {
-    const communityId = await createSportCommunity("american_football", "American Football", "sport");
+    // A unique sport_key: the real "american_football" SPORT Community can already exist in the shared DB (sport Communities are created by the pipeline tests), and (type, subject) is unique.
+    const communityId = await createSportCommunity(`d-test-sport-${crypto.randomUUID().slice(0, 8)}`, "American Football", "sport");
     const sports = await listCommunitiesByType("SPORT", null);
     const item = sports.find((c) => c.id === communityId);
     expect(item?.displayName).toBe("American Football");
