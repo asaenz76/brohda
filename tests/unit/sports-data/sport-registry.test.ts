@@ -105,7 +105,7 @@ describe("the shared sport registry", () => {
     for (const c of SPORT_CONFIGS) for (const t of c.marketTemplates) expect(["MONEYLINE", "SPREAD", "TOTAL"]).toContain(t);
     expect(getSportConfig("american_football")!.marketTemplates).toEqual(["MONEYLINE", "TOTAL"]);
     expect(getSportConfig("hockey")!.marketTemplates).toEqual(["MONEYLINE", "SPREAD", "TOTAL"]); // puck line verified on real 2026 NHL payloads
-    expect(getSportConfig("basketball")!.marketTemplates).toEqual(["MONEYLINE", "TOTAL"]); // NBA spread stays off until a real NBA payload is verified
+    expect(getSportConfig("basketball")!.marketTemplates).toEqual(["MONEYLINE", "SPREAD", "TOTAL"]); // NBA spread verified on real 2026-27 payloads
     expect(getSportConfig("hockey")!.spreadMainLineBand).toEqual([0.25, 0.75]);
     expect(getSportConfig("american_football")!.ingestionSource).toBe("nfl_market_ingestion");
     expect(getSportConfig("american_football")!.oddsWindow).toEqual({ kind: "sportsbook-week" });

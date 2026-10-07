@@ -60,7 +60,7 @@ Live `/status` for the account's single key:
 | Product | Plan | Daily limit | Note |
 |---|---|---|---|
 | American football (NFL) | **Pro** | 7,500 | subscription **ends 2026-11-12 — renew before then** (NFL season runs to Feb) |
-| Basketball (NBA) | **Free** | 100 | reading `season=2026-2027` returns `errors.plan: "Free plans do not have access to this season, try from 2022 to 2024."` |
+| Basketball (NBA) | **Pro** (upgraded 2026-10-07) | 7,500 | reads `season=2026-2027` (1,211 games). **Subscription ends 2026-11-07 — renew.** The separate *API-NBA* product has **no odds endpoint** and is not used (Brohda needs bookmaker odds for Markets) |
 | Hockey (NHL) | **Pro** (upgraded 2026-10-06) | 7,500 | reads the 2026 season (1,409 games). **Subscription ends 2026-11-07 — renew** |
 | Baseball (MLB) | Free | 100 | not needed (MLB is not launching) |
 
@@ -102,7 +102,7 @@ catalog fails closed.
 
 **Locked product decision (2026-10-07): SPREAD is approved for NBA and NHL once a real provider odds payload has been verified for that sport,** independently per sport. Before enabling a sport:
 inspect real payloads; prove team/side orientation, sign orientation and the canonical YES-side mapping; run grading and presentation tests; then add `"SPREAD"` to that sport's `marketTemplates` in
-`sport-registry.ts`. **NHL: done** (§5a — real 2026 payloads, enabled in r45). **NBA: pending** a real payload (the Basketball plan is still Free). The NFL stays Moneyline + Total.
+`sport-registry.ts`. **NHL: done** (§5a — real 2026 payloads, enabled in r45). **NBA: done** (§5b — real 2026-27 payloads, enabled in r47). The NFL stays Moneyline + Total.
 
 ## 5a. Real 2026 NHL data (captured the day the Hockey plan was upgraded, read-only)
 
@@ -114,9 +114,21 @@ inspect real payloads; prove team/side orientation, sign orientation and the can
 
 | Template | NHL | NBA |
 |---|---|---|
-| MONEYLINE | **AVAILABLE — observed** (4–5 books) | catalog only (plan still Free) |
-| SPREAD (puck line / spread) | **AVAILABLE — observed** (2 books); **enabled for the NHL** | catalog only; off until a real NBA payload is verified |
-| TOTAL | **AVAILABLE — observed** (2 books) | catalog only |
+| MONEYLINE | **AVAILABLE — observed** (4–5 books) | **AVAILABLE — observed** (8–9 books) |
+| SPREAD (puck line / spread) | **AVAILABLE — observed** (2 books); **enabled** | **AVAILABLE — observed** (3–8 books); **enabled** |
+| TOTAL | **AVAILABLE — observed** (2 books) | **AVAILABLE — observed** (4–9 books) |
+
+## 5b. Real 2026-27 NBA data (captured the day the Basketball plan was upgraded, read-only)
+
+- **Season "2026-2027":** 1,211 games, 2026-10-03 → 2027-04-05; **30 franchises** in standings, 30 team names in the game list, no non-franchise game; 1,145 games from the regular-season opener (2026-10-20 19:00 UTC). Statuses: `NS` 1,199, `FT` 12 (preseason). Offline dry run: all 1,211 games map with no `UNKNOWN` status, unique ids, every completed game decisive.
+- **Odds (real):** 6 games already quoted by **8–9 bookmakers** each; bets 2 `Home/Away`, 3 `Asian Handicap`, 4 `Over/Under` present at nearly every book (WilliamHill omits the handicap). Moneyline, Spread and Total are all AVAILABLE and observed.
+- **SPREAD verification (gate for enabling it), on all six real games:**
+  - *Team/side orientation:* the number is the **home** handicap; `Away` is the other side of the same line (home favourite → negative line, home underdog → positive: Warriors −7 at a 0.68 moneyline, Bucks +5.5 at 0.36, Hornets −5 at 0.63, Kings +6, Thunder +1.5, Jazz +1).
+  - *Sign orientation:* at every chosen line the home side's fair cover probability is 0.50 ± 0.011 — only true for the home-handicap reading; a flipped sign would be far from a coin flip.
+  - *Canonical YES-side mapping:* YES = HOME at the signed line; NO = the opponent at the opposite sign (presentation shows "Away −x | Home +x" in Away @ Home order).
+  - *Grading and presentation tests* run on the real lines (cover / non-cover / push; accessible names "Pick … plus/minus …").
+  - → **SPREAD enabled for the NBA** (`marketTemplates` in the registry), independently of the NHL.
+- Bookmaker coverage is deep for the NBA (3–8 books per spread line), unlike the NHL's two.
 
 ## 6. Result semantics and the policy layer
 

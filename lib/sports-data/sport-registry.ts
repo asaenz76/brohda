@@ -124,7 +124,8 @@ export const SPORT_CONFIGS: readonly SportConfig[] = [
       return `${start}-${start + 1}`;
     },
     betIds: { moneyline: 2, spread: 3, total: 4 },
-    marketTemplates: ["MONEYLINE", "TOTAL"],
+    // SPREAD is on for the NBA: its Asian Handicap convention, sign and side orientation were verified on real 2026-27 NBA payloads (6 games, 8-9 bookmakers each).
+    marketTemplates: ["MONEYLINE", "SPREAD", "TOTAL"],
     spreadMainLineBand: [0.35, 0.65],
     oddsWindow: { kind: "hours", hours: 48 },
     oddsMinRefreshMinutes: 60,
