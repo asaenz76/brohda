@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { MessageCircle } from "lucide-react";
+import { LeagueCrest } from "@/components/LeagueCrest";
+import { resolveLeagueIdentity } from "@/lib/sports-data/league-crest";
 import { Card, CardContent } from "@/components/ui/card";
 import { LocalDateTime } from "@/components/LocalDateTime";
 import { MatchupHeading } from "@/components/posts/MatchupHeading";
@@ -80,6 +82,7 @@ export function GamePostCard({ item, mode = "member" }: { item: FeedItem; mode?:
   const isPublic = mode === "public";
   const statusLabel = gameStatusLabel(item.sport, item.internalStatus, item.homeScore, item.awayScore);
   const market = item.primaryMarket;
+  const league = resolveLeagueIdentity({ competitionName: item.competitionName, competitionLogoUrl: item.competitionLogoUrl });
   // Restraint (spec §20): a Post can belong to several Communities at
   // once (home team, away team, league, sport) — show at most a couple,
   // never a wall of badges.
@@ -91,9 +94,8 @@ export function GamePostCard({ item, mode = "member" }: { item: FeedItem; mode?:
       <CardContent className="space-y-3 pt-6">
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs text-text-muted">
-            <span className="sr-only">Game published by </span>
-            <span className="font-medium text-text-secondary">Brohda</span>
-            {item.competitionName && ` · ${item.competitionName}`}
+            <span className="sr-only">Game published by Brohda. </span>
+            <LeagueCrest league={league} />
           </p>
           {!isPublic && item.isFromFollowedCommunity && (
             <span className="shrink-0 rounded-full bg-accent-primary/10 px-2 py-0.5 text-xs font-medium text-accent-primary">Following</span>

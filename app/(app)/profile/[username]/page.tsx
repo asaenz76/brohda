@@ -58,7 +58,7 @@ export default async function PublicProfilePage({
 
   return (
     <div className="space-y-4">
-      <ColumnHeader title="Profile" backHref="/feed" backLabel="Back to Home" />
+      <ColumnHeader title="Profile" backHref="/feed" />
       <ProfileHeader
         displayName={profile.display_name}
         username={profile.username}

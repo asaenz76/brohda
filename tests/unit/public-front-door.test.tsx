@@ -26,6 +26,7 @@ function item(overrides: Partial<FeedItem> = {}, id = "post-1"): FeedItem {
     homeTeamLogoUrl: null,
     awayTeamLogoUrl: null,
     competitionName: "NFL",
+    competitionLogoUrl: null,
     scheduledStartUtc: "2030-10-04T15:00:00Z",
     internalStatus: "NOT_STARTED",
     homeScore: null,
@@ -281,7 +282,8 @@ describe("GamePostCard modes", () => {
     expect(screen.getByRole("link", { name: /^NFL/ })).toHaveAttribute("href", "/community/nfl");
     const article = screen.getByRole("article", { name: "Game: New England Patriots at Buffalo Bills" });
     expect(text(article)).toContain("Game published by");
-    expect(text(article)).toContain("Brohda · NFL");
+    expect(text(article)).toContain("NFL");
+    expect(text(article)).not.toContain("Brohda · ");
     expect(text(container)).not.toMatch(/posted by|authored by|created by/i);
   });
 

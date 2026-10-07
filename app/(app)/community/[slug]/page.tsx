@@ -53,7 +53,7 @@ export default async function CommunityDetailPage({ params }: { params: Promise<
 
   return (
     <div className="space-y-3">
-      <ColumnHeader title="Community" backHref="/discovery" backLabel="Back to Discovery" />
+      <ColumnHeader title="Community" backHref="/discovery" />
 
       <Card>
         <CardContent className="flex items-center justify-between gap-3 pt-6">

@@ -22,6 +22,8 @@ import { LocalDateTime } from "@/components/LocalDateTime";
 import { MatchupHeading } from "@/components/posts/MatchupHeading";
 import { orderTeamsForDisplay } from "@/lib/sports-data/team-display-order";
 import Link from "next/link";
+import { LeagueCrest } from "@/components/LeagueCrest";
+import { resolveLeagueIdentity } from "@/lib/sports-data/league-crest";
 import { ColumnHeader } from "@/components/shell/ColumnHeader";
 
 /**
@@ -58,6 +60,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
 
   const fixture = await getFixtureForPostPresentation(post.fixtureId);
   if (!fixture) notFound();
+  const league = resolveLeagueIdentity({ competitionName: fixture.competitionName, competitionLogoUrl: fixture.competitionLogoUrl });
 
   const [activeMarkets, policy, conversation, communities] = await Promise.all([
     listDisplayableMarketsForFixture(post.fixtureId),
@@ -82,15 +85,14 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
 
   return (
     <div className="space-y-3">
-      <ColumnHeader title="Post" backHref="/feed" backLabel="Back to Home" />
+      <ColumnHeader title="Post" backHref="/feed" />
 
       <Card>
         <CardContent className="space-y-4 pt-6">
           <div className="space-y-2">
             <p className="text-xs text-text-muted">
-              <span className="sr-only">Game published by </span>
-              <span className="font-medium text-text-secondary">Brohda</span>
-              {fixture.competitionName && ` · ${fixture.competitionName}`}
+              <span className="sr-only">Game published by Brohda. </span>
+              <LeagueCrest league={league} />
             </p>
             <p className="flex flex-wrap items-center gap-1.5 text-xl font-semibold text-text-primary">
               <MatchupHeading

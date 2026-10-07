@@ -4,6 +4,7 @@ import { LeftNav } from "@/components/shell/LeftNav";
 import { MobileNav } from "@/components/shell/MobileNav";
 import { RightRail } from "@/components/shell/RightRail";
 import { SiteFooter } from "@/components/shell/SiteFooter";
+import { InAppHistoryTracker } from "@/components/shell/InAppHistoryTracker";
 import { NotificationToast } from "@/components/NotificationToast";
 import { isAdminOrAbove } from "@/lib/auth/guards";
 import type { UserProfile } from "@/lib/auth/session";
@@ -77,6 +78,7 @@ export function AuthenticatedShell({
       </div>
 
       <MobileNav {...navProps} profile={{ displayName: user.display_name, avatarUrl: user.avatar_url }} />
+      <InAppHistoryTracker />
       <NotificationToast initialUnreadCount={unreadNotificationCount} />
     </div>
   );

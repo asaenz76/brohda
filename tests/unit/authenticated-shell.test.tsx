@@ -198,11 +198,12 @@ describe("ColumnHeader", () => {
 
   it("offers a labelled way back on a detail page, and slots in a tab row without doubling the border", () => {
     const { container } = render(
-      <ColumnHeader title="Post" backHref="/feed" backLabel="Back to Home">
+      <ColumnHeader title="Post" backHref="/feed">
         <div role="tablist" aria-label="x" />
       </ColumnHeader>,
     );
-    expect(screen.getByRole("link", { name: "Back to Home" })).toHaveAttribute("href", "/feed");
+    expect(screen.getByRole("link", { name: "Back" })).toHaveAttribute("href", "/feed");
+    expect(screen.getByText("Back")).toBeVisible(); // visible text, never a bare arrow
     expect(container.querySelector('[data-slot="column-header"]')?.className).not.toMatch(/(^|\s)border-b(\s|$)/);
   });
 });

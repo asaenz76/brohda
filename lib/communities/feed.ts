@@ -102,6 +102,7 @@ interface FeedFixtureRow {
   home_team_logo_url: string | null;
   away_team_logo_url: string | null;
   competition_name: string | null;
+  competition_logo_url: string | null;
   home_score: number | null;
   away_score: number | null;
 }
@@ -160,6 +161,8 @@ export interface FeedItem {
   homeTeamLogoUrl: string | null;
   awayTeamLogoUrl: string | null;
   competitionName: string | null;
+  /** The league's crest as the provider adapter stored it (the Game's own league identity, never derived from a Market). */
+  competitionLogoUrl: string | null;
   scheduledStartUtc: string;
   internalStatus: string;
   homeScore: number | null;
@@ -270,7 +273,7 @@ export async function getSocialFeed(userId: string | null, limit = 50): Promise<
   // 5x-overfetch precedent.
   const { data, error } = await admin
     .from("posts")
-    .select("*, fixtures!inner(sport, internal_status, scheduled_start_utc, updated_at, home_team_name, away_team_name, home_team_logo_url, away_team_logo_url, competition_name, home_score, away_score)")
+    .select("*, fixtures!inner(sport, internal_status, scheduled_start_utc, updated_at, home_team_name, away_team_name, home_team_logo_url, away_team_logo_url, competition_name, competition_logo_url, home_score, away_score)")
     .not("published_at", "is", null)
     .order("published_at", { ascending: false })
     .limit(Math.min(limit * 10, 500));
@@ -397,6 +400,7 @@ async function enrichFeedRows(
       homeTeamLogoUrl: row.fixtures!.home_team_logo_url,
       awayTeamLogoUrl: row.fixtures!.away_team_logo_url,
       competitionName: row.fixtures!.competition_name,
+      competitionLogoUrl: row.fixtures!.competition_logo_url,
       scheduledStartUtc: row.fixtures!.scheduled_start_utc,
       internalStatus: row.fixtures!.internal_status,
       homeScore: row.fixtures!.home_score,
@@ -458,7 +462,7 @@ export async function getCommunityTimeline(communityId: string, userId: string |
 
   const { data, error } = await admin
     .from("posts")
-    .select("*, fixtures!inner(sport, internal_status, scheduled_start_utc, updated_at, home_team_name, away_team_name, home_team_logo_url, away_team_logo_url, competition_name, home_score, away_score)")
+    .select("*, fixtures!inner(sport, internal_status, scheduled_start_utc, updated_at, home_team_name, away_team_name, home_team_logo_url, away_team_logo_url, competition_name, competition_logo_url, home_score, away_score)")
     .in("id", candidatePostIds)
     .not("published_at", "is", null);
   if (error) throw error;

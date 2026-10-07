@@ -70,6 +70,7 @@ export interface FixtureForPostPresentation {
   homeTeamLogoUrl: string | null;
   awayTeamLogoUrl: string | null;
   competitionName: string | null;
+  competitionLogoUrl: string | null;
   scheduledStartUtc: string;
   internalStatus: string;
   homeScore: number | null;
@@ -80,7 +81,7 @@ export async function getFixtureForPostPresentation(id: string): Promise<Fixture
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("fixtures")
-    .select("id, sport, home_team_name, away_team_name, home_team_logo_url, away_team_logo_url, competition_name, scheduled_start_utc, internal_status, home_score, away_score")
+    .select("id, sport, home_team_name, away_team_name, home_team_logo_url, away_team_logo_url, competition_name, competition_logo_url, scheduled_start_utc, internal_status, home_score, away_score")
     .eq("id", id)
     .maybeSingle();
   if (error) throw error;
@@ -93,6 +94,7 @@ export async function getFixtureForPostPresentation(id: string): Promise<Fixture
     homeTeamLogoUrl: data.home_team_logo_url,
     awayTeamLogoUrl: data.away_team_logo_url,
     competitionName: data.competition_name,
+    competitionLogoUrl: data.competition_logo_url,
     scheduledStartUtc: data.scheduled_start_utc,
     internalStatus: data.internal_status,
     homeScore: data.home_score,
