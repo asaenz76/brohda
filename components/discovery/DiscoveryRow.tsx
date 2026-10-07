@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { TeamCrest } from "@/components/TeamCrest";
+import { CommunityMark } from "@/components/identity/CommunityMark";
 import { CommunityFollowButton } from "@/components/communities/CommunityFollowButton";
 import type { CommunityListItem } from "@/lib/communities/discovery";
 
@@ -15,7 +15,7 @@ export function DiscoveryRow({ item }: { item: CommunityListItem }) {
   return (
     <li className="flex items-center justify-between gap-3 px-4 py-3">
       <Link href={`/community/${item.slug}`} className="flex min-w-0 flex-1 items-center gap-3 rounded-md outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
-        <TeamCrest logoUrl={item.logoUrl} teamName={item.displayName} className="size-8" />
+        <CommunityMark logoUrl={item.logoUrl} name={item.displayName} sportKey={item.sportKey} className="size-8" />
         <span className="min-w-0 truncate text-sm font-medium text-text-primary">{item.displayName}</span>
       </Link>
       <CommunityFollowButton communityId={item.id} initiallyFollowing={item.isFollowing} />

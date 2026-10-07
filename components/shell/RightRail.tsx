@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { UserIdentity } from "@/components/identity/UserIdentity";
-import { TeamCrest } from "@/components/TeamCrest";
+import { CommunityMark } from "@/components/identity/CommunityMark";
 import { getUserPredictionRecord } from "@/lib/reputation/repository";
 import { listFollowedCommunitiesForProfile } from "@/lib/communities/profile";
 import { getCommunityTypeLabel } from "@/lib/communities/presentation";
@@ -43,7 +43,7 @@ export async function RightRail({ user, profileHref }: { user: UserProfile; prof
                 {group.items.slice(0, RAIL_FOLLOWED_LIMIT).map((item) => (
                   <li key={item.id}>
                     <Link href={`/community/${item.slug}`} className="flex min-w-0 items-center gap-2 rounded-md px-1 py-1.5 text-sm text-text-secondary outline-none hover:bg-surface-secondary hover:text-text-primary focus-visible:ring-3 focus-visible:ring-ring/50">
-                      <TeamCrest logoUrl={item.logoUrl} teamName={item.displayName} className="size-5" />
+                      <CommunityMark logoUrl={item.logoUrl} name={item.displayName} sportKey={item.sportKey} className="size-5" />
                       <span className="min-w-0 truncate">{item.displayName}</span>
                     </Link>
                   </li>

@@ -111,6 +111,7 @@ export async function listFollowedCommunitiesForProfile(profileUserId: string, v
       type: c.type,
       displayName: identity?.displayName ?? "Community",
       logoUrl: identity?.logoUrl ?? null,
+      sportKey: c.type === "SPORT" ? c.sportKey : null,
       isFollowing: viewerFollowedSet.has(c.id),
       mostRecentPostAt: null,
     };
