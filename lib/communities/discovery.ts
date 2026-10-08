@@ -1,5 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchInChunks } from "@/lib/utils/batch";
 import type { CommunityType } from "./types";
 
 // Phase D (Brohda 2.0 redesign) — the canonical "list Communities by
@@ -61,12 +62,13 @@ async function resolveNamesAndLogos(
   const teamIds = rows.filter((r) => r.type === "TEAM" && r.team_id).map((r) => r.team_id as string);
   const leagueIds = rows.filter((r) => r.type === "LEAGUE" && r.league_id).map((r) => r.league_id as string);
 
-  const [teamRowsResult, leagueRowsResult] = await Promise.all([
-    teamIds.length > 0 ? admin.from("teams").select("id, name, logo_url").in("id", teamIds) : Promise.resolve({ data: [] as TeamRow[] }),
-    leagueIds.length > 0 ? admin.from("leagues").select("id, name, logo_url").in("id", leagueIds) : Promise.resolve({ data: [] as LeagueRow[] }),
+  // Chunked: a list of a few hundred ids in one `.in()` makes the request URL too long ("URI too long") once a catalogue grows.
+  const [teamRows, leagueRows] = await Promise.all([
+    fetchInChunks<TeamRow>(teamIds, (chunk) => admin.from("teams").select("id, name, logo_url").in("id", chunk)),
+    fetchInChunks<LeagueRow>(leagueIds, (chunk) => admin.from("leagues").select("id, name, logo_url").in("id", chunk)),
   ]);
-  const teamById = new Map((teamRowsResult.data ?? []).map((t) => [t.id, t]));
-  const leagueById = new Map((leagueRowsResult.data ?? []).map((l) => [l.id, l]));
+  const teamById = new Map(teamRows.map((t) => [t.id, t]));
+  const leagueById = new Map(leagueRows.map((l) => [l.id, l]));
 
   for (const row of rows) {
     if (row.type === "SPORT") {
@@ -94,9 +96,8 @@ async function resolveNamesAndLogos(
 async function resolveMostRecentPostAt(admin: ReturnType<typeof createAdminClient>, communityIds: string[]): Promise<Map<string, string>> {
   const result = new Map<string, string>();
   if (communityIds.length === 0) return result;
-  const { data, error } = await admin.from("post_communities").select("community_id, created_at").in("community_id", communityIds);
-  if (error) throw error;
-  for (const row of data ?? []) {
+  const data = await fetchInChunks<{ community_id: string; created_at: string }>(communityIds, (chunk) => admin.from("post_communities").select("community_id, created_at").in("community_id", chunk));
+  for (const row of data) {
     const current = result.get(row.community_id);
     if (!current || row.created_at > current) result.set(row.community_id, row.created_at);
   }
@@ -152,7 +153,9 @@ export async function listCommunitiesByType(type: CommunityType, userId: string 
 
   const [namesAndLogos, followedIds, mostRecentPostAt] = await Promise.all([
     resolveNamesAndLogos(admin, rows),
-    userId ? admin.from("community_follows").select("community_id").eq("user_id", userId).in("community_id", communityIds).then((r) => new Set((r.data ?? []).map((f) => f.community_id))) : Promise.resolve(new Set<string>()),
+    userId
+      ? fetchInChunks<{ community_id: string }>(communityIds, (chunk) => admin.from("community_follows").select("community_id").eq("user_id", userId).in("community_id", chunk)).then((rows) => new Set(rows.map((f) => f.community_id)))
+      : Promise.resolve(new Set<string>()),
     resolveMostRecentPostAt(admin, communityIds),
   ]);
 

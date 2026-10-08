@@ -12,16 +12,17 @@ import type { UserProfile } from "@/lib/auth/session";
 //                that explains them. Fails CLOSED — if the setting can't be
 //                read it is treated as off (isMonetaryP2pEnabled never turns
 //                an error into "on").
-//   canSeeWallet the wallet may be reached. True when money is on, when the
-//                viewer is an operator (admin / super admin — the consumer
-//                flag must never blind the people who run the platform), or
-//                when the viewer still has money in the system: a balance or
-//                a hold. Turning the feature off stops NEW participation; it
-//                must not strand funds a person is owed or a hold that only
-//                a terminal action can release.
+//   canSeeWallet the wallet may be reached. True when money is on, or when the
+//                viewer still has money in the system: a balance or a hold.
+//                Turning the feature off stops NEW participation; it must not
+//                strand funds a person is owed or a hold that only a terminal
+//                action can release. Nobody else sees a wallet while money is
+//                off — NOT operators either: an admin with nothing in the
+//                system gets no wallet entry (their admin tools live under
+//                Admin and are unaffected by this flag).
 //   windDownOnly the wallet is reachable only for that last reason: show the
 //                balance and let them take their money out, but offer no
-//                funding.
+//                funding — to an admin as to anyone.
 //
 // The database functions stay the authority on every rule (propose_money and
 // accept_monetary_proposal both refuse when the flag is off); this only
@@ -46,8 +47,8 @@ export function deriveConsumerMonetaryAccess({
   heldCents: number;
 }): ConsumerMonetaryAccess {
   const hasFundsOrHolds = totalCents > 0 || heldCents > 0;
-  const canSeeWallet = flagEnabled || isOperator || hasFundsOrHolds;
-  return { enabled: flagEnabled, canSeeWallet, windDownOnly: canSeeWallet && !flagEnabled && !isOperator, isOperator };
+  const canSeeWallet = flagEnabled || hasFundsOrHolds;
+  return { enabled: flagEnabled, canSeeWallet, windDownOnly: canSeeWallet && !flagEnabled, isOperator };
 }
 
 /** Whether optional money is on for consumers. Fail-closed (an unreadable setting reads as off). */
@@ -63,7 +64,7 @@ export async function isConsumerMonetaryEnabled(): Promise<boolean> {
 export async function getConsumerMonetaryAccess(user: UserProfile, wallet?: { totalCents: number; heldCents: number }): Promise<ConsumerMonetaryAccess> {
   const flagEnabled = await isConsumerMonetaryEnabled();
   const isOperator = isAdminOrAbove(user);
-  if (flagEnabled || isOperator) return deriveConsumerMonetaryAccess({ flagEnabled, isOperator, totalCents: 0, heldCents: 0 });
+  if (flagEnabled) return deriveConsumerMonetaryAccess({ flagEnabled, isOperator, totalCents: 0, heldCents: 0 });
   let totalCents = wallet?.totalCents;
   let heldCents = wallet?.heldCents;
   if (totalCents === undefined || heldCents === undefined) {
