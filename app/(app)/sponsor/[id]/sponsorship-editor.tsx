@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cancelSponsorshipAction, saveSponsorshipDraftAction, submitSponsorshipAction } from "@/lib/actions/sponsorship";
+import { saveSponsorshipAsAdminAction, submitSponsorshipAsAdminAction } from "@/lib/actions/admin-sponsorship";
 
 export interface EditorValues {
   campaignName: string;
@@ -47,6 +48,7 @@ export function SponsorshipEditor({
   logoUrl,
   canCancel,
   logoMaxKb,
+  mode = "sponsor",
 }: {
   sponsorshipId: string;
   sponsorId: string;
@@ -54,6 +56,8 @@ export function SponsorshipEditor({
   logoUrl: string | null;
   canCancel: boolean;
   logoMaxKb: number;
+  /** "admin": Super Admin completing the sponsorship on the sponsor's behalf (same fields and rules; a different, Super-Admin-only server action). */
+  mode?: "sponsor" | "admin";
 }) {
   const router = useRouter();
   const [values, setValues] = useState(initial);
@@ -68,9 +72,11 @@ export function SponsorshipEditor({
     setMessage(null);
     setFieldErrors({});
     startTransition(async () => {
-      const result = kind === "save" ? await saveSponsorshipDraftAction(sponsorshipId, values) : await submitSponsorshipAction(sponsorshipId, values);
+      const save = mode === "admin" ? saveSponsorshipAsAdminAction : saveSponsorshipDraftAction;
+      const submit = mode === "admin" ? submitSponsorshipAsAdminAction : submitSponsorshipAction;
+      const result = kind === "save" ? await save(sponsorshipId, values) : await submit(sponsorshipId, values);
       setFieldErrors(result.fieldErrors ?? {});
-      setMessage({ ok: result.success, text: result.success ? (kind === "save" ? "Draft saved." : "Submitted. Brohda will confirm payment and review it.") : (result.error ?? "Something went wrong.") });
+      setMessage({ ok: result.success, text: result.success ? (kind === "save" ? "Draft saved." : mode === "admin" ? "Submitted on the sponsor's behalf. Record the payment and approve below." : "Submitted. Brohda will confirm payment and review it.") : (result.error ?? "Something went wrong.") });
       if (result.success) router.refresh();
     });
   }
@@ -171,9 +177,9 @@ export function SponsorshipEditor({
           Save draft
         </Button>
         <Button type="submit" disabled={pending}>
-          Submit for review
+          {mode === "admin" ? "Submit on the sponsor's behalf" : "Submit for review"}
         </Button>
-        {canCancel && (
+        {canCancel && mode === "sponsor" && (
           <Button
             type="button"
             variant="ghost"

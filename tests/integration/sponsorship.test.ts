@@ -747,6 +747,64 @@ describe("Super Admin assigns a sponsorable Game to a sponsor", () => {
   });
 });
 
+describe("Super Admin completes and submits on the sponsor's behalf", () => {
+  it("a draft with no payment record cannot be paid or approved; the admin edits + submits it; then pay and approve work and the whole road still ends PAID + APPROVED", async () => {
+    await setEnabled(true);
+    const adminId = await superAdmin();
+    const sponsor = await makeSponsor();
+    const inv = await makeInventory(adminId);
+    const draftRow = await ok("admin_assign_sponsorship", { p_admin_id: adminId, p_sponsor_id: sponsor.sponsorId, p_inventory_id: inv.inventoryId, p_campaign_name: "Deal" });
+    // The reported dead end: nothing to pay or approve while it is a draft.
+    await fails("admin_mark_sponsorship_paid", { p_admin_id: adminId, p_id: draftRow.id, p_reference: "x", p_note: "", p_idempotency_key: `k-${randomUUID()}` }, "invalid_transition");
+    await fails("admin_approve_sponsorship", { p_admin_id: adminId, p_id: draftRow.id, p_expected_revision: draftRow.revision }, "invalid_transition");
+    // Incomplete content is refused at submit.
+    await fails("admin_submit_sponsorship", { p_admin_id: adminId, p_id: draftRow.id }, "incomplete_sponsorship");
+    const edited = await ok("admin_update_sponsorship", { p_admin_id: adminId, p_id: draftRow.id, p_fields: fill });
+    expect(edited).toMatchObject({ presented_by: "Acme Sports", destination_url: "https://acme.example.com/promo", lifecycle: "DRAFT" });
+    const sub = await ok("admin_submit_sponsorship", { p_admin_id: adminId, p_id: draftRow.id });
+    expect(sub).toMatchObject({ lifecycle: "SUBMITTED", payment_status: "PENDING", review_status: "PENDING", price_cents: 150000 });
+    expect((await loadPublicSponsorships([inv.postId])).size).toBe(0); // submitting publishes nothing
+    await pay(adminId, draftRow.id);
+    expect((await loadPublicSponsorships([inv.postId])).size).toBe(0);
+    expect((await approve(adminId, draftRow.id)).lifecycle).toBe("LIVE");
+    expect((await loadPublicSponsorships([inv.postId])).size).toBe(1);
+    const actions = await auditActions(draftRow.id);
+    expect(actions).toEqual(["sponsorship.assigned", "sponsorship.updated_by_admin", "sponsorship.submitted_by_admin", "sponsorship.payment_confirmed", "sponsorship.approved"]);
+  });
+
+  it("only Super Admin can do it (not a sponsor, not an admin-role user); the sponsor must be ACTIVE; editing ends at submission; one sponsor holds a slot", async () => {
+    await setEnabled(true);
+    const adminId = await superAdmin();
+    const a = await makeSponsor("A");
+    const b = await makeSponsor("B");
+    const inv = await makeInventory(adminId);
+    const mine = await ok("admin_assign_sponsorship", { p_admin_id: adminId, p_sponsor_id: a.sponsorId, p_inventory_id: inv.inventoryId, p_campaign_name: "x" });
+    await fails("admin_update_sponsorship", { p_admin_id: a.userId, p_id: mine.id, p_fields: fill }, "not_authorized");
+    await fails("admin_submit_sponsorship", { p_admin_id: a.userId, p_id: mine.id }, "not_authorized");
+    const lesser = await seedUser("lesser2");
+    await admin.from("user_profiles").update({ role: "admin" }).eq("id", lesser);
+    staffIds.push(lesser);
+    await fails("admin_update_sponsorship", { p_admin_id: lesser, p_id: mine.id, p_fields: fill }, "not_authorized");
+    await fails("admin_submit_sponsorship", { p_admin_id: lesser, p_id: mine.id }, "not_authorized");
+
+    await ok("admin_update_sponsorship", { p_admin_id: adminId, p_id: mine.id, p_fields: fill });
+    await admin.from("sponsors").update({ status: "SUSPENDED" }).eq("id", a.sponsorId);
+    await fails("admin_submit_sponsorship", { p_admin_id: adminId, p_id: mine.id }, "sponsor_not_active");
+    await admin.from("sponsors").update({ status: "ACTIVE" }).eq("id", a.sponsorId);
+
+    // b is a second sponsor wanting the same slot: while a's submission holds it, b's cannot be submitted
+    const theirs = await ok("admin_assign_sponsorship", { p_admin_id: adminId, p_sponsor_id: b.sponsorId, p_inventory_id: inv.inventoryId, p_campaign_name: "y" });
+    await ok("admin_update_sponsorship", { p_admin_id: adminId, p_id: theirs.id, p_fields: fill });
+    await ok("admin_submit_sponsorship", { p_admin_id: adminId, p_id: mine.id });
+    await fails("admin_submit_sponsorship", { p_admin_id: adminId, p_id: theirs.id }, "inventory_unavailable");
+    // after submission the content is locked, for the admin as well
+    await fails("admin_update_sponsorship", { p_admin_id: adminId, p_id: mine.id, p_fields: { tagline: "swap" } }, "not_editable");
+    // a malicious link cannot be stored through this path either
+    const bad = await rpc("admin_update_sponsorship", { p_admin_id: adminId, p_id: theirs.id, p_fields: { destination_url: "javascript:alert(1)" } });
+    expect(bad.error).not.toBeNull();
+  });
+});
+
 describe("price authority", () => {
   it("Super Admin can reprice before payment; the snapshot freezes at payment and inventory edits never touch a paid sponsorship", async () => {
     await setEnabled(true);

@@ -6,6 +6,9 @@ import { LocalDateTime } from "@/components/LocalDateTime";
 import { getPaymentEventsForSponsorship, getSponsorshipForAdmin, listApprovalSnapshots, listSponsorshipAudit } from "@/lib/sponsorship/repository";
 import { formatCommercialAmount, PAYMENT_STATUS_LABEL, sponsorStatusCopy } from "@/lib/sponsorship/format";
 import { AdminSponsorshipActions } from "./admin-actions";
+import { SponsorshipEditor, type EditorValues } from "@/app/(app)/sponsor/[id]/sponsorship-editor";
+import { getSponsorshipConfig } from "@/lib/sponsorship/settings";
+import { sponsorCanEdit } from "@/lib/sponsorship/format";
 import { SponsorshipNav } from "../sponsorship-nav";
 
 function SponsorLogo({ url }: { url: string }) {
@@ -27,6 +30,14 @@ export default async function AdminSponsorshipDetailPage({ params }: { params: P
   if (!s) notFound();
   const [events, audit, approvals] = await Promise.all([getPaymentEventsForSponsorship(id), listSponsorshipAudit(id), listApprovalSnapshots(id)]);
   const copy = sponsorStatusCopy(s);
+  const config = await getSponsorshipConfig();
+  const editable = sponsorCanEdit(s);
+  const initial: EditorValues = {
+    campaignName: s.campaignName, presentedBy: s.presentedBy ?? "", tagline: s.tagline ?? "", ctaText: s.ctaText ?? "", destinationUrl: s.destinationUrl ?? "", hasPromotion: s.hasPromotion,
+    promotionTitle: s.promotionTitle ?? "", promotionDescription: s.promotionDescription ?? "", prizeDescription: s.prizeDescription ?? "", officialRulesUrl: s.officialRulesUrl ?? "",
+    promotionDestinationUrl: s.promotionDestinationUrl ?? "", promotionFulfillmentName: s.promotionFulfillmentName ?? "", promotionEligibilitySummary: s.promotionEligibilitySummary ?? "",
+    promotionStartsAt: s.promotionStartsAt ?? "", promotionEndsAt: s.promotionEndsAt ?? "",
+  };
 
   return (
     <div className="space-y-4">
@@ -70,6 +81,17 @@ export default async function AdminSponsorshipDetailPage({ params }: { params: P
             {row("Eligibility", s.promotionEligibilitySummary)}
             {row("Promotion dates", s.promotionStartsAt || s.promotionEndsAt ? `${s.promotionStartsAt ?? "—"} → ${s.promotionEndsAt ?? "—"}` : null)}
           </dl>
+        </section>
+      )}
+
+      {editable && (
+        <section aria-label="Complete on the sponsor's behalf" className="space-y-3 rounded-lg border border-border-subtle p-3">
+          <h2 className="text-sm font-semibold text-text-primary">{s.lifecycle === "DRAFT" ? "This is still a draft" : "Sent back for changes"}</h2>
+          <p className="text-sm text-text-secondary">
+            Payment can be recorded and the sponsorship approved only after it is <strong>submitted</strong> (that is when the price is fixed from the inventory and the Game is held).
+            Complete the details below and submit it on the sponsor&apos;s behalf, or leave it for the sponsor to submit. Nothing is public until it is paid and approved.
+          </p>
+          <SponsorshipEditor mode="admin" sponsorshipId={s.id} sponsorId={s.sponsorId} initial={initial} logoUrl={s.logoUrl} logoMaxKb={Math.round(config.logoMaxBytes / 1024)} canCancel={false} />
         </section>
       )}
 
