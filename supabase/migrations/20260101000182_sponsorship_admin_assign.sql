@@ -19,7 +19,8 @@ begin
   perform public.require_super_admin(p_admin_id);
   select * into v_sponsor from public.sponsors where id = p_sponsor_id;
   if not found or v_sponsor.status <> 'ACTIVE' then raise exception 'sponsor_not_active'; end if;
-  select * into v_inv from public.sponsorship_inventory where id = p_inventory_id;
+  -- Serialise concurrent assignments of the same slot (a double click, or two operators): the second waits, then sees the first's draft.
+  select * into v_inv from public.sponsorship_inventory where id = p_inventory_id for update;
   if not found or not v_inv.is_sponsorable or v_inv.ends_at <= now() then raise exception 'inventory_unavailable'; end if;
   -- Already held by a submitted / scheduled / live / suspended sponsorship: nothing to assign.
   if exists (select 1 from public.sponsorships where inventory_id = p_inventory_id and lifecycle in ('SUBMITTED', 'SCHEDULED', 'LIVE', 'SUSPENDED')) then

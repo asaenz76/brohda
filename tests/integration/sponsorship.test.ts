@@ -708,9 +708,9 @@ describe("Super Admin assigns a sponsorable Game to a sponsor", () => {
     const sponsor = await makeSponsor();
     const inv = await makeInventory(adminId);
     const args = { p_admin_id: adminId, p_sponsor_id: sponsor.sponsorId, p_inventory_id: inv.inventoryId, p_campaign_name: "x" };
-    const [a, b] = await Promise.all([ok("admin_assign_sponsorship", args), ok("admin_assign_sponsorship", args)]).catch(async () => [await ok("admin_assign_sponsorship", args), await ok("admin_assign_sponsorship", args)]);
+    const [a, b] = await Promise.all([ok("admin_assign_sponsorship", args), ok("admin_assign_sponsorship", args)]);
     expect(a.id).toBe(b.id);
-    expect((await admin.from("sponsorships").select("id").eq("inventory_id", inv.inventoryId)).data!.length).toBeLessThanOrEqual(2);
+    expect((await admin.from("sponsorships").select("id").eq("inventory_id", inv.inventoryId)).data).toHaveLength(1);
   });
 
   it("only Super Admin can assign; the sponsor must be ACTIVE; the Game must be sponsorable, open and not already held", async () => {
