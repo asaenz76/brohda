@@ -8,13 +8,13 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAuditLog } from "@/lib/audit/log";
 import { callSponsorshipFunction } from "@/lib/sponsorship/repository";
 import { SponsorshipError } from "@/lib/sponsorship/errors";
-import { inventorySchema } from "@/lib/sponsorship/validation";
+import { draftToDbFields, inventorySchema, promotionProblems, sponsorshipDraftSchema, type SponsorshipDraftInput } from "@/lib/sponsorship/validation";
 import { notifySponsorMembers } from "@/lib/sponsorship/notify";
 
 // Super Admin sponsorship actions. Every one begins with requireSuperAdmin() (an `admin`-role user is NOT enough: this is commercial authority) and then
 // calls a database function that re-checks the actor itself. Approval is an explicit human action here — there is no webhook, payment or schedule path
 // that approves.
-export type AdminSponsorshipResult = { success: boolean; error: string | null; id?: string };
+export type AdminSponsorshipResult = { success: boolean; error: string | null; id?: string; fieldErrors?: Record<string, string> };
 
 const fail = (error: unknown): AdminSponsorshipResult => ({ success: false, error: error instanceof SponsorshipError ? error.message : "Something went wrong. Try again." });
 
@@ -189,6 +189,45 @@ export async function assignSponsorshipAction(sponsorId: string, inventoryId: st
     revalidateAll(row.id);
     revalidatePath("/sponsor");
     return { success: true, error: null, id: row.id };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+// --- complete / submit on behalf of a sponsor --------------------------------------------------------------------------------------------------------
+
+function fieldErrorsOf(error: z.ZodError): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const issue of error.issues) out[String(issue.path[0] ?? "form")] = out[String(issue.path[0] ?? "form")] ?? issue.message;
+  return out;
+}
+
+/** Super Admin edits a sponsorship's content on the sponsor's behalf (only while it is still editable: a draft, or sent back for changes). */
+export async function saveSponsorshipAsAdminAction(id: string, raw: unknown): Promise<AdminSponsorshipResult> {
+  const admin = await requireSuperAdmin();
+  if (!idSchema.safeParse(id).success) return { success: false, error: "Sponsorship not found." };
+  const parsed = sponsorshipDraftSchema.safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Check the highlighted fields.", fieldErrors: fieldErrorsOf(parsed.error) };
+  return run(id, "admin_update_sponsorship", { p_admin_id: admin.id, p_id: id, p_fields: draftToDbFields(parsed.data) });
+}
+
+/**
+ * Super Admin saves what is on screen and SUBMITS it on the sponsor's behalf: the price is snapshotted from the inventory, payment becomes PENDING and the Game is held.
+ * It does not mark anything paid and does not approve — those are the next, separate steps on the same page.
+ */
+export async function submitSponsorshipAsAdminAction(id: string, raw: unknown): Promise<AdminSponsorshipResult> {
+  const admin = await requireSuperAdmin();
+  if (!idSchema.safeParse(id).success) return { success: false, error: "Sponsorship not found." };
+  const parsed = sponsorshipDraftSchema.safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Check the highlighted fields.", fieldErrors: fieldErrorsOf(parsed.error) };
+  const problems = promotionProblems(parsed.data as SponsorshipDraftInput);
+  if (problems.length > 0) return { success: false, error: problems[0] };
+  try {
+    await callSponsorshipFunction("admin_update_sponsorship", { p_admin_id: admin.id, p_id: id, p_fields: draftToDbFields(parsed.data) });
+    await callSponsorshipFunction("admin_submit_sponsorship", { p_admin_id: admin.id, p_id: id });
+    revalidateAll(id);
+    revalidatePath("/sponsor");
+    return { success: true, error: null, id };
   } catch (error) {
     return fail(error);
   }

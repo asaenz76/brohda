@@ -399,3 +399,51 @@ test("Super Admin creates a sponsor, uploads its logo, links a member, and assig
   }
 });
 
+test("Super Admin takes an assigned draft all the way — complete it, submit on the sponsor's behalf, mark payment received, approve — and it goes live (no sponsor login needed)", async ({ page }) => {
+  const suffix = randomUUID().slice(0, 6);
+  const game = await seedGamePost(suffix);
+  const superUser = await createUser("completesuper", "super_admin");
+  const viewer = await createUser("completeviewer");
+  const { data: sponsor } = await admin.from("sponsors").insert({ display_name: `Solo Co ${suffix}`, logo_path: `${randomUUID()}/logo.webp` }).select("id").single(); // no members at all
+  await setEnabled(true);
+  const { data: inv } = await admin.rpc("admin_set_sponsorship_inventory", { p_admin_id: superUser.id, p_post_id: game.postId, p_market_code: "GLOBAL", p_is_sponsorable: true, p_price_cents: 7500, p_currency: "USD", p_starts_at: new Date(Date.now() - HOUR).toISOString(), p_ends_at: new Date(Date.now() + 6 * HOUR).toISOString() });
+  const invId = (Array.isArray(inv) ? inv[0] : inv).id as string;
+  const { data: assigned } = await admin.rpc("admin_assign_sponsorship", { p_admin_id: superUser.id, p_sponsor_id: sponsor!.id, p_inventory_id: invId, p_campaign_name: "Solo deal" });
+  const sponsorshipId = (Array.isArray(assigned) ? assigned[0] : assigned).id as string;
+  try {
+    await loginAs(page, superUser.email);
+    await page.goto(`/admin/sponsorship/${sponsorshipId}`);
+    // A draft: the page says why paying/approving is not yet possible and offers the way forward.
+    await expect(page.getByText("This is still a draft")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Mark payment received" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Approve", exact: true })).toHaveCount(0);
+
+    await page.getByLabel("Destination link").fill("javascript:alert(1)");
+    await page.getByRole("button", { name: "Submit on the sponsor's behalf" }).click();
+    await expect(page.getByText(/full web address starting with https/i)).toBeVisible();
+    await page.getByLabel("Destination link").fill("https://solo.example.com/offer");
+    await page.getByLabel("Call-to-action text (optional)").fill("See the offer");
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await expect(page.getByText("Draft saved.")).toBeVisible();
+    await page.getByRole("button", { name: "Submit on the sponsor's behalf" }).click();
+    await expect(page.getByText(/Submitted on the sponsor's behalf/)).toBeVisible();
+
+    // Now submitted: pay and approve are there, and they work.
+    await expect(page.getByRole("status").filter({ hasText: "Submitted — awaiting payment and review" })).toBeVisible();
+    await page.getByLabel("Payment reference").fill("INV-SOLO-1");
+    await page.getByRole("button", { name: "Mark payment received" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "Payment received — awaiting Brohda approval" })).toBeVisible();
+    await page.getByRole("button", { name: "Approve", exact: true }).click();
+    await expect(page.getByRole("status").filter({ hasText: /^Live/ })).toBeVisible();
+
+    await loginAs(page, viewer.email);
+    await page.goto("/feed");
+    const label = page.locator("article").filter({ hasText: game.home }).first().locator('[data-slot="sponsored-label"]');
+    await expect(label).toContainText(`Solo Co ${suffix}`);
+    await expect(label.getByRole("link", { name: /See the offer/ })).toBeVisible();
+  } finally {
+    await setEnabled(false);
+    await cleanup(game);
+  }
+});
+
