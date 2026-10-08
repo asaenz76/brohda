@@ -9,7 +9,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { getTestAdminClient, getTestAnonClient } from "./helpers/test-env";
-import { getPublicFrontDoorFeed, PUBLIC_FEED_LIMIT } from "@/lib/landing/public-feed";
+import { getPublicFrontDoorFeed } from "@/lib/landing/public-feed";
+import { FEED_PAGE_SIZE, getSocialFeed } from "@/lib/communities/feed";
 
 const admin = getTestAdminClient();
 // Assertions about one seeded Game look past the page size: the shared test database can hold other files' Games that sort ahead.
@@ -138,9 +139,19 @@ describe("getPublicFrontDoorFeed", () => {
     expect(await getPublicFrontDoorFeed()).toEqual([]);
   });
 
-  it("never returns more than the front door's page size", async () => {
-    for (let i = 0; i < PUBLIC_FEED_LIMIT + 3; i += 1) await seedGame({ home: `Bulk ${i} FC`, hours: 100 + i });
-    expect((await getPublicFrontDoorFeed()).length).toBeLessThanOrEqual(PUBLIC_FEED_LIMIT);
+  it("shows a logged-out visitor EVERY Game a member sees — the same Games in the same order, well beyond ten", async () => {
+    for (let i = 0; i < 14; i += 1) await seedGame({ home: `Same ${i} FC`, hours: 100 + i });
+    const publicItems = await getPublicFrontDoorFeed();
+    const memberItems = await getSocialFeed(await seedUser("Member"));
+    expect(publicItems.length).toBeGreaterThan(10);
+    expect(publicItems.map((i) => i.post.id)).toEqual(memberItems.map((i) => i.post.id));
+  });
+
+  it("is capped only at the same page size the member feed uses (one shared number), never lower", async () => {
+    expect(FEED_PAGE_SIZE).toBeGreaterThanOrEqual(50);
+    for (let i = 0; i < FEED_PAGE_SIZE + 3; i += 1) await seedGame({ home: `Bulk ${i} FC`, hours: 100 + i });
+    expect((await getPublicFrontDoorFeed()).length).toBe(FEED_PAGE_SIZE);
+    expect((await getSocialFeed(await seedUser("Member"))).length).toBe(FEED_PAGE_SIZE);
   });
 });
 

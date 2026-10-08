@@ -266,7 +266,10 @@ function compareFeedItems(a: FeedItem, b: FeedItem): number {
  * function serves a hypothetical unauthenticated preview without a second
  * code path; every caller in this codebase today passes a real user id.
  */
-export async function getSocialFeed(userId: string | null, limit = 50): Promise<FeedItem[]> {
+/** How many Game Posts the Home timeline returns — one number, used by the signed-in feed AND the logged-out front door so the two always show the same Games. */
+export const FEED_PAGE_SIZE = 50;
+
+export async function getSocialFeed(userId: string | null, limit: number = FEED_PAGE_SIZE): Promise<FeedItem[]> {
   const admin = createAdminClient();
   const [followedCommunityIds, publicationPolicy, predictionPolicy, freshnessPolicy] = await Promise.all([
     userId ? listFollowedCommunityIds(userId) : Promise.resolve([]),

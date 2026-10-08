@@ -1,13 +1,6 @@
 import "server-only";
-import { getSocialFeed, type FeedItem } from "@/lib/communities/feed";
+import { FEED_PAGE_SIZE, getSocialFeed, type FeedItem } from "@/lib/communities/feed";
 import { getSocialPredictionAccessPolicy } from "@/lib/social/access";
-
-/**
- * How many Game Posts the logged-out front door shows. A presentation size
- * (one screen-and-a-bit of timeline), not product policy — the feed's own
- * eligibility and ordering rules decide WHICH Posts qualify.
- */
-export const PUBLIC_FEED_LIMIT = 10;
 
 /**
  * The Game Posts a logged-out visitor sees on `/`: the exact same canonical
@@ -29,10 +22,12 @@ export const PUBLIC_FEED_LIMIT = 10;
  * the social product is off, the front door shows no Games rather than a
  * door onto pages members themselves can't open.
  *
- * `limit` exists so tests that assert on a specific seeded Game can look past
- * whatever else a shared database holds; the page always uses the default.
+ * It is NOT capped lower than the member feed: a logged-out visitor sees every
+ * Game a member sees (the same page size, FEED_PAGE_SIZE). `limit` exists so
+ * tests that assert on a specific seeded Game can look past whatever else a
+ * shared database holds; the page always uses the default.
  */
-export async function getPublicFrontDoorFeed(limit: number = PUBLIC_FEED_LIMIT): Promise<FeedItem[]> {
+export async function getPublicFrontDoorFeed(limit: number = FEED_PAGE_SIZE): Promise<FeedItem[]> {
   const { enabled } = await getSocialPredictionAccessPolicy();
   if (!enabled) return [];
   return getSocialFeed(null, limit);
