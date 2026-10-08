@@ -43,7 +43,9 @@ export default async function SponsorGamesPage({ searchParams }: { searchParams:
                   {item.game && <LocalDateTime iso={item.game.scheduledStartUtc} options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />}
                   {" · "}Market: {item.marketCode === "GLOBAL" ? "Global" : item.marketCode}
                 </p>
-                <p className="text-sm font-medium text-text-primary">{formatCommercialAmount(item.priceCents, item.currency)}</p>
+                <p className="text-sm font-medium text-text-primary">
+                  {formatCommercialAmount(item.priceCents, item.currency)} <span className="text-xs font-normal text-text-muted">· price set by Brohda</span>
+                </p>
               </div>
               <form action={startSponsorshipAction} className="flex flex-wrap items-end gap-2">
                 <input type="hidden" name="inventoryId" value={item.id} />
