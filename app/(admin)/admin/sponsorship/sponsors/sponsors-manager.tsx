@@ -1,34 +1,192 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import Link from "next/link";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { addSponsorMemberAction, createSponsorAction, setSponsorStatusAction } from "@/lib/actions/admin-sponsorship";
+import { addSponsorMemberAction, createSponsorAction, removeSponsorMemberAction, setSponsorStatusAction } from "@/lib/actions/admin-sponsorship";
 
+interface Member {
+  userId: string;
+  displayName: string;
+  email: string | null;
+}
 interface SponsorRow {
   id: string;
   displayName: string;
   legalName: string | null;
   contactEmail: string | null;
   status: string;
-  memberCount: number;
   logoUrl: string | null;
+  members: Member[];
+}
+type Note = { ok: boolean; text: string } | null;
+
+function Feedback({ note }: { note: Note }) {
+  if (!note) return null;
+  return (
+    <p role={note.ok ? "status" : "alert"} className={note.ok ? "text-xs font-medium text-text-primary" : "text-xs font-medium text-warning-muted"}>
+      {note.text}
+    </p>
+  );
 }
 
-export function SponsorsManager({ sponsors }: { sponsors: SponsorRow[] }) {
+function SponsorCard({ sponsor, logoMaxKb }: { sponsor: SponsorRow; logoMaxKb: number }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [logoNote, setLogoNote] = useState<Note>(null);
+  const [memberNote, setMemberNote] = useState<Note>(null);
+  const [statusNote, setStatusNote] = useState<Note>(null);
+  const [email, setEmail] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function uploadLogo() {
+    if (!file) {
+      setLogoNote({ ok: false, text: "Choose an image first." });
+      return;
+    }
+    setUploading(true);
+    setLogoNote(null);
+    const body = new FormData();
+    body.set("sponsorId", sponsor.id);
+    body.set("file", file);
+    const res = await fetch("/api/sponsor/logo", { method: "POST", body }).catch(() => null);
+    const json = ((await res?.json().catch(() => ({}))) ?? {}) as { error?: string };
+    setUploading(false);
+    if (res?.ok) {
+      setLogoNote({ ok: true, text: "Logo saved." });
+      setFile(null);
+      if (fileRef.current) fileRef.current.value = "";
+      router.refresh();
+    } else {
+      setLogoNote({ ok: false, text: json.error ?? "Could not upload the logo." });
+    }
+  }
+
+  return (
+    <li className="space-y-3 rounded-lg border border-border-subtle p-3" data-sponsor-id={sponsor.id}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-3">
+          {sponsor.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={sponsor.logoUrl} alt={`${sponsor.displayName} logo`} data-slot="sponsor-logo-preview" className="size-10 rounded-md bg-white object-contain p-0.5" />
+          ) : (
+            <span className="flex size-10 items-center justify-center rounded-md border border-dashed border-border-subtle text-[10px] text-text-muted">No logo</span>
+          )}
+          <p className="text-sm font-medium text-text-primary">
+            {sponsor.displayName}
+            <span className="block text-xs font-normal text-text-muted">{sponsor.legalName ?? "—"}</span>
+          </p>
+        </div>
+        <label className="text-xs text-text-muted">
+          Status{" "}
+          <select
+            aria-label={`Status of ${sponsor.displayName}`}
+            className="ml-1 rounded-md border border-border-subtle bg-background px-2 py-1 text-sm text-text-primary"
+            value={sponsor.status}
+            disabled={pending}
+            onChange={(e) =>
+              startTransition(async () => {
+                const r = await setSponsorStatusAction(sponsor.id, e.target.value);
+                setStatusNote({ ok: r.success, text: r.success ? "Status updated." : (r.error ?? "Could not update.") });
+                if (r.success) router.refresh();
+              })
+            }
+          >
+            {["ACTIVE", "SUSPENDED", "DISABLED"].map((st) => (
+              <option key={st} value={st}>
+                {st}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <Feedback note={statusNote} />
+
+      <section aria-label={`Logo for ${sponsor.displayName}`} className="space-y-1">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-text-muted">Logo</h3>
+        <div className="flex flex-wrap items-center gap-2">
+          <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" aria-label={`Logo file for ${sponsor.displayName}`} className="text-xs" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <Button type="button" variant="outline" disabled={uploading || !file} onClick={() => void uploadLogo()}>
+            {uploading ? "Uploading…" : "Upload logo"}
+          </Button>
+        </div>
+        <p className="text-xs text-text-muted">PNG, JPEG or WebP, up to {logoMaxKb} KB.</p>
+        <Feedback note={logoNote} />
+      </section>
+
+      <section aria-label={`Members of ${sponsor.displayName}`} className="space-y-1">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-text-muted">Members ({sponsor.members.length})</h3>
+        {sponsor.members.length === 0 ? (
+          <p className="text-xs text-text-muted">No members yet — nobody can sign in as this sponsor.</p>
+        ) : (
+          <ul className="space-y-1">
+            {sponsor.members.map((m) => (
+              <li key={m.userId} className="flex flex-wrap items-center gap-2 text-sm text-text-primary">
+                <span>
+                  {m.displayName} <span className="text-xs text-text-muted">{m.email ?? ""}</span>
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={pending}
+                  aria-label={`Remove ${m.displayName} from ${sponsor.displayName}`}
+                  onClick={() =>
+                    startTransition(async () => {
+                      const r = await removeSponsorMemberAction(sponsor.id, m.userId);
+                      setMemberNote({ ok: r.success, text: r.success ? "Member removed." : (r.error ?? "Could not remove.") });
+                      if (r.success) router.refresh();
+                    })
+                  }
+                >
+                  Remove
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <form
+          className="flex flex-wrap items-end gap-2 pt-1"
+          onSubmit={(e) => {
+            e.preventDefault();
+            startTransition(async () => {
+              const r = await addSponsorMemberAction(sponsor.id, email);
+              setMemberNote({ ok: r.success, text: r.success ? "Member added." : (r.error ?? "Could not add.") });
+              if (r.success) {
+                setEmail("");
+                router.refresh();
+              }
+            });
+          }}
+        >
+          <label className="text-xs text-text-muted">
+            Add a member (the email of an existing account)
+            <Input className="mt-1 w-64" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} aria-label={`Member email for ${sponsor.displayName}`} />
+          </label>
+          <Button type="submit" variant="outline" disabled={pending}>
+            Add member
+          </Button>
+        </form>
+        <Feedback note={memberNote} />
+      </section>
+
+      <p className="text-xs text-text-muted">
+        To give this sponsor a Game, open <Link href="/admin/sponsorship/inventory" className="font-medium text-accent-primary hover:underline">Inventory</Link>, mark the Game sponsorable and use “Assign to a sponsor”.
+      </p>
+    </li>
+  );
+}
+
+export function SponsorsManager({ sponsors, logoMaxKb }: { sponsors: SponsorRow[]; logoMaxKb: number }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [note, setNote] = useState<Note>(null);
   const [name, setName] = useState("");
   const [legal, setLegal] = useState("");
   const [contact, setContact] = useState("");
-  const [memberEmail, setMemberEmail] = useState<Record<string, string>>({});
-
-  const done = (ok: boolean, text: string) => {
-    setMsg({ ok, text });
-    if (ok) router.refresh();
-  };
 
   return (
     <div className="space-y-4">
@@ -42,8 +200,9 @@ export function SponsorsManager({ sponsors }: { sponsors: SponsorRow[] }) {
               setName("");
               setLegal("");
               setContact("");
+              router.refresh();
             }
-            done(r.success, r.success ? "Sponsor created." : (r.error ?? "Could not create."));
+            setNote({ ok: r.success, text: r.success ? "Sponsor created. Add its logo and a member below." : (r.error ?? "Could not create.") });
           });
         }}
       >
@@ -62,77 +221,14 @@ export function SponsorsManager({ sponsors }: { sponsors: SponsorRow[] }) {
         <Button type="submit" disabled={pending}>
           Create sponsor
         </Button>
+        <Feedback note={note} />
       </form>
-      {msg && (
-        <p role={msg.ok ? "status" : "alert"} className={msg.ok ? "text-sm font-medium text-text-primary" : "text-sm font-medium text-warning-muted"}>
-          {msg.text}
-        </p>
-      )}
       {sponsors.length === 0 ? (
         <p className="text-sm text-text-muted">No sponsors yet.</p>
       ) : (
-        <ul className="space-y-2">
+        <ul className="space-y-3">
           {sponsors.map((s) => (
-            <li key={s.id} className="space-y-2 rounded-lg border border-border-subtle p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-medium text-text-primary">
-                  {s.displayName} <span className="text-xs font-normal text-text-muted">{s.legalName ? `· ${s.legalName}` : ""} · {s.memberCount} member{s.memberCount === 1 ? "" : "s"}</span>
-                </p>
-                <label className="text-xs text-text-muted">
-                  Status{" "}
-                  <select
-                    aria-label={`Status of ${s.displayName}`}
-                    className="ml-1 rounded-md border border-border-subtle bg-background px-2 py-1 text-sm text-text-primary"
-                    value={s.status}
-                    disabled={pending}
-                    onChange={(e) => startTransition(async () => { const r = await setSponsorStatusAction(s.id, e.target.value); done(r.success, r.success ? "Status updated." : (r.error ?? "Could not update.")); })}
-                  >
-                    {["ACTIVE", "SUSPENDED", "DISABLED"].map((st) => (
-                      <option key={st} value={st}>
-                        {st}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <form
-                className="flex flex-wrap items-end gap-2"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  startTransition(async () => {
-                    const r = await addSponsorMemberAction(s.id, memberEmail[s.id] ?? "");
-                    if (r.success) setMemberEmail((m) => ({ ...m, [s.id]: "" }));
-                    done(r.success, r.success ? "Member added." : (r.error ?? "Could not add."));
-                  });
-                }}
-              >
-                <label className="text-xs text-text-muted">
-                  Add a member (existing account email)
-                  <Input className="mt-1 w-64" type="email" value={memberEmail[s.id] ?? ""} onChange={(e) => setMemberEmail((m) => ({ ...m, [s.id]: e.target.value }))} />
-                </label>
-                <Button type="submit" variant="outline" disabled={pending}>
-                  Add member
-                </Button>
-                <label className="text-xs text-text-muted">
-                  Logo
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp"
-                    className="mt-1 block text-xs"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      const body = new FormData();
-                      body.set("sponsorId", s.id);
-                      body.set("file", file);
-                      const res = await fetch("/api/sponsor/logo", { method: "POST", body });
-                      const json = (await res.json().catch(() => ({}))) as { error?: string };
-                      done(res.ok, res.ok ? "Logo updated." : (json.error ?? "Could not upload."));
-                    }}
-                  />
-                </label>
-              </form>
-            </li>
+            <SponsorCard key={s.id} sponsor={s} logoMaxKb={logoMaxKb} />
           ))}
         </ul>
       )}

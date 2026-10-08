@@ -144,19 +144,52 @@ export async function setSponsorStatusAction(sponsorId: string, status: string):
 /** Links an existing account (by email) to a sponsor as a member. The person then signs in normally and sees /sponsor. */
 export async function addSponsorMemberAction(sponsorId: string, email: string): Promise<AdminSponsorshipResult> {
   const admin = await requireSuperAdmin();
-  if (!idSchema.safeParse(sponsorId).success || !z.string().email().safeParse(email.trim()).success) return { success: false, error: "Enter the member's account email." };
+  const wanted = email.trim().toLowerCase();
+  if (!idSchema.safeParse(sponsorId).success || !z.string().email().safeParse(wanted).success) return { success: false, error: "Enter the member's account email." };
   const db = createAdminClient();
   // Find the auth user by email (paged lookup; sponsor membership is a rare admin action).
   let userId: string | null = null;
-  for (let page = 1; page <= 20 && !userId; page++) {
+  for (let page = 1; page <= 50 && !userId; page++) {
     const { data } = await db.auth.admin.listUsers({ page, perPage: 200 });
-    userId = data?.users.find((u) => u.email?.toLowerCase() === email.trim().toLowerCase())?.id ?? null;
+    userId = data?.users.find((u) => u.email?.toLowerCase() === wanted)?.id ?? null;
     if (!data || data.users.length < 200) break;
   }
-  if (!userId) return { success: false, error: "No account with that email. They need to sign up first." };
-  const { error } = await db.from("sponsor_users").upsert({ sponsor_id: sponsorId, user_id: userId }, { onConflict: "sponsor_id,user_id", ignoreDuplicates: true });
+  if (!userId) return { success: false, error: "No account with that email. They need to sign up (or be invited) first." };
+  const { data: profile } = await db.from("user_profiles").select("id, display_name").eq("id", userId).maybeSingle();
+  if (!profile) return { success: false, error: "That account has no Brohda profile yet — they need to finish signing up first." };
+  const { data: existing } = await db.from("sponsor_users").select("user_id").eq("sponsor_id", sponsorId).eq("user_id", userId).maybeSingle();
+  if (existing) return { success: true, error: null, id: sponsorId };
+  const { error } = await db.from("sponsor_users").insert({ sponsor_id: sponsorId, user_id: userId });
   if (error) return { success: false, error: "Could not add the member." };
   await writeAuditLog({ actorId: admin.id, action: "sponsor.member_added", entityType: "sponsor", entityId: sponsorId, after: { userId } });
   revalidatePath("/admin/sponsorship/sponsors");
   return { success: true, error: null, id: sponsorId };
+}
+
+export async function removeSponsorMemberAction(sponsorId: string, userId: string): Promise<AdminSponsorshipResult> {
+  const admin = await requireSuperAdmin();
+  if (!idSchema.safeParse(sponsorId).success || !idSchema.safeParse(userId).success) return { success: false, error: "Member not found." };
+  const db = createAdminClient();
+  const { error } = await db.from("sponsor_users").delete().eq("sponsor_id", sponsorId).eq("user_id", userId);
+  if (error) return { success: false, error: "Could not remove the member." };
+  await writeAuditLog({ actorId: admin.id, action: "sponsor.member_removed", entityType: "sponsor", entityId: sponsorId, before: { userId } });
+  revalidatePath("/admin/sponsorship/sponsors");
+  return { success: true, error: null, id: sponsorId };
+}
+
+/**
+ * Assigns a sponsorable Game to a sponsor: creates the sponsor's DRAFT sponsorship for that inventory (the sponsor then completes and submits it; nothing is
+ * public until it is paid and approved). Returns the new sponsorship's id so the admin can open it.
+ */
+export async function assignSponsorshipAction(sponsorId: string, inventoryId: string, campaignName: string): Promise<AdminSponsorshipResult> {
+  const admin = await requireSuperAdmin();
+  if (!idSchema.safeParse(sponsorId).success || !idSchema.safeParse(inventoryId).success) return { success: false, error: "Choose a sponsor." };
+  try {
+    const row = await callSponsorshipFunction("admin_assign_sponsorship", { p_admin_id: admin.id, p_sponsor_id: sponsorId, p_inventory_id: inventoryId, p_campaign_name: campaignName.trim().slice(0, 120) });
+    revalidateAll(row.id);
+    revalidatePath("/sponsor");
+    return { success: true, error: null, id: row.id };
+  } catch (error) {
+    return fail(error);
+  }
 }

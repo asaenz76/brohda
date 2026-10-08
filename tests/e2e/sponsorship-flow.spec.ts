@@ -310,3 +310,92 @@ test.describe("inventory campaign window is shown in the admin's own time zone",
   });
 });
 
+// A 1x1 PNG: a real image the upload route accepts (magic bytes checked, re-encoded server-side).
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+
+test("Super Admin creates a sponsor, uploads its logo, links a member, and assigns a sponsorable Game — and the sponsor finds it in their own list", async ({ page }) => {
+  const suffix = randomUUID().slice(0, 6);
+  const game = await seedGamePost(suffix);
+  const superUser = await createUser("assignsuper", "super_admin");
+  const memberUser = await createUser("assignmember");
+  const stranger = await createUser("assignstranger");
+  const name = `Assign Co ${suffix}`;
+  await setEnabled(true);
+  const { data: inv } = await admin.rpc("admin_set_sponsorship_inventory", { p_admin_id: superUser.id, p_post_id: game.postId, p_market_code: "GLOBAL", p_is_sponsorable: true, p_price_cents: 5000, p_currency: "USD", p_starts_at: new Date(Date.now() - HOUR).toISOString(), p_ends_at: new Date(Date.now() + 6 * HOUR).toISOString() });
+  const invId = (Array.isArray(inv) ? inv[0] : inv).id as string;
+  try {
+    await loginAs(page, superUser.email);
+    await page.goto("/admin/sponsorship/sponsors");
+    await page.getByLabel("Display name").fill(name);
+    await page.getByRole("button", { name: "Create sponsor" }).click();
+    await expect(page.getByText(/Sponsor created/)).toBeVisible();
+    const card = page.locator("li[data-sponsor-id]").filter({ hasText: name });
+    await expect(card).toBeVisible();
+    await expect(card.getByText("No logo")).toBeVisible();
+    await expect(card.getByText(/No members yet/)).toBeVisible();
+
+    // Logo: choose a file, press Upload, see it saved and previewed.
+    await expect(card.getByRole("button", { name: "Upload logo" })).toBeDisabled(); // nothing chosen yet
+    await card.getByLabel(`Logo file for ${name}`).setInputFiles({ name: "logo.png", mimeType: "image/png", buffer: PNG });
+    await card.getByRole("button", { name: "Upload logo" }).click();
+    await expect(card.getByText("Logo saved.")).toBeVisible();
+    await expect(card.locator('[data-slot="sponsor-logo-preview"]')).toBeVisible();
+    // A non-image is refused with a readable reason.
+    await card.getByLabel(`Logo file for ${name}`).setInputFiles({ name: "x.png", mimeType: "image/png", buffer: Buffer.from("not an image at all") });
+    await card.getByRole("button", { name: "Upload logo" }).click();
+    await expect(card.getByText(/Unsupported image type/)).toBeVisible();
+
+    // Member: unknown email refused clearly; an existing account is linked and shown by name + email; it can be removed.
+    await card.getByLabel(`Member email for ${name}`).fill(`nobody-${suffix}@test.local`);
+    await card.getByRole("button", { name: "Add member" }).click();
+    await expect(card.getByText(/No account with that email/)).toBeVisible();
+    await card.getByLabel(`Member email for ${name}`).fill(memberUser.email.toUpperCase());
+    await card.getByRole("button", { name: "Add member" }).click();
+    await expect(card.getByText("Member added.")).toBeVisible();
+    await expect(card.getByText(memberUser.email)).toBeVisible();
+    await expect(card.getByText("Members (1)")).toBeVisible();
+
+    // Assign the Game from the inventory page.
+    await page.goto("/admin/sponsorship/inventory");
+    const row = page.locator("div.rounded-lg").filter({ hasText: `Gridiron Away ${suffix} @ Gridiron Home ${suffix}` }).first();
+    // Choosing before the page has hydrated is undone by React; retry until the (controlled) choice sticks and the button enables.
+    const chooseSponsor = () =>
+      expect(async () => {
+        await row.getByLabel(/^Sponsor for /).selectOption({ label: name });
+        await expect(row.getByRole("button", { name: /^Assign / })).toBeEnabled({ timeout: 1500 });
+      }).toPass({ timeout: 20_000 });
+    await chooseSponsor();
+    await row.getByRole("button", { name: /^Assign / }).click();
+    await expect(row.getByText(/Assigned — the sponsor now has it as a draft/)).toBeVisible();
+    await row.getByRole("link", { name: "Open it" }).click();
+    await expect(page).toHaveURL(/\/admin\/sponsorship\/[0-9a-f-]{36}$/);
+    await expect(page.getByText(name).first()).toBeVisible();
+    // Assigning again returns the same draft (no duplicates).
+    await page.goto("/admin/sponsorship/inventory");
+    await chooseSponsor();
+    await row.getByRole("button", { name: /^Assign / }).click();
+    await expect(row.getByText(/Assigned/)).toBeVisible();
+    expect((await admin.from("sponsorships").select("id").eq("post_id", game.postId)).data).toHaveLength(1);
+
+    // The sponsor member sees it in their own area — and nobody else does.
+    await loginAs(page, memberUser.email);
+    await page.goto("/sponsor");
+    await expect(page.getByText(`Gridiron Away ${suffix} @ Gridiron Home ${suffix}`)).toBeVisible();
+    await expect(page.getByText("Draft", { exact: true })).toBeVisible();
+    await loginAs(page, stranger.email);
+    expect((await page.goto("/sponsor"))?.status()).toBe(404);
+
+    // Remove the member: the access goes with it.
+    await loginAs(page, superUser.email);
+    await page.goto("/admin/sponsorship/sponsors");
+    await page.locator("li[data-sponsor-id]").filter({ hasText: name }).getByRole("button", { name: /^Remove / }).click();
+    await expect(page.getByText("Member removed.")).toBeVisible();
+    await loginAs(page, memberUser.email);
+    expect((await page.goto("/sponsor"))?.status()).toBe(404);
+  } finally {
+    await setEnabled(false);
+    await cleanup(game);
+    void invId;
+  }
+});
+
