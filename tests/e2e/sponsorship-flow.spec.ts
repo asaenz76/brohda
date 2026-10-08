@@ -272,3 +272,41 @@ test("a sponsor of another organization cannot open someone else's sponsorship, 
     await cleanup(game);
   }
 });
+
+test.describe("inventory campaign window is shown in the admin's own time zone", () => {
+  test.use({ timezoneId: "America/Costa_Rica" });
+
+  test("the default end is exactly the configured hours after the kickoff shown beside it — in the same zone — and saving round-trips the instants", async ({ page }) => {
+    const suffix = randomUUID().slice(0, 6);
+    const game = await seedGamePost(suffix);
+    const superUser = await createUser("tzsuper", "super_admin");
+    const kickoff = new Date("2030-10-11T17:00:00Z"); // 11:00 AM in Costa Rica
+    await admin.from("fixtures").update({ scheduled_start_utc: kickoff.toISOString() }).eq("id", game.fixtureId);
+    try {
+      await loginAs(page, superUser.email);
+      await page.goto("/admin/sponsorship/inventory");
+      const row = page.locator("div.rounded-lg").filter({ hasText: `Gridiron Away ${suffix} @ Gridiron Home ${suffix}` }).first();
+      await expect(row).toContainText("11:00 AM"); // the kickoff, in the admin's zone
+      const ends = row.getByLabel(/^Ends/);
+      await expect(ends).toHaveValue("2030-10-11T17:00"); // kickoff 11:00 AM + 6h = 5:00 PM the same local day, not "11:00 PM"
+      await expect(row.getByLabel(/^Ends/)).toBeVisible();
+      await expect(row.locator("label").filter({ hasText: /^Ends/ })).toContainText("America/Costa_Rica");
+
+      // Saving stores the instants the admin sees: start 09:00 local, end 17:00 local.
+      await row.getByLabel(/^Starts/).fill("2030-10-11T09:00");
+      await row.getByRole("checkbox", { name: "Sponsorable" }).check();
+      await row.getByLabel("Price").fill("100.00");
+      await row.getByRole("button", { name: "Save" }).click();
+      await expect(row.getByText("Saved.")).toBeVisible();
+      const { data: inv } = await admin.from("sponsorship_inventory").select("starts_at, ends_at").eq("post_id", game.postId).single();
+      expect(new Date(inv!.starts_at).toISOString()).toBe("2030-10-11T15:00:00.000Z"); // 09:00 Costa Rica
+      expect(new Date(inv!.ends_at).toISOString()).toBe("2030-10-11T23:00:00.000Z"); // 17:00 Costa Rica
+      await page.reload();
+      await expect(page.locator("div.rounded-lg").filter({ hasText: `Gridiron Home ${suffix}` }).first().getByLabel(/^Ends/)).toHaveValue("2030-10-11T17:00");
+    } finally {
+      await admin.from("sponsorship_inventory").delete().eq("post_id", game.postId);
+      await cleanup(game);
+    }
+  });
+});
+

@@ -34,7 +34,7 @@ export default async function SponsorshipInventoryPage() {
     <div className="space-y-4">
       <h1 className="text-lg font-semibold text-text-primary">Sponsorship inventory</h1>
       <SponsorshipNav active="/admin/sponsorship/inventory" />
-      <p className="text-sm text-text-secondary">Upcoming Game Posts. Mark a Game sponsorable, set its price and campaign window. Only Global inventory is shown to members today (no trusted location signal exists yet).</p>
+      <p className="text-sm text-text-secondary">Upcoming Game Posts. Mark a Game sponsorable, set its price and campaign window (shown in your own time zone, like the kickoff). Only Global inventory is shown to members today (no trusted location signal exists yet).</p>
       <div className="space-y-2">
         {posts.map((p) => {
           const inv = byPost.get(p.id);
@@ -59,8 +59,8 @@ export default async function SponsorshipInventoryPage() {
                   isSponsorable: inv?.isSponsorable ?? false,
                   price: inv ? (inv.priceCents / 100).toFixed(2) : "0.00",
                   currency: inv?.currency ?? config.defaultCurrency,
-                  startsAt: toLocalInput(inv?.startsAt ?? now.toISOString()),
-                  endsAt: toLocalInput(inv?.endsAt ?? defaultEnd.toISOString()),
+                  startsAt: inv?.startsAt ?? now.toISOString(),
+                  endsAt: inv?.endsAt ?? defaultEnd.toISOString(),
                   marketCode: inv?.marketCode ?? GLOBAL_MARKET,
                 }}
               />
@@ -71,9 +71,4 @@ export default async function SponsorshipInventoryPage() {
       </div>
     </div>
   );
-}
-
-/** ISO -> the value format a datetime-local input wants (UTC, so server and client agree; the field is labelled UTC). */
-function toLocalInput(iso: string): string {
-  return new Date(iso).toISOString().slice(0, 16);
 }

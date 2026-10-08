@@ -195,11 +195,15 @@ test.describe("Back means where I came from", () => {
       await page.setViewportSize({ width: 375, height: 700 });
       await loginAs(page, user.email);
       await page.goto("/feed");
-      const last = games[games.length - 1];
+      // The feed's order is not ours to assume (other Games may sort above or below), so open whichever of OUR six Games sits lowest on the page.
+      await expect(card(page, games[0])).toBeVisible();
+      const positions = await Promise.all(games.map(async (g) => ({ g, y: (await card(page, g).boundingBox())?.y ?? -1 })));
+      const last = positions.sort((a, b) => b.y - a.y)[0].g;
+      expect(positions.every((p) => p.y >= 0)).toBe(true); // all six are rendered
       const target = card(page, last);
       await target.scrollIntoViewIfNeeded();
       const before = await page.evaluate(() => window.scrollY);
-      expect(before).toBeGreaterThan(200);
+      expect(before).toBeGreaterThan(200); // six stacked cards on a 700px screen: the lowest is well below the fold
       await target.getByRole("link", { name: new RegExp(last.home) }).first().click();
       await expect(page).toHaveURL(new RegExp(`/post/${last.postId}$`));
       await page.getByRole("link", { name: "Back", exact: true }).click();
