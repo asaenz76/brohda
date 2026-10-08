@@ -1,7 +1,7 @@
 import { requireSuperAdmin } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { LocalDateTime } from "@/components/LocalDateTime";
-import { listAllInventory } from "@/lib/sponsorship/repository";
+import { listAllInventory, listSponsors } from "@/lib/sponsorship/repository";
 import { getSponsorshipConfig } from "@/lib/sponsorship/settings";
 import { GLOBAL_MARKET } from "@/lib/sponsorship/geography";
 import { PAYMENT_STATUS_LABEL } from "@/lib/sponsorship/format";
@@ -14,9 +14,10 @@ export default async function SponsorshipInventoryPage() {
   await requireSuperAdmin();
   const admin = createAdminClient();
   const now = new Date();
-  const [config, inventory, postsResult] = await Promise.all([
+  const [config, inventory, sponsorList, postsResult] = await Promise.all([
     getSponsorshipConfig(),
     listAllInventory(),
+    listSponsors(),
     admin
       .from("posts")
       .select("id, fixture_id, fixtures!inner(home_team_name, away_team_name, competition_name, scheduled_start_utc, internal_status)")
@@ -26,6 +27,7 @@ export default async function SponsorshipInventoryPage() {
       .order("scheduled_start_utc", { referencedTable: "fixtures", ascending: true })
       .limit(120),
   ]);
+  const activeSponsors = sponsorList.filter((sp) => sp.status === "ACTIVE").map((sp) => ({ id: sp.id, displayName: sp.displayName }));
   const byPost = new Map(inventory.filter((i) => i.marketCode === GLOBAL_MARKET).map((i) => [i.postId, i]));
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const posts = ((postsResult.data ?? []) as any[]).map((p) => ({ ...p, fixture: Array.isArray(p.fixtures) ? p.fixtures[0] : p.fixtures }));
@@ -55,6 +57,10 @@ export default async function SponsorshipInventoryPage() {
               )}
               <InventoryRow
                 postId={p.id}
+                inventoryId={inv?.id ?? null}
+                held={Boolean(inv?.holdingSponsorshipId)}
+                sponsors={activeSponsors}
+                gameName={`${p.fixture.away_team_name} @ ${p.fixture.home_team_name}`}
                 initial={{
                   isSponsorable: inv?.isSponsorable ?? false,
                   price: inv ? (inv.priceCents / 100).toFixed(2) : "0.00",

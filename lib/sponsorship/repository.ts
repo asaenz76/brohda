@@ -280,10 +280,34 @@ export async function getSponsorshipForAdmin(id: string): Promise<SponsorshipRec
   return data ? toSponsorship(data) : null;
 }
 
-export async function listSponsors(): Promise<Array<SponsorRecord & { memberCount: number }>> {
+export interface SponsorMember {
+  userId: string;
+  displayName: string;
+  email: string | null;
+}
+
+/** Sponsors with their members (name + sign-in email) so Super Admin can SEE who is linked — never shown to anyone else. */
+export async function listSponsors(): Promise<Array<SponsorRecord & { members: SponsorMember[] }>> {
   const admin = createAdminClient();
   const { data } = await admin.from("sponsors").select("*, sponsor_users(user_id)").order("display_name");
-  return (data ?? []).map((r: any) => ({ ...toSponsor(r), memberCount: (r.sponsor_users ?? []).length }));
+  const rows = (data ?? []) as any[];
+  const userIds = [...new Set(rows.flatMap((r) => (r.sponsor_users ?? []).map((m: any) => m.user_id as string)))];
+  const names = new Map<string, string>();
+  const emails = new Map<string, string | null>();
+  if (userIds.length > 0) {
+    const { data: profiles } = await admin.from("user_profiles").select("id, display_name").in("id", userIds);
+    for (const p of profiles ?? []) names.set(p.id, p.display_name);
+    await Promise.all(
+      userIds.map(async (id) => {
+        const { data: u } = await admin.auth.admin.getUserById(id);
+        emails.set(id, u.user?.email ?? null);
+      }),
+    );
+  }
+  return rows.map((r) => ({
+    ...toSponsor(r),
+    members: (r.sponsor_users ?? []).map((m: any) => ({ userId: m.user_id as string, displayName: names.get(m.user_id) ?? "Member", email: emails.get(m.user_id) ?? null })),
+  }));
 }
 
 export async function listSponsorshipAudit(sponsorshipId: string) {

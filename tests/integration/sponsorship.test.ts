@@ -631,6 +631,71 @@ describe("idempotency and concurrency", () => {
   });
 });
 
+describe("Super Admin assigns a sponsorable Game to a sponsor", () => {
+  it("creates the sponsor's own draft (audited as an assignment); the sponsor completes and submits it; nothing is public until paid and approved", async () => {
+    await setEnabled(true);
+    const adminId = await superAdmin();
+    const sponsor = await makeSponsor();
+    const inv = await makeInventory(adminId);
+    const assigned = await ok("admin_assign_sponsorship", { p_admin_id: adminId, p_sponsor_id: sponsor.sponsorId, p_inventory_id: inv.inventoryId, p_campaign_name: "Opening night" });
+    expect(assigned).toMatchObject({ sponsor_id: sponsor.sponsorId, lifecycle: "DRAFT", payment_status: "UNPAID", review_status: "PENDING", campaign_name: "Opening night", created_by: adminId });
+    expect(assigned.presented_by).toBe("Acme");
+    expect(await auditActions(assigned.id)).toEqual(["sponsorship.assigned"]);
+    expect((await loadPublicSponsorships([inv.postId])).size).toBe(0);
+    // The sponsor now owns it: edits, submits (price snapshot from the inventory), and the rest of the road is unchanged.
+    await ok("sponsor_update_sponsorship", { p_user_id: sponsor.userId, p_id: assigned.id, p_fields: fill });
+    const submittedRow = await ok("sponsor_submit_sponsorship", { p_user_id: sponsor.userId, p_id: assigned.id });
+    expect(submittedRow).toMatchObject({ lifecycle: "SUBMITTED", price_cents: 150000 });
+    await pay(adminId, assigned.id);
+    expect((await loadPublicSponsorships([inv.postId])).size).toBe(0); // paid, still unapproved
+    await approve(adminId, assigned.id);
+    expect((await loadPublicSponsorships([inv.postId])).size).toBe(1);
+  });
+
+  it("is idempotent: assigning the same sponsor to the same Game twice returns the same draft", async () => {
+    const adminId = await superAdmin();
+    const sponsor = await makeSponsor();
+    const inv = await makeInventory(adminId);
+    const args = { p_admin_id: adminId, p_sponsor_id: sponsor.sponsorId, p_inventory_id: inv.inventoryId, p_campaign_name: "x" };
+    const [a, b] = await Promise.all([ok("admin_assign_sponsorship", args), ok("admin_assign_sponsorship", args)]).catch(async () => [await ok("admin_assign_sponsorship", args), await ok("admin_assign_sponsorship", args)]);
+    expect(a.id).toBe(b.id);
+    expect((await admin.from("sponsorships").select("id").eq("inventory_id", inv.inventoryId)).data!.length).toBeLessThanOrEqual(2);
+  });
+
+  it("only Super Admin can assign; the sponsor must be ACTIVE; the Game must be sponsorable, open and not already held", async () => {
+    const adminId = await superAdmin();
+    const sponsor = await makeSponsor();
+    const other = await makeSponsor("Other");
+    const inv = await makeInventory(adminId);
+    await fails("admin_assign_sponsorship", { p_admin_id: sponsor.userId, p_sponsor_id: sponsor.sponsorId, p_inventory_id: inv.inventoryId, p_campaign_name: "x" }, "not_authorized");
+    const lesser = await seedUser("lesser");
+    await admin.from("user_profiles").update({ role: "admin" }).eq("id", lesser);
+    staffIds.push(lesser);
+    await fails("admin_assign_sponsorship", { p_admin_id: lesser, p_sponsor_id: sponsor.sponsorId, p_inventory_id: inv.inventoryId, p_campaign_name: "x" }, "not_authorized");
+    await admin.from("sponsors").update({ status: "SUSPENDED" }).eq("id", sponsor.sponsorId);
+    await fails("admin_assign_sponsorship", { p_admin_id: adminId, p_sponsor_id: sponsor.sponsorId, p_inventory_id: inv.inventoryId, p_campaign_name: "x" }, "sponsor_not_active");
+    const closed = await makeInventory(adminId, { sponsorable: false });
+    await fails("admin_assign_sponsorship", { p_admin_id: adminId, p_sponsor_id: other.sponsorId, p_inventory_id: closed.inventoryId, p_campaign_name: "x" }, "inventory_unavailable");
+    const past = await makeInventory(adminId, { startsInHours: -10, endsInHours: -1 });
+    await fails("admin_assign_sponsorship", { p_admin_id: adminId, p_sponsor_id: other.sponsorId, p_inventory_id: past.inventoryId, p_campaign_name: "x" }, "inventory_unavailable");
+    // held by another sponsor's submission
+    await setEnabled(true);
+    await submitted(other, inv.inventoryId);
+    await admin.from("sponsors").update({ status: "ACTIVE" }).eq("id", sponsor.sponsorId);
+    await fails("admin_assign_sponsorship", { p_admin_id: adminId, p_sponsor_id: sponsor.sponsorId, p_inventory_id: inv.inventoryId, p_campaign_name: "x" }, "inventory_unavailable");
+  });
+
+  it("works while the switch is OFF (an operator action), but the sponsor still cannot edit or submit until it is ON", async () => {
+    await setEnabled(false);
+    const adminId = await superAdmin();
+    const sponsor = await makeSponsor();
+    const inv = await makeInventory(adminId);
+    const assigned = await ok("admin_assign_sponsorship", { p_admin_id: adminId, p_sponsor_id: sponsor.sponsorId, p_inventory_id: inv.inventoryId, p_campaign_name: "x" });
+    await fails("sponsor_update_sponsorship", { p_user_id: sponsor.userId, p_id: assigned.id, p_fields: fill }, "sponsorship_disabled");
+    await fails("sponsor_submit_sponsorship", { p_user_id: sponsor.userId, p_id: assigned.id }, "sponsorship_disabled");
+  });
+});
+
 describe("price authority", () => {
   it("Super Admin can reprice before payment; the snapshot freezes at payment and inventory edits never touch a paid sponsorship", async () => {
     await setEnabled(true);
