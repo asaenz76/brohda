@@ -145,6 +145,14 @@ const gameArticle = (page: Page) => page.getByRole("article", { name: `Game: ${A
 test.describe("Logged-out front door — desktop", () => {
   test.use({ viewport: { width: 1280, height: 900 } });
 
+  test("shows every Game a member sees — more than ten of them, not a ten-game teaser", async ({ page }) => {
+    const tag = randomUUID().slice(0, 6);
+    for (let i = 0; i < 13; i += 1) await seedGame(`Many${i} ${tag} FC`, `Away${i} ${tag} FC`, 600 + i);
+    await page.goto("/");
+    await expect(page.locator("article").filter({ hasText: `${tag} FC` })).toHaveCount(13);
+    expect(await page.locator("article").count()).toBeGreaterThan(10);
+  });
+
   test("is the public face of the network: platform-published Games, a comment count, two ways in — and no crowd sentiment before a Pick", async ({ page }) => {
     const response = await page.goto("/");
     expect(response?.status()).toBe(200);
