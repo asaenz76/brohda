@@ -447,3 +447,42 @@ test("Super Admin takes an assigned draft all the way — complete it, submit on
   }
 });
 
+test("pricing is Super Admin's: the sponsor sees the price but has no way to change it, and a price the Super Admin set is the price that is submitted", async ({ page }) => {
+  const suffix = randomUUID().slice(0, 6);
+  const game = await seedGamePost(suffix);
+  const superUser = await createUser("pricesuper", "super_admin");
+  const sponsorUser = await createUser("pricesponsor");
+  const { data: sponsor } = await admin.from("sponsors").insert({ display_name: `Price Co ${suffix}`, logo_path: `${randomUUID()}/logo.webp` }).select("id").single();
+  await admin.from("sponsor_users").insert({ sponsor_id: sponsor!.id, user_id: sponsorUser.id });
+  await setEnabled(true);
+  const { data: inv } = await admin.rpc("admin_set_sponsorship_inventory", { p_admin_id: superUser.id, p_post_id: game.postId, p_market_code: "GLOBAL", p_is_sponsorable: true, p_price_cents: 250000, p_currency: "USD", p_starts_at: new Date(Date.now() - HOUR).toISOString(), p_ends_at: new Date(Date.now() + 6 * HOUR).toISOString() });
+  const invId = (Array.isArray(inv) ? inv[0] : inv).id as string;
+  const { data: assigned } = await admin.rpc("admin_assign_sponsorship", { p_admin_id: superUser.id, p_sponsor_id: sponsor!.id, p_inventory_id: invId, p_campaign_name: "Priced" });
+  const sponsorshipId = (Array.isArray(assigned) ? assigned[0] : assigned).id as string;
+  try {
+    await loginAs(page, superUser.email);
+    await page.goto(`/admin/sponsorship/${sponsorshipId}`);
+    await expect(page.getByRole("button", { name: "Set price" })).toBeDisabled(); // nothing typed: no accidental $0
+    await page.getByLabel(/^Price/).fill("1999.50");
+    await page.getByRole("button", { name: "Set price" }).click();
+    await expect(page.getByText("Done.")).toBeVisible();
+
+    await loginAs(page, sponsorUser.email);
+    await page.goto(`/sponsor/${sponsorshipId}`);
+    await expect(page.getByText("$1,999.50")).toBeVisible();
+    await expect(page.getByText("Set by Brohda — it can't be changed here.")).toBeVisible();
+    // No control anywhere on the sponsor's page edits a price.
+    await expect(page.getByRole("main").getByRole("textbox", { name: /price|amount|cost/i })).toHaveCount(0);
+    await expect(page.getByRole("spinbutton")).toHaveCount(0);
+    await page.getByLabel("Destination link").fill("https://price.example.com");
+    await page.getByRole("button", { name: "Submit for review" }).click();
+    await expect(page.getByText("Submitted — awaiting payment and review")).toBeVisible();
+    await expect(page.getByText("$1,999.50")).toBeVisible(); // the Super Admin's price, not the inventory's $2,500.00
+    const { data: row } = await admin.from("sponsorships").select("price_cents").eq("id", sponsorshipId).single();
+    expect(row!.price_cents).toBe(199950);
+  } finally {
+    await setEnabled(false);
+    await cleanup(game);
+  }
+});
+

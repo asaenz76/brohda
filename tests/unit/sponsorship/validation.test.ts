@@ -83,3 +83,13 @@ describe("inventory schema", () => {
     expect(inventorySchema.safeParse({ ...ok, currency: "dollars" }).success).toBe(false);
   });
 });
+
+describe("a sponsor's input can never carry a price", () => {
+  it("the draft schema strips price / currency / override fields and the database field map never contains them", () => {
+    const parsed = sponsorshipDraftSchema.parse({ campaignName: "c", presentedBy: "Acme", hasPromotion: false, priceCents: 1, price_cents: 1, currency: "EUR", priceOverridden: true, paymentStatus: "PAID" });
+    const fields = draftToDbFields(parsed);
+    expect(Object.keys(fields).filter((k) => /price|currency|payment|override|review|lifecycle|approved/i.test(k))).toEqual([]);
+    expect(Object.keys(parsed)).not.toContain("priceCents");
+  });
+});
+

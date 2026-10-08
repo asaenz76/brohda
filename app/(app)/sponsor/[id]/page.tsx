@@ -61,7 +61,10 @@ export default async function SponsorshipDetailPage({ params }: { params: Promis
 
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
             <dt className="text-text-muted">Price</dt>
-            <dd className="text-text-primary">{formatCommercialAmount(s.priceCents, s.currency)}</dd>
+            <dd className="text-text-primary">
+              {s.priceCents === null ? "Set by Brohda when you submit" : formatCommercialAmount(s.priceCents, s.currency)}
+              <span className="block text-xs text-text-muted">Set by Brohda — it can&apos;t be changed here.</span>
+            </dd>
             <dt className="text-text-muted">Payment</dt>
             <dd className="text-text-primary">{PAYMENT_STATUS_LABEL[s.paymentStatus]}</dd>
             <dt className="text-text-muted">Campaign window</dt>

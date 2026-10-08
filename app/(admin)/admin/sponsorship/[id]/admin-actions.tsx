@@ -58,10 +58,10 @@ export function AdminSponsorshipActions({ id, revision, lifecycle, reviewStatus,
             Price ({currency ?? "—"})
             <Input className="mt-1 w-32" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} />
           </label>
-          <Button type="button" variant="outline" disabled={pending} onClick={() => go(() => setSponsorshipPriceAction(id, Math.round(Number(price) * 100)))}>
+          <Button type="button" variant="outline" disabled={pending || price.trim() === "" || !(Number(price) >= 0)} onClick={() => go(() => setSponsorshipPriceAction(id, Math.round(Number(price) * 100)))}>
             Set price
           </Button>
-          <p className="text-xs text-text-muted">Changing the price of an approved, unpaid sponsorship voids its approval.</p>
+          <p className="text-xs text-text-muted">Only you can set the price. Leave it unset to use the inventory price at submission; a price you set here is kept. Changing the price of an approved, unpaid sponsorship voids its approval.</p>
         </div>
       )}
 

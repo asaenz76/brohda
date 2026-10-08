@@ -805,6 +805,81 @@ describe("Super Admin completes and submits on the sponsor's behalf", () => {
   });
 });
 
+describe("pricing belongs to Super Admin alone", () => {
+  it("a sponsor cannot set or change a price or currency by any route: edit fields are ignored, submit takes the Brohda price, direct writes are refused", async () => {
+    await setEnabled(true);
+    const adminId = await superAdmin();
+    const sponsor = await makeSponsor();
+    const inv = await makeInventory(adminId, { price: 150000 });
+    const id = await draft(sponsor, inv.inventoryId);
+    // 1. Smuggling a price through the edit function does nothing.
+    const edited = await ok("sponsor_update_sponsorship", { p_user_id: sponsor.userId, p_id: id, p_fields: { ...fill, price_cents: 1, currency: "EUR", price_overridden: true } });
+    expect(edited).toMatchObject({ price_cents: null, currency: null, price_overridden: false });
+    // 2. Submission snapshots the inventory price, not anything the sponsor supplied.
+    const submittedRow = await ok("sponsor_submit_sponsorship", { p_user_id: sponsor.userId, p_id: id });
+    expect(submittedRow).toMatchObject({ price_cents: 150000, currency: "USD", price_overridden: false });
+    // 3. The pricing function refuses a sponsor, and the table refuses direct writes from the sponsor's own session.
+    await fails("admin_set_sponsorship_price", { p_admin_id: sponsor.userId, p_id: id, p_price_cents: 1 }, "not_authorized");
+    const { data: u } = await admin.auth.admin.getUserById(sponsor.userId);
+    const asSponsor = getTestAnonClient();
+    await asSponsor.auth.signInWithPassword({ email: u.user!.email!, password: PASSWORD });
+    for (const patch of [{ price_cents: 1 }, { currency: "EUR" }, { price_overridden: true }, { payment_status: "PAID" }]) {
+      const r = await asSponsor.from("sponsorships").update(patch).eq("id", id).select("id");
+      expect(r.error !== null || (r.data ?? []).length === 0, JSON.stringify(patch)).toBe(true);
+    }
+    expect(await get(id)).toMatchObject({ price_cents: 150000, currency: "USD", payment_status: "PENDING" });
+    // 4. And after payment the agreed price is frozen for everyone (a Super Admin repricing is also refused).
+    await pay(adminId, id);
+    await fails("admin_set_sponsorship_price", { p_admin_id: adminId, p_id: id, p_price_cents: 5 }, "price_locked");
+  });
+
+  it("a price the Super Admin sets on a draft is kept through submission (by the sponsor or the admin) and through a changes-requested resubmit; without one the inventory price is used", async () => {
+    await setEnabled(true);
+    const adminId = await superAdmin();
+    const sponsor = await makeSponsor();
+    const inv = await makeInventory(adminId, { price: 150000 });
+    const negotiated = await ok("admin_assign_sponsorship", { p_admin_id: adminId, p_sponsor_id: sponsor.sponsorId, p_inventory_id: inv.inventoryId, p_campaign_name: "Deal" });
+    const priced = await ok("admin_set_sponsorship_price", { p_admin_id: adminId, p_id: negotiated.id, p_price_cents: 99900 });
+    expect(priced).toMatchObject({ price_cents: 99900, currency: "USD", price_overridden: true, lifecycle: "DRAFT" });
+    await ok("sponsor_update_sponsorship", { p_user_id: sponsor.userId, p_id: negotiated.id, p_fields: fill });
+    expect((await ok("sponsor_submit_sponsorship", { p_user_id: sponsor.userId, p_id: negotiated.id })).price_cents).toBe(99900);
+    // inventory price changes later never touch it
+    await ok("admin_set_sponsorship_inventory", { p_admin_id: adminId, p_post_id: inv.postId, p_market_code: "GLOBAL", p_is_sponsorable: true, p_price_cents: 5, p_currency: "USD", p_starts_at: new Date(Date.now() - HOUR).toISOString(), p_ends_at: new Date(Date.now() + 5 * HOUR).toISOString() });
+    expect((await get(negotiated.id)).price_cents).toBe(99900);
+    // changes requested -> sponsor edits -> resubmits: still the Super Admin's price
+    await ok("admin_request_sponsorship_changes", { p_admin_id: adminId, p_id: negotiated.id, p_note: "fix" });
+    await ok("sponsor_update_sponsorship", { p_user_id: sponsor.userId, p_id: negotiated.id, p_fields: { tagline: "again" } });
+    expect((await ok("sponsor_submit_sponsorship", { p_user_id: sponsor.userId, p_id: negotiated.id })).price_cents).toBe(99900);
+
+    // the admin-submit path keeps it too, and an unpriced one takes the (new) inventory price at submission
+    const other = await makeSponsor("Other");
+    const inv2 = await makeInventory(adminId, { price: 40000 });
+    const viaAdmin = await ok("admin_assign_sponsorship", { p_admin_id: adminId, p_sponsor_id: other.sponsorId, p_inventory_id: inv2.inventoryId, p_campaign_name: "x" });
+    await ok("admin_set_sponsorship_price", { p_admin_id: adminId, p_id: viaAdmin.id, p_price_cents: 12345 });
+    await ok("admin_update_sponsorship", { p_admin_id: adminId, p_id: viaAdmin.id, p_fields: fill });
+    expect((await ok("admin_submit_sponsorship", { p_admin_id: adminId, p_id: viaAdmin.id })).price_cents).toBe(12345);
+    const inv3 = await makeInventory(adminId, { price: 77700 });
+    const plain = await ok("admin_assign_sponsorship", { p_admin_id: adminId, p_sponsor_id: other.sponsorId, p_inventory_id: inv3.inventoryId, p_campaign_name: "y" });
+    await ok("admin_update_sponsorship", { p_admin_id: adminId, p_id: plain.id, p_fields: fill });
+    expect(await ok("admin_submit_sponsorship", { p_admin_id: adminId, p_id: plain.id })).toMatchObject({ price_cents: 77700, price_overridden: false });
+    // pricing is audited, with the actor
+    expect((await auditActions(negotiated.id))).toContain("sponsorship.price_set");
+  });
+
+  it("repricing before payment keeps working, voids an existing approval, and is idempotent", async () => {
+    await setEnabled(true);
+    const adminId = await superAdmin();
+    const sponsor = await makeSponsor();
+    const inv = await makeInventory(adminId, { price: 100000 });
+    const s = await submitted(sponsor, inv.inventoryId);
+    await approve(adminId, s.id);
+    const repriced = await ok("admin_set_sponsorship_price", { p_admin_id: adminId, p_id: s.id, p_price_cents: 80000 });
+    expect(repriced).toMatchObject({ price_cents: 80000, price_overridden: true, review_status: "PENDING", approved_hash: null });
+    await ok("admin_set_sponsorship_price", { p_admin_id: adminId, p_id: s.id, p_price_cents: 80000 });
+    expect((await auditActions(s.id)).filter((a) => a === "sponsorship.price_set")).toHaveLength(1);
+  });
+});
+
 describe("price authority", () => {
   it("Super Admin can reprice before payment; the snapshot freezes at payment and inventory edits never touch a paid sponsorship", async () => {
     await setEnabled(true);
