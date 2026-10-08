@@ -213,20 +213,27 @@ test.describe("Money OFF — a complete free product", () => {
     }
   });
 
-  test("operators keep their financial view with money off: Wallet, and the super admin's money pages", async ({ page }) => {
+  test("operators get no wallet with money off unless they still hold money — admin tools stay under Admin; one who does hold funds gets the same wind-down wallet", async ({ page }) => {
     await setMoney(false);
     for (const role of ["admin", "super_admin"] as const) {
       const operator = await createUser(`op-${role}`, role);
       try {
         await loginAs(page, operator.email);
-        await expect(walletLink(page)).toBeVisible();
-        await page.goto("/wallet");
-        await expect(page).toHaveURL(/\/wallet$/);
+        // Nothing in the system of their own: no Wallet entry (a super admin's header shows platform revenue, which is an operator figure, not a wallet), and an admin's /wallet goes home.
+        await expect(walletLink(page)).toHaveCount(0);
+        if (role === "admin") {
+          await page.goto("/wallet");
+          await expect(page).toHaveURL(/\/feed$/);
+        }
         if (role === "super_admin") {
           // The money admin surface (requests, ledger) is untouched by the consumer flag.
           await page.goto("/admin/wallet-requests");
           await expect(page).toHaveURL(/\/admin\/wallet-requests$/);
         }
+        // Once they hold money, the wallet is reachable exactly as it is for any member.
+        await fund(operator.id, 500);
+        await page.goto("/feed");
+        await expect(walletLink(page)).toBeVisible();
       } finally {
         await admin.auth.admin.deleteUser(operator.id);
       }

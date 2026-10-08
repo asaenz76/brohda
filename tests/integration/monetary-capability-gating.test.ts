@@ -282,7 +282,7 @@ describe("Money switched off — what already exists is wound down, never trappe
     expect(await getConsumerMonetaryAccess(asProfile(f.holder))).toEqual({ enabled: false, canSeeWallet: true, windDownOnly: true, isOperator: false });
   });
 
-  it("the capability helper against the live setting: off + nothing → no wallet; off + hold → wallet; operator → wallet; on → wallet; unreadable → off", async () => {
+  it("the capability helper against the live setting: off + nothing → no wallet (operators included); off + hold/funds → wallet; on → wallet; unreadable → off", async () => {
     const f = await buildFixtures();
     await setPolicy({ monetary_p2p_enabled: false });
     expect(await getConsumerMonetaryAccess(asProfile(f.nothing))).toEqual({ enabled: false, canSeeWallet: false, windDownOnly: false, isOperator: false });
@@ -290,8 +290,10 @@ describe("Money switched off — what already exists is wound down, never trappe
     expect((await getConsumerMonetaryAccess(asProfile(f.a.a))).canSeeWallet).toBe(true);
     // The recipient B's own wallet balance is still non-zero, so also reachable.
     expect((await getConsumerMonetaryAccess(asProfile(f.b.userId))).windDownOnly).toBe(true);
+    // An operator with nothing in the system sees NO wallet; one who still holds funds gets the same wind-down wallet as any member.
     for (const role of ["admin", "super_admin"] as const) {
-      expect(await getConsumerMonetaryAccess(asProfile(f.nothing, role))).toEqual({ enabled: false, canSeeWallet: true, windDownOnly: false, isOperator: true });
+      expect(await getConsumerMonetaryAccess(asProfile(f.nothing, role))).toEqual({ enabled: false, canSeeWallet: false, windDownOnly: false, isOperator: true });
+      expect(await getConsumerMonetaryAccess(asProfile(f.holder, role))).toEqual({ enabled: false, canSeeWallet: true, windDownOnly: true, isOperator: true });
     }
     await setPolicy({ monetary_p2p_enabled: true });
     expect(await getConsumerMonetaryAccess(asProfile(f.nothing))).toMatchObject({ enabled: true, canSeeWallet: true, windDownOnly: false });

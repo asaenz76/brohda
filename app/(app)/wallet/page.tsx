@@ -33,11 +33,11 @@ export default async function WalletPage() {
   }
 
   // The consumer wallet is part of the optional money layer. While money is off it stays reachable only for someone who still has funds or
-  // a hold to deal with (and for operators); everyone else is sent back to Home rather than shown a dormant product.
+  // a hold to deal with — operators included; everyone else is sent back to Home rather than shown a dormant product.
   const access = await getConsumerMonetaryAccess(user);
   if (!access.canSeeWallet) redirect("/feed");
   // Funding is part of the optional money layer; taking money out never is.
-  const allowFunding = access.enabled || access.isOperator;
+  const allowFunding = access.enabled;
 
   const supabase = await createClient();
 
