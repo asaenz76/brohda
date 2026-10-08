@@ -2,7 +2,7 @@
  * Sponsorship foundation against the real database: the paid + Super-Admin-approved invariant, the state machine, authorization and RLS, exclusivity and
  * races, idempotency, material-edit invalidation, the public eligibility read path, the capability switch, audit, and the "no prize engine" check.
  */
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { getTestAdminClient, getTestAnonClient } from "./helpers/test-env";
 import { seedGame, seedUser } from "./helpers/game-seed";
@@ -34,9 +34,17 @@ const setEnabled = async (enabled: boolean) => {
   if (error) throw error;
 };
 
+// Test accounts are never deleted (they can hold ledger history), so staff roles this file hands out are taken back afterwards: other files assert on
+// "every admin / super_admin" recipient sets and must not see these.
+const staffIds: string[] = [];
+afterAll(async () => {
+  if (staffIds.length) await admin.from("user_profiles").update({ role: "player" }).in("id", staffIds);
+});
+
 async function superAdmin() {
   const id = await seedUser("sponsoradmin");
   await admin.from("user_profiles").update({ role: "super_admin" }).eq("id", id);
+  staffIds.push(id);
   return id;
 }
 
@@ -177,6 +185,48 @@ describe("PAID + SUPER ADMIN APPROVED is the only road to LIVE (enforced in the 
     expect(end.completed).toBeGreaterThanOrEqual(1);
     expect((await get(s.id)).lifecycle).toBe("COMPLETED");
     expect((await get(s.id)).completed_at).not.toBeNull();
+  });
+
+  it("the advance job is idempotent: running it again at the same instant changes nothing", async () => {
+    await setEnabled(true);
+    const adminId = await superAdmin();
+    const sponsor = await makeSponsor();
+    const inv = await makeInventory(adminId, { startsInHours: 1, endsInHours: 4 });
+    const s = await submitted(sponsor, inv.inventoryId);
+    await pay(adminId, s.id);
+    await approve(adminId, s.id); // SCHEDULED
+    const at = new Date(Date.now() + 2 * HOUR).toISOString();
+    const first = await ok("advance_sponsorships", { p_now: at });
+    const second = await ok("advance_sponsorships", { p_now: at });
+    expect(first.wentLive).toBeGreaterThanOrEqual(1);
+    expect([second.wentLive, second.completed, second.reservationsReleased]).toEqual([0, 0, 0]);
+    const audits = (await auditActions(s.id)).filter((a) => a === "sponsorship.live");
+    expect(audits).toHaveLength(1);
+  });
+
+  it("the advance job never activates anything unpaid, unapproved, rejected, suspended or cancelled — whatever the clock says", async () => {
+    await setEnabled(true);
+    const adminId = await superAdmin();
+    const a = await makeSponsor("A");
+    const unpaidApproved = await submitted(a, (await makeInventory(adminId, { startsInHours: -1, endsInHours: 4 })).inventoryId);
+    await approve(adminId, unpaidApproved.id);
+    const paidUnapproved = await submitted(a, (await makeInventory(adminId, { startsInHours: -1, endsInHours: 4 })).inventoryId);
+    await pay(adminId, paidUnapproved.id);
+    const rejected = await submitted(a, (await makeInventory(adminId, { startsInHours: -1, endsInHours: 4 })).inventoryId);
+    await ok("admin_reject_sponsorship", { p_admin_id: adminId, p_id: rejected.id, p_reason: "no" });
+    const suspended = await submitted(a, (await makeInventory(adminId, { startsInHours: -1, endsInHours: 4 })).inventoryId);
+    await pay(adminId, suspended.id);
+    await approve(adminId, suspended.id);
+    await ok("admin_suspend_sponsorship", { p_admin_id: adminId, p_id: suspended.id, p_reason: "x" });
+    const cancelled = await submitted(a, (await makeInventory(adminId, { startsInHours: -1, endsInHours: 4 })).inventoryId);
+    await ok("admin_cancel_sponsorship", { p_admin_id: adminId, p_id: cancelled.id, p_reason: "x" });
+    await ok("advance_sponsorships", { p_now: new Date(Date.now() + HOUR).toISOString() });
+    await ok("advance_sponsorships", { p_now: new Date(Date.now() + 10 * HOUR).toISOString() });
+    expect((await get(unpaidApproved.id)).lifecycle).toBe("SUBMITTED");
+    expect((await get(paidUnapproved.id)).lifecycle).toBe("SUBMITTED");
+    expect((await get(rejected.id)).lifecycle).toBe("REJECTED");
+    expect((await get(suspended.id)).lifecycle).toBe("SUSPENDED");
+    expect((await get(cancelled.id)).lifecycle).toBe("CANCELLED");
   });
 
   it("impossible shortcuts are rejected by CHECK constraints even for the service role: PAYMENT_PENDING → LIVE, PAID_PENDING_REVIEW → LIVE, REJECTED → LIVE", async () => {
@@ -395,6 +445,7 @@ describe("authorization and isolation", () => {
     const adminId = await superAdmin();
     const lesser = await seedUser("lesseradmin");
     await admin.from("user_profiles").update({ role: "admin" }).eq("id", lesser);
+    staffIds.push(lesser);
     const sponsor = await makeSponsor();
     const s = await submitted(sponsor, (await makeInventory(adminId)).inventoryId);
     await fails("admin_approve_sponsorship", { p_admin_id: lesser, p_id: s.id, p_expected_revision: s.revision }, "not_authorized");
