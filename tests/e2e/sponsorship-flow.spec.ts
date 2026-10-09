@@ -429,7 +429,8 @@ test("Super Admin takes an assigned draft all the way — complete it, submit on
     await page.getByRole("button", { name: "Save draft" }).click();
     await expect(page.getByText("Draft saved.")).toBeVisible();
     await page.getByRole("button", { name: "Submit on the sponsor's behalf" }).click();
-    await expect(page.getByText(/Submitted on the sponsor's behalf/)).toBeVisible();
+    // The editor's own "Submitted on the sponsor's behalf" message is transient BY DESIGN: the submit refreshes the page and a submitted sponsorship is no longer
+    // editable, so the editor (and its message) unmounts. A slow CI runner could miss that flash, so the test asserts the durable result — the new state — instead.
 
     // Now submitted: pay and approve are there, and they work.
     await expect(page.getByRole("status").filter({ hasText: "Submitted — awaiting payment and review" })).toBeVisible();
