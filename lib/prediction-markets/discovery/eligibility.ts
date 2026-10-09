@@ -29,9 +29,18 @@ export function isFeedEligible(market: MarketRecord): boolean {
  * linked to a market that has since closed should see an honest closed/
  * resolved page, not a broken link. INACTIVE/ARCHIVED markets (no
  * consumer status at all) are not reachable — the detail page renders the
- * same honest "not found" state as a nonexistent id.
+ * same honest "not found" state as a nonexistent id — EXCEPT a market that
+ * carries Picks. A line that moved on (the provider retires "Total 47.5"
+ * when it becomes 48.5) is no longer offered, but people made Picks on it,
+ * were graded on it and were notified about it; that history must never
+ * lead to a 404. Such a market stays reachable, presented as closed.
  */
-export function isDetailReachable(market: MarketRecord): boolean {
+export function isDetailReachable(market: MarketRecord, hasPicks = false): boolean {
   if (!market.question?.trim()) return false;
-  return deriveConsumerStatus(market.status, market.resolvedOutcome) !== null;
+  return hasPicks || deriveConsumerStatus(market.status, market.resolvedOutcome) !== null;
+}
+
+/** How a reachable market is PRESENTED: a retired line with Picks reads as closed (read-only), never as open for new Picks. */
+export function presentedStatus(market: MarketRecord): string {
+  return deriveConsumerStatus(market.status, market.resolvedOutcome) === null ? "CLOSED" : market.status;
 }
