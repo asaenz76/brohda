@@ -77,6 +77,22 @@ export async function seedUser(label: string): Promise<string> {
   return data.user.id;
 }
 
+/**
+ * A SPONSOR login: an auth user with NO member profile, its sponsor organization and the one-to-one account link, made through the same database function
+ * the signup action uses. `status` defaults to ACTIVE so it can act commercially; pass PENDING_REVIEW (the signup default) etc. to test the other states.
+ */
+export async function seedSponsorAccount(label: string, status: "PENDING_REVIEW" | "ACTIVE" | "REJECTED" | "SUSPENDED" | "DISABLED" = "ACTIVE"): Promise<{ userId: string; sponsorId: string; email: string }> {
+  const email = `sponsor-${label}-${randomUUID()}@test.local`;
+  const { data, error } = await admin.auth.admin.createUser({ email, password: "integration-test-password-123", email_confirm: true });
+  if (error || !data.user) throw error ?? new Error("failed to create sponsor login");
+  const { data: sponsor, error: accountError } = await admin.rpc("create_sponsor_account", { p_user_id: data.user.id, p_email: email, p_brand: label, p_contact_name: "Test Contact", p_website: null, p_country: null, p_phone: null });
+  if (accountError || !sponsor) throw accountError ?? new Error("failed to create sponsor account");
+  const row = (Array.isArray(sponsor) ? sponsor[0] : sponsor) as { id: string };
+  const { error: statusError } = await admin.from("sponsors").update({ status, logo_path: `${randomUUID()}/logo.webp` }).eq("id", row.id);
+  if (statusError) throw statusError;
+  return { userId: data.user.id, sponsorId: row.id, email };
+}
+
 /** Makes a Pick through the real set_pick path and returns the prediction id. */
 export async function seedPick(userId: string, marketId: string, selectedOutcome: "YES" | "NO"): Promise<string> {
   const { prediction, outcome } = await setPick({

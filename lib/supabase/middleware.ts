@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
-import { loginHrefFor, REQUEST_PATH_HEADER } from "@/lib/auth/safe-next";
+import { loginHrefFor, REQUEST_PATH_HEADER, sanitizeNextPath } from "@/lib/auth/safe-next";
+import { accountRedirect, type AccountType } from "@/lib/auth/account-routing";
 import { NextResponse, type NextRequest } from "next/server";
 import { needsProfileCompletionRedirect } from "@/lib/auth/profile-gate";
 
@@ -55,17 +56,32 @@ export async function updateSession(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const isProtected = PROTECTED_PREFIXES.some((prefix) => path.startsWith(prefix));
 
+  const requestedPath = `${path}${request.nextUrl.search}`;
+
+  // The Sponsor area is its own product with its own sign-in: a signed-out visitor is sent to the Sponsor login, not the Member one.
+  if (!user && !isServerAction) {
+    const target = accountRedirect({ path, signedIn: false, accountType: null, safeNext: sanitizeNextPath(requestedPath) });
+    if (target) return NextResponse.redirect(new URL(target, request.url));
+  }
+
   if (isProtected && !user && !isServerAction) {
     // Keep the query string (a bare pathname loses it) and refuse anything that isn't a safe internal path.
     return NextResponse.redirect(new URL(loginHrefFor(`${path}${request.nextUrl.search}`), request.url));
   }
 
   if (user) {
-    const { data: profile } = await supabase
-      .from("user_profiles")
-      .select("role, is_active, username")
-      .eq("id", user.id)
-      .single();
+    const [{ data: profile }, { data: typeRow }] = await Promise.all([
+      supabase.from("user_profiles").select("role, is_active, username").eq("id", user.id).single(),
+      supabase.from("account_types").select("account_type").eq("user_id", user.id).maybeSingle(),
+    ]);
+    const accountType: AccountType | null = typeRow?.account_type === "MEMBER" || typeRow?.account_type === "SPONSOR" ? typeRow.account_type : null;
+
+    // A login is a MEMBER or a SPONSOR, never both: each is kept out of the other's area here (and again in the server-side guards behind every page and
+    // action, and in the database). Server Action POSTs are left to those guards for the reason given above.
+    if (!isServerAction) {
+      const target = accountRedirect({ path, signedIn: true, accountType, safeNext: sanitizeNextPath(requestedPath) });
+      if (target) return NextResponse.redirect(new URL(target, request.url));
+    }
 
     if (path.startsWith(ADMIN_PREFIX) && !isServerAction) {
       if (

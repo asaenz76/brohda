@@ -6,7 +6,7 @@ import { LocalDateTime } from "@/components/LocalDateTime";
 import { getPaymentEventsForSponsorship, getSponsorshipForAdmin, listApprovalSnapshots, listSponsorshipAudit } from "@/lib/sponsorship/repository";
 import { formatCommercialAmount, PAYMENT_STATUS_LABEL, sponsorStatusCopy } from "@/lib/sponsorship/format";
 import { AdminSponsorshipActions } from "./admin-actions";
-import { SponsorshipEditor, type EditorValues } from "@/app/(app)/sponsor/[id]/sponsorship-editor";
+import { SponsorshipEditor, type EditorValues } from "@/components/sponsorship/SponsorshipEditor";
 import { getSponsorshipConfig } from "@/lib/sponsorship/settings";
 import { sponsorCanEdit } from "@/lib/sponsorship/format";
 import { SponsorshipNav } from "../sponsorship-nav";

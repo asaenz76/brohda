@@ -22,7 +22,7 @@ Status: implemented in migration `20260101000181_sponsorship_foundation.sql`. Op
 | Table | Purpose |
 |---|---|
 | `sponsors` | the organization (display name, legal name, logo path, contact email, status ACTIVE / SUSPENDED / DISABLED) |
-| `sponsor_users` | membership (many-to-many; V1 uses one user per sponsor) |
+| `sponsor_accounts` | the Sponsor LOGIN ↔ organization link (one-to-one; see `sponsor-identity.md`). Replaced the retired `sponsor_users` member↔organization table |
 | `sponsorship_inventory` | which Game Posts are sponsorable, price, currency, market code, campaign window; `unique (post_id, market_code)` |
 | `sponsorships` | the proposal/campaign: content, commercial snapshot, and three orthogonal states |
 | `sponsorship_payment_events` | append-only payment history, idempotent on `idempotency_key` |

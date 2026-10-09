@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { typeAccountAsMember } from "@/lib/auth/member-account";
 import { recordLegalAcceptance } from "@/lib/legal/acceptance";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -24,6 +25,10 @@ export async function createInvitationAction(
   }
 
   const adminClient = createAdminClient();
+  // An invitation can only ever produce a Member, so an email that already belongs to a Sponsor account cannot be invited.
+  const { data: existingType } = await adminClient.rpc("account_type_for_email", { p_email: parsed.data.email });
+  if (existingType === "SPONSOR") return { error: "This email can't be invited.", inviteUrl: null };
+
   const { data: invitation, error } = await adminClient
     .from("invitations")
     .insert({ email: parsed.data.email, invited_by: admin.id })
@@ -151,6 +156,14 @@ export async function acceptInvitationAction(
     return { error: "Could not create your account. Contact your admin." };
   }
 
+  // An invitation only ever creates a MEMBER: typed explicitly before the profile (the database refuses a profile for any non-Member).
+  try {
+    await typeAccountAsMember(adminClient, created.user.id);
+  } catch {
+    await adminClient.auth.admin.deleteUser(created.user.id);
+    return { error: "Could not create your account. Contact your admin." };
+  }
+
   const { error: profileError } = await adminClient.from("user_profiles").insert({
     id: created.user.id,
     display_name: parsed.data.displayName,
@@ -160,6 +173,8 @@ export async function acceptInvitationAction(
   });
 
   if (profileError) {
+    // Do not leave a half-made login behind (it would hold the email with no profile and no way in).
+    await adminClient.auth.admin.deleteUser(created.user.id);
     return { error: "Could not finish setting up your profile. Contact your admin." };
   }
 

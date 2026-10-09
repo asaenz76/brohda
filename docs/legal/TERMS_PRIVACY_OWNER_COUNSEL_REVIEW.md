@@ -310,3 +310,7 @@ Engineering did **not** change the Terms or the Privacy Policy for sponsorship (
 5. **Third-party click-outs.** Following a sponsor link leaves Brohda; the Terms already say third-party services have their own terms, but counsel may want an explicit sentence for sponsored links.
 6. **Classification.** Nothing here changes "The Company is not a bank, money transmitter…" or any monetary language; sponsorship revenue is advertising revenue, separate from player money.
 
+
+## 10. Sponsor accounts (identity milestone)
+
+Engineering built the *mechanism* for Sponsor Terms (versioned, per-account acceptance record) and wrote **no legal text**. Counsel/owner decisions needed before launch: (1) Sponsor Terms of Service and the page to publish them on (then set `CURRENT_SPONSOR_TERMS` in `lib/sponsor/terms.ts`); (2) the media/advertising agreement (content warranties, takedown, indemnity); (3) how the Privacy Policy describes Sponsor business-contact data (business email, contact name, phone) and that Sponsors are separate from Members; (4) refund and cancellation language for a suspended/disabled Sponsor with a paid, live campaign; (5) who is responsible for sponsor-run promotions (already disclosed on the Game Post) and whether the Sponsor Terms must repeat it.

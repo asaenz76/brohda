@@ -8,7 +8,7 @@ const MAX_LENGTH = 2048;
 // Control characters (incl. tab / CR / LF, which browsers strip inside URLs) and DEL.
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 // Pages that would send a freshly logged-in person straight back to an auth screen.
-const AUTH_PAGES = ["/login", "/register", "/logout", "/reset-password", "/invite"];
+const AUTH_PAGES = ["/login", "/register", "/logout", "/reset-password", "/invite", "/sponsor/login", "/sponsor/signup", "/sponsor/verified"];
 const PARSE_BASE = "http://brohda.invalid";
 
 /** The internal path to return to, or null when `raw` is missing or unsafe. Keeps the query string, drops any fragment. */

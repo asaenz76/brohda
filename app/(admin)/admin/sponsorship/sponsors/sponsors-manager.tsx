@@ -5,21 +5,24 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { addSponsorMemberAction, createSponsorAction, removeSponsorMemberAction, setSponsorStatusAction } from "@/lib/actions/admin-sponsorship";
+import { createSponsorAction, setSponsorStatusAction } from "@/lib/actions/admin-sponsorship";
 
-interface Member {
-  userId: string;
-  displayName: string;
-  email: string | null;
-}
 interface SponsorRow {
   id: string;
   displayName: string;
   legalName: string | null;
   contactEmail: string | null;
+  contactName: string | null;
+  contactPhone: string | null;
+  website: string | null;
+  country: string | null;
   status: string;
+  statusReason: string | null;
+  internalReviewNote: string | null;
+  createdAt: string;
   logoUrl: string | null;
-  members: Member[];
+  /** The sponsor's one login; null for an organization Super Admin recorded by hand. */
+  login: { email: string | null; emailVerified: boolean } | null;
 }
 type Note = { ok: boolean; text: string } | null;
 
@@ -32,13 +35,24 @@ function Feedback({ note }: { note: Note }) {
   );
 }
 
+const STATUS_LABEL: Record<string, string> = { PENDING_REVIEW: "Pending review", ACTIVE: "Active", REJECTED: "Rejected", SUSPENDED: "Suspended", DISABLED: "Disabled" };
+
+// The moves Super Admin can make from each state (the database enforces the same table).
+const TRANSITIONS: Record<string, Array<{ to: string; label: string }>> = {
+  PENDING_REVIEW: [{ to: "ACTIVE", label: "Activate" }, { to: "REJECTED", label: "Reject" }, { to: "DISABLED", label: "Disable" }],
+  ACTIVE: [{ to: "SUSPENDED", label: "Suspend" }, { to: "DISABLED", label: "Disable" }],
+  REJECTED: [{ to: "ACTIVE", label: "Activate anyway" }, { to: "DISABLED", label: "Disable" }],
+  SUSPENDED: [{ to: "ACTIVE", label: "Restore" }, { to: "DISABLED", label: "Disable" }],
+  DISABLED: [{ to: "ACTIVE", label: "Restore" }],
+};
+
 function SponsorCard({ sponsor, logoMaxKb }: { sponsor: SponsorRow; logoMaxKb: number }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [logoNote, setLogoNote] = useState<Note>(null);
-  const [memberNote, setMemberNote] = useState<Note>(null);
   const [statusNote, setStatusNote] = useState<Note>(null);
-  const [email, setEmail] = useState("");
+  const [reason, setReason] = useState("");
+  const [internalNote, setInternalNote] = useState(sponsor.internalReviewNote ?? "");
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -81,29 +95,51 @@ function SponsorCard({ sponsor, logoMaxKb }: { sponsor: SponsorRow; logoMaxKb: n
             <span className="block text-xs font-normal text-text-muted">{sponsor.legalName ?? "—"}</span>
           </p>
         </div>
-        <label className="text-xs text-text-muted">
-          Status{" "}
-          <select
-            aria-label={`Status of ${sponsor.displayName}`}
-            className="ml-1 rounded-md border border-border-subtle bg-background px-2 py-1 text-sm text-text-primary"
-            value={sponsor.status}
-            disabled={pending}
-            onChange={(e) =>
-              startTransition(async () => {
-                const r = await setSponsorStatusAction(sponsor.id, e.target.value);
-                setStatusNote({ ok: r.success, text: r.success ? "Status updated." : (r.error ?? "Could not update.") });
-                if (r.success) router.refresh();
-              })
-            }
-          >
-            {["ACTIVE", "SUSPENDED", "DISABLED"].map((st) => (
-              <option key={st} value={st}>
-                {st}
-              </option>
-            ))}
-          </select>
-        </label>
+        <span data-slot="sponsor-account-status" className="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-text-primary">
+          {STATUS_LABEL[sponsor.status] ?? sponsor.status}
+        </span>
       </div>
+      <dl className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
+        <div><dt className="inline text-text-muted">Sign-in email: </dt><dd className="inline text-text-primary">{sponsor.login ? `${sponsor.login.email ?? "—"} (${sponsor.login.emailVerified ? "verified" : "not verified"})` : "No login — managed by Brohda"}</dd></div>
+        <div><dt className="inline text-text-muted">Contact: </dt><dd className="inline text-text-primary">{sponsor.contactName ?? "—"}</dd></div>
+        <div><dt className="inline text-text-muted">Phone: </dt><dd className="inline text-text-primary">{sponsor.contactPhone ?? "—"}</dd></div>
+        <div><dt className="inline text-text-muted">Country: </dt><dd className="inline text-text-primary">{sponsor.country ?? "—"}</dd></div>
+        <div className="sm:col-span-2"><dt className="inline text-text-muted">Website: </dt><dd className="inline text-text-primary">{sponsor.website ?? "—"}</dd></div>
+        {sponsor.statusReason && <div className="sm:col-span-2"><dt className="inline text-text-muted">Reason shown to the sponsor: </dt><dd className="inline text-text-primary">{sponsor.statusReason}</dd></div>}
+      </dl>
+      <section aria-label={`Review ${sponsor.displayName}`} className="space-y-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-text-muted">Account decision</h3>
+        <label className="block text-xs text-text-muted">
+          Reason (shown to the sponsor; required to reject, suspend or disable)
+          <Input className="mt-1" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={1000} aria-label={`Reason for ${sponsor.displayName}`} />
+        </label>
+        <label className="block text-xs text-text-muted">
+          Internal note (never shown to the sponsor)
+          <Input className="mt-1" value={internalNote} onChange={(e) => setInternalNote(e.target.value)} maxLength={2000} aria-label={`Internal note for ${sponsor.displayName}`} />
+        </label>
+        <div className="flex flex-wrap gap-2">
+          {(TRANSITIONS[sponsor.status] ?? []).map((t) => (
+            <Button
+              key={t.to}
+              type="button"
+              variant={t.to === "ACTIVE" ? "default" : "outline"}
+              disabled={pending}
+              onClick={() =>
+                startTransition(async () => {
+                  const r = await setSponsorStatusAction(sponsor.id, t.to, reason, internalNote);
+                  setStatusNote({ ok: r.success, text: r.success ? "Status updated." : (r.error ?? "Could not update.") });
+                  if (r.success) {
+                    setReason("");
+                    router.refresh();
+                  }
+                })
+              }
+            >
+              {t.label}
+            </Button>
+          ))}
+        </div>
+      </section>
       <Feedback note={statusNote} />
 
       <section aria-label={`Logo for ${sponsor.displayName}`} className="space-y-1">
@@ -116,61 +152,6 @@ function SponsorCard({ sponsor, logoMaxKb }: { sponsor: SponsorRow; logoMaxKb: n
         </div>
         <p className="text-xs text-text-muted">PNG, JPEG or WebP, up to {logoMaxKb} KB.</p>
         <Feedback note={logoNote} />
-      </section>
-
-      <section aria-label={`Members of ${sponsor.displayName}`} className="space-y-1">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-text-muted">Members ({sponsor.members.length})</h3>
-        {sponsor.members.length === 0 ? (
-          <p className="text-xs text-text-muted">No members yet — nobody can sign in as this sponsor.</p>
-        ) : (
-          <ul className="space-y-1">
-            {sponsor.members.map((m) => (
-              <li key={m.userId} className="flex flex-wrap items-center gap-2 text-sm text-text-primary">
-                <span>
-                  {m.displayName} <span className="text-xs text-text-muted">{m.email ?? ""}</span>
-                </span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  disabled={pending}
-                  aria-label={`Remove ${m.displayName} from ${sponsor.displayName}`}
-                  onClick={() =>
-                    startTransition(async () => {
-                      const r = await removeSponsorMemberAction(sponsor.id, m.userId);
-                      setMemberNote({ ok: r.success, text: r.success ? "Member removed." : (r.error ?? "Could not remove.") });
-                      if (r.success) router.refresh();
-                    })
-                  }
-                >
-                  Remove
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
-        <form
-          className="flex flex-wrap items-end gap-2 pt-1"
-          onSubmit={(e) => {
-            e.preventDefault();
-            startTransition(async () => {
-              const r = await addSponsorMemberAction(sponsor.id, email);
-              setMemberNote({ ok: r.success, text: r.success ? "Member added." : (r.error ?? "Could not add.") });
-              if (r.success) {
-                setEmail("");
-                router.refresh();
-              }
-            });
-          }}
-        >
-          <label className="text-xs text-text-muted">
-            Add a member (the email of an existing account)
-            <Input className="mt-1 w-64" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} aria-label={`Member email for ${sponsor.displayName}`} />
-          </label>
-          <Button type="submit" variant="outline" disabled={pending}>
-            Add member
-          </Button>
-        </form>
-        <Feedback note={memberNote} />
       </section>
 
       <p className="text-xs text-text-muted">
@@ -202,7 +183,7 @@ export function SponsorsManager({ sponsors, logoMaxKb }: { sponsors: SponsorRow[
               setContact("");
               router.refresh();
             }
-            setNote({ ok: r.success, text: r.success ? "Sponsor created. Add its logo and a member below." : (r.error ?? "Could not create.") });
+            setNote({ ok: r.success, text: r.success ? "Sponsor organization created (it has no login). Add its logo below." : (r.error ?? "Could not create.") });
           });
         }}
       >
@@ -219,7 +200,7 @@ export function SponsorsManager({ sponsors, logoMaxKb }: { sponsors: SponsorRow[
           <Input className="mt-1 w-56" type="email" value={contact} onChange={(e) => setContact(e.target.value)} maxLength={254} />
         </label>
         <Button type="submit" disabled={pending}>
-          Create sponsor
+          Create sponsor without a login
         </Button>
         <Feedback note={note} />
       </form>
