@@ -5,7 +5,7 @@ import { computeMarketCategoryIds, type CategoryMappingRow } from "./category-ma
 import { compareDiscoveryMarkets, DEFAULT_SORT_POLICY, type SortCriterion, type SortDirection, type SortPolicy } from "./ordering";
 import { getFreshnessPolicy } from "./policy";
 import type { DiscoveryCategory, DiscoveryCategoryRef, DiscoveryMarketCard, DiscoveryMarketDetail } from "./types";
-import { isDetailReachable, isFeedEligible } from "./eligibility";
+import { isDetailReachable, isFeedEligible, presentedStatus } from "./eligibility";
 import { toDiscoveryMarketCard, toDiscoveryMarketDetail } from "./view-model";
 import { getPickAggregatesForMarkets } from "@/lib/predictions/repository";
 import { computePickSentiment } from "@/lib/predictions/sentiment";
@@ -323,16 +323,20 @@ export async function getDiscoveryFeed(categorySlug?: string): Promise<Discovery
  * that function's own header comment — so it's out of scope here).
  */
 export async function getMarketDetail(id: string): Promise<DiscoveryMarketDetail | null> {
-  const market = await getMarketById(id);
-  if (!market || !isDetailReachable(market)) return null;
+  const stored = await getMarketById(id);
+  if (!stored) return null;
 
   const [mappingRows, categories, freshnessPolicy, pickAggregates, teamsByFixture] = await Promise.all([
     listEnabledMappingRows(),
     listEnabledCategories(),
     getFreshnessPolicy(),
     getPickAggregatesForMarkets([id]),
-    listFixtureTeamNames([market.fixtureId]),
+    listFixtureTeamNames([stored.fixtureId]),
   ]);
+  const hasPicks = (pickAggregates.get(id)?.totalPickCount ?? 0) > 0;
+  if (!isDetailReachable(stored, hasPicks)) return null;
+  // A retired line that carries Picks is shown as closed (never open for new Picks); the stored row is untouched.
+  const market = { ...stored, status: presentedStatus(stored) };
   const categoryById = new Map(categories.map((c) => [c.id, toCategoryRef(c)]));
   const categoryIds = computeMarketCategoryIds(market.provider, market.categoryTags, mappingRows);
   const refs = categoryIds.map((cid) => categoryById.get(cid)).filter((c): c is DiscoveryCategoryRef => c != null);

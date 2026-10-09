@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isDetailReachable, isFeedEligible } from "@/lib/prediction-markets/discovery/eligibility";
+import { isDetailReachable, isFeedEligible, presentedStatus } from "@/lib/prediction-markets/discovery/eligibility";
 import type { MarketRecord } from "@/lib/prediction-markets/repository";
 
 function record(overrides: Partial<MarketRecord> = {}): MarketRecord {
@@ -68,5 +68,26 @@ describe("isDetailReachable", () => {
   it("is not reachable for INACTIVE/ARCHIVED — same as a nonexistent market", () => {
     expect(isDetailReachable(record({ status: "INACTIVE" }))).toBe(false);
     expect(isDetailReachable(record({ status: "ARCHIVED" }))).toBe(false);
+  });
+});
+
+describe("a retired line that carries Picks stays reachable (the provider moved Total 47.5 to 48.5)", () => {
+  it("INACTIVE/ARCHIVED with Picks is reachable; without Picks it is still not", () => {
+    for (const status of ["INACTIVE", "ARCHIVED"]) {
+      expect(isDetailReachable(record({ status }), true), status).toBe(true);
+      expect(isDetailReachable(record({ status }), false), status).toBe(false);
+      expect(isDetailReachable(record({ status })), status).toBe(false);
+    }
+  });
+
+  it("a market with no question is never reachable, Picks or not", () => {
+    expect(isDetailReachable(record({ status: "INACTIVE", question: " " }), true)).toBe(false);
+  });
+
+  it("is presented as CLOSED (never open for new Picks), and ordinary statuses are unchanged", () => {
+    expect(presentedStatus(record({ status: "INACTIVE" }))).toBe("CLOSED");
+    expect(presentedStatus(record({ status: "ARCHIVED" }))).toBe("CLOSED");
+    expect(presentedStatus(record({ status: "ACTIVE" }))).toBe("ACTIVE");
+    expect(presentedStatus(record({ status: "CLOSED" }))).toBe("CLOSED");
   });
 });
