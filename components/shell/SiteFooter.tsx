@@ -2,14 +2,16 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 // The footer every page ends with, signed in or out: the Rules, the Terms,
-// the Privacy policy and the copyright line. It lives at the very
+// the Privacy policy, the public Sponsorship page and the copyright line. It lives at the very
 // bottom of the page (below the feed), not in a sidebar, so it is the same
 // place on every screen size. The routes sit next to each other at the
-// top level (app/rules, app/terms, app/privacy) and need no account.
+// top level (app/rules, app/terms, app/privacy, app/sponsorship) and need no account.
+// Sponsor Terms are deliberately NOT here: they are linked from the Sponsorship page, Sponsor signup and the Sponsor area.
 export const FOOTER_LINKS = [
   { label: "Rules", href: "/rules" },
   { label: "Terms", href: "/terms" },
   { label: "Privacy", href: "/privacy" },
+  { label: "Sponsorship", href: "/sponsorship" },
 ] as const;
 
 export function SiteFooter({ className }: { className?: string }) {

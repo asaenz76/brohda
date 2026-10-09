@@ -96,6 +96,8 @@ test.describe("Post Conversation", () => {
       // and further down the page.
       await page.getByRole("button", { name: "Post" }).first().click();
       await expect(page.getByText("Agreed!")).toBeVisible();
+      // The reply appears at once (optimistically); reloading before the server has stored it would abort the request in flight. Wait until it is really saved.
+      await expect.poll(async () => (await admin.from("post_comments").select("id").eq("post_id", postId).eq("body", "Agreed!")).data?.length ?? 0, { timeout: 30_000 }).toBe(1);
 
       await page.reload();
       await expect(page.getByText("Let's go Home Test FC!")).toBeVisible();

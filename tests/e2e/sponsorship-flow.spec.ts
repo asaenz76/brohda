@@ -246,6 +246,26 @@ test("with Sponsored Game Posts OFF a sponsor can read their history but cannot 
   }
 });
 
+test("the public Sponsorship page follows the capability: a plain 'not open right now' notice when OFF, none when ON — and the call to action is the Sponsor signup either way", async ({ page }) => {
+  try {
+    await setEnabled(false);
+    await page.goto("/sponsorship");
+    await expect(page.locator('[data-slot="sponsorship-closed"]')).toContainText("not open right now");
+    await expect(page.getByText(/coming soon/i)).toHaveCount(0);
+    for (const cta of await page.getByRole("link", { name: "Become a Sponsor" }).all()) await expect(cta).toHaveAttribute("href", "/sponsor/signup");
+    // The Sponsor application itself is not a campaign: it still works while campaigns are closed (the account is reviewed first).
+    await page.getByRole("link", { name: "Become a Sponsor" }).first().click();
+    await expect(page.getByRole("button", { name: "Apply to sponsor" })).toBeVisible();
+
+    await setEnabled(true);
+    await page.goto("/sponsorship");
+    await expect(page.locator('[data-slot="sponsorship-closed"]')).toHaveCount(0);
+    for (const cta of await page.getByRole("link", { name: "Become a Sponsor" }).all()) await expect(cta).toHaveAttribute("href", "/sponsor/signup");
+  } finally {
+    await setEnabled(false);
+  }
+});
+
 test("the Super Admin settings page carries the Sponsored Game Posts switch, saves it, and audits it", async ({ page }) => {
   const superUser = await createUser("setsuper", "super_admin");
   await setEnabled(false);
@@ -429,7 +449,8 @@ test("Super Admin takes an assigned draft all the way — complete it, submit on
     await page.getByRole("button", { name: "Save draft" }).click();
     await expect(page.getByText("Draft saved.")).toBeVisible();
     await page.getByRole("button", { name: "Submit on the sponsor's behalf" }).click();
-    await expect(page.getByText(/Submitted on the sponsor's behalf/)).toBeVisible();
+    // The editor's own "Submitted on the sponsor's behalf" message is transient BY DESIGN: the submit refreshes the page and a submitted sponsorship is no longer
+    // editable, so the editor (and its message) unmounts. A slow CI runner could miss that flash, so the test asserts the durable result — the new state — instead.
 
     // Now submitted: pay and approve are there, and they work.
     await expect(page.getByRole("status").filter({ hasText: "Submitted — awaiting payment and review" })).toBeVisible();
@@ -471,7 +492,8 @@ test("pricing is Super Admin's: the sponsor sees the price but has no way to cha
 
     await loginAsSponsor(page, sponsorUser.email);
     await page.goto(`/sponsor/${sponsorshipId}`);
-    await expect(page.getByText("$1,999.50")).toBeVisible();
+    // The price is shown in the campaign's own Price row (the agreement panel repeats it from the same record, so scope to the row).
+    await expect(page.locator("dt", { hasText: /^Price$/ }).locator("xpath=following-sibling::dd[1]")).toContainText("$1,999.50");
     await expect(page.getByText("Set by Brohda — it can't be changed here.")).toBeVisible();
     // No control anywhere on the sponsor's page edits a price.
     await expect(page.getByRole("main").getByRole("textbox", { name: /price|amount|cost/i })).toHaveCount(0);
@@ -479,7 +501,7 @@ test("pricing is Super Admin's: the sponsor sees the price but has no way to cha
     await page.getByLabel("Destination link").fill("https://price.example.com");
     await page.getByRole("button", { name: "Submit for review" }).click();
     await expect(page.getByText("Submitted — awaiting payment and review")).toBeVisible();
-    await expect(page.getByText("$1,999.50")).toBeVisible(); // the Super Admin's price, not the inventory's $2,500.00
+    await expect(page.locator("dt", { hasText: /^Price$/ }).locator("xpath=following-sibling::dd[1]")).toContainText("$1,999.50"); // the Super Admin's price, not the inventory's $2,500.00
     const { data: row } = await admin.from("sponsorships").select("price_cents").eq("id", sponsorshipId).single();
     expect(row!.price_cents).toBe(199950);
   } finally {

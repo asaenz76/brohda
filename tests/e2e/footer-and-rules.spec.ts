@@ -1,5 +1,5 @@
 /**
- * E2E coverage for the shared page footer (Rules, Terms, Privacy, copyright)
+ * E2E coverage for the shared page footer (Rules, Terms, Privacy, Sponsorship, copyright)
  * at the very bottom of every page — logged out and logged in, at every width —
  * and for the Rules page: one canonical explanation of how Brohda works,
  * readable without an account (public frame) and inside the app shell when
@@ -45,7 +45,7 @@ async function expectFooterAtBottom(page: Page, label: string) {
   const footer = page.getByRole("contentinfo");
   await expect(footer, label).toBeVisible();
   const links = footer.getByRole("navigation", { name: "About and legal" }).getByRole("link");
-  await expect(links, label).toHaveText(["Rules", "Terms", "Privacy"]);
+  await expect(links, label).toHaveText(["Rules", "Terms", "Privacy", "Sponsorship"]);
   await expect(footer, label).toContainText(`© ${new Date().getFullYear()} Brohda`);
   // Scroll to the true end and check the footer is fully on screen there. The document can still be growing (crests loading,
   // a long timeline settling), so scroll again and re-measure until it holds, in one read each time.
@@ -195,7 +195,7 @@ test.describe("Rules page", () => {
     await expect(page.getByRole("article").locator("button, form, input, textarea, select")).toHaveCount(0);
   });
 
-  test("Terms and Privacy stay separate documents with their own chrome, and the old How it works address now lands on Rules", async ({ page }) => {
+  test("Terms and Privacy stay separate documents (with the same public header as Rules), and the old How it works address now lands on Rules", async ({ page }) => {
     for (const [path, heading] of [["/terms", "Terms of Service"], ["/privacy", "Privacy Policy"]] as const) {
       await page.goto(path);
       await expect(page.getByRole("heading", { level: 1, name: heading })).toBeVisible();

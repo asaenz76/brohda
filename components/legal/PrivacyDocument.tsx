@@ -16,7 +16,7 @@ import { byMode, byModeLazy, type LegalMoneyMode } from "@/lib/legal/money-mode"
 // Sections are numbered from the ones actually shown (the retained-only section shifts the later numbers), and every "Section N" is derived, never typed.
 // Wording flagged OWNER/COUNSEL REVIEW REQUIRED in docs/legal/TERMS_PRIVACY_OWNER_COUNSEL_REVIEW.md is unchanged in `active`.
 
-type SectionId = "collect" | "nocollect" | "use" | "visible" | "records" | "providers" | "retention" | "security" | "children" | "choices" | "cookies" | "changes" | "contact";
+type SectionId = "collect" | "nocollect" | "use" | "visible" | "records" | "sponsors" | "providers" | "retention" | "security" | "children" | "choices" | "cookies" | "changes" | "contact";
 type Ref = (id: SectionId) => string;
 
 interface SectionDef {
@@ -195,6 +195,51 @@ const SECTIONS: readonly SectionDef[] = [
     ),
   },
   {
+    id: "sponsors",
+    title: "Sponsor accounts and sponsorships",
+    modes: ALL,
+    body: () => (
+      <>
+        <p>
+          <strong>DRAFT — pending owner and counsel review.</strong> This section describes how we handle information about businesses that
+          apply for, or hold, a Sponsor account. A Sponsor account is separate from a Member account: it has no Member profile and cannot
+          make Picks, comment, Call BS, or use any other Member feature.
+        </p>
+        <p>
+          <strong>What we collect from Sponsors.</strong> The business email used to sign in; a password (handled by our authentication
+          provider, not stored in readable form by us); the brand or company name; the contact person&apos;s name; and, if you choose to give
+          them, a website, country, phone or WhatsApp number, and a logo. We also keep the status of the application and account (pending,
+          approved, not approved, suspended or disabled), the reason given for a decision, the time of each decision, and internal review
+          notes. For each sponsorship we keep the Game it is attached to, the campaign name, the text and links you provide, any sponsor-run
+          promotion details, the agreed price and schedule, the commercial records an administrator enters (such as a payment reference or a
+          refund record), a record of the Sponsor terms you accept (which version, and when), and an audit trail of who did what and when.
+          We do not collect card or bank credentials: sponsorship payments are arranged and confirmed outside the App and recorded by an
+          administrator.
+        </p>
+        <p>
+          <strong>What is public and what is private.</strong> Your brand name and logo, and the approved campaign text, call-to-action,
+          destination link and any approved promotion details, are shown to Members on the sponsored Game Post, clearly labeled as sponsored.
+          Your website and country are not shown publicly unless they are part of that approved campaign content. Your sign-in email, the
+          contact person&apos;s name, phone number, internal review notes, commercial records and audit records are not public: they are visible
+          only to you (your own) and to authorized administrators.
+        </p>
+        <p>
+          <strong>Measurement.</strong> For each sponsored placement we count when a signed-in Member has seen it and when a Member follows its
+          link. These are counts attached to the campaign and are used internally to operate and review sponsorships. Sponsors do not
+          currently receive a reporting dashboard, and Sponsors never receive information about individual Members.
+        </p>
+        <p>
+          Following a sponsor&apos;s link leaves the App; the sponsor&apos;s own privacy practices apply from there. To ask about the information
+          we hold for a Sponsor account, contact us at{" "}
+          <a href="mailto:support@brohda.com" className="underline underline-offset-4">
+            support@brohda.com
+          </a>
+          .
+        </p>
+      </>
+    ),
+  },
+  {
     id: "providers",
     title: "Third-party services we use",
     modes: ALL,
@@ -357,7 +402,7 @@ export function privacySectionIds(mode: LegalMoneyMode): SectionId[] {
   return SECTIONS.filter((s) => s.modes.includes(mode)).map((s) => s.id);
 }
 
-export function PrivacyDocument({ mode }: { mode: LegalMoneyMode }) {
+export function PrivacyDocument({ mode, accountNav }: { mode: LegalMoneyMode; accountNav?: ReactNode }) {
   const shown = SECTIONS.filter((s) => s.modes.includes(mode));
   const numbers = new Map(shown.map((s, i) => [s.id, i + 1]));
   // A reference to a hidden section is a bug, never silently rendered as a wrong number.
@@ -367,7 +412,7 @@ export function PrivacyDocument({ mode }: { mode: LegalMoneyMode }) {
     return String(n);
   };
   return (
-    <LegalPage title="Privacy Policy" effectiveDate={LEGAL_DOCUMENTS.privacy.effectiveDate}>
+    <LegalPage title="Privacy Policy" effectiveDate={LEGAL_DOCUMENTS.privacy.effectiveDate} accountNav={accountNav}>
       <section>
         <p>
           This Privacy Policy describes how <strong>brohda</strong> (&quot;we&quot;,

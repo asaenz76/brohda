@@ -39,6 +39,13 @@ export function SponsorShell({ session, children }: { session: SponsorSession; c
         </nav>
       </header>
       <main className="mx-auto w-full max-w-3xl px-4 py-4">{children}</main>
+      <footer className="mx-auto w-full max-w-3xl border-t border-border-subtle px-4 py-4">
+        <nav aria-label="Sponsor legal" className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted">
+          <Link href="/sponsor/terms" className="underline-offset-4 hover:text-text-primary hover:underline">Sponsor Terms</Link>
+          <Link href="/sponsorship" className="underline-offset-4 hover:text-text-primary hover:underline">About sponsorship</Link>
+          <Link href="/privacy" className="underline-offset-4 hover:text-text-primary hover:underline">Privacy</Link>
+        </nav>
+      </footer>
     </div>
   );
 }

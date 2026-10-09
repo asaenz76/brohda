@@ -22,6 +22,7 @@ import { getTestDatabaseUrl } from "./test-env";
 
 // Transient domain state created by tests. (Order is irrelevant under session_replication_role = replica.)
 const TRANSIENT_TABLES = [
+  "sponsorship_agreement_acceptances",
   "sponsorship_exposure_events",
   "sponsorship_approvals",
   "sponsorship_payment_events",

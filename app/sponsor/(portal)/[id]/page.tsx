@@ -4,7 +4,9 @@ import { ColumnHeader } from "@/components/shell/ColumnHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { LocalDateTime } from "@/components/LocalDateTime";
 import { isSponsorshipEnabled } from "@/lib/sponsorship/capability";
-import { getPaymentEventsForSponsorship, getSponsorshipForUser } from "@/lib/sponsorship/repository";
+import { getPaymentEventsForSponsorship, getSponsorshipForUser, listAgreementAcceptances } from "@/lib/sponsorship/repository";
+import { AgreementPanel } from "@/components/sponsorship/AgreementPanel";
+import { CURRENT_MEDIA_AGREEMENT } from "@/lib/sponsor/terms";
 import { getSponsorshipConfig } from "@/lib/sponsorship/settings";
 import { formatCommercialAmount, PAYMENT_STATUS_LABEL, sponsorCanEdit, sponsorStatusCopy } from "@/lib/sponsorship/format";
 import { SponsorshipEditor, type EditorValues } from "@/components/sponsorship/SponsorshipEditor";
@@ -16,7 +18,7 @@ export default async function SponsorshipDetailPage({ params }: { params: Promis
   const { id } = await params;
   const s = await getSponsorshipForUser(session.userId, id);
   if (!s) notFound();
-  const [enabled, config, events] = await Promise.all([isSponsorshipEnabled(), getSponsorshipConfig(), getPaymentEventsForSponsorship(id)]);
+  const [enabled, config, events, acceptances] = await Promise.all([isSponsorshipEnabled(), getSponsorshipConfig(), getPaymentEventsForSponsorship(id), listAgreementAcceptances(id)]);
   const copy = sponsorStatusCopy(s);
   const editable = enabled && session.sponsor.status === "ACTIVE" && sponsorCanEdit(s);
   const initial: EditorValues = {
@@ -93,10 +95,12 @@ export default async function SponsorshipDetailPage({ params }: { params: Promis
         </CardContent>
       </Card>
 
+      <AgreementPanel s={s} acceptances={acceptances} />
+
       {editable ? (
         <Card>
           <CardContent className="pt-6">
-            <SponsorshipEditor sponsorshipId={s.id} sponsorId={s.sponsorId} initial={initial} logoUrl={s.logoUrl} logoMaxKb={Math.round(config.logoMaxBytes / 1024)} canCancel={s.paymentStatus !== "PAID"} />
+            <SponsorshipEditor sponsorshipId={s.id} sponsorId={s.sponsorId} initial={initial} logoUrl={s.logoUrl} logoMaxKb={Math.round(config.logoMaxBytes / 1024)} canCancel={s.paymentStatus !== "PAID"} agreement={CURRENT_MEDIA_AGREEMENT ? { title: CURRENT_MEDIA_AGREEMENT.title, version: CURRENT_MEDIA_AGREEMENT.version, href: CURRENT_MEDIA_AGREEMENT.href } : null} />
           </CardContent>
         </Card>
       ) : (

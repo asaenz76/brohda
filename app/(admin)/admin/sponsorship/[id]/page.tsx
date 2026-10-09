@@ -3,9 +3,11 @@ import { notFound } from "next/navigation";
 import { randomUUID } from "node:crypto";
 import { requireSuperAdmin } from "@/lib/auth/session";
 import { LocalDateTime } from "@/components/LocalDateTime";
-import { getPaymentEventsForSponsorship, getSponsorshipForAdmin, listApprovalSnapshots, listSponsorshipAudit } from "@/lib/sponsorship/repository";
+import { getPaymentEventsForSponsorship, getSponsorshipForAdmin, listApprovalSnapshots, listAgreementAcceptances, listSponsorshipAudit } from "@/lib/sponsorship/repository";
 import { formatCommercialAmount, PAYMENT_STATUS_LABEL, sponsorStatusCopy } from "@/lib/sponsorship/format";
 import { AdminSponsorshipActions } from "./admin-actions";
+import { AgreementPanel } from "@/components/sponsorship/AgreementPanel";
+import { RefundGuidance } from "@/components/sponsorship/RefundGuidance";
 import { SponsorshipEditor, type EditorValues } from "@/components/sponsorship/SponsorshipEditor";
 import { getSponsorshipConfig } from "@/lib/sponsorship/settings";
 import { sponsorCanEdit } from "@/lib/sponsorship/format";
@@ -28,7 +30,7 @@ export default async function AdminSponsorshipDetailPage({ params }: { params: P
   const { id } = await params;
   const s = await getSponsorshipForAdmin(id);
   if (!s) notFound();
-  const [events, audit, approvals] = await Promise.all([getPaymentEventsForSponsorship(id), listSponsorshipAudit(id), listApprovalSnapshots(id)]);
+  const [events, audit, approvals, acceptances] = await Promise.all([getPaymentEventsForSponsorship(id), listSponsorshipAudit(id), listApprovalSnapshots(id), listAgreementAcceptances(id)]);
   const copy = sponsorStatusCopy(s);
   const config = await getSponsorshipConfig();
   const editable = sponsorCanEdit(s);
@@ -94,6 +96,10 @@ export default async function AdminSponsorshipDetailPage({ params }: { params: P
           <SponsorshipEditor mode="admin" sponsorshipId={s.id} sponsorId={s.sponsorId} initial={initial} logoUrl={s.logoUrl} logoMaxKb={Math.round(config.logoMaxBytes / 1024)} canCancel={false} />
         </section>
       )}
+
+      <RefundGuidance s={s} />
+
+      <AgreementPanel s={s} acceptances={acceptances} bySuperAdmin />
 
       <AdminSponsorshipActions
         id={s.id}

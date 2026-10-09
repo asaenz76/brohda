@@ -5,6 +5,7 @@ import { getRulesPolicy } from "@/lib/rules/policy";
 import { RulesContent } from "@/components/rules/RulesContent";
 import { AuthenticatedPage } from "@/components/shell/AuthenticatedPage";
 import { PublicPageFrame } from "@/components/shell/PublicPageFrame";
+import { publicAccountNav } from "@/components/shell/PublicAccountNav";
 import { ColumnHeader } from "@/components/shell/ColumnHeader";
 
 export const metadata: Metadata = {
@@ -36,7 +37,7 @@ export default async function RulesPage() {
   }
 
   return (
-    <PublicPageFrame>
+    <PublicPageFrame accountNav={await publicAccountNav()}>
       <article className="space-y-6">
         <h1 className="text-2xl font-bold tracking-tight text-text-primary">Brohda Rules</h1>
         <RulesContent policy={policy} />
