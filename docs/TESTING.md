@@ -306,3 +306,10 @@ each caller remembering to set it up.
   on for your spec — seed deterministic local fixtures/pools directly via
   the guarded admin client instead (see `scripts/seed-dev-grading.ts` for
   the same deterministic-fixture-ID pattern applied to dev seeding).
+
+## Sponsor identity
+
+* `tests/integration/sponsor-identity.test.ts` — the MEMBER xor SPONSOR invariant in the real database (A–G: Sponsor can't get a profile, Member can't get a sponsor account, immutable type, direct typing conflicts, orphan accounts not auto-classified, email exclusivity, concurrent Member/Sponsor creation), status-gated commercial access, Super Admin-only status changes, cross-Sponsor isolation, the public payload's private fields, terms acceptance.
+* `tests/integration/sponsor-session-isolation.test.ts` — a real Sponsor session against the real Member server actions and guards (every one redirects to `/sponsor` and writes nothing; a Member still works).
+* `tests/unit/auth/account-routing.test.ts`, `tests/unit/sponsorship/sponsor-account.test.ts` — routing table, signup validation, status copy.
+* `tests/e2e/sponsor-identity.spec.ts` — real signup with email verification read from the local mail catcher (Mailpit, `http://127.0.0.1:54324`; override with `E2E_MAIL_URL`), pending state, routing both directions, neutral email messages, Super Admin queue. It runs in the default `chromium` project; local `supabase/config.toml` has `enable_confirmations = true` (the e2e flow needs it).

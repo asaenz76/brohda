@@ -5,7 +5,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { getTestAdminClient, getTestAnonClient } from "./helpers/test-env";
-import { seedGame, seedUser } from "./helpers/game-seed";
+import { seedGame, seedSponsorAccount, seedUser } from "./helpers/game-seed";
 import { loadPublicSponsorships, resolveActiveSponsorshipTarget } from "@/lib/sponsorship/public";
 import { isSponsorshipEnabled } from "@/lib/sponsorship/capability";
 
@@ -49,11 +49,8 @@ async function superAdmin() {
 }
 
 async function makeSponsor(name = "Acme") {
-  const userId = await seedUser(`sponsor-${name}`);
-  const { data: sponsor, error } = await admin.from("sponsors").insert({ display_name: name, logo_path: `${randomUUID()}/logo.webp` }).select("id").single();
-  if (error || !sponsor) throw error;
-  await admin.from("sponsor_users").insert({ sponsor_id: sponsor.id, user_id: userId });
-  return { sponsorId: sponsor.id as string, userId };
+  const { userId, sponsorId } = await seedSponsorAccount(name);
+  return { sponsorId, userId };
 }
 
 /** A published Game Post (one Game, one Post) and sponsorable GLOBAL inventory for it. */
@@ -496,7 +493,7 @@ describe("authorization and isolation", () => {
 
     const member = await seedUser("plainmember");
     const asMember = await clientFor(member);
-    for (const table of ["sponsors", "sponsor_users", "sponsorships", "sponsorship_inventory", "sponsorship_payment_events", "sponsorship_approvals", "sponsorship_exposure_events", "audit_logs"]) {
+    for (const table of ["sponsors", "sponsor_accounts", "sponsor_terms_acceptances", "sponsorships", "sponsorship_inventory", "sponsorship_payment_events", "sponsorship_approvals", "sponsorship_exposure_events", "audit_logs"]) {
       const r = await asMember.from(table).select("*");
       expect(r.data ?? [], table).toEqual([]);
     }
@@ -987,10 +984,11 @@ describe("public data boundary, one Post, and what is NOT built", () => {
     await pay(adminId, s.id);
     await approve(adminId, s.id);
     await ok("admin_suspend_sponsorship", { p_admin_id: adminId, p_id: s.id, p_reason: "audit" });
-    const { data: logs } = await admin.from("audit_logs").select("actor_id, action, before, after, reason").eq("entity_type", "sponsorship").eq("entity_id", s.id).order("created_at");
+    const { data: logs } = await admin.from("audit_logs").select("actor_id, actor_account_id, action, before, after, reason").eq("entity_type", "sponsorship").eq("entity_id", s.id).order("created_at");
     const byAction = Object.fromEntries(logs!.map((l) => [l.action, l]));
-    expect(byAction["sponsorship.created"].actor_id).toBe(sponsor.userId);
-    expect(byAction["sponsorship.submitted"].actor_id).toBe(sponsor.userId);
+    // A Sponsor has no member profile, so it is attributed through actor_account_id (its auth user), not actor_id.
+    expect(byAction["sponsorship.created"]).toMatchObject({ actor_id: null, actor_account_id: sponsor.userId });
+    expect(byAction["sponsorship.submitted"]).toMatchObject({ actor_id: null, actor_account_id: sponsor.userId });
     expect(byAction["sponsorship.payment_confirmed"]).toMatchObject({ actor_id: adminId });
     expect(byAction["sponsorship.approved"].before.reviewStatus).toBe("PENDING");
     expect(byAction["sponsorship.approved"].after.reviewStatus).toBe("APPROVED");

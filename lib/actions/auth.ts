@@ -7,6 +7,8 @@ import { checkLoginRateLimit } from "@/lib/rate-limit/login";
 import { checkRegisterRateLimit } from "@/lib/rate-limit/register";
 import { loginHrefFor, sanitizeNextPath } from "@/lib/auth/safe-next";
 import { recordLegalAcceptance } from "@/lib/legal/acceptance";
+import { isSponsorArea, SPONSOR_HOME } from "@/lib/auth/account-routing";
+import { typeAccountAsMember } from "@/lib/auth/member-account";
 import { getRegistrationEnabled } from "@/lib/settings/registration";
 import { loginSchema, registerSchema } from "@/lib/validations/profile";
 
@@ -31,14 +33,19 @@ export async function loginAction(
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword(parsed.data);
+  const { data: signedIn, error } = await supabase.auth.signInWithPassword(parsed.data);
 
   if (error) {
     return { error: "Invalid email or password." };
   }
 
-  // Back to the page they were sent from — only ever a safe internal path; anything else (or nothing) means /feed.
-  redirect(sanitizeNextPath(formData.get("next")) ?? "/feed");
+  // One login page for everyone: a Sponsor who signs in here lands in the Sponsor area, never in the Member product.
+  const { data: typeRow } = await createAdminClient().from("account_types").select("account_type").eq("user_id", signedIn.user.id).maybeSingle();
+  if (typeRow?.account_type === "SPONSOR") redirect(SPONSOR_HOME);
+
+  // Back to the page they were sent from — only ever a safe internal path outside the Sponsor area; anything else (or nothing) means /feed.
+  const next = sanitizeNextPath(formData.get("next"));
+  redirect(next && !isSponsorArea(next) ? next : "/feed");
 }
 
 export async function logoutAction() {
@@ -159,6 +166,14 @@ export async function registerAction(
         ? "An account with this email already exists."
         : "Could not create your account.",
     };
+  }
+
+  // Explicitly a MEMBER account, before its profile exists (idempotent; the database also refuses a profile for anything that isn't a Member).
+  try {
+    await typeAccountAsMember(adminClient, created.user.id);
+  } catch {
+    await adminClient.auth.admin.deleteUser(created.user.id);
+    return { error: "Could not finish setting up your account." };
   }
 
   const { error: profileError } = await adminClient.from("user_profiles").insert({

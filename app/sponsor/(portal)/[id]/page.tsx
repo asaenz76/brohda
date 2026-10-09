@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requireUser } from "@/lib/auth/session";
+import { requireSponsorAccount } from "@/lib/sponsor/session";
 import { ColumnHeader } from "@/components/shell/ColumnHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { LocalDateTime } from "@/components/LocalDateTime";
@@ -7,18 +7,18 @@ import { isSponsorshipEnabled } from "@/lib/sponsorship/capability";
 import { getPaymentEventsForSponsorship, getSponsorshipForUser } from "@/lib/sponsorship/repository";
 import { getSponsorshipConfig } from "@/lib/sponsorship/settings";
 import { formatCommercialAmount, PAYMENT_STATUS_LABEL, sponsorCanEdit, sponsorStatusCopy } from "@/lib/sponsorship/format";
-import { SponsorshipEditor, type EditorValues } from "./sponsorship-editor";
+import { SponsorshipEditor, type EditorValues } from "@/components/sponsorship/SponsorshipEditor";
 
 // One sponsorship, for a member of the sponsor that owns it (anyone else gets not-found, indistinguishable from a missing one). The sponsor sees status,
 // the price Brohda set, and payment state — it can edit while editable, submit, and cancel before money. It can never approve, price, mark paid or activate.
 export default async function SponsorshipDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await requireUser();
+  const session = await requireSponsorAccount();
   const { id } = await params;
-  const s = await getSponsorshipForUser(user.id, id);
+  const s = await getSponsorshipForUser(session.userId, id);
   if (!s) notFound();
   const [enabled, config, events] = await Promise.all([isSponsorshipEnabled(), getSponsorshipConfig(), getPaymentEventsForSponsorship(id)]);
   const copy = sponsorStatusCopy(s);
-  const editable = enabled && sponsorCanEdit(s);
+  const editable = enabled && session.sponsor.status === "ACTIVE" && sponsorCanEdit(s);
   const initial: EditorValues = {
     campaignName: s.campaignName,
     presentedBy: s.presentedBy ?? "",

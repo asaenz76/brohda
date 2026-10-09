@@ -422,3 +422,15 @@ real-money P2P additionally requires a legal/compliance review this
 milestone does not and cannot provide (licensing, KYC, AML, jurisdictional
 eligibility — none of that is assessed here). Do not flip `monetary_p2p_
 enabled` to `true` in production without that separate review.
+
+## Sponsor accounts: Supabase Auth settings (one-time, owner)
+
+Sponsor signup relies on **real email verification**; Members do not (the server creates them already confirmed), so enabling it changes nothing for Members.
+
+1. Supabase dashboard → Authentication → Sign In / Providers → **Email → Confirm email: ON**.
+2. Authentication → URL Configuration → add `https://brohda.com/sponsor/verified` to **Redirect URLs**.
+3. Confirm the Auth SMTP sender is configured (the same one password-reset mail already uses).
+
+The app fails closed if (1) is missed: `/sponsor/signup` refuses and removes the login it just created. Local development uses `enable_confirmations = true` in `supabase/config.toml`; verification mail is read from Mailpit (`http://127.0.0.1:54324`).
+
+Migrations `185` (new `sponsor_status` values) and `186` (account types, sponsor accounts, triggers, retire `sponsor_users`) apply in order with `supabase db push`. `186` refuses to run if `sponsor_users` still contains any link — verify with `select count(*) from public.sponsor_users` first (production: 0).

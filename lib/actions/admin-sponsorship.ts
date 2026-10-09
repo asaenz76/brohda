@@ -9,7 +9,7 @@ import { writeAuditLog } from "@/lib/audit/log";
 import { callSponsorshipFunction } from "@/lib/sponsorship/repository";
 import { SponsorshipError } from "@/lib/sponsorship/errors";
 import { draftToDbFields, inventorySchema, promotionProblems, sponsorshipDraftSchema, type SponsorshipDraftInput } from "@/lib/sponsorship/validation";
-import { notifySponsorMembers } from "@/lib/sponsorship/notify";
+import { notifySponsorAccount } from "@/lib/sponsorship/notify";
 
 // Super Admin sponsorship actions. Every one begins with requireSuperAdmin() (an `admin`-role user is NOT enough: this is commercial authority) and then
 // calls a database function that re-checks the actor itself. Approval is an explicit human action here — there is no webhook, payment or schedule path
@@ -29,7 +29,7 @@ function revalidateAll(id?: string) {
 async function run(id: string, fn: string, args: Record<string, unknown>, notify?: { subject: string; lines: string[] }): Promise<AdminSponsorshipResult> {
   try {
     const row = await callSponsorshipFunction(fn, args);
-    if (notify) await notifySponsorMembers(row.sponsor_id, notify.subject, notify.lines);
+    if (notify) await notifySponsorAccount(row.sponsor_id, notify.subject, notify.lines);
     revalidateAll(id);
     return { success: true, error: null, id };
   } catch (error) {
@@ -115,65 +115,48 @@ export async function cancelSponsorshipByAdminAction(id: string, reason: string)
 
 // --- sponsors (organizations) ---------------------------------------------------------------------------------------------------------------------
 
+/**
+ * Records a Sponsor ORGANIZATION that has no login (a business Super Admin deals with offline — e.g. a pre-existing paid sponsor). It is ACTIVE immediately
+ * because Super Admin is creating it directly. It has no account, so nobody can sign in as it; Super Admin manages its sponsorships from the admin panel.
+ */
 export async function createSponsorAction(raw: { displayName: string; legalName?: string; contactEmail?: string }): Promise<AdminSponsorshipResult> {
   const admin = await requireSuperAdmin();
   const parsed = z.object({ displayName: z.string().trim().min(1).max(80), legalName: z.string().trim().max(160).optional(), contactEmail: z.string().trim().max(254).optional() }).safeParse(raw);
   if (!parsed.success) return { success: false, error: "Enter the sponsor's display name." };
   const db = createAdminClient();
-  const { data, error } = await db.from("sponsors").insert({ display_name: parsed.data.displayName, legal_name: parsed.data.legalName || null, contact_email: parsed.data.contactEmail || null, created_by: admin.id }).select("id").single();
+  const { data, error } = await db.from("sponsors").insert({ display_name: parsed.data.displayName, legal_name: parsed.data.legalName || null, contact_email: parsed.data.contactEmail || null, created_by: admin.id, status: "ACTIVE" }).select("id").single();
   if (error || !data) return { success: false, error: "Could not create the sponsor." };
   await writeAuditLog({ actorId: admin.id, action: "sponsor.created", entityType: "sponsor", entityId: data.id, after: { displayName: parsed.data.displayName } });
   revalidatePath("/admin/sponsorship/sponsors");
   return { success: true, error: null, id: data.id };
 }
 
-export async function setSponsorStatusAction(sponsorId: string, status: string): Promise<AdminSponsorshipResult> {
+/**
+ * Super Admin decides a Sponsor ACCOUNT's status — a different gate from approving any single sponsorship. ACTIVE (activate / restore), REJECTED, SUSPENDED and
+ * DISABLED are applied by one audited database function that checks Super Admin itself, validates the transition and requires a reason for anything but ACTIVE.
+ * The Sponsor is told by email; the reason is shown to the Sponsor, the internal note never is.
+ */
+export async function setSponsorStatusAction(sponsorId: string, status: string, reason?: string, internalNote?: string): Promise<AdminSponsorshipResult> {
   const admin = await requireSuperAdmin();
-  if (!idSchema.safeParse(sponsorId).success || !["ACTIVE", "SUSPENDED", "DISABLED"].includes(status)) return { success: false, error: "Invalid sponsor status." };
+  if (!idSchema.safeParse(sponsorId).success || !["ACTIVE", "REJECTED", "SUSPENDED", "DISABLED"].includes(status)) return { success: false, error: "Invalid sponsor status." };
+  const cleanReason = (reason ?? "").trim().slice(0, 1000);
+  if (status !== "ACTIVE" && !cleanReason) return { success: false, error: "Give a reason — the Sponsor will see it." };
   const db = createAdminClient();
-  const { data: before } = await db.from("sponsors").select("status").eq("id", sponsorId).maybeSingle();
-  if (!before) return { success: false, error: "Sponsor not found." };
-  if (before.status === status) return { success: true, error: null, id: sponsorId };
-  const { error } = await db.from("sponsors").update({ status }).eq("id", sponsorId);
-  if (error) return { success: false, error: "Could not update the sponsor." };
-  await writeAuditLog({ actorId: admin.id, action: "sponsor.status_changed", entityType: "sponsor", entityId: sponsorId, before: { status: before.status }, after: { status } });
-  revalidatePath("/admin/sponsorship/sponsors");
-  return { success: true, error: null, id: sponsorId };
-}
-
-/** Links an existing account (by email) to a sponsor as a member. The person then signs in normally and sees /sponsor. */
-export async function addSponsorMemberAction(sponsorId: string, email: string): Promise<AdminSponsorshipResult> {
-  const admin = await requireSuperAdmin();
-  const wanted = email.trim().toLowerCase();
-  if (!idSchema.safeParse(sponsorId).success || !z.string().email().safeParse(wanted).success) return { success: false, error: "Enter the member's account email." };
-  const db = createAdminClient();
-  // Find the auth user by email (paged lookup; sponsor membership is a rare admin action).
-  let userId: string | null = null;
-  for (let page = 1; page <= 50 && !userId; page++) {
-    const { data } = await db.auth.admin.listUsers({ page, perPage: 200 });
-    userId = data?.users.find((u) => u.email?.toLowerCase() === wanted)?.id ?? null;
-    if (!data || data.users.length < 200) break;
+  const { error } = await db.rpc("admin_set_sponsor_status", { p_admin_id: admin.id, p_sponsor_id: sponsorId, p_status: status, p_reason: cleanReason || null, p_internal_note: (internalNote ?? "").trim().slice(0, 2000) || null });
+  if (error) {
+    if (error.message.includes("invalid_transition")) return { success: false, error: "That change isn't allowed from the sponsor's current status." };
+    if (error.message.includes("sponsor_not_found")) return { success: false, error: "Sponsor not found." };
+    return { success: false, error: "Could not update the sponsor." };
   }
-  if (!userId) return { success: false, error: "No account with that email. They need to sign up (or be invited) first." };
-  const { data: profile } = await db.from("user_profiles").select("id, display_name").eq("id", userId).maybeSingle();
-  if (!profile) return { success: false, error: "That account has no Brohda profile yet — they need to finish signing up first." };
-  const { data: existing } = await db.from("sponsor_users").select("user_id").eq("sponsor_id", sponsorId).eq("user_id", userId).maybeSingle();
-  if (existing) return { success: true, error: null, id: sponsorId };
-  const { error } = await db.from("sponsor_users").insert({ sponsor_id: sponsorId, user_id: userId });
-  if (error) return { success: false, error: "Could not add the member." };
-  await writeAuditLog({ actorId: admin.id, action: "sponsor.member_added", entityType: "sponsor", entityId: sponsorId, after: { userId } });
+  const copy: Record<string, { subject: string; lines: string[] }> = {
+    ACTIVE: { subject: "Your Sponsor account is approved", lines: ["Brohda approved your Sponsor account. You can now sign in and browse the Games available to sponsor."] },
+    REJECTED: { subject: "Your Sponsor application", lines: ["Brohda couldn't approve your Sponsor application.", `Reason: ${cleanReason}`] },
+    SUSPENDED: { subject: "Your Sponsor account was suspended", lines: ["Brohda suspended your Sponsor account. You can sign in to see its status.", `Reason: ${cleanReason}`] },
+    DISABLED: { subject: "Your Sponsor account was disabled", lines: ["Brohda disabled your Sponsor account.", `Reason: ${cleanReason}`] },
+  };
+  await notifySponsorAccount(sponsorId, copy[status].subject, copy[status].lines);
   revalidatePath("/admin/sponsorship/sponsors");
-  return { success: true, error: null, id: sponsorId };
-}
-
-export async function removeSponsorMemberAction(sponsorId: string, userId: string): Promise<AdminSponsorshipResult> {
-  const admin = await requireSuperAdmin();
-  if (!idSchema.safeParse(sponsorId).success || !idSchema.safeParse(userId).success) return { success: false, error: "Member not found." };
-  const db = createAdminClient();
-  const { error } = await db.from("sponsor_users").delete().eq("sponsor_id", sponsorId).eq("user_id", userId);
-  if (error) return { success: false, error: "Could not remove the member." };
-  await writeAuditLog({ actorId: admin.id, action: "sponsor.member_removed", entityType: "sponsor", entityId: sponsorId, before: { userId } });
-  revalidatePath("/admin/sponsorship/sponsors");
+  revalidatePath("/sponsor");
   return { success: true, error: null, id: sponsorId };
 }
 

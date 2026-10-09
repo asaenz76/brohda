@@ -1,48 +1,52 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
-import { requireUser } from "@/lib/auth/session";
 import { ColumnHeader } from "@/components/shell/ColumnHeader";
 import { Card, CardContent } from "@/components/ui/card";
-import { isSponsorshipEnabled } from "@/lib/sponsorship/capability";
-import { listSponsorsForUser, listSponsorshipsForSponsor } from "@/lib/sponsorship/repository";
-import { formatCommercialAmount, sponsorStatusCopy } from "@/lib/sponsorship/format";
 import { LocalDateTime } from "@/components/LocalDateTime";
+import { requireSponsorAccount } from "@/lib/sponsor/session";
+import { sponsorAccountStatusCopy } from "@/lib/sponsor/status";
+import { isSponsorshipEnabled } from "@/lib/sponsorship/capability";
+import { listSponsorshipsForSponsor } from "@/lib/sponsorship/repository";
+import { formatCommercialAmount, sponsorStatusCopy } from "@/lib/sponsorship/format";
 
-// The sponsor's home: only for members of a sponsor organization (anyone else gets the ordinary not-found — the area is not advertised). It shows only that
-// sponsor's own sponsorships. With the capability OFF it is read-only history: no way to start or submit anything.
+// The Sponsor's home. It always shows where the ACCOUNT stands (under review / approved / not approved / suspended / disabled) and only that sponsor's own
+// sponsorships. Browsing Games and starting a sponsorship need an ACTIVE account AND the sponsorship capability being on.
 export default async function SponsorHomePage() {
-  const user = await requireUser();
-  const sponsors = await listSponsorsForUser(user.id);
-  if (sponsors.length === 0) notFound();
-  const enabled = await isSponsorshipEnabled();
-  const groups = await Promise.all(sponsors.map(async (sponsor) => ({ sponsor, sponsorships: await listSponsorshipsForSponsor(sponsor.id) })));
+  const { sponsor } = await requireSponsorAccount();
+  const copy = sponsorAccountStatusCopy(sponsor.status, sponsor.statusReason);
+  const [enabled, sponsorships] = await Promise.all([isSponsorshipEnabled(), listSponsorshipsForSponsor(sponsor.id)]);
 
   return (
     <div className="space-y-3">
-      <ColumnHeader title="Sponsorships" backHref="/feed" />
-      {!enabled && (
+      <ColumnHeader title="Sponsor dashboard" />
+      <div role="status" className="space-y-1 rounded-lg border border-border-subtle p-3" data-slot="sponsor-account-status">
+        <p className="text-sm font-semibold text-text-primary">{copy.label}</p>
+        <p className="text-sm text-text-secondary">{copy.detail}</p>
+        {copy.canEditProfile && (
+          <Link href="/sponsor/profile" className="inline-block pt-1 text-sm font-medium text-accent-primary hover:underline">
+            {sponsor.status === "PENDING_REVIEW" ? "Complete your profile" : "Edit your profile"}
+          </Link>
+        )}
+      </div>
+      {copy.commercialAccess && !enabled && (
         <p role="status" className="rounded-lg border border-border-subtle p-3 text-sm text-text-secondary">
           Sponsored Game Posts aren&apos;t open right now. Your existing sponsorships are listed below; new ones can&apos;t be started or submitted.
         </p>
       )}
-      {enabled && (
+      {copy.commercialAccess && enabled && (
         <Link href="/sponsor/games" className="inline-flex rounded-md bg-accent-primary px-3 py-2 text-sm font-medium text-white hover:opacity-90">
           Browse available Games
         </Link>
       )}
-      {groups.map(({ sponsor, sponsorships }) => (
-        <Card key={sponsor.id}>
+      {(copy.commercialAccess || sponsorships.length > 0) && (
+        <Card>
           <CardContent className="space-y-3 pt-6">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-base font-semibold text-text-primary">{sponsor.displayName}</h2>
-              {sponsor.status !== "ACTIVE" && <span className="text-xs font-medium text-warning-muted">Account {sponsor.status.toLowerCase()}</span>}
-            </div>
+            <h2 className="text-base font-semibold text-text-primary">Your sponsorships</h2>
             {sponsorships.length === 0 ? (
               <p className="text-sm text-text-secondary">No sponsorships yet.</p>
             ) : (
               <ul className="divide-y divide-border-subtle">
                 {sponsorships.map((s) => {
-                  const copy = sponsorStatusCopy(s);
+                  const status = sponsorStatusCopy(s);
                   return (
                     <li key={s.id} className="py-3">
                       <Link href={`/sponsor/${s.id}`} className="block space-y-0.5 focus-visible:ring-3 focus-visible:ring-ring/50">
@@ -53,7 +57,7 @@ export default async function SponsorHomePage() {
                           {" · "}
                           {formatCommercialAmount(s.priceCents, s.currency)}
                         </p>
-                        <p className="text-sm text-text-secondary">{copy.label}</p>
+                        <p className="text-sm text-text-secondary">{status.label}</p>
                       </Link>
                     </li>
                   );
@@ -62,7 +66,7 @@ export default async function SponsorHomePage() {
             )}
           </CardContent>
         </Card>
-      ))}
+      )}
     </div>
   );
 }

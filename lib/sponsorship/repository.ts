@@ -24,7 +24,14 @@ export interface SponsorRecord {
   contactEmail: string | null;
   logoPath: string | null;
   logoUrl: string | null;
+  website: string | null;
+  country: string | null;
+  contactName: string | null;
+  contactPhone: string | null;
   status: SponsorStatus;
+  /** Why the account is not ACTIVE — written for the sponsor to read. */
+  statusReason: string | null;
+  reviewedAt: string | null;
   createdAt: string;
 }
 
@@ -115,7 +122,13 @@ function toSponsor(row: any): SponsorRecord {
     contactEmail: row.contact_email ?? null,
     logoPath: row.logo_path ?? null,
     logoUrl: sponsorLogoPublicUrl(row.logo_path),
+    website: row.website ?? null,
+    country: row.country ?? null,
+    contactName: row.contact_name ?? null,
+    contactPhone: row.contact_phone ?? null,
     status: row.status,
+    statusReason: row.status_reason ?? null,
+    reviewedAt: row.reviewed_at ?? null,
     createdAt: row.created_at,
   };
 }
@@ -169,13 +182,12 @@ const SPONSORSHIP_SELECT = `*, sponsors(display_name), ${GAME_SELECT}`;
 
 // --- sponsor side -------------------------------------------------------------------------------------------------------------------------------
 
-export async function listSponsorsForUser(userId: string): Promise<SponsorRecord[]> {
+/** The one Sponsor organization a SPONSOR login owns (one account <-> one organization), or null for any other login. */
+export async function getSponsorForUser(userId: string): Promise<SponsorRecord | null> {
   const admin = createAdminClient();
-  const { data: memberships } = await admin.from("sponsor_users").select("sponsor_id").eq("user_id", userId);
-  const ids = (memberships ?? []).map((m: any) => m.sponsor_id as string);
-  if (ids.length === 0) return [];
-  const { data } = await admin.from("sponsors").select("*").in("id", ids).order("display_name");
-  return (data ?? []).map(toSponsor);
+  const { data } = await admin.from("sponsor_accounts").select("sponsors(*)").eq("user_id", userId).maybeSingle();
+  const row = Array.isArray(data?.sponsors) ? data?.sponsors[0] : data?.sponsors;
+  return row ? toSponsor(row) : null;
 }
 
 export async function listSponsorshipsForSponsor(sponsorId: string): Promise<SponsorshipRecord[]> {
@@ -190,8 +202,8 @@ export async function getSponsorshipForUser(userId: string, id: string): Promise
   const admin = createAdminClient();
   const { data } = await admin.from("sponsorships").select(SPONSORSHIP_SELECT).eq("id", id).maybeSingle();
   if (!data) return null;
-  const { data: member } = await admin.from("sponsor_users").select("user_id").eq("sponsor_id", data.sponsor_id).eq("user_id", userId).maybeSingle();
-  return member ? toSponsorship(data) : null;
+  const { data: account } = await admin.from("sponsor_accounts").select("user_id").eq("sponsor_id", data.sponsor_id).eq("user_id", userId).maybeSingle();
+  return account ? toSponsorship(data) : null;
 }
 
 export async function getPaymentEventsForSponsorship(sponsorshipId: string) {
@@ -280,45 +292,46 @@ export async function getSponsorshipForAdmin(id: string): Promise<SponsorshipRec
   return data ? toSponsorship(data) : null;
 }
 
-export interface SponsorMember {
+/** The login behind a Sponsor organization, for Super Admin only. */
+export interface SponsorLogin {
   userId: string;
-  displayName: string;
   email: string | null;
+  emailVerified: boolean;
 }
 
-/** Sponsors with their members (name + sign-in email) so Super Admin can SEE who is linked — never shown to anyone else. */
-export async function listSponsors(): Promise<Array<SponsorRecord & { members: SponsorMember[] }>> {
+export interface AdminSponsorRecord extends SponsorRecord {
+  /** Super Admin's private note — never sent to the sponsor. */
+  internalReviewNote: string | null;
+  /** null for an organization that has no login (e.g. one Super Admin recorded by hand). */
+  login: SponsorLogin | null;
+}
+
+/** Sponsors with their one login (sign-in email, verified or not) so Super Admin can review applications — never shown to anyone else. */
+export async function listSponsors(): Promise<AdminSponsorRecord[]> {
   const admin = createAdminClient();
-  const { data } = await admin.from("sponsors").select("*, sponsor_users(user_id)").order("display_name");
+  const { data } = await admin.from("sponsors").select("*, sponsor_accounts(user_id)").order("created_at", { ascending: false });
   const rows = (data ?? []) as any[];
-  const userIds = [...new Set(rows.flatMap((r) => (r.sponsor_users ?? []).map((m: any) => m.user_id as string)))];
-  const names = new Map<string, string>();
-  const emails = new Map<string, string | null>();
-  if (userIds.length > 0) {
-    const { data: profiles } = await admin.from("user_profiles").select("id, display_name").in("id", userIds);
-    for (const p of profiles ?? []) names.set(p.id, p.display_name);
-    await Promise.all(
-      userIds.map(async (id) => {
-        const { data: u } = await admin.auth.admin.getUserById(id);
-        emails.set(id, u.user?.email ?? null);
-      }),
-    );
-  }
-  return rows.map((r) => ({
-    ...toSponsor(r),
-    members: (r.sponsor_users ?? []).map((m: any) => ({ userId: m.user_id as string, displayName: names.get(m.user_id) ?? "Member", email: emails.get(m.user_id) ?? null })),
-  }));
+  const logins = new Map<string, SponsorLogin>();
+  await Promise.all(
+    rows.map(async (r) => {
+      const account = Array.isArray(r.sponsor_accounts) ? r.sponsor_accounts[0] : r.sponsor_accounts;
+      if (!account) return;
+      const { data: u } = await admin.auth.admin.getUserById(account.user_id);
+      logins.set(r.id, { userId: account.user_id, email: u.user?.email ?? null, emailVerified: Boolean(u.user?.email_confirmed_at) });
+    }),
+  );
+  return rows.map((r) => ({ ...toSponsor(r), internalReviewNote: r.internal_review_note ?? null, login: logins.get(r.id) ?? null }));
 }
 
 export async function listSponsorshipAudit(sponsorshipId: string) {
   const admin = createAdminClient();
   const { data } = await admin
     .from("audit_logs")
-    .select("action, created_at, reason, before, after, actor:user_profiles(display_name)")
+    .select("action, created_at, reason, before, after, actor_account_id, actor:user_profiles(display_name)")
     .eq("entity_type", "sponsorship")
     .eq("entity_id", sponsorshipId)
     .order("created_at");
-  return (data ?? []).map((a: any) => ({ action: a.action as string, createdAt: a.created_at as string, reason: a.reason as string | null, before: a.before, after: a.after, actorName: (Array.isArray(a.actor) ? a.actor[0] : a.actor)?.display_name as string | null }));
+  return (data ?? []).map((a: any) => ({ action: a.action as string, createdAt: a.created_at as string, reason: a.reason as string | null, before: a.before, after: a.after, actorName: ((Array.isArray(a.actor) ? a.actor[0] : a.actor)?.display_name as string | null) ?? (a.actor_account_id ? "Sponsor" : null) }));
 }
 
 export async function listApprovalSnapshots(sponsorshipId: string) {

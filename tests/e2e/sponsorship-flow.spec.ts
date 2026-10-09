@@ -22,6 +22,27 @@ async function createUser(label: string, role: "player" | "super_admin" = "playe
   return { id: data.user.id as string, email };
 }
 
+/** A SPONSOR login (no member profile) with its organization — the same database function the signup action uses. */
+async function createSponsorLogin(displayName: string, status: "PENDING_REVIEW" | "ACTIVE" = "ACTIVE") {
+  const email = `e2e-spons-login-${randomUUID()}@test.local`;
+  const { data, error } = await admin.auth.admin.createUser({ email, password: PASSWORD, email_confirm: true });
+  if (error || !data.user) throw error ?? new Error("failed to create sponsor login");
+  const { data: org, error: accountError } = await admin.rpc("create_sponsor_account", { p_user_id: data.user.id, p_email: email, p_brand: displayName, p_contact_name: "E2E Contact", p_website: null, p_country: null, p_phone: null });
+  if (accountError) throw accountError;
+  const sponsorId = (Array.isArray(org) ? org[0] : org).id as string;
+  await admin.from("sponsors").update({ status, logo_path: `${randomUUID()}/logo.webp` }).eq("id", sponsorId);
+  return { id: data.user.id as string, email, sponsorId };
+}
+
+async function loginAsSponsor(page: Page, email: string) {
+  await page.context().clearCookies();
+  await page.goto("/sponsor/login");
+  await page.getByLabel("Business email").fill(email);
+  await page.getByLabel("Password", { exact: true }).fill(PASSWORD);
+  await page.getByRole("button", { name: /log in/i }).click();
+  await expect(page).toHaveURL(/\/sponsor$/);
+}
+
 async function loginAs(page: Page, email: string) {
   await page.context().clearCookies();
   await page.goto("/login");
@@ -71,18 +92,16 @@ async function cleanup(game: { fixtureId: string; marketId: string; postId: stri
 test("sponsor drafts and submits → Super Admin confirms payment and approves → the same Game Post shows the sponsor → the switch hides it → a stranger can't see any of it", async ({ page }) => {
   const suffix = randomUUID().slice(0, 6);
   const game = await seedGamePost(suffix);
-  const sponsorUser = await createUser("sponsor");
+  const sponsorUser = await createSponsorLogin(`Acme E2E ${suffix}`);
   const superUser = await createUser("super", "super_admin");
   const member = await createUser("member");
-  const { data: sponsor } = await admin.from("sponsors").insert({ display_name: `Acme E2E ${suffix}`, logo_path: `${randomUUID()}/logo.webp` }).select("id").single();
-  await admin.from("sponsor_users").insert({ sponsor_id: sponsor!.id, user_id: sponsorUser.id });
   await setEnabled(true);
   await admin.rpc("admin_set_sponsorship_inventory", { p_admin_id: superUser.id, p_post_id: game.postId, p_market_code: "GLOBAL", p_is_sponsorable: true, p_price_cents: 250000, p_currency: "USD", p_starts_at: new Date(Date.now() - HOUR).toISOString(), p_ends_at: new Date(Date.now() + 6 * HOUR).toISOString() });
   const destination = "https://acme.example.com/e2e-promo";
 
   try {
     // --- Sponsor: finds the Game, drafts, submits ---------------------------------------------------------------------------------------------
-    await loginAs(page, sponsorUser.email);
+    await loginAsSponsor(page, sponsorUser.email);
     await page.goto("/sponsor/games");
     const card = page.locator("div").filter({ hasText: `Gridiron Away ${suffix} @ Gridiron Home ${suffix}` }).filter({ has: page.getByRole("button", { name: "Start sponsorship" }) }).last();
     await expect(card).toContainText("$2,500.00");
@@ -106,8 +125,10 @@ test("sponsor drafts and submits → Super Admin confirms payment and approves �
 
     // --- A different member cannot see the commercial area ------------------------------------------------------------------------------------
     await loginAs(page, member.email);
-    expect((await page.goto("/sponsor"))?.status()).toBe(404);
-    expect((await page.goto(`/sponsor/${sponsorshipId}`))?.status()).toBe(404);
+    await page.goto("/sponsor");
+    await expect(page).toHaveURL(/\/feed$/); // a Member is sent back to the Member product, never shown the Sponsor area
+    await page.goto(`/sponsor/${sponsorshipId}`);
+    await expect(page).toHaveURL(/\/feed$/);
     await page.goto("/admin/sponsorship");
     await expect(page).toHaveURL(/\/feed$/); // not an admin: bounced
 
@@ -201,22 +222,21 @@ test("sponsor drafts and submits → Super Admin confirms payment and approves �
 test("with Sponsored Game Posts OFF a sponsor can read their history but cannot start or submit anything", async ({ page }) => {
   const suffix = randomUUID().slice(0, 6);
   const game = await seedGamePost(suffix);
-  const sponsorUser = await createUser("sponsoroff");
+  const sponsorUser = await createSponsorLogin(`Off Co ${suffix}`);
+  const sponsor = { id: sponsorUser.sponsorId };
   const superUser = await createUser("superoff", "super_admin");
-  const { data: sponsor } = await admin.from("sponsors").insert({ display_name: `Off Co ${suffix}`, logo_path: `${randomUUID()}/logo.webp` }).select("id").single();
-  await admin.from("sponsor_users").insert({ sponsor_id: sponsor!.id, user_id: sponsorUser.id });
   await setEnabled(true);
   await admin.rpc("admin_set_sponsorship_inventory", { p_admin_id: superUser.id, p_post_id: game.postId, p_market_code: "GLOBAL", p_is_sponsorable: true, p_price_cents: 1000, p_currency: "USD", p_starts_at: new Date(Date.now() - HOUR).toISOString(), p_ends_at: new Date(Date.now() + 6 * HOUR).toISOString() });
-  const { data: draft } = await admin.rpc("sponsor_create_sponsorship", { p_user_id: sponsorUser.id, p_sponsor_id: sponsor!.id, p_inventory_id: (await admin.from("sponsorship_inventory").select("id").eq("post_id", game.postId).single()).data!.id, p_campaign_name: "Existing" });
+  const { data: draft } = await admin.rpc("sponsor_create_sponsorship", { p_user_id: sponsorUser.id, p_sponsor_id: sponsor.id, p_inventory_id: (await admin.from("sponsorship_inventory").select("id").eq("post_id", game.postId).single()).data!.id, p_campaign_name: "Existing" });
   const draftId = (Array.isArray(draft) ? draft[0] : draft).id as string;
   await setEnabled(false);
   try {
-    await loginAs(page, sponsorUser.email);
+    await loginAsSponsor(page, sponsorUser.email);
     await page.goto("/sponsor");
-    await expect(page.getByRole("status")).toContainText("aren't open right now");
+    await expect(page.getByRole("status").filter({ hasText: "aren't open right now" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Browse available Games" })).toHaveCount(0);
     await page.goto("/sponsor/games");
-    await expect(page.getByRole("status")).toContainText("aren't open right now");
+    await expect(page.getByRole("status").filter({ hasText: "aren't open right now" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Start sponsorship" })).toHaveCount(0);
     await page.goto(`/sponsor/${draftId}`);
     await expect(page.getByText("Draft", { exact: true })).toBeVisible(); // history readable
@@ -251,18 +271,16 @@ test("a sponsor of another organization cannot open someone else's sponsorship, 
   const suffix = randomUUID().slice(0, 6);
   const game = await seedGamePost(suffix);
   const superUser = await createUser("isosuper", "super_admin");
-  const a = await createUser("isoa");
-  const b = await createUser("isob");
-  const { data: sa } = await admin.from("sponsors").insert({ display_name: `Alpha ${suffix}` }).select("id").single();
-  const { data: sb } = await admin.from("sponsors").insert({ display_name: `Beta ${suffix}` }).select("id").single();
-  await admin.from("sponsor_users").insert([{ sponsor_id: sa!.id, user_id: a.id }, { sponsor_id: sb!.id, user_id: b.id }]);
+  const a = await createSponsorLogin(`Alpha ${suffix}`);
+  const b = await createSponsorLogin(`Beta ${suffix}`);
+  const sa = { id: a.sponsorId };
   await setEnabled(true);
   const { data: inv } = await admin.rpc("admin_set_sponsorship_inventory", { p_admin_id: superUser.id, p_post_id: game.postId, p_market_code: "GLOBAL", p_is_sponsorable: true, p_price_cents: 1000, p_currency: "USD", p_starts_at: new Date(Date.now() - HOUR).toISOString(), p_ends_at: new Date(Date.now() + 6 * HOUR).toISOString() });
   const invId = (Array.isArray(inv) ? inv[0] : inv).id as string;
-  const { data: created } = await admin.rpc("sponsor_create_sponsorship", { p_user_id: a.id, p_sponsor_id: sa!.id, p_inventory_id: invId, p_campaign_name: "Alpha campaign" });
+  const { data: created } = await admin.rpc("sponsor_create_sponsorship", { p_user_id: a.id, p_sponsor_id: sa.id, p_inventory_id: invId, p_campaign_name: "Alpha campaign" });
   const alphaId = (Array.isArray(created) ? created[0] : created).id as string;
   try {
-    await loginAs(page, b.email);
+    await loginAsSponsor(page, b.email);
     expect((await page.goto(`/sponsor/${alphaId}`))?.status()).toBe(404);
     await page.goto("/sponsor");
     await expect(page.getByText("Alpha campaign")).toHaveCount(0);
@@ -313,11 +331,11 @@ test.describe("inventory campaign window is shown in the admin's own time zone",
 // A 1x1 PNG: a real image the upload route accepts (magic bytes checked, re-encoded server-side).
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 
-test("Super Admin creates a sponsor, uploads its logo, links a member, and assigns a sponsorable Game — and the sponsor finds it in their own list", async ({ page }) => {
+test("Super Admin records a sponsor, uploads its logo and assigns a sponsorable Game — and the sponsor account finds it in its own list (there is no way to add a Member to a Sponsor)", async ({ page }) => {
   const suffix = randomUUID().slice(0, 6);
   const game = await seedGamePost(suffix);
   const superUser = await createUser("assignsuper", "super_admin");
-  const memberUser = await createUser("assignmember");
+  const sponsorLogin = await createSponsorLogin(`Assign Account ${suffix}`);
   const stranger = await createUser("assignstranger");
   const name = `Assign Co ${suffix}`;
   await setEnabled(true);
@@ -327,12 +345,15 @@ test("Super Admin creates a sponsor, uploads its logo, links a member, and assig
     await loginAs(page, superUser.email);
     await page.goto("/admin/sponsorship/sponsors");
     await page.getByLabel("Display name").fill(name);
-    await page.getByRole("button", { name: "Create sponsor" }).click();
-    await expect(page.getByText(/Sponsor created/)).toBeVisible();
+    await page.getByRole("button", { name: "Create sponsor without a login" }).click();
+    await expect(page.getByText(/Sponsor organization created/)).toBeVisible();
     const card = page.locator("li[data-sponsor-id]").filter({ hasText: name });
     await expect(card).toBeVisible();
     await expect(card.getByText("No logo")).toBeVisible();
-    await expect(card.getByText(/No members yet/)).toBeVisible();
+    await expect(card.getByText(/No login — managed by Brohda/)).toBeVisible();
+    // The old "Add a member" tool is gone: a Sponsor is its own account, never a Member linked to an organization.
+    await expect(page.getByText(/Add a member/i)).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Add member/i })).toHaveCount(0);
 
     // Logo: choose a file, press Upload, see it saved and previewed.
     await expect(card.getByRole("button", { name: "Upload logo" })).toBeDisabled(); // nothing chosen yet
@@ -345,23 +366,13 @@ test("Super Admin creates a sponsor, uploads its logo, links a member, and assig
     await card.getByRole("button", { name: "Upload logo" }).click();
     await expect(card.getByText(/Unsupported image type/)).toBeVisible();
 
-    // Member: unknown email refused clearly; an existing account is linked and shown by name + email; it can be removed.
-    await card.getByLabel(`Member email for ${name}`).fill(`nobody-${suffix}@test.local`);
-    await card.getByRole("button", { name: "Add member" }).click();
-    await expect(card.getByText(/No account with that email/)).toBeVisible();
-    await card.getByLabel(`Member email for ${name}`).fill(memberUser.email.toUpperCase());
-    await card.getByRole("button", { name: "Add member" }).click();
-    await expect(card.getByText("Member added.")).toBeVisible();
-    await expect(card.getByText(memberUser.email)).toBeVisible();
-    await expect(card.getByText("Members (1)")).toBeVisible();
-
-    // Assign the Game from the inventory page.
+    // Assign the Game, from the inventory page, to the sponsor ACCOUNT.
     await page.goto("/admin/sponsorship/inventory");
     const row = page.locator("div.rounded-lg").filter({ hasText: `Gridiron Away ${suffix} @ Gridiron Home ${suffix}` }).first();
     // Choosing before the page has hydrated is undone by React; retry until the (controlled) choice sticks and the button enables.
     const chooseSponsor = () =>
       expect(async () => {
-        await row.getByLabel(/^Sponsor for /).selectOption({ label: name });
+        await row.getByLabel(/^Sponsor for /).selectOption({ label: `Assign Account ${suffix}` });
         await expect(row.getByRole("button", { name: /^Assign / })).toBeEnabled({ timeout: 1500 });
       }).toPass({ timeout: 20_000 });
     await chooseSponsor();
@@ -369,7 +380,7 @@ test("Super Admin creates a sponsor, uploads its logo, links a member, and assig
     await expect(row.getByText(/Assigned — the sponsor now has it as a draft/)).toBeVisible();
     await row.getByRole("link", { name: "Open it" }).click();
     await expect(page).toHaveURL(/\/admin\/sponsorship\/[0-9a-f-]{36}$/);
-    await expect(page.getByText(name).first()).toBeVisible();
+    await expect(page.getByText(`Assign Account ${suffix}`).first()).toBeVisible();
     // Assigning again returns the same draft (no duplicates).
     await page.goto("/admin/sponsorship/inventory");
     await chooseSponsor();
@@ -377,21 +388,13 @@ test("Super Admin creates a sponsor, uploads its logo, links a member, and assig
     await expect(row.getByText(/Assigned/)).toBeVisible();
     expect((await admin.from("sponsorships").select("id").eq("post_id", game.postId)).data).toHaveLength(1);
 
-    // The sponsor member sees it in their own area — and nobody else does.
-    await loginAs(page, memberUser.email);
-    await page.goto("/sponsor");
+    // The sponsor account sees it in its own area — a Member never reaches the Sponsor area.
+    await loginAsSponsor(page, sponsorLogin.email);
     await expect(page.getByText(`Gridiron Away ${suffix} @ Gridiron Home ${suffix}`)).toBeVisible();
     await expect(page.getByText("Draft", { exact: true })).toBeVisible();
     await loginAs(page, stranger.email);
-    expect((await page.goto("/sponsor"))?.status()).toBe(404);
-
-    // Remove the member: the access goes with it.
-    await loginAs(page, superUser.email);
-    await page.goto("/admin/sponsorship/sponsors");
-    await page.locator("li[data-sponsor-id]").filter({ hasText: name }).getByRole("button", { name: /^Remove / }).click();
-    await expect(page.getByText("Member removed.")).toBeVisible();
-    await loginAs(page, memberUser.email);
-    expect((await page.goto("/sponsor"))?.status()).toBe(404);
+    await page.goto("/sponsor");
+    await expect(page).toHaveURL(/\/feed$/);
   } finally {
     await setEnabled(false);
     await cleanup(game);
@@ -404,7 +407,7 @@ test("Super Admin takes an assigned draft all the way — complete it, submit on
   const game = await seedGamePost(suffix);
   const superUser = await createUser("completesuper", "super_admin");
   const viewer = await createUser("completeviewer");
-  const { data: sponsor } = await admin.from("sponsors").insert({ display_name: `Solo Co ${suffix}`, logo_path: `${randomUUID()}/logo.webp` }).select("id").single(); // no members at all
+  const { data: sponsor } = await admin.from("sponsors").insert({ display_name: `Solo Co ${suffix}`, status: "ACTIVE", logo_path: `${randomUUID()}/logo.webp` }).select("id").single(); // no members at all
   await setEnabled(true);
   const { data: inv } = await admin.rpc("admin_set_sponsorship_inventory", { p_admin_id: superUser.id, p_post_id: game.postId, p_market_code: "GLOBAL", p_is_sponsorable: true, p_price_cents: 7500, p_currency: "USD", p_starts_at: new Date(Date.now() - HOUR).toISOString(), p_ends_at: new Date(Date.now() + 6 * HOUR).toISOString() });
   const invId = (Array.isArray(inv) ? inv[0] : inv).id as string;
@@ -451,13 +454,12 @@ test("pricing is Super Admin's: the sponsor sees the price but has no way to cha
   const suffix = randomUUID().slice(0, 6);
   const game = await seedGamePost(suffix);
   const superUser = await createUser("pricesuper", "super_admin");
-  const sponsorUser = await createUser("pricesponsor");
-  const { data: sponsor } = await admin.from("sponsors").insert({ display_name: `Price Co ${suffix}`, logo_path: `${randomUUID()}/logo.webp` }).select("id").single();
-  await admin.from("sponsor_users").insert({ sponsor_id: sponsor!.id, user_id: sponsorUser.id });
+  const sponsorUser = await createSponsorLogin(`Price Co ${suffix}`);
+  const sponsor = { id: sponsorUser.sponsorId };
   await setEnabled(true);
   const { data: inv } = await admin.rpc("admin_set_sponsorship_inventory", { p_admin_id: superUser.id, p_post_id: game.postId, p_market_code: "GLOBAL", p_is_sponsorable: true, p_price_cents: 250000, p_currency: "USD", p_starts_at: new Date(Date.now() - HOUR).toISOString(), p_ends_at: new Date(Date.now() + 6 * HOUR).toISOString() });
   const invId = (Array.isArray(inv) ? inv[0] : inv).id as string;
-  const { data: assigned } = await admin.rpc("admin_assign_sponsorship", { p_admin_id: superUser.id, p_sponsor_id: sponsor!.id, p_inventory_id: invId, p_campaign_name: "Priced" });
+  const { data: assigned } = await admin.rpc("admin_assign_sponsorship", { p_admin_id: superUser.id, p_sponsor_id: sponsor.id, p_inventory_id: invId, p_campaign_name: "Priced" });
   const sponsorshipId = (Array.isArray(assigned) ? assigned[0] : assigned).id as string;
   try {
     await loginAs(page, superUser.email);
@@ -467,7 +469,7 @@ test("pricing is Super Admin's: the sponsor sees the price but has no way to cha
     await page.getByRole("button", { name: "Set price" }).click();
     await expect(page.getByText("Done.")).toBeVisible();
 
-    await loginAs(page, sponsorUser.email);
+    await loginAsSponsor(page, sponsorUser.email);
     await page.goto(`/sponsor/${sponsorshipId}`);
     await expect(page.getByText("$1,999.50")).toBeVisible();
     await expect(page.getByText("Set by Brohda — it can't be changed here.")).toBeVisible();

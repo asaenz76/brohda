@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireSuperAdmin, requireAdminOrAbove } from "@/lib/auth/session";
+import { typeAccountAsMember } from "@/lib/auth/member-account";
 import { writeAuditLog } from "@/lib/audit/log";
 import { setUserRoleSchema, createUserManuallySchema } from "@/lib/validations/users";
 
@@ -166,6 +167,13 @@ export async function createUserManuallyAction(
       error: alreadyExists ? "A user with this email already exists." : "Could not create this account.",
       credentials: null,
     };
+  }
+
+  try {
+    await typeAccountAsMember(adminClient, created.user.id);
+  } catch {
+    await adminClient.auth.admin.deleteUser(created.user.id);
+    return { error: "Could not finish setting up this account.", credentials: null };
   }
 
   const { error: profileError } = await adminClient.from("user_profiles").insert({

@@ -5,6 +5,8 @@ import { loginHrefFor, REQUEST_PATH_HEADER } from "@/lib/auth/safe-next";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { isUsableSession, isSuperAdmin, isAdminOrAbove } from "./guards";
+import { getAccountContext } from "./account";
+import { SPONSOR_HOME } from "./account-routing";
 
 export type UserProfile = {
   id: string;
@@ -37,16 +39,25 @@ export const getCurrentUser = cache(async (): Promise<UserProfile | null> => {
   return profile as UserProfile | null;
 });
 
-export async function requireUser(): Promise<UserProfile> {
+/**
+ * The canonical Member guard: a signed-in, active MEMBER account (a positive check on the server-owned account type, not just "has a profile"). A Sponsor
+ * session is sent to the Sponsor area — never shown anything Member-side, and never bounced through the Member login. Everything that was `requireUser()`
+ * is this.
+ */
+export async function requireMemberAccount(): Promise<UserProfile> {
   const profile = await getCurrentUser();
   if (!isUsableSession(profile)) {
+    if ((await getAccountContext())?.accountType === "SPONSOR") redirect(SPONSOR_HOME);
     // Send them to sign in and then straight back to the page they asked for (the proxy forwards that path; it is sanitised again here,
     // so a bad value just yields the plain /login).
     const requested = (await headers()).get(REQUEST_PATH_HEADER);
     redirect(loginHrefFor(requested));
   }
+  if ((await getAccountContext())?.accountType !== "MEMBER") redirect(loginHrefFor(null));
   return profile;
 }
+
+export const requireUser = requireMemberAccount;
 
 export async function requireSuperAdmin(): Promise<UserProfile> {
   const profile = await requireUser();

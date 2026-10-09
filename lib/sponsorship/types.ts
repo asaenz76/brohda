@@ -1,5 +1,5 @@
 // Sponsorship domain types. The three state columns are orthogonal on purpose (lifecycle x review x payment): no loosely interpreted booleans.
-export const SPONSOR_STATUSES = ["ACTIVE", "SUSPENDED", "DISABLED"] as const;
+export const SPONSOR_STATUSES = ["PENDING_REVIEW", "ACTIVE", "REJECTED", "SUSPENDED", "DISABLED"] as const;
 export type SponsorStatus = (typeof SPONSOR_STATUSES)[number];
 
 export const SPONSORSHIP_LIFECYCLES = ["DRAFT", "SUBMITTED", "SCHEDULED", "LIVE", "SUSPENDED", "COMPLETED", "REJECTED", "CANCELLED"] as const;
