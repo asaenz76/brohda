@@ -49,6 +49,7 @@ export function SponsorshipEditor({
   canCancel,
   logoMaxKb,
   mode = "sponsor",
+  agreement = null,
 }: {
   sponsorshipId: string;
   sponsorId: string;
@@ -58,9 +59,12 @@ export function SponsorshipEditor({
   logoMaxKb: number;
   /** "admin": Super Admin completing the sponsorship on the sponsor's behalf (same fields and rules; a different, Super-Admin-only server action). */
   mode?: "sponsor" | "admin";
+  /** The media agreement the Sponsor must accept to submit — only ever an APPROVED document (null while it is a draft, so nothing is asked). */
+  agreement?: { title: string; version: string; href: string } | null;
 }) {
   const router = useRouter();
   const [values, setValues] = useState(initial);
+  const [acceptedAgreement, setAcceptedAgreement] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [logo, setLogo] = useState(logoUrl);
@@ -73,8 +77,7 @@ export function SponsorshipEditor({
     setFieldErrors({});
     startTransition(async () => {
       const save = mode === "admin" ? saveSponsorshipAsAdminAction : saveSponsorshipDraftAction;
-      const submit = mode === "admin" ? submitSponsorshipAsAdminAction : submitSponsorshipAction;
-      const result = kind === "save" ? await save(sponsorshipId, values) : await submit(sponsorshipId, values);
+      const result = kind === "save" ? await save(sponsorshipId, values) : mode === "admin" ? await submitSponsorshipAsAdminAction(sponsorshipId, values) : await submitSponsorshipAction(sponsorshipId, values, acceptedAgreement);
       setFieldErrors(result.fieldErrors ?? {});
       setMessage({ ok: result.success, text: result.success ? (kind === "save" ? "Draft saved." : mode === "admin" ? "Submitted on the sponsor's behalf. Record the payment and approve below." : "Submitted. Brohda will confirm payment and review it.") : (result.error ?? "Something went wrong.") });
       if (result.success) router.refresh();
@@ -176,7 +179,19 @@ export function SponsorshipEditor({
         <Button type="button" variant="outline" disabled={pending} onClick={() => run("save")}>
           Save draft
         </Button>
-        <Button type="submit" disabled={pending}>
+        {mode === "sponsor" && agreement && (
+          <label className="flex w-full items-start gap-2 text-sm text-text-secondary">
+            <input type="checkbox" checked={acceptedAgreement} onChange={(e) => setAcceptedAgreement(e.target.checked)} className="mt-1" />
+            <span>
+              I accept the{" "}
+              <a href={agreement.href} target="_blank" rel="noreferrer" className="underline underline-offset-4">
+                {agreement.title}
+              </a>{" "}
+              (version {agreement.version}) for this campaign.
+            </span>
+          </label>
+        )}
+        <Button type="submit" disabled={pending || (mode === "sponsor" && Boolean(agreement) && !acceptedAgreement)}>
           {mode === "admin" ? "Submit on the sponsor's behalf" : "Submit for review"}
         </Button>
         {canCancel && mode === "sponsor" && (

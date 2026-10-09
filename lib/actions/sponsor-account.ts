@@ -11,7 +11,8 @@ import { checkSponsorResendRateLimit, checkSponsorSignupRateLimit } from "@/lib/
 import { homePathFor, isSponsorArea } from "@/lib/auth/account-routing";
 import { sanitizeNextPath } from "@/lib/auth/safe-next";
 import { requireSponsorAccount } from "@/lib/sponsor/session";
-import { CURRENT_SPONSOR_TERMS, SPONSOR_TERMS_KEY } from "@/lib/sponsor/terms";
+import { CURRENT_SPONSOR_TERMS } from "@/lib/sponsor/terms";
+import { hasAcceptedCurrentSponsorTerms, recordSponsorTermsAcceptance } from "@/lib/sponsor/legal-acceptance";
 import { fieldErrorsOf, SPONSOR_NEUTRAL_EMAIL_ERROR, sponsorProfileSchema, sponsorSignupSchema } from "@/lib/sponsor/validation";
 import { validateLogo, storeSponsorLogo } from "@/lib/sponsorship/logo-storage";
 import { notifySponsorAccount } from "@/lib/sponsorship/notify";
@@ -122,10 +123,11 @@ export async function sponsorSignupAction(_prev: SponsorSignupState, formData: F
 
   const { data: account } = await admin.from("sponsor_accounts").select("sponsor_id").eq("user_id", user.id).single();
   if (account) {
-    if (CURRENT_SPONSOR_TERMS) {
-      await admin
-        .from("sponsor_terms_acceptances")
-        .upsert({ user_id: user.id, sponsor_id: account.sponsor_id, document_key: SPONSOR_TERMS_KEY, version: CURRENT_SPONSOR_TERMS.version, source: "signup" }, { onConflict: "user_id,document_key,version", ignoreDuplicates: true });
+    // The version recorded is the server's current approved version, never anything the browser sent.
+    try {
+      await recordSponsorTermsAcceptance(user.id, account.sponsor_id, "signup");
+    } catch (e) {
+      console.error("Sponsor signup: could not record the Sponsor Terms acceptance:", e);
     }
     // A logo problem never fails the application — it can be added from the profile page while the application is under review.
     if (logoBytes) await storeSponsorLogo({ id: account.sponsor_id, logo_path: null }, logoBytes);
@@ -213,6 +215,17 @@ export async function updateSponsorProfileAction(_prev: SponsorProfileState, for
   revalidatePath("/sponsor");
   revalidatePath("/sponsor/profile");
   return { error: null, saved: true };
+}
+
+/**
+ * A signed-in Sponsor accepts the CURRENT approved Sponsor Terms (first time, or a newer version). The version recorded is the server's current approved
+ * one — the browser sends nothing but the click — and with no approved version there is nothing to accept, so this refuses rather than recording a draft.
+ */
+export async function acceptSponsorTermsAction(): Promise<void> {
+  const session = await requireSponsorAccount();
+  if (!CURRENT_SPONSOR_TERMS) redirect("/sponsor/terms");
+  if (!(await hasAcceptedCurrentSponsorTerms(session.userId))) await recordSponsorTermsAcceptance(session.userId, session.sponsor.id, "reconsent");
+  redirect("/sponsor");
 }
 
 export async function sponsorLogoutAction() {

@@ -6,8 +6,9 @@ export type AccountType = "MEMBER" | "SPONSOR";
 export const SPONSOR_HOME = "/sponsor";
 export const MEMBER_HOME = "/feed";
 export const SPONSOR_LOGIN = "/sponsor/login";
+export const SPONSOR_SIGNUP = "/sponsor/signup";
 /** Pages a signed-out person can open inside the Sponsor area. */
-export const SPONSOR_PUBLIC_PATHS = ["/sponsor/login", "/sponsor/signup", "/sponsor/verified"] as const;
+export const SPONSOR_PUBLIC_PATHS = ["/sponsor/login", "/sponsor/signup", "/sponsor/verified", "/sponsor/terms"] as const;
 
 // Every first path segment that belongs to the Member product (including the staff panel, which is Member-side). A Sponsor is redirected out of all of them.
 const MEMBER_AREA = ["feed", "my-picks", "activity", "profile", "admin", "community", "discovery", "markets", "notifications", "post", "search", "wallet", "accept-terms"] as const;

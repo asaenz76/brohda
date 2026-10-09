@@ -6,6 +6,7 @@ import { getAccountContext } from "@/lib/auth/account";
 import { MEMBER_HOME, SPONSOR_HOME, sponsorLoginHrefFor } from "@/lib/auth/account-routing";
 import { REQUEST_PATH_HEADER, sanitizeNextPath } from "@/lib/auth/safe-next";
 import { getSponsorForUser, type SponsorRecord } from "@/lib/sponsorship/repository";
+import { hasAcceptedCurrentSponsorTerms } from "./legal-acceptance";
 
 export interface SponsorSession {
   userId: string;
@@ -34,9 +35,14 @@ export async function requireSponsorAccount(): Promise<SponsorSession> {
   redirect(sponsorLoginHrefFor(requested));
 }
 
-/** Commercial access: a Sponsor whose account Super Admin has ACTIVATED. Anyone else signed in as a Sponsor goes back to the status page. */
+/**
+ * Commercial access: a Sponsor whose account Super Admin has ACTIVATED. Anyone else signed in as a Sponsor goes back to the status page. When counsel has
+ * approved a Sponsor Terms version this account has not accepted yet (a new version since signup), it is sent to read and accept it first. With no
+ * approved version this check is a no-op.
+ */
 export async function requireActiveSponsorAccount(): Promise<SponsorSession> {
   const session = await requireSponsorAccount();
   if (session.sponsor.status !== "ACTIVE") redirect(SPONSOR_HOME);
+  if (!(await hasAcceptedCurrentSponsorTerms(session.userId))) redirect("/sponsor/terms");
   return session;
 }

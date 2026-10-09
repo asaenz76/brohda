@@ -10,8 +10,8 @@ describe("account routing: a login is a Member or a Sponsor, never both", () => 
     expect(isSponsorArea("/feed")).toBe(false);
   });
 
-  it("only the three entry pages are public inside the Sponsor area", () => {
-    for (const p of ["/sponsor/login", "/sponsor/signup", "/sponsor/verified", "/sponsor/login/"]) expect(isSponsorPublicPath(p), p).toBe(true);
+  it("only the entry pages and the Sponsor Terms are public inside the Sponsor area", () => {
+    for (const p of ["/sponsor/login", "/sponsor/signup", "/sponsor/verified", "/sponsor/terms", "/sponsor/login/"]) expect(isSponsorPublicPath(p), p).toBe(true);
     for (const p of ["/sponsor", "/sponsor/games", "/sponsor/profile", "/sponsor/login/x"]) expect(isSponsorPublicPath(p), p).toBe(false);
   });
 

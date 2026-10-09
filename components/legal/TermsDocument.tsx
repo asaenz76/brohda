@@ -379,7 +379,7 @@ export function termsSectionIds(mode: LegalMoneyMode): SectionId[] {
   return SECTIONS.filter((s) => s.modes.includes(mode)).map((s) => s.id);
 }
 
-export function TermsDocument({ mode }: { mode: LegalMoneyMode }) {
+export function TermsDocument({ mode, accountNav }: { mode: LegalMoneyMode; accountNav?: ReactNode }) {
   const shown = SECTIONS.filter((s) => s.modes.includes(mode));
   const numbers = new Map(shown.map((s, i) => [s.id, i + 1]));
   // A reference to a hidden section is a bug, never silently rendered as a wrong number.
@@ -389,7 +389,7 @@ export function TermsDocument({ mode }: { mode: LegalMoneyMode }) {
     return String(n);
   };
   return (
-    <LegalPage title="Terms of Service" effectiveDate={LEGAL_DOCUMENTS.terms.effectiveDate}>
+    <LegalPage title="Terms of Service" effectiveDate={LEGAL_DOCUMENTS.terms.effectiveDate} accountNav={accountNav}>
       <section>
         <p>
           These Terms of Service (&quot;Terms&quot;) govern your access to and use of brohda.

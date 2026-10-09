@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { TermsDocument } from "@/components/legal/TermsDocument";
 import { loadLegalMoneyMode } from "@/lib/legal/money-mode-loader";
+import { publicAccountNav } from "@/components/shell/PublicAccountNav";
 
 export const metadata: Metadata = {
   title: "Terms of Service — brohda.",
@@ -12,5 +13,5 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function TermsPage() {
-  return <TermsDocument mode={await loadLegalMoneyMode()} />;
+  return <TermsDocument mode={await loadLegalMoneyMode()} accountNav={await publicAccountNav()} />;
 }

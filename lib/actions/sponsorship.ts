@@ -8,6 +8,7 @@ import { callSponsorshipFunction, getSponsorshipForUser } from "@/lib/sponsorshi
 import { SponsorshipError } from "@/lib/sponsorship/errors";
 import { draftToDbFields, promotionProblems, sponsorshipDraftSchema, type SponsorshipDraftInput } from "@/lib/sponsorship/validation";
 import { notifySponsorAccount } from "@/lib/sponsorship/notify";
+import { CURRENT_MEDIA_AGREEMENT, CURRENT_SPONSOR_TERMS } from "@/lib/sponsor/terms";
 
 // Sponsor-facing actions. The caller is only ever "a signed-in user": ownership, the Sponsor being ACTIVE and the capability being ON are all re-checked
 // inside the database functions, so nothing here can be talked into acting for someone else. There is deliberately NO approve / price / mark-paid /
@@ -57,16 +58,22 @@ export async function saveSponsorshipDraftAction(id: string, raw: unknown): Prom
   }
 }
 
-export async function submitSponsorshipAction(id: string, raw: unknown): Promise<SponsorshipActionResult> {
+export async function submitSponsorshipAction(id: string, raw: unknown, acceptedAgreement = false): Promise<SponsorshipActionResult> {
   const session = await requireActiveSponsorAccount();
   const parsed = sponsorshipDraftSchema.safeParse(raw);
   if (!parsed.success) return { success: false, error: "Check the highlighted fields.", fieldErrors: fieldErrorsOf(parsed.error) };
   const problems = promotionProblems(parsed.data as SponsorshipDraftInput);
   if (problems.length > 0) return { success: false, error: problems[0] };
+  // The agreement is only ever required when counsel has APPROVED one (a draft binds nobody). The acceptance is the Sponsor's own explicit act, checked here
+  // on the server; the version recorded is this server's current approved version, never anything the browser sent.
+  if (CURRENT_MEDIA_AGREEMENT && acceptedAgreement !== true) return { success: false, error: "Accept the Media and Advertising Agreement to submit." };
   try {
     // Save what is on screen first, so what is submitted is exactly what the sponsor sees.
     await callSponsorshipFunction("sponsor_update_sponsorship", { p_user_id: session.userId, p_id: id, p_fields: draftToDbFields(parsed.data) });
-    const row = await callSponsorshipFunction("sponsor_submit_sponsorship", { p_user_id: session.userId, p_id: id });
+    // With an approved agreement, submit and record the acceptance in ONE transaction (the database function adds the record and nothing else).
+    const row = CURRENT_MEDIA_AGREEMENT
+      ? await callSponsorshipFunction("sponsor_submit_with_agreement", { p_user_id: session.userId, p_id: id, p_agreement_key: CURRENT_MEDIA_AGREEMENT.key, p_agreement_version: CURRENT_MEDIA_AGREEMENT.version, p_terms_key: CURRENT_SPONSOR_TERMS?.key ?? null, p_terms_version: CURRENT_SPONSOR_TERMS?.version ?? null })
+      : await callSponsorshipFunction("sponsor_submit_sponsorship", { p_user_id: session.userId, p_id: id });
     await notifySponsorAccount(row.sponsor_id, "We received your sponsorship", ["Your sponsorship was submitted to Brohda for review.", "It goes live only after Brohda confirms payment and approves it."]);
     revalidateSponsor(id);
     revalidatePath("/admin/sponsorship");

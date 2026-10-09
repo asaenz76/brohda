@@ -334,6 +334,28 @@ export async function listSponsorshipAudit(sponsorshipId: string) {
   return (data ?? []).map((a: any) => ({ action: a.action as string, createdAt: a.created_at as string, reason: a.reason as string | null, before: a.before, after: a.after, actorName: ((Array.isArray(a.actor) ? a.actor[0] : a.actor)?.display_name as string | null) ?? (a.actor_account_id ? "Sponsor" : null) }));
 }
 
+export interface AgreementAcceptance {
+  acceptedAt: string;
+  agreementKey: string;
+  agreementVersion: string;
+  termsVersion: string | null;
+  revision: number;
+  priceCents: number | null;
+  currency: string | null;
+  paymentStatus: string;
+}
+
+/** The recorded acceptances of the campaign's media agreement, oldest first. Callers authorize first (the owning Sponsor, or Super Admin). */
+export async function listAgreementAcceptances(sponsorshipId: string): Promise<AgreementAcceptance[]> {
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("sponsorship_agreement_acceptances")
+    .select("accepted_at, agreement_key, agreement_version, terms_version, revision, price_cents, currency, payment_status")
+    .eq("sponsorship_id", sponsorshipId)
+    .order("accepted_at");
+  return (data ?? []).map((a: any) => ({ acceptedAt: a.accepted_at, agreementKey: a.agreement_key, agreementVersion: a.agreement_version, termsVersion: a.terms_version, revision: a.revision, priceCents: a.price_cents, currency: a.currency, paymentStatus: a.payment_status }));
+}
+
 export async function listApprovalSnapshots(sponsorshipId: string) {
   const admin = createAdminClient();
   const { data } = await admin.from("sponsorship_approvals").select("revision, content_hash, snapshot, approved_at").eq("sponsorship_id", sponsorshipId).order("revision");

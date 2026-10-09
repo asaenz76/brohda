@@ -220,16 +220,17 @@ describe("OFF-state structure — financial wording lives ONLY where it is requi
     return out;
   };
 
-  it("Privacy (retained): the only section that mentions money, wallets, payments or ledgers is 'Financial records we still hold'", () => {
+  it("Privacy (retained): money wording is confined to the records section, the data-minimisation line and the Sponsor business-records section", () => {
     const hits = sectionsOf(<PrivacyDocument mode="retained" />).filter((s) => MONEY.test(s.text)).map((s) => s.title);
     expect(hits).toEqual([
       "What we do not collect", // generic data-minimisation statement: no card / bank / payment-app credentials
       "Financial records we still hold", // REQUIRED RETENTION
+      "Sponsor accounts and sponsorships", // BUSINESS sponsorship records (a Sponsor's payment reference), not Member money — present in every mode
     ]);
   });
 
-  it("Privacy (free): the only mention is the generic 'we do not collect card / bank / payment-app credentials' data-minimisation line", () => {
-    expect(sectionsOf(<PrivacyDocument mode="free" />).filter((s) => MONEY.test(s.text)).map((s) => s.title)).toEqual(["What we do not collect"]);
+  it("Privacy (free): the only mentions are the generic data-minimisation line and the Sponsor business-records section", () => {
+    expect(sectionsOf(<PrivacyDocument mode="free" />).filter((s) => MONEY.test(s.text)).map((s) => s.title)).toEqual(["What we do not collect", "Sponsor accounts and sponsorships"]);
   });
 
   it("Terms (retained): money wording is confined to the records section and the named legal sections (classification disclaimer, risk allocation, administrator authority over records, conduct about false information) — nothing else", () => {

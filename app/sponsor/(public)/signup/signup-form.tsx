@@ -3,7 +3,7 @@
 import { useActionState, useState } from "react";
 import Link from "next/link";
 import { resendSponsorVerificationAction, sponsorSignupAction, type SponsorSignupState } from "@/lib/actions/sponsor-account";
-import type { SponsorTermsDocument } from "@/lib/sponsor/terms";
+import type { SponsorLegalDocument } from "@/lib/sponsor/terms";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -21,7 +21,7 @@ function FieldError({ message }: { message?: string }) {
   );
 }
 
-export function SponsorSignupForm({ terms }: { terms: SponsorTermsDocument | null }) {
+export function SponsorSignupForm({ terms }: { terms: SponsorLegalDocument | null }) {
   const [state, formAction, pending] = useActionState(sponsorSignupAction, initialState);
   const [email, setEmail] = useState("");
   const [resent, setResent] = useState(false);
@@ -113,7 +113,7 @@ export function SponsorSignupForm({ terms }: { terms: SponsorTermsDocument | nul
                   <Link href={terms.href} target="_blank" className="underline underline-offset-4">
                     Sponsor Terms
                   </Link>{" "}
-                  (effective {terms.effectiveDate}).
+                  {terms.effectiveDate ? ` (effective ${terms.effectiveDate})` : ""}.
                 </span>
               </label>
               <FieldError message={fe.acceptedTerms} />

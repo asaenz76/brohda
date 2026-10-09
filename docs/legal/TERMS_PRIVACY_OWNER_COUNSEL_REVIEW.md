@@ -314,3 +314,30 @@ Engineering did **not** change the Terms or the Privacy Policy for sponsorship (
 ## 10. Sponsor accounts (identity milestone)
 
 Engineering built the *mechanism* for Sponsor Terms (versioned, per-account acceptance record) and wrote **no legal text**. Counsel/owner decisions needed before launch: (1) Sponsor Terms of Service and the page to publish them on (then set `CURRENT_SPONSOR_TERMS` in `lib/sponsor/terms.ts`); (2) the media/advertising agreement (content warranties, takedown, indemnity); (3) how the Privacy Policy describes Sponsor business-contact data (business email, contact name, phone) and that Sponsors are separate from Members; (4) refund and cancellation language for a suspended/disabled Sponsor with a paid, live campaign; (5) who is responsible for sponsor-run promotions (already disclosed on the Game Post) and whether the Sponsor Terms must repeat it.
+
+## 11. Sponsor legal framework (public surface + legal closure milestone) — NEEDS OWNER/COUNSEL APPROVAL
+
+Everything below was written by engineering so the product could operate end to end. **None of it is counsel-approved, none is final, and every draft is labeled "DRAFT — OWNER/COUNSEL REVIEW REQUIRED" where a reader can see it.** A draft binds nobody: the Sponsor Terms checkbox, the per-campaign agreement acceptance and the re-consent gate are all OFF until a document's status is changed to `APPROVED` in `lib/sponsor/terms.ts`.
+
+| # | Item | Where it lives | Status | What the owner/counsel must do |
+|---|---|---|---|---|
+| 1 | **Sponsor Terms** (distinct from the Member Terms) | `/sponsor/terms`, text in `components/legal/SponsorTermsDocument.tsx`, registry `lib/sponsor/terms.ts` (`DRAFT-1`, no effective date) | DRAFT | Approve or replace the wording (several sections are explicit `[counsel]` placeholders: payment terms, prohibited-content list, limitation of liability, indemnity). To publish: set `status: "APPROVED"`, a real `version` and `effectiveDate`. |
+| 2 | **Media / advertising agreement** (per campaign) | standing terms `components/legal/MediaAgreementTerms.tsx`; the campaign **schedule** is generated from the canonical sponsorship record (`components/sponsorship/AgreementPanel.tsx`); acceptance table `sponsorship_agreement_acceptances` | DRAFT | Approve the standing terms. Decide whether in-app digital acceptance is enough or whether a signed agreement is required (V1 uses in-app acceptance; no e-signature product is integrated). |
+| 3 | **Privacy Policy wording for Sponsor data** | new section "Sponsor accounts and sponsorships" in the Privacy Policy, marked DRAFT inside the section | DRAFT | Review. The policy's own version (`2026-07-22`) and effective date were **not** changed — engineering does not pick legal effective dates; decide whether to bump them. |
+| 4 | **Refund policy** | `lib/sponsorship/refund-policy.ts` (cases A–G, proposed treatments) + guidance on the Super Admin sponsorship page | PROPOSED — OWNER DECISION | Choose a treatment for each case (options are listed in the file and below). Nothing refunds automatically in any case. |
+| 5 | **Promotion responsibility** | already disclosed on the Game Post and repeated in the agreement and Sponsor Terms drafts | DRAFT | Confirm the allocation (sponsor/its administrator runs rules, eligibility, winners, prizes; Brohda does not) and the "does not guarantee lawful everywhere" wording. |
+| 6 | **Suspension behavior** | LOCKED current V1 policy (below) | ENFORCED | Confirm or change. |
+| 7 | **Does the Privacy change require Member re-consent?** | — | **Engineering's view: no.** | The new section describes a different population (Sponsor business contacts) and does not change how Member data is processed; Members' Terms and Privacy acceptances are untouched and `legal_reconsent_required` is NOT set. Counsel should confirm; if counsel disagrees, set the setting deliberately — nothing here does it. |
+
+**Refund policy — the choices (proposed default first).**
+- **A** paid, then Brohda rejects: *full refund* · or credit toward another Game.
+- **B** Sponsor cancels before approval: *full refund* · or full less documented administrative cost.
+- **C** Sponsor cancels after approval, before the start: *full refund* · or less administrative cost · or credit · or no refund inside a notice period the owner names.
+- **D** Brohda suspends/cancels before the start: *full refund or a replacement Game at the Sponsor's choice*.
+- **E** campaign already started, then campaign or Sponsor account suspended: *no refund when the suspension is for the Sponsor's breach; prorated for undelivered time when it is for Brohda's reasons (Super Admin records which)* · or always prorated · or never once started.
+- **F** the Game is cancelled/postponed/cannot deliver: *Sponsor's choice of full refund or replacement Game*.
+- **G** already completed: *no refund — it was delivered — unless Brohda failed to deliver*.
+
+**Suspension (locked V1 behavior, enforced and tested).** Suspending a Sponsor **account** makes its sponsor presentation disappear immediately (the public eligibility policy requires an ACTIVE sponsor). The Game Post, its Markets, Picks, comments and Call BS are untouched, and the campaign, payment and audit history stay. Restoring the account brings a campaign back **only** if it is still paid, approved, intact and inside its window — an expired campaign is never revived. Suspending a campaign (one sponsorship) is a separate action. **Neither ever changes the payment state or refunds anything; a refund is a separate, explicit, audited Super Admin action.**
+
+**Member Terms.** Not rewritten. Sponsor commercial obligations live in the Sponsor Terms and the agreement. **Rules** gained no Sponsor legal text (it stays plain-language).
