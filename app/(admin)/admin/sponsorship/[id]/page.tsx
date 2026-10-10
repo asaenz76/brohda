@@ -8,6 +8,8 @@ import { formatCommercialAmount, PAYMENT_STATUS_LABEL, sponsorStatusCopy } from 
 import { AdminSponsorshipActions } from "./admin-actions";
 import { AgreementPanel } from "@/components/sponsorship/AgreementPanel";
 import { RefundGuidance } from "@/components/sponsorship/RefundGuidance";
+import { PaymentProviderPanel } from "@/components/sponsorship/PaymentProviderPanel";
+import { listPaymentAttemptsForAdmin } from "@/lib/payments/views";
 import { SponsorshipEditor, type EditorValues } from "@/components/sponsorship/SponsorshipEditor";
 import { getSponsorshipConfig } from "@/lib/sponsorship/settings";
 import { sponsorCanEdit } from "@/lib/sponsorship/format";
@@ -30,7 +32,7 @@ export default async function AdminSponsorshipDetailPage({ params }: { params: P
   const { id } = await params;
   const s = await getSponsorshipForAdmin(id);
   if (!s) notFound();
-  const [events, audit, approvals, acceptances] = await Promise.all([getPaymentEventsForSponsorship(id), listSponsorshipAudit(id), listApprovalSnapshots(id), listAgreementAcceptances(id)]);
+  const [events, audit, approvals, acceptances, attempts] = await Promise.all([getPaymentEventsForSponsorship(id), listSponsorshipAudit(id), listApprovalSnapshots(id), listAgreementAcceptances(id), listPaymentAttemptsForAdmin(id)]);
   const copy = sponsorStatusCopy(s);
   const config = await getSponsorshipConfig();
   const editable = sponsorCanEdit(s);
@@ -96,6 +98,8 @@ export default async function AdminSponsorshipDetailPage({ params }: { params: P
           <SponsorshipEditor mode="admin" sponsorshipId={s.id} sponsorId={s.sponsorId} initial={initial} logoUrl={s.logoUrl} logoMaxKb={Math.round(config.logoMaxBytes / 1024)} canCancel={false} />
         </section>
       )}
+
+      <PaymentProviderPanel sponsorshipId={s.id} attempts={attempts} paymentStatus={s.paymentStatus} />
 
       <RefundGuidance s={s} />
 

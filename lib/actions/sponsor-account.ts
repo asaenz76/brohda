@@ -10,6 +10,7 @@ import { checkLoginRateLimit } from "@/lib/rate-limit/login";
 import { checkSponsorResendRateLimit, checkSponsorSignupRateLimit } from "@/lib/rate-limit/sponsor-signup";
 import { homePathFor, isSponsorArea } from "@/lib/auth/account-routing";
 import { sanitizeNextPath } from "@/lib/auth/safe-next";
+import { appOrigin } from "@/lib/app-origin";
 import { requireSponsorAccount } from "@/lib/sponsor/session";
 import { CURRENT_SPONSOR_TERMS } from "@/lib/sponsor/terms";
 import { hasAcceptedCurrentSponsorTerms, recordSponsorTermsAcceptance } from "@/lib/sponsor/legal-acceptance";
@@ -34,17 +35,8 @@ function statelessAnonClient() {
   return createStatelessClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
 }
 
-/**
- * Where the verification link lands. APP_URL is the canonical origin; when it isn't configured (local and CI runs) the request's own origin is used. Either
- * way Supabase Auth only honours a redirect that is on its allow-list, so this can never send a person somewhere arbitrary.
- */
 async function verifiedRedirect(): Promise<string> {
-  const configured = process.env.APP_URL?.replace(/\/$/, "");
-  if (configured) return `${configured}/sponsor/verified`;
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
-  const proto = h.get("x-forwarded-proto") ?? (host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https");
-  return `${proto}://${host}/sponsor/verified`;
+  return `${await appOrigin()}/sponsor/verified`;
 }
 
 /**

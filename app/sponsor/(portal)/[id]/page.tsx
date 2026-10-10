@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { notFound } from "next/navigation";
 import { requireSponsorAccount } from "@/lib/sponsor/session";
 import { ColumnHeader } from "@/components/shell/ColumnHeader";
@@ -13,12 +14,16 @@ import { refundCutoffRuleCopy, sponsorCancellationConsequence } from "@/lib/spon
 import { getSponsorshipConfig } from "@/lib/sponsorship/settings";
 import { formatCommercialAmount, PAYMENT_STATUS_LABEL, sponsorCanEdit, sponsorStatusCopy } from "@/lib/sponsorship/format";
 import { SponsorshipEditor, type EditorValues } from "@/components/sponsorship/SponsorshipEditor";
+import { SponsorPaymentPanel } from "@/components/sponsorship/SponsorPaymentPanel";
+import { getSponsorPaymentView } from "@/lib/payments/views";
+import { sponsorCheckoutOffered } from "@/lib/payments/config";
 
 // One sponsorship, for a member of the sponsor that owns it (anyone else gets not-found, indistinguishable from a missing one). The sponsor sees status,
 // the price Brohda set, and payment state — it can edit while editable, submit, and cancel before money. It can never approve, price, mark paid or activate.
-export default async function SponsorshipDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function SponsorshipDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ payment?: string }> }) {
   const session = await requireSponsorAccount();
   const { id } = await params;
+  const { payment: paymentNotice } = await searchParams;
   const s = await getSponsorshipForUser(session.userId, id);
   if (!s) notFound();
   const [enabled, config, events, acceptances] = await Promise.all([isSponsorshipEnabled(), getSponsorshipConfig(), getPaymentEventsForSponsorship(id), listAgreementAcceptances(id)]);
@@ -28,6 +33,9 @@ export default async function SponsorshipDetailPage({ params }: { params: Promis
   const evaluation = cancellable ? await evaluateSponsorshipRefundEligibility(id, "SPONSOR_CANCELLATION") : null;
   const cancellation = s.lifecycle === "CANCELLED" ? await getCancellationRecord(id) : null;
   const editable = enabled && session.sponsor.status === "ACTIVE" && sponsorCanEdit(s);
+  // Online payment is offered only for a submitted, unpaid sponsorship of an ACTIVE Sponsor while the capability is on — and only when online payment is configured and offered.
+  const payable = enabled && session.sponsor.status === "ACTIVE" && s.lifecycle === "SUBMITTED" && s.paymentStatus !== "PAID" && (s.paymentStatus === "PENDING" || s.paymentStatus === "FAILED");
+  const paymentView = payable ? await getSponsorPaymentView(id) : null;
   const initial: EditorValues = {
     campaignName: s.campaignName,
     presentedBy: s.presentedBy ?? "",
@@ -81,6 +89,10 @@ export default async function SponsorshipDetailPage({ params }: { params: Promis
               <LocalDateTime iso={s.startsAt} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} /> – <LocalDateTime iso={s.endsAt} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
             </dd>
           </dl>
+
+          {payable && (
+            <SponsorPaymentPanel sponsorshipId={s.id} priceCents={s.priceCents} currency={s.currency} latestAttemptStatus={paymentView?.latestStatus ?? null} paymentStatus={s.paymentStatus} offered={sponsorCheckoutOffered()} idempotencyKey={randomUUID()} notice={paymentNotice ?? null} />
+          )}
 
           {s.lifecycle === "SUBMITTED" && s.paymentStatus !== "PAID" && config.paymentInstructions && (
             <div className="space-y-1 rounded-lg border border-border-subtle p-3">
