@@ -11,6 +11,7 @@ import { seedGame, seedSponsorAccount, seedUser } from "./helpers/game-seed";
 import { OnvoSandbox } from "../helpers/onvo-sandbox";
 import { loadPublicSponsorships } from "@/lib/sponsorship/public";
 import { OnvoProvider } from "@/lib/payments/onvo/adapter";
+import { clearTestAdapters, registerTestAdapter } from "@/lib/payments/registry";
 
 vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -34,14 +35,19 @@ beforeAll(async () => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = cfg.serviceRoleKey;
   service = await import("@/lib/payments/service");
 });
-beforeEach(() => {
+beforeEach(async () => {
   sandbox = new OnvoSandbox(KEY, "http://sandbox", "test");
   provider = new OnvoProvider({ ...ENV }, sandbox.fetcher);
+  // The ONVO adapter is wired to the sandbox through the SAME registry production uses, and online payments are switched on by the SAME platform setting a Super Admin edits.
+  clearTestAdapters();
+  registerTestAdapter(provider);
+  await admin.from("platform_settings").update({ sponsorship_online_payments_enabled: true, sponsorship_online_payment_provider: "ONVO" }).eq("id", true);
 });
 const staffIds: string[] = [];
 afterAll(async () => {
   if (staffIds.length) await admin.from("user_profiles").update({ role: "player" }).in("id", staffIds);
-  await admin.from("platform_settings").update({ sponsorship_enabled: false }).eq("id", true);
+  clearTestAdapters();
+  await admin.from("platform_settings").update({ sponsorship_enabled: false, sponsorship_online_payments_enabled: false, sponsorship_online_payment_provider: null }).eq("id", true);
 });
 
 const rpc = async (name: string, args: Record<string, unknown>) => {
@@ -81,13 +87,13 @@ const approve = async (c: { adminId: string; sponsorshipId: string }) => {
 };
 const urls = { successUrl: "https://app.test/return?result=success", cancelUrl: "https://app.test/return?result=cancel" };
 const pay = (c: { sponsor: { userId: string }; sponsorshipId: string }, key: string = randomUUID()) =>
-  service.startSponsorPayment({ userId: c.sponsor.userId, sponsorshipId: c.sponsorshipId, idempotencyKey: key, customerEmail: "biz@test.local", description: "Sponsored Game Post", ...urls }, { provider, env: {} });
+  service.startSponsorPayment({ userId: c.sponsor.userId, sponsorshipId: c.sponsorshipId, idempotencyKey: key, customerEmail: "biz@test.local", description: "Sponsored Game Post", ...urls }, { env: {} });
 const row = async (id: string) => (await admin.from("sponsorships").select("lifecycle, payment_status, review_status").eq("id", id).single()).data!;
 const attempts = async (id: string) => (await admin.from("commercial_payment_attempts").select("*").eq("sponsorship_id", id).order("created_at")).data!;
 const hook = (event: { type: string; data: Record<string, unknown> }, secret: string | null = WH) => {
   const headers = new Headers({ "content-type": "application/json" });
   if (secret !== null) headers.set("X-Webhook-Secret", secret);
-  return service.handleProviderWebhook(headers, JSON.stringify(event), { provider, env: {} });
+  return service.handleProviderWebhook("ONVO", headers, JSON.stringify(event));
 };
 const paidEvents = async (id: string) => (await admin.from("sponsorship_payment_events").select("*").eq("sponsorship_id", id).eq("event_type", "PAID")).data!;
 const sessionOf = async (id: string) => (await attempts(id))[0].provider_session_id as string;
@@ -125,9 +131,9 @@ describe("creating an ONVO payment", () => {
     await admin.from("sponsors").update({ status: "ACTIVE" }).eq("id", c.sponsor.sponsorId);
 
     const member = await seedUser("onvomember");
-    await expect(service.startSponsorPayment({ userId: member, sponsorshipId: c.sponsorshipId, idempotencyKey: randomUUID(), customerEmail: null, description: "x", ...urls }, { provider, env: {} })).rejects.toMatchObject({ code: "not_authorized" });
+    await expect(service.startSponsorPayment({ userId: member, sponsorshipId: c.sponsorshipId, idempotencyKey: randomUUID(), customerEmail: null, description: "x", ...urls }, { env: {} })).rejects.toMatchObject({ code: "not_authorized" });
     const other = await seedSponsorAccount("otheronvo");
-    await expect(service.startSponsorPayment({ userId: other.userId, sponsorshipId: c.sponsorshipId, idempotencyKey: randomUUID(), customerEmail: null, description: "x", ...urls }, { provider, env: {} })).rejects.toMatchObject({ code: "not_authorized" });
+    await expect(service.startSponsorPayment({ userId: other.userId, sponsorshipId: c.sponsorshipId, idempotencyKey: randomUUID(), customerEmail: null, description: "x", ...urls }, { env: {} })).rejects.toMatchObject({ code: "not_authorized" });
 
     await admin.from("platform_settings").update({ sponsorship_enabled: false }).eq("id", true);
     await expect(pay(c)).rejects.toMatchObject({ code: "not_payable" });
@@ -336,8 +342,8 @@ describe("webhooks: only an authenticated, verified, idempotent provider fact ma
   });
 
   it("an unconfigured deployment treats the webhook as absent (fail closed)", async () => {
-    const off = new OnvoProvider({}, sandbox.fetcher);
-    const res = await service.handleProviderWebhook(new Headers({ "x-webhook-secret": WH }), "{}", { provider: off, env: {} });
+    registerTestAdapter(new OnvoProvider({}, sandbox.fetcher));
+    const res = await service.handleProviderWebhook("ONVO", new Headers({ "x-webhook-secret": WH }), "{}");
     expect(res.status).toBe(503);
   });
 });
@@ -464,10 +470,10 @@ describe("reconciliation", () => {
     await pay(c);
     const [a] = await attempts(c.sponsorshipId);
     sandbox.pay(a.provider_session_id);
-    const first = await service.reconcileAttempt(a.id, { provider, env: {} });
+    const first = await service.reconcileAttempt(a.id);
     expect(first).toMatchObject({ providerOutcome: "SUCCEEDED", applied: "APPLIED_PAID" });
     expect((await row(c.sponsorshipId)).payment_status).toBe("PAID");
-    const again = await service.reconcileAttempt(a.id, { provider, env: {} });
+    const again = await service.reconcileAttempt(a.id);
     expect(again.applied).toBe("DUPLICATE");
     expect(await paidEvents(c.sponsorshipId)).toHaveLength(1);
   });
@@ -476,10 +482,10 @@ describe("reconciliation", () => {
     const c = await campaign();
     await pay(c);
     const [a] = await attempts(c.sponsorshipId);
-    expect((await service.reconcileAttempt(a.id, { provider, env: {} })).providerOutcome).toBe("PENDING");
+    expect((await service.reconcileAttempt(a.id)).providerOutcome).toBe("PENDING");
     expect((await row(c.sponsorshipId)).payment_status).toBe("PENDING");
     sandbox.expire(a.provider_session_id);
-    expect((await service.reconcileAttempt(a.id, { provider, env: {} })).providerOutcome).toBe("EXPIRED");
+    expect((await service.reconcileAttempt(a.id)).providerOutcome).toBe("EXPIRED");
     expect((await attempts(c.sponsorshipId))[0].status).toBe("EXPIRED");
   });
 
@@ -488,7 +494,7 @@ describe("reconciliation", () => {
     await pay(c);
     const [a] = await attempts(c.sponsorshipId);
     sandbox.failNext(/GET \/v1\/checkout\/sessions/, "network");
-    await expect(service.reconcileAttempt(a.id, { provider, env: {} })).rejects.toBeTruthy();
+    await expect(service.reconcileAttempt(a.id)).rejects.toBeTruthy();
     expect((await row(c.sponsorshipId)).payment_status).toBe("PENDING");
   });
 });
@@ -499,17 +505,17 @@ describe("refunds: Brohda's policy decides WHETHER; the provider is only a METHO
     await pay(c);
     const [a] = await attempts(c.sponsorshipId);
     sandbox.pay(a.provider_session_id);
-    await service.reconcileAttempt(a.id, { provider, env: {} });
+    await service.reconcileAttempt(a.id);
     return { ...c, attemptId: a.id as string };
   }
 
   it("a confirmed provider refund → REFUNDED (and only then); a duplicate refund is refused", async () => {
     const c = await paidThroughOnvo();
-    const r = await service.refundThroughProvider(c.adminId, c.attemptId, { provider, env: {} });
+    const r = await service.refundThroughProvider(c.adminId, c.attemptId);
     expect(r).toMatchObject({ status: "succeeded", manualFallback: false });
     expect((await row(c.sponsorshipId)).payment_status).toBe("REFUNDED");
     expect((await attempts(c.sponsorshipId))[0].refunded_at).toBeTruthy();
-    await expect(service.refundThroughProvider(c.adminId, c.attemptId, { provider, env: {} })).rejects.toBeTruthy();
+    await expect(service.refundThroughProvider(c.adminId, c.attemptId)).rejects.toBeTruthy();
     expect(sandbox.requests.filter((q) => q.path === "/v1/refunds" && q.method === "POST")).toHaveLength(1); // the second never reached the provider
     expect((await admin.from("sponsorship_payment_events").select("event_type").eq("sponsorship_id", c.sponsorshipId).eq("event_type", "REFUNDED")).data).toHaveLength(1);
   });
@@ -517,12 +523,12 @@ describe("refunds: Brohda's policy decides WHETHER; the provider is only a METHO
   it("a PENDING provider refund is REFUND_PENDING, not REFUNDED, until the provider confirms (reconcile)", async () => {
     const c = await paidThroughOnvo();
     sandbox.refundBehavior = "pending";
-    const r = await service.refundThroughProvider(c.adminId, c.attemptId, { provider, env: {} });
+    const r = await service.refundThroughProvider(c.adminId, c.attemptId);
     expect(r.status).toBe("pending");
     expect((await row(c.sponsorshipId)).payment_status).toBe("REFUND_PENDING");
     const { data: refund } = await admin.from("commercial_payment_refunds").select("*").eq("attempt_id", c.attemptId).single();
     sandbox.refunds.get(refund!.provider_refund_id)!.status = "succeeded";
-    const done = await service.reconcileRefund(c.adminId, refund!.id, { provider, env: {} });
+    const done = await service.reconcileRefund(c.adminId, refund!.id);
     expect(done.status).toBe("succeeded");
     expect((await row(c.sponsorshipId)).payment_status).toBe("REFUNDED");
   });
@@ -530,7 +536,7 @@ describe("refunds: Brohda's policy decides WHETHER; the provider is only a METHO
   it("a REFUSED provider refund marks nothing refunded and leaves the manual fallback — which still works", async () => {
     const c = await paidThroughOnvo();
     sandbox.refundBehavior = "reject";
-    const r = await service.refundThroughProvider(c.adminId, c.attemptId, { provider, env: {} });
+    const r = await service.refundThroughProvider(c.adminId, c.attemptId);
     expect(r).toMatchObject({ status: "failed", manualFallback: true });
     expect((await row(c.sponsorshipId)).payment_status).toBe("PAID");
     expect((await admin.from("commercial_payment_refunds").select("status").eq("attempt_id", c.attemptId)).data).toEqual([{ status: "FAILED" }]);
@@ -542,7 +548,7 @@ describe("refunds: Brohda's policy decides WHETHER; the provider is only a METHO
   it("an unknown outcome (network) is recorded as such and never as refunded", async () => {
     const c = await paidThroughOnvo();
     sandbox.failNext(/POST \/v1\/refunds/, "network");
-    const r = await service.refundThroughProvider(c.adminId, c.attemptId, { provider, env: {} });
+    const r = await service.refundThroughProvider(c.adminId, c.attemptId);
     expect(r.status).toBe("failed");
     expect((await admin.from("commercial_payment_refunds").select("failure_code").eq("attempt_id", c.attemptId)).data).toEqual([{ failure_code: "unknown_outcome" }]);
     expect((await row(c.sponsorshipId)).payment_status).toBe("PAID");
@@ -553,7 +559,7 @@ describe("refunds: Brohda's policy decides WHETHER; the provider is only a METHO
     const ordinary = await seedUser("onvoordinary");
     await admin.from("user_profiles").update({ role: "admin" }).eq("id", ordinary);
     staffIds.push(ordinary);
-    await expect(service.refundThroughProvider(ordinary, c.attemptId, { provider, env: {} })).rejects.toBeTruthy();
+    await expect(service.refundThroughProvider(ordinary, c.attemptId)).rejects.toBeTruthy();
     await ok("admin_set_sponsor_status", { p_admin_id: c.adminId, p_sponsor_id: c.sponsor.sponsorId, p_status: "SUSPENDED", p_reason: "review", p_internal_note: null });
     await ok("admin_cancel_sponsorship", { p_admin_id: c.adminId, p_id: c.sponsorshipId, p_reason: "x", p_cause: "BROHDA_CANCELLED_NO_BREACH" });
     expect((await row(c.sponsorshipId)).payment_status).toBe("PAID");

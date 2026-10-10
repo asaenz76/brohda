@@ -1,5 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getAdapter } from "./registry";
 
 export interface SponsorPaymentView {
   /** The latest attempt's local status, or null if there has been none. Safe to show (no provider identifiers). */
@@ -16,6 +17,10 @@ export async function getSponsorPaymentView(sponsorshipId: string): Promise<Spon
 export interface AdminPaymentAttempt {
   id: string;
   provider: string;
+  /** What the attempt's ORIGINAL provider's adapter can do for it here (false when that provider isn't installed in this deployment). */
+  providerLabel: string;
+  canReconcile: boolean;
+  canRefund: boolean;
   environment: "TEST" | "LIVE";
   status: string;
   providerStatus: string | null;
@@ -38,9 +43,14 @@ export async function listPaymentAttemptsForAdmin(sponsorshipId: string): Promis
   const { data } = await admin.from("commercial_payment_attempts").select("*").eq("sponsorship_id", sponsorshipId).order("created_at", { ascending: false });
   const ids = (data ?? []).map((a) => a.id as string);
   const { data: refunds } = ids.length ? await admin.from("commercial_payment_refunds").select("*").in("attempt_id", ids).order("created_at", { ascending: false }) : { data: [] as any[] }; // eslint-disable-line @typescript-eslint/no-explicit-any
-  return (data ?? []).map((a) => ({
+  return (data ?? []).map((a) => {
+    const adapter = getAdapter(a.provider);
+    return {
     id: a.id,
     provider: a.provider,
+    providerLabel: adapter?.label ?? a.provider,
+    canReconcile: Boolean(adapter?.capabilities.supportsReconciliation),
+    canRefund: Boolean(adapter?.capabilities.supportsRefund),
     environment: a.environment,
     status: a.status,
     providerStatus: a.provider_status,
@@ -55,5 +65,6 @@ export async function listPaymentAttemptsForAdmin(sponsorshipId: string): Promis
     refundedAt: a.refunded_at,
     lastProviderEventAt: a.last_provider_event_at,
     refunds: (refunds ?? []).filter((r) => r.attempt_id === a.id).map((r) => ({ id: r.id, status: r.status, providerRefundId: r.provider_refund_id, failureCode: r.failure_code, createdAt: r.created_at })),
-  }));
+    };
+  });
 }

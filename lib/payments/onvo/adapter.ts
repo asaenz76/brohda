@@ -1,7 +1,7 @@
 import "server-only";
 import { fromProviderAmount, isProviderSupportedCurrency, toProviderAmount } from "../amount";
-import { onvoAvailability, resolveOnvoConfig } from "../config";
-import type { CommercialPaymentProvider, NormalizedOutcome, PaymentCheckout, ProviderAvailability, ProviderPaymentState, ProviderRefundState, WebhookParse } from "../types";
+import { onvoAvailability, resolveOnvoConfig } from "./config";
+import type { CommercialPaymentProvider, NormalizedOutcome, PaymentCheckout, ProviderAvailability, ProviderCapabilities, ProviderPaymentState, ProviderRefundState, WebhookParse } from "../types";
 import { OnvoClient, OnvoError, type Fetcher, type OnvoPaymentIntent } from "./client";
 import { ATTEMPT_METADATA_KEY, parseOnvoWebhook } from "./webhook";
 
@@ -15,7 +15,11 @@ function outcomeFromIntent(pi: OnvoPaymentIntent): NormalizedOutcome {
 }
 
 export class OnvoProvider implements CommercialPaymentProvider {
-  readonly name = "ONVO" as const;
+  readonly key = "ONVO";
+  readonly label = "ONVO";
+  // What this adapter actually does today. (The API also allows partial refunds — the adapter passes the amount through — but ONVO documents no refund webhook, so refund
+  // state is checked on demand.)
+  readonly capabilities: ProviderCapabilities = { supportsCheckout: true, supportsRefund: true, supportsPartialRefund: true, supportsReconciliation: true, supportsRefundWebhook: false };
 
   constructor(
     private readonly env: Record<string, string | undefined> = process.env,

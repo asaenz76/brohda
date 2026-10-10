@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fromProviderAmount, formatMinor, isProviderSupportedCurrency, toProviderAmount, UnsupportedCurrencyError } from "@/lib/payments/amount";
-import { checkoutOffered, isProductionDeployment, onvoAvailability, resolveOnvoConfig } from "@/lib/payments/config";
+import { checkoutOffered, isProductionDeployment } from "@/lib/payments/config";
+import { onvoAvailability, resolveOnvoConfig } from "@/lib/payments/onvo/config";
 import { parseOnvoWebhook, secretMatches, sessionIdFromUrl } from "@/lib/payments/onvo/webhook";
 import { OnvoClient, OnvoError } from "@/lib/payments/onvo/client";
 import { OnvoProvider } from "@/lib/payments/onvo/adapter";
@@ -70,7 +71,7 @@ describe("configuration fails closed", () => {
     expect(isProductionDeployment({ VERCEL_ENV: "production" })).toBe(true);
     expect(isProductionDeployment({ VERCEL_ENV: "preview" })).toBe(false);
     expect(checkoutOffered({ state: "test", environment: "TEST" }, { VERCEL_ENV: "production" })).toBe(false);
-    expect(checkoutOffered({ state: "test", environment: "TEST" }, { VERCEL_ENV: "production", ONVO_ALLOW_TEST_IN_PRODUCTION: "true" })).toBe(true);
+    expect(checkoutOffered({ state: "test", environment: "TEST" }, { VERCEL_ENV: "production", PAYMENTS_ALLOW_TEST_IN_PRODUCTION: "true" })).toBe(true);
     expect(checkoutOffered({ state: "test", environment: "TEST" }, { VERCEL_ENV: "preview" })).toBe(true);
     expect(checkoutOffered({ state: "unavailable", reason: "x" }, {})).toBe(false);
   });

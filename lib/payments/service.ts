@@ -1,7 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { checkoutOffered } from "./config";
-import { getCommercialPaymentProvider } from "./registry";
+import { resolveOnlinePayment } from "./active-provider";
+import { getAdapter } from "./registry";
 import { PaymentProviderError, type CommercialPaymentProvider, type NormalizedPaymentEvent, type ProviderPaymentState } from "./types";
 import { notifySponsorAccount } from "@/lib/sponsorship/notify";
 
@@ -10,19 +10,20 @@ import { notifySponsorAccount } from "@/lib/sponsorship/notify";
 // provider outside any transaction, and turn only TRUSTED provider state (a verified webhook, or a server-side read of the provider) into local state.
 export class PaymentError extends Error {
   constructor(
-    readonly code: "unavailable" | "not_payable" | "already_paid" | "not_authorized" | "provider_unavailable" | "unknown",
+    readonly code: "unavailable" | "not_payable" | "already_paid" | "not_authorized" | "provider_unavailable" | "in_progress_other_provider" | "unknown",
     message: string,
   ) {
     super(message);
   }
 }
 
-type Deps = { provider?: CommercialPaymentProvider; env?: Record<string, string | undefined> };
+type Deps = { env?: Record<string, string | undefined> };
 type Json = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 function mapRpcError(message: string): PaymentError {
   if (/not_authorized/.test(message)) return new PaymentError("not_authorized", "Not found.");
   if (/already_paid/.test(message)) return new PaymentError("already_paid", "This sponsorship is already paid.");
+  if (/open_attempt_other_provider/.test(message)) return new PaymentError("in_progress_other_provider", "Your earlier payment is still in progress. Finish it, or wait for it to expire, before starting a new one.");
   if (/sponsor_not_active|sponsorship_disabled|sponsorship_not_payable|price_missing|sponsorship_not_found/.test(message)) return new PaymentError("not_payable", "This sponsorship can't be paid right now.");
   return new PaymentError("unknown", "Something went wrong. Try again.");
 }
@@ -103,14 +104,18 @@ export type StartResult = { status: "redirect"; url: string; attemptId: string }
  * Double-click / two tabs / retry converge on one open attempt and at most one provider session.
  */
 export async function startSponsorPayment(input: StartInput, deps: Deps = {}): Promise<StartResult> {
-  const provider = deps.provider ?? getCommercialPaymentProvider();
-  const availability = provider.availability();
-  if (availability.state === "unavailable" || !checkoutOffered(availability, deps.env ?? process.env)) throw new PaymentError("unavailable", "Online payment isn't available right now.");
-  const environment = availability.environment;
+  // NEW payments use the provider the Super Admin has selected (and only if it is installed AND its runtime configuration is valid). Nothing here names a provider.
+  const active = await resolveOnlinePayment(deps.env);
+  if (active.state !== "available" || !active.offered || !active.adapter) throw new PaymentError("unavailable", "Online payment isn't available right now.");
+  const provider: CommercialPaymentProvider = active.adapter;
+  const environment = active.environment;
   const admin = createAdminClient();
 
+  // An open attempt that belongs to ANOTHER provider (the selection changed since it started) is never converted or retired: it is settled through its own provider first.
+  await settleOtherProviderAttempt(input.sponsorshipId, provider.key);
+
   const begin = async (key: string) => {
-    const { data, error } = await admin.rpc("commercial_payment_begin", { p_user_id: input.userId, p_id: input.sponsorshipId, p_provider: provider.name, p_environment: environment, p_idempotency_key: key });
+    const { data, error } = await admin.rpc("commercial_payment_begin", { p_user_id: input.userId, p_id: input.sponsorshipId, p_provider: provider.key, p_environment: environment, p_idempotency_key: key });
     if (error) throw mapRpcError(error.message);
     return data as Json;
   };
@@ -171,9 +176,14 @@ export interface WebhookResult {
   body: { received: boolean; result?: string };
 }
 
-/** A provider webhook delivery. Authenticated first; success is VERIFIED against the provider server-side before any state changes; every outcome is idempotent. */
-export async function handleProviderWebhook(headers: Headers, rawBody: string, deps: Deps = {}): Promise<WebhookResult> {
-  const provider = deps.provider ?? getCommercialPaymentProvider();
+/**
+ * A provider webhook delivery. The endpoint says WHICH provider's adapter verifies it (a provider-specific URL is infrastructure); the policy setting plays no part, so a
+ * late callback for an attempt that provider started is still processed after online payments were switched off or another provider was selected. Authenticated first; success
+ * is VERIFIED against the provider server-side before any state changes; every outcome is idempotent.
+ */
+export async function handleProviderWebhook(providerKey: string, headers: Headers, rawBody: string): Promise<WebhookResult> {
+  const provider = getAdapter(providerKey);
+  if (!provider) return { status: 503, body: { received: false } }; // not installed here: behaves as absent
   const parsed = provider.parseWebhook(headers, rawBody);
   if (!parsed.ok) {
     if (parsed.status === 401) console.error("[payments] webhook rejected: bad or missing secret");
@@ -205,11 +215,14 @@ export interface ReconcileOutcome {
 }
 
 /** Super Admin: compare one attempt with the provider's own record and correct local state if they differ. Idempotent; audited by the ledger and the state change. */
-export async function reconcileAttempt(attemptId: string, deps: Deps = {}): Promise<ReconcileOutcome> {
-  const provider = deps.provider ?? getCommercialPaymentProvider();
+export async function reconcileAttempt(attemptId: string): Promise<ReconcileOutcome> {
   const admin = createAdminClient();
   const { data: attempt } = await admin.from("commercial_payment_attempts").select("*").eq("id", attemptId).single();
   if (!attempt) throw new PaymentError("not_payable", "Payment not found.");
+  // The attempt is reconciled through the provider that PROCESSED it (its snapshot), never through whichever provider is active now.
+  const provider = getAdapter(attempt.provider);
+  if (!provider) throw new PaymentError("unavailable", "That payment's provider isn't installed in this deployment.");
+  if (!provider.capabilities.supportsReconciliation) throw new PaymentError("unavailable", "That provider can't be reconciled online.");
   if (!attempt.provider_session_id && !attempt.provider_payment_ref) throw new PaymentError("not_payable", "This attempt never reached the provider.");
   const state = await provider.getPayment({ sessionId: attempt.provider_session_id, paymentRef: attempt.provider_payment_ref });
   if (state.environment && state.environment !== attempt.environment) throw new PaymentError("unknown", "The provider reports a different environment than this attempt.");
@@ -227,9 +240,12 @@ export interface RefundOutcome {
  * Super Admin asks the PROVIDER to return a payment. Whether a refund is owed is Brohda's policy and is decided before this is called; this is only one way to pay it.
  * Local state moves to REFUND_PENDING / REFUNDED only on the provider's confirmed answer; anything else leaves a manual refund as the fallback.
  */
-export async function refundThroughProvider(adminId: string, attemptId: string, deps: Deps = {}): Promise<RefundOutcome> {
-  const provider = deps.provider ?? getCommercialPaymentProvider();
+export async function refundThroughProvider(adminId: string, attemptId: string): Promise<RefundOutcome> {
   const admin = createAdminClient();
+  const { data: owner } = await admin.from("commercial_payment_attempts").select("provider").eq("id", attemptId).single();
+  const provider = getAdapter(owner?.provider);
+  if (!provider) throw new PaymentError("unavailable", "That payment's provider isn't installed in this deployment — refund manually.");
+  if (!provider.capabilities.supportsRefund) throw new PaymentError("unavailable", "That provider can't refund online — refund manually.");
   const { data: refund, error } = await admin.rpc("commercial_refund_begin", { p_admin_id: adminId, p_attempt_id: attemptId });
   if (error) throw new PaymentError(/refund_already_requested/.test(error.message) ? "already_paid" : "not_payable", error.message.replace(/^.*?:\s*/, ""));
   const r = refund as Json;
@@ -249,12 +265,41 @@ export async function refundThroughProvider(adminId: string, attemptId: string, 
 }
 
 /** Refresh a pending provider refund from the provider (some providers send no refund webhook). */
-export async function reconcileRefund(adminId: string, refundId: string, deps: Deps = {}): Promise<RefundOutcome> {
-  const provider = deps.provider ?? getCommercialPaymentProvider();
+export async function reconcileRefund(adminId: string, refundId: string): Promise<RefundOutcome> {
   const admin = createAdminClient();
   const { data: refund } = await admin.from("commercial_payment_refunds").select("*").eq("id", refundId).single();
+  const provider = getAdapter(refund?.provider);
+  if (!provider || !provider.capabilities.supportsRefund) throw new PaymentError("unavailable", "That refund's provider can't be checked online.");
   if (!refund?.provider_refund_id) throw new PaymentError("not_payable", "This refund has no provider reference to check.");
   const state = await provider.getRefund(refund.provider_refund_id);
   await admin.rpc("commercial_refund_record", { p_admin_id: adminId, p_refund_id: refundId, p_provider_refund_id: state.refundId, p_status: state.status, p_failure_code: state.failureCode });
   return { refundId, status: state.status, manualFallback: state.status === "failed" };
+}
+
+
+/** Super Admin explicitly closes an open attempt (for example to move a Sponsor onto a newly selected provider). It stays on record; a later provider success is still recognised. */
+export async function cancelOpenAttempt(adminId: string, attemptId: string): Promise<void> {
+  const admin = createAdminClient();
+  const { error } = await admin.rpc("commercial_payment_cancel_attempt", { p_admin_id: adminId, p_attempt_id: attemptId });
+  if (error) throw new PaymentError("not_payable", "Could not cancel that payment attempt.");
+}
+
+/**
+ * Before starting a new payment with the ACTIVE provider: if an open attempt belongs to another provider, ask THAT provider (through its own adapter) where it stands. If it has
+ * ended (failed / expired / paid) it is recorded and the new payment can go ahead; if it is still open the Sponsor is told so — it is never converted, superseded or doubled.
+ */
+async function settleOtherProviderAttempt(sponsorshipId: string, activeKey: string): Promise<void> {
+  const admin = createAdminClient();
+  const { data: open } = await admin.from("commercial_payment_attempts").select("*").eq("sponsorship_id", sponsorshipId).in("status", ["CREATED", "PENDING"]).limit(1);
+  const attempt = open?.[0];
+  if (!attempt || attempt.provider === activeKey) return;
+  const adapter = getAdapter(attempt.provider);
+  if (adapter?.capabilities.supportsReconciliation && (attempt.provider_session_id || attempt.provider_payment_ref)) {
+    try {
+      const state = await adapter.getPayment({ sessionId: attempt.provider_session_id, paymentRef: attempt.provider_payment_ref });
+      if (!state.environment || state.environment === attempt.environment) await applyEvent(stateToEvent(attempt, state, "RETURN"), "RETURN");
+    } catch {
+      /* the other provider can't be reached: nothing is guessed — the attempt stays open */
+    }
+  }
 }

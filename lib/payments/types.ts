@@ -68,8 +68,22 @@ export class PaymentProviderError extends Error {
 
 export type WebhookParse = { ok: true; event: NormalizedPaymentEvent | null } | { ok: false; status: 400 | 401 | 503 };
 
+/** What an adapter can actually do. Core behavior asks THESE, never "which provider is it" — a provider without a capability simply isn't offered that action. */
+export interface ProviderCapabilities {
+  supportsCheckout: boolean;
+  supportsRefund: boolean;
+  supportsPartialRefund: boolean;
+  supportsReconciliation: boolean;
+  /** True when the provider tells us about refund results; false means refund state is checked on demand. */
+  supportsRefundWebhook: boolean;
+}
+
 export interface CommercialPaymentProvider {
-  readonly name: ProviderName;
+  /** The provider key stored on every attempt (a snapshot: history is never reinterpreted through the currently active provider). */
+  readonly key: ProviderName;
+  /** A human label for Super Admin only (never shown to Sponsors or the public). */
+  readonly label: string;
+  readonly capabilities: ProviderCapabilities;
   availability(): ProviderAvailability;
   createPayment(input: { attemptId: string; sponsorshipId: string; amountCents: number; currency: string; description: string; customerEmail: string | null; successUrl: string; cancelUrl: string }): Promise<PaymentCheckout>;
   getPayment(ref: { sessionId?: string | null; paymentRef?: string | null }): Promise<ProviderPaymentState>;

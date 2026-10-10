@@ -9,6 +9,7 @@ const NOTICE: Record<string, string> = {
   already_paid: "This sponsorship is already paid.",
   not_authorized: "We couldn't find that sponsorship.",
   provider_unavailable: "We couldn't start the payment. Please try again in a moment.",
+  in_progress_other_provider: "A payment you started earlier is still open. Please finish it, or wait for it to expire, then try again.",
   starting: "Your payment is starting. Refresh this page in a moment.",
   unknown: "Something went wrong. Try again.",
 };
@@ -36,7 +37,7 @@ export function SponsorPaymentPanel({ sponsorshipId, priceCents, currency, lates
         <form action={startSponsorPaymentAction} className="space-y-1">
           <input type="hidden" name="sponsorshipId" value={sponsorshipId} />
           <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
-          <Button type="submit">Pay with ONVO</Button>
+          <Button type="submit">Pay now</Button>
           <p className="text-xs text-text-muted">You&apos;ll complete the payment on a secure page and come back here. Payment alone doesn&apos;t approve your sponsorship — Brohda still reviews it.</p>
         </form>
       )}
