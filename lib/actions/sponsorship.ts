@@ -9,11 +9,12 @@ import { SponsorshipError } from "@/lib/sponsorship/errors";
 import { draftToDbFields, promotionProblems, sponsorshipDraftSchema, type SponsorshipDraftInput } from "@/lib/sponsorship/validation";
 import { notifySponsorAccount } from "@/lib/sponsorship/notify";
 import { CURRENT_MEDIA_AGREEMENT, CURRENT_SPONSOR_TERMS } from "@/lib/sponsor/terms";
+import { evaluateSponsorshipRefundEligibility, getCancellationRecord } from "@/lib/sponsorship/refund-evaluation";
 
 // Sponsor-facing actions. The caller is only ever "a signed-in user": ownership, the Sponsor being ACTIVE and the capability being ON are all re-checked
 // inside the database functions, so nothing here can be talked into acting for someone else. There is deliberately NO approve / price / mark-paid /
 // activate / schedule action in this file — a sponsor has no path to any of them.
-export type SponsorshipActionResult = { success: boolean; error: string | null; fieldErrors?: Record<string, string>; id?: string };
+export type SponsorshipActionResult = { success: boolean; error: string | null; fieldErrors?: Record<string, string>; id?: string; refund?: { eligible: boolean; moneyReceived: boolean } };
 
 function fail(error: unknown): SponsorshipActionResult {
   return { success: false, error: error instanceof SponsorshipError ? error.message : "Something went wrong. Try again." };
@@ -83,13 +84,23 @@ export async function submitSponsorshipAction(id: string, raw: unknown, accepted
   }
 }
 
-export async function cancelSponsorshipAction(id: string): Promise<SponsorshipActionResult> {
+/**
+ * The Sponsor cancels its own sponsorship. `expectedRefundEligible` is what the Sponsor was TOLD before confirming; if the refund deadline passed while they
+ * were reading, nothing is cancelled and they are asked to review the updated notice — they are never surprised after the fact. Eligibility itself is decided
+ * and frozen by the database at the moment of cancellation (kickoff and cutoff snapshot); a refund is never executed here.
+ */
+export async function cancelSponsorshipAction(id: string, expectedRefundEligible?: boolean): Promise<SponsorshipActionResult> {
   const session = await requireActiveSponsorAccount();
   try {
+    if (expectedRefundEligible !== undefined) {
+      const now = await evaluateSponsorshipRefundEligibility(id, "SPONSOR_CANCELLATION");
+      if (now.moneyReceived && now.eligible !== expectedRefundEligible) return { success: false, error: "The refund cancellation deadline changed while you were reviewing this. Please read the updated notice and confirm again." };
+    }
     await callSponsorshipFunction("sponsor_cancel_sponsorship", { p_user_id: session.userId, p_id: id });
     revalidateSponsor(id);
     revalidatePath("/admin/sponsorship");
-    return { success: true, error: null, id };
+    const record = await getCancellationRecord(id);
+    return { success: true, error: null, id, refund: record ? { eligible: record.refundEligible, moneyReceived: record.moneyReceived } : undefined };
   } catch (error) {
     return fail(error);
   }

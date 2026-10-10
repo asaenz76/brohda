@@ -266,6 +266,137 @@ test("the public Sponsorship page follows the capability: a plain 'not open righ
   }
 });
 
+// --- refund policy: what a Sponsor is told before cancelling, the frozen decision, and what Super Admin sees ----------------------------------------------------
+
+async function paidCampaign(kickoffInHours: number, label: string) {
+  const suffix = randomUUID().slice(0, 6);
+  const game = await seedGamePost(suffix);
+  const sponsor = await createSponsorLogin(`${label} ${suffix}`);
+  const superUser = await createUser(`${label}super`, "super_admin");
+  await setEnabled(true);
+  await admin.from("fixtures").update({ scheduled_start_utc: new Date(Date.now() + kickoffInHours * HOUR).toISOString() }).eq("id", game.fixtureId);
+  const { data: inv } = await admin.rpc("admin_set_sponsorship_inventory", { p_admin_id: superUser.id, p_post_id: game.postId, p_market_code: "GLOBAL", p_is_sponsorable: true, p_price_cents: 90000, p_currency: "USD", p_starts_at: new Date(Date.now() - HOUR).toISOString(), p_ends_at: new Date(Date.now() + (kickoffInHours + 6) * HOUR).toISOString() });
+  const invId = (Array.isArray(inv) ? inv[0] : inv).id as string;
+  const rpcRow = async (name: string, args: Record<string, unknown>) => {
+    const { data, error } = await admin.rpc(name, args);
+    if (error) throw error;
+    return (Array.isArray(data) ? data[0] : data) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+  };
+  const created = await rpcRow("sponsor_create_sponsorship", { p_user_id: sponsor.id, p_sponsor_id: sponsor.sponsorId, p_inventory_id: invId, p_campaign_name: `${label} campaign` });
+  await rpcRow("sponsor_update_sponsorship", { p_user_id: sponsor.id, p_id: created.id, p_fields: { presented_by: "Refund Co", tagline: "Fuel the game", cta_text: "Learn more", destination_url: "https://refund.example.com/promo" } });
+  await rpcRow("sponsor_submit_sponsorship", { p_user_id: sponsor.id, p_id: created.id });
+  await rpcRow("admin_mark_sponsorship_paid", { p_admin_id: superUser.id, p_id: created.id, p_reference: "INV-REFUND", p_note: "bank transfer", p_idempotency_key: randomUUID() });
+  const { data: rev } = await admin.from("sponsorships").select("revision").eq("id", created.id).single();
+  await rpcRow("admin_approve_sponsorship", { p_admin_id: superUser.id, p_id: created.id, p_expected_revision: rev!.revision });
+  return { game, sponsor, superUser, sponsorshipId: created.id as string, invId };
+}
+
+test("a Sponsor cancelling a paid campaign 24h before kickoff is told it is refund-eligible, with the exact deadline, confirms explicitly — payment stays PAID, the Game is released, and Super Admin sees the frozen decision", async ({ page }) => {
+  const c = await paidCampaign(24, "Early");
+  try {
+    await loginAsSponsor(page, c.sponsor.email);
+    await page.goto(`/sponsor/${c.sponsorshipId}`);
+    const panel = page.locator('[data-slot="cancel-sponsorship"]');
+    await expect(panel).toContainText("Refunds for Sponsor-initiated cancellations are available only when the Sponsorship is cancelled at least 12 hours before scheduled Game kickoff.");
+    await expect(panel.locator('[data-slot="refund-deadline"]')).toBeVisible();
+    await expect(panel.locator('[data-slot="cancel-consequence"]')).toHaveText("This cancellation is currently refund-eligible.");
+    await panel.getByRole("button", { name: "Cancel sponsorship…" }).click();
+    const confirm = panel.getByRole("button", { name: "Confirm cancellation" });
+    await expect(confirm).toBeDisabled(); // an explicit confirmation is required
+    await panel.getByLabel(/I understand this cancellation is currently refund-eligible/).check();
+    await confirm.click();
+    await expect(page.locator('[data-slot="cancellation-outcome"]')).toContainText("refund-eligible; Brohda processes the refund separately");
+
+    const { data: row } = await admin.from("sponsorships").select("lifecycle, payment_status").eq("id", c.sponsorshipId).single();
+    expect(row).toEqual({ lifecycle: "CANCELLED", payment_status: "PAID" }); // eligible is not refunded
+    expect((await admin.from("sponsorship_payment_events").select("event_type").eq("sponsorship_id", c.sponsorshipId).in("event_type", ["REFUND_PENDING", "REFUNDED"])).data).toEqual([]);
+    expect((await admin.from("sponsorships").select("id").eq("inventory_id", c.invId).in("lifecycle", ["SUBMITTED", "SCHEDULED", "LIVE", "SUSPENDED"])).data).toEqual([]); // the slot is free again
+
+    await loginAs(page, c.superUser.email);
+    await page.goto(`/admin/sponsorship/${c.sponsorshipId}`);
+    const guidance = page.locator('[data-slot="refund-guidance"]');
+    await expect(guidance.locator('[data-slot="cancellation-record"]')).toContainText("Refund eligible");
+    await expect(guidance.locator('[data-slot="cancellation-record"]')).toContainText("Cancelled by the Sponsor");
+    await expect(guidance.locator('[data-slot="cancellation-record"]')).toContainText("refund cutoff (12h before)");
+    await expect(guidance).toContainText("Payment: Paid");
+    await expect(guidance).toContainText("No refund recorded");
+    await expect(guidance).not.toContainText(/stripe|paypal|onvo/i);
+  } finally {
+    await setEnabled(false);
+    await cleanup(c.game);
+  }
+});
+
+test("six hours before kickoff the Sponsor is told plainly it is NOT refund-eligible, may still cancel, and the Game is still released", async ({ page }) => {
+  const c = await paidCampaign(6, "Late");
+  try {
+    await loginAsSponsor(page, c.sponsor.email);
+    await page.goto(`/sponsor/${c.sponsorshipId}`);
+    const panel = page.locator('[data-slot="cancel-sponsorship"]');
+    await expect(panel.locator('[data-slot="cancel-consequence"]')).toHaveText("This cancellation is not eligible for a refund.");
+    await expect(panel).toContainText("non-refundable");
+    await panel.getByRole("button", { name: "Cancel sponsorship…" }).click();
+    await panel.getByLabel(/not eligible for a refund and the payment is non-refundable/).check();
+    await panel.getByRole("button", { name: "Confirm cancellation" }).click();
+    await expect(page.locator('[data-slot="cancellation-outcome"]')).toContainText("not eligible for a refund");
+    expect((await admin.from("sponsorships").select("lifecycle, payment_status").eq("id", c.sponsorshipId).single()).data).toEqual({ lifecycle: "CANCELLED", payment_status: "PAID" });
+    expect((await admin.from("sponsorships").select("id").eq("inventory_id", c.invId).in("lifecycle", ["SUBMITTED", "SCHEDULED", "LIVE", "SUSPENDED"])).data).toEqual([]);
+
+    await loginAs(page, c.superUser.email);
+    await page.goto(`/admin/sponsorship/${c.sponsorshipId}`);
+    await expect(page.locator('[data-slot="cancellation-record"]')).toContainText("Not refund eligible");
+  } finally {
+    await setEnabled(false);
+    await cleanup(c.game);
+  }
+});
+
+test("if the refund deadline passes while the Sponsor is reading, nothing is cancelled — they are asked to review the updated notice, never surprised afterwards", async ({ page }) => {
+  const c = await paidCampaign(13, "Race");
+  try {
+    await loginAsSponsor(page, c.sponsor.email);
+    await page.goto(`/sponsor/${c.sponsorshipId}`);
+    const panel = page.locator('[data-slot="cancel-sponsorship"]');
+    await expect(panel.locator('[data-slot="cancel-consequence"]')).toHaveText("This cancellation is currently refund-eligible.");
+    await panel.getByRole("button", { name: "Cancel sponsorship…" }).click();
+    await panel.getByLabel(/currently refund-eligible/).check();
+    // The deadline passes (the Game is now 6h away) before the Sponsor confirms.
+    await admin.from("fixtures").update({ scheduled_start_utc: new Date(Date.now() + 6 * HOUR).toISOString() }).eq("id", c.game.fixtureId);
+    await panel.getByRole("button", { name: "Confirm cancellation" }).click();
+    await expect(page.getByRole("alert").filter({ hasText: "refund cancellation deadline changed" })).toBeVisible();
+    expect((await admin.from("sponsorships").select("lifecycle").eq("id", c.sponsorshipId).single()).data!.lifecycle).not.toBe("CANCELLED");
+    await expect(page.locator('[data-slot="cancel-consequence"]')).toHaveText("This cancellation is not eligible for a refund."); // the refreshed notice
+  } finally {
+    await setEnabled(false);
+    await cleanup(c.game);
+  }
+});
+
+test("Super Admin cancelling states WHY: the cause decides refund eligibility (a Brohda decision at T-6h is eligible; a Sponsor breach is not) and nothing refunds by itself", async ({ page }) => {
+  const a = await paidCampaign(6, "Brohdacause");
+  const b = await paidCampaign(6, "Breachcause");
+  try {
+    await loginAs(page, a.superUser.email);
+    await page.goto(`/admin/sponsorship/${a.sponsorshipId}`);
+    await page.getByLabel(/Reason \/ note/).fill("Brohda cancelled");
+    await page.getByLabel("Cancellation cause").selectOption({ value: "BROHDA_CANCELLED_NO_BREACH" });
+    await page.getByRole("button", { name: "Cancel sponsorship" }).click();
+    await expect(page.locator('[data-slot="cancellation-record"]')).toContainText("Refund eligible");
+    await expect(page.locator('[data-slot="cancellation-record"]')).toContainText("Cancelled by Brohda");
+
+    await page.goto(`/admin/sponsorship/${b.sponsorshipId}`);
+    await page.getByLabel(/Reason \/ note/).fill("prohibited content");
+    await page.getByLabel("Cancellation cause").selectOption({ value: "SPONSOR_BREACH" });
+    await page.getByRole("button", { name: "Cancel sponsorship" }).click();
+    await expect(page.locator('[data-slot="cancellation-record"]')).toContainText("Not refund eligible");
+    for (const id of [a.sponsorshipId, b.sponsorshipId]) expect((await admin.from("sponsorships").select("payment_status").eq("id", id).single()).data!.payment_status).toBe("PAID");
+  } finally {
+    await setEnabled(false);
+    await cleanup(a.game);
+    await cleanup(b.game);
+  }
+});
+
 test("the Super Admin settings page carries the Sponsored Game Posts switch, saves it, and audits it", async ({ page }) => {
   const superUser = await createUser("setsuper", "super_admin");
   await setEnabled(false);

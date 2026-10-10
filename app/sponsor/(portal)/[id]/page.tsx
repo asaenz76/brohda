@@ -7,6 +7,9 @@ import { isSponsorshipEnabled } from "@/lib/sponsorship/capability";
 import { getPaymentEventsForSponsorship, getSponsorshipForUser, listAgreementAcceptances } from "@/lib/sponsorship/repository";
 import { AgreementPanel } from "@/components/sponsorship/AgreementPanel";
 import { CURRENT_MEDIA_AGREEMENT } from "@/lib/sponsor/terms";
+import { CancelSponsorshipPanel } from "@/components/sponsorship/CancelSponsorshipPanel";
+import { evaluateSponsorshipRefundEligibility, getCancellationRecord } from "@/lib/sponsorship/refund-evaluation";
+import { refundCutoffRuleCopy, sponsorCancellationConsequence } from "@/lib/sponsorship/refund-policy";
 import { getSponsorshipConfig } from "@/lib/sponsorship/settings";
 import { formatCommercialAmount, PAYMENT_STATUS_LABEL, sponsorCanEdit, sponsorStatusCopy } from "@/lib/sponsorship/format";
 import { SponsorshipEditor, type EditorValues } from "@/components/sponsorship/SponsorshipEditor";
@@ -20,6 +23,10 @@ export default async function SponsorshipDetailPage({ params }: { params: Promis
   if (!s) notFound();
   const [enabled, config, events, acceptances] = await Promise.all([isSponsorshipEnabled(), getSponsorshipConfig(), getPaymentEventsForSponsorship(id), listAgreementAcceptances(id)]);
   const copy = sponsorStatusCopy(s);
+  // Cancelling (once submitted): the rule, the exact deadline and the consequence are worked out here, on the server, from the canonical Game start time.
+  const cancellable = enabled && session.sponsor.status === "ACTIVE" && ["SUBMITTED", "SCHEDULED", "LIVE"].includes(s.lifecycle);
+  const evaluation = cancellable ? await evaluateSponsorshipRefundEligibility(id, "SPONSOR_CANCELLATION") : null;
+  const cancellation = s.lifecycle === "CANCELLED" ? await getCancellationRecord(id) : null;
   const editable = enabled && session.sponsor.status === "ACTIVE" && sponsorCanEdit(s);
   const initial: EditorValues = {
     campaignName: s.campaignName,
@@ -95,7 +102,25 @@ export default async function SponsorshipDetailPage({ params }: { params: Promis
         </CardContent>
       </Card>
 
-      <AgreementPanel s={s} acceptances={acceptances} />
+      {evaluation && (
+        <CancelSponsorshipPanel
+          sponsorshipId={s.id}
+          ruleCopy={refundCutoffRuleCopy(evaluation.cutoffHours)}
+          cutoffAtIso={evaluation.cutoffAt}
+          kickoffIso={evaluation.kickoffAt}
+          headline={sponsorCancellationConsequence(evaluation).headline}
+          detail={sponsorCancellationConsequence(evaluation).detail}
+          moneyReceived={evaluation.moneyReceived}
+          refundEligible={evaluation.eligible}
+        />
+      )}
+      {cancellation && (
+        <p role="status" data-slot="cancellation-outcome" className="rounded-lg border border-border-subtle p-3 text-sm text-text-secondary">
+          Cancelled. {cancellation.moneyReceived ? (cancellation.refundEligible ? "This cancellation was refund-eligible; Brohda processes the refund separately." : "This cancellation was not eligible for a refund.") : "No payment had been received."}
+        </p>
+      )}
+
+      <AgreementPanel s={s} acceptances={acceptances} refundCutoffHours={config.refundCutoffHours} />
 
       {editable ? (
         <Card>

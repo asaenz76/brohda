@@ -84,7 +84,7 @@ const SECTIONS: readonly SectionDef[] = [
             Because actual money transfers into and out of the App happen through third-party payment
             services outside the App, we never receive, process, or store your bank account number, card
             number, payment app login credentials, or government identification. The &quot;destination&quot;
-            details (such as a Venmo handle or wallet address) shown in the App for deposits are
+            details (such as a payment-app handle or wallet address) shown in the App for deposits are
             provided by administrators to tell members where to send funds off-platform. The payout
             destination you enter when you request a withdrawal is provided by you; it is visible to
             you and to the administrators who process the request, and is recorded on the resulting

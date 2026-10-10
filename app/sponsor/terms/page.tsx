@@ -6,6 +6,7 @@ import { getSponsorSession } from "@/lib/sponsor/session";
 import { hasAcceptedCurrentSponsorTerms } from "@/lib/sponsor/legal-acceptance";
 import { CURRENT_SPONSOR_TERMS } from "@/lib/sponsor/terms";
 import { acceptSponsorTermsAction } from "@/lib/actions/sponsor-account";
+import { getSponsorshipConfig } from "@/lib/sponsorship/settings";
 
 export const metadata: Metadata = { title: "Sponsor Terms — brohda.", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
@@ -15,8 +16,10 @@ export const dynamic = "force-dynamic";
 export default async function SponsorTermsPage() {
   const session = await getSponsorSession();
   const needsAcceptance = Boolean(session && CURRENT_SPONSOR_TERMS && !(await hasAcceptedCurrentSponsorTerms(session.userId)));
+  const refundCutoffHours = await getSponsorshipConfig().then((c) => c.refundCutoffHours, () => null);
   return (
     <SponsorTermsDocument
+      refundCutoffHours={refundCutoffHours}
       accountNav={await publicAccountNav()}
       accept={
         needsAcceptance ? (

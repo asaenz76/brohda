@@ -10,6 +10,7 @@ import { callSponsorshipFunction } from "@/lib/sponsorship/repository";
 import { SponsorshipError } from "@/lib/sponsorship/errors";
 import { draftToDbFields, inventorySchema, promotionProblems, sponsorshipDraftSchema, type SponsorshipDraftInput } from "@/lib/sponsorship/validation";
 import { notifySponsorAccount } from "@/lib/sponsorship/notify";
+import { ADMIN_CANCEL_CAUSES, type AdminCancelCause } from "@/lib/sponsorship/refund-policy";
 
 // Super Admin sponsorship actions. Every one begins with requireSuperAdmin() (an `admin`-role user is NOT enough: this is commercial authority) and then
 // calls a database function that re-checks the actor itself. Approval is an explicit human action here — there is no webhook, payment or schedule path
@@ -106,11 +107,13 @@ export async function unsuspendSponsorshipAction(id: string): Promise<AdminSpons
   return run(id, "admin_unsuspend_sponsorship", { p_admin_id: admin.id, p_id: id });
 }
 
-export async function cancelSponsorshipByAdminAction(id: string, reason: string): Promise<AdminSponsorshipResult> {
+/** Brohda cancels. The CAUSE decides refund eligibility (the Sponsor's cancellation cutoff never applies to a Brohda-caused cancellation); it is frozen in the audit snapshot. */
+export async function cancelSponsorshipByAdminAction(id: string, reason: string, cause: AdminCancelCause = "BROHDA_CANCELLED_NO_BREACH"): Promise<AdminSponsorshipResult> {
   const admin = await requireSuperAdmin();
   const r = reasonSchema.safeParse(reason);
   if (!idSchema.safeParse(id).success || !r.success) return { success: false, error: r.success ? "Sponsorship not found." : r.error.issues[0].message };
-  return run(id, "admin_cancel_sponsorship", { p_admin_id: admin.id, p_id: id, p_reason: r.data });
+  if (!(ADMIN_CANCEL_CAUSES as readonly string[]).includes(cause)) return { success: false, error: "Choose why Brohda is cancelling." };
+  return run(id, "admin_cancel_sponsorship", { p_admin_id: admin.id, p_id: id, p_reason: r.data, p_cause: cause });
 }
 
 // --- sponsors (organizations) ---------------------------------------------------------------------------------------------------------------------

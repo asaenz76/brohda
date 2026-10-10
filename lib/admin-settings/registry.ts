@@ -471,6 +471,7 @@ export const NOT_EXPOSED_SETTINGS: Array<{ column: string; reason: string }> = [
   { column: "id", reason: "Singleton primary key, not a setting." },
   { column: "updated_at", reason: "Derived/audit metadata — the optimistic-concurrency token itself, not a setting." },
   { column: "updated_by", reason: "Derived/audit metadata." },
+  { column: "sponsorship_refund_cutoff_hours", reason: "Owner-approved Sponsor refund cutoff (default 12h before the Game's scheduled start). Read by the one refund-eligibility function; deliberately NOT editable in the Super Admin UI yet — changing it changes a published Sponsor Terms number, so it is a policy change (new Sponsor Terms version), changed by an operator for now." },
   { column: "registration_enabled", reason: "Pre-existing legacy setting, already exposed on the existing /admin/settings page — out of this milestone's own Brohda 2.0 scope." },
   { column: "discovery_fresh_within_minutes", reason: "Pre-existing Milestone 2 discovery-freshness policy, orthogonal to the R1-R11 domains this milestone's own task text enumerates; no existing admin UI exposes it today either — deferred rather than expanding scope without an explicit product ask." },
   { column: "discovery_stale_within_minutes", reason: "Same as discovery_fresh_within_minutes." },
