@@ -5,6 +5,7 @@ import { isSponsorshipEnabled } from "@/lib/sponsorship/capability";
 import { listAllSponsorships } from "@/lib/sponsorship/repository";
 import { formatCommercialAmount, PAYMENT_STATUS_LABEL, sponsorStatusCopy } from "@/lib/sponsorship/format";
 import { SponsorshipNav } from "./sponsorship-nav";
+import { ProviderStatusCard } from "@/components/sponsorship/ProviderStatusCard";
 
 const GROUPS: Array<{ title: string; lifecycle: string[] }> = [
   { title: "Needs review or payment", lifecycle: ["SUBMITTED"] },
@@ -26,6 +27,7 @@ export default async function SponsorshipQueuePage() {
         Sponsored Game Posts is <strong>{enabled ? "ON" : "OFF"}</strong>. {enabled ? "" : "Nothing sponsored is shown to members and sponsors cannot submit. "}
         <Link href="/admin/settings/brohda" className="text-accent-primary hover:underline">Change in Settings</Link>
       </p>
+      <ProviderStatusCard />
       {GROUPS.map((group) => {
         const rows = all.filter((s) => group.lifecycle.includes(s.lifecycle));
         return (

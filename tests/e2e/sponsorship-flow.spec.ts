@@ -6,6 +6,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { getTestAdminClient } from "./helpers/test-env";
+import http from "node:http";
+import { OnvoSandbox } from "../helpers/onvo-sandbox";
 
 const admin = getTestAdminClient();
 const PASSWORD = "e2e-password-123";
@@ -395,6 +397,190 @@ test("Super Admin cancelling states WHY: the cause decides refund eligibility (a
     await cleanup(a.game);
     await cleanup(b.game);
   }
+});
+
+// --- ONVO sponsorship payments (TEST mode, against the local deterministic sandbox — never the real API) ---------------------------------------------------------
+
+const ONVO_KEY = "onvo_test_secret_key_e2e";
+const ONVO_WEBHOOK_SECRET = "webhook_secret_e2e";
+const ONVO_PORT = 54399;
+
+async function unpaidCampaign(kickoffInHours: number, label: string) {
+  const suffix = randomUUID().slice(0, 6);
+  const game = await seedGamePost(suffix);
+  const sponsor = await createSponsorLogin(`${label} ${suffix}`);
+  const superUser = await createUser(`${label}super`, "super_admin");
+  await setEnabled(true);
+  await admin.from("fixtures").update({ scheduled_start_utc: new Date(Date.now() + kickoffInHours * HOUR).toISOString() }).eq("id", game.fixtureId);
+  const rpcRow = async (name: string, args: Record<string, unknown>) => {
+    const { data, error } = await admin.rpc(name, args);
+    if (error) throw error;
+    return (Array.isArray(data) ? data[0] : data) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+  };
+  const inv = await rpcRow("admin_set_sponsorship_inventory", { p_admin_id: superUser.id, p_post_id: game.postId, p_market_code: "GLOBAL", p_is_sponsorable: true, p_price_cents: 90000, p_currency: "USD", p_starts_at: new Date(Date.now() - HOUR).toISOString(), p_ends_at: new Date(Date.now() + (kickoffInHours + 6) * HOUR).toISOString() });
+  const created = await rpcRow("sponsor_create_sponsorship", { p_user_id: sponsor.id, p_sponsor_id: sponsor.sponsorId, p_inventory_id: inv.id, p_campaign_name: `${label} campaign` });
+  await rpcRow("sponsor_update_sponsorship", { p_user_id: sponsor.id, p_id: created.id, p_fields: { presented_by: "Pay Co", tagline: "Fuel the game", cta_text: "Learn more", destination_url: "https://pay.example.com/promo" } });
+  await rpcRow("sponsor_submit_sponsorship", { p_user_id: sponsor.id, p_id: created.id });
+  return { game, sponsor, superUser, sponsorshipId: created.id as string, postId: game.postId };
+}
+
+test.describe("ONVO TEST payments", () => {
+  let sandbox: OnvoSandbox;
+  let server: http.Server;
+
+  test.beforeAll(async () => {
+    sandbox = new OnvoSandbox(ONVO_KEY, `http://127.0.0.1:${ONVO_PORT}`, "test");
+    server = http.createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (c) => chunks.push(c));
+      req.on("end", async () => {
+        const url = new URL(req.url ?? "/", `http://127.0.0.1:${ONVO_PORT}`);
+        if (req.method === "GET" && url.pathname.startsWith("/pay/")) {
+          res.writeHead(200, { "content-type": "text/html" }).end("<html><body><h1>Sandbox checkout</h1></body></html>");
+          return;
+        }
+        const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : undefined;
+        const out = await sandbox.handle(req.method ?? "GET", url.pathname, (req.headers.authorization as string | undefined) ?? null, body).catch(() => ({ status: 500, json: {} }));
+        res.writeHead(out.status, { "content-type": "application/json" }).end(JSON.stringify(out.json));
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(ONVO_PORT, "127.0.0.1", resolve));
+  });
+  test.afterAll(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  test("a Sponsor pays with ONVO (test) → the amount is the server's, the browser can't change it → the webhook marks it PAID → it is still NOT live until Super Admin approves", async ({ page }) => {
+    const c = await unpaidCampaign(24, "Onvo");
+    try {
+      await loginAsSponsor(page, c.sponsor.email);
+      await page.goto(`/sponsor/${c.sponsorshipId}`);
+      const panel = page.locator('[data-slot="sponsor-payment"]');
+      await expect(panel).toContainText("$900.00");
+      await expect(panel.locator('[data-slot="payment-status"]')).toHaveText("Awaiting payment.");
+      // The browser tries to smuggle in a different amount: there is no amount field, and anything added is ignored.
+      await page.evaluate(() => {
+        const form = document.querySelector('[data-slot="sponsor-payment"] form')!;
+        for (const name of ["amount", "unitAmount", "price", "currency"]) {
+          const input = document.createElement("input");
+          input.type = "hidden";
+          input.name = name;
+          input.value = "1";
+          form.appendChild(input);
+        }
+      });
+      await panel.getByRole("button", { name: "Pay with ONVO" }).click();
+      await expect(page).toHaveURL(new RegExp(`^http://127\\.0\\.0\\.1:${ONVO_PORT}/pay/cs_`));
+      const create = sandbox.requests.filter((q) => q.method === "POST" && q.path === "/v1/checkout/sessions/one-time-link").at(-1)!;
+      expect(create.body).toMatchObject({ lineItems: [{ quantity: 1, unitAmount: 90000, currency: "USD" }] });
+      expect(JSON.stringify(create.body)).not.toContain(ONVO_KEY);
+
+      // Coming back is NOT payment: nothing is paid yet, and the page says so.
+      await page.goto(`/sponsor/${c.sponsorshipId}/payment/return?result=success`);
+      await expect(page.locator('[data-slot="payment-return-status"]')).toHaveText("Payment pending.");
+      expect((await admin.from("sponsorships").select("payment_status").eq("id", c.sponsorshipId).single()).data!.payment_status).toBe("PENDING");
+
+      // A webhook without the secret (or with a wrong one) is refused and changes nothing.
+      const { data: attempt } = await admin.from("commercial_payment_attempts").select("provider_session_id").eq("sponsorship_id", c.sponsorshipId).single();
+      const sessionId = attempt!.provider_session_id as string;
+      sandbox.pay(sessionId);
+      const event = sandbox.webhook("checkout-session.succeeded", sessionId);
+      expect((await page.request.post("/api/webhooks/onvo", { data: event })).status()).toBe(401);
+      expect((await page.request.post("/api/webhooks/onvo", { data: event, headers: { "X-Webhook-Secret": "nope" } })).status()).toBe(401);
+      expect((await admin.from("sponsorships").select("payment_status").eq("id", c.sponsorshipId).single()).data!.payment_status).toBe("PENDING");
+
+      // The authenticated webhook (verified against the provider) marks it PAID — and a retry changes nothing.
+      const ok = await page.request.post("/api/webhooks/onvo", { data: event, headers: { "X-Webhook-Secret": ONVO_WEBHOOK_SECRET } });
+      expect(ok.status()).toBe(200);
+      expect((await ok.json()).result).toBe("APPLIED_PAID");
+      expect((await (await page.request.post("/api/webhooks/onvo", { data: event, headers: { "X-Webhook-Secret": ONVO_WEBHOOK_SECRET } })).json()).result).toBe("DUPLICATE");
+      expect((await admin.from("sponsorships").select("payment_status, review_status, lifecycle").eq("id", c.sponsorshipId).single()).data).toEqual({ payment_status: "PAID", review_status: "PENDING", lifecycle: "SUBMITTED" });
+      expect((await admin.from("sponsorship_payment_events").select("id").eq("sponsorship_id", c.sponsorshipId).eq("event_type", "PAID")).data).toHaveLength(1);
+
+      await page.goto(`/sponsor/${c.sponsorshipId}/payment/return?result=success`);
+      await expect(page.locator('[data-slot="payment-return-status"]')).toHaveText("Payment received.");
+      await expect(page.getByText(/still awaiting Brohda approval/)).toBeVisible();
+      await page.goto(`/sponsor/${c.sponsorshipId}`);
+      await expect(page.locator('[data-slot="sponsor-payment"]')).toHaveCount(0); // nothing left to pay
+
+      // PAID is not live: members see nothing sponsored until Super Admin approves.
+      const viewer = await createUser("onvoviewer");
+      await loginAs(page, viewer.email);
+      await page.goto("/feed");
+      await expect(page.locator("article").filter({ hasText: c.game.home }).locator('[data-slot="sponsored-label"]')).toHaveCount(0);
+
+      // Super Admin sees the payment (TEST) and the provider status, then approves; only now does it run.
+      await loginAs(page, c.superUser.email);
+      await page.goto("/admin/sponsorship");
+      await expect(page.locator('[data-slot="provider-status"] [data-slot="provider-environment"]')).toHaveText("TEST");
+      await expect(page.locator('[data-slot="provider-status"]')).toContainText("Live payments: disabled");
+      await page.goto(`/admin/sponsorship/${c.sponsorshipId}`);
+      const attemptRow = page.locator('[data-slot="payment-provider-panel"] [data-attempt-id]');
+      await expect(attemptRow.locator('[data-slot="payment-environment"]')).toHaveText("TEST");
+      await expect(attemptRow.locator('[data-slot="attempt-status"]')).toHaveText("Paid");
+      await expect(attemptRow).toContainText("Test payment — no real money moved");
+      await page.getByRole("button", { name: "Approve", exact: true }).click();
+      await expect(page.getByRole("status").filter({ hasText: /^Live|Approved and scheduled/ })).toBeVisible();
+      await loginAs(page, viewer.email);
+      await page.goto("/feed");
+      await expect(page.locator("article").filter({ hasText: c.game.home }).first().locator('[data-slot="sponsored-label"]')).toContainText("Pay Co");
+    } finally {
+      await setEnabled(false);
+      await cleanup(c.game);
+    }
+  });
+
+  test("a failed payment tells the Sponsor in simple words and lets them try again; deferred never reads as paid", async ({ page }) => {
+    const c = await unpaidCampaign(24, "Onvofail");
+    try {
+      await loginAsSponsor(page, c.sponsor.email);
+      await page.goto(`/sponsor/${c.sponsorshipId}`);
+      await page.getByRole("button", { name: "Pay with ONVO" }).click();
+      await expect(page).toHaveURL(new RegExp(`^http://127\\.0\\.0\\.1:${ONVO_PORT}/pay/`));
+      const { data: attempt } = await admin.from("commercial_payment_attempts").select("provider_session_id").eq("sponsorship_id", c.sponsorshipId).single();
+      const sessionId = attempt!.provider_session_id as string;
+      const headers = { "X-Webhook-Secret": ONVO_WEBHOOK_SECRET };
+
+      const deferred = sandbox.defer(sessionId);
+      expect((await (await page.request.post("/api/webhooks/onvo", { data: sandbox.webhook("payment-intent.deferred", sessionId, deferred, { withMetadata: true }), headers })).json()).result).toBe("APPLIED_PENDING");
+      await page.goto(`/sponsor/${c.sponsorshipId}`);
+      await expect(page.locator('[data-slot="payment-status"]')).toHaveText("Payment pending.");
+      expect((await admin.from("sponsorships").select("payment_status").eq("id", c.sponsorshipId).single()).data!.payment_status).toBe("PENDING");
+
+      const failed = sandbox.fail(sessionId);
+      expect((await (await page.request.post("/api/webhooks/onvo", { data: sandbox.webhook("payment-intent.failed", sessionId, failed, { withMetadata: true }), headers })).json()).result).toBe("APPLIED_FAILED");
+      await page.goto(`/sponsor/${c.sponsorshipId}`);
+      await expect(page.locator('[data-slot="payment-status"]')).toHaveText("Payment failed — you can try again.");
+      await expect(page.locator('[data-slot="sponsor-payment"]')).not.toContainText(/declined|processing_error|requires_payment_method/i); // no provider internals
+      await page.getByRole("button", { name: "Pay with ONVO" }).click();
+      await expect(page).toHaveURL(new RegExp(`^http://127\\.0\\.0\\.1:${ONVO_PORT}/pay/`));
+      expect((await admin.from("commercial_payment_attempts").select("status").eq("sponsorship_id", c.sponsorshipId).order("created_at")).data!.map((a) => a.status)).toEqual(["FAILED", "PENDING"]);
+    } finally {
+      await setEnabled(false);
+      await cleanup(c.game);
+    }
+  });
+
+  test("another Sponsor, a Member and a signed-out visitor can neither see the payment option nor start a payment for someone else's sponsorship", async ({ page }) => {
+    const c = await unpaidCampaign(24, "Onvoiso");
+    const other = await createSponsorLogin(`Onvoother ${randomUUID().slice(0, 6)}`);
+    const member = await createUser("onvoisomember");
+    try {
+      await loginAsSponsor(page, other.email);
+      expect((await page.goto(`/sponsor/${c.sponsorshipId}`))?.status()).toBe(404);
+      await expect(page.getByRole("button", { name: "Pay with ONVO" })).toHaveCount(0);
+      await loginAs(page, member.email);
+      await page.goto(`/sponsor/${c.sponsorshipId}`);
+      await expect(page).toHaveURL(/\/feed$/);
+      await page.context().clearCookies();
+      await page.goto(`/sponsor/${c.sponsorshipId}`);
+      await expect(page).toHaveURL(/\/sponsor\/login/);
+      expect((await admin.from("commercial_payment_attempts").select("id").eq("sponsorship_id", c.sponsorshipId)).data).toEqual([]);
+    } finally {
+      await setEnabled(false);
+      await cleanup(c.game);
+    }
+  });
 });
 
 test("the Super Admin settings page carries the Sponsored Game Posts switch, saves it, and audits it", async ({ page }) => {

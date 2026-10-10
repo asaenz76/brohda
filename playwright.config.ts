@@ -81,6 +81,12 @@ export default defineConfig({
       API_NHL_ENABLED: "false",
       API_MLB_ENABLED: "false",
       CRON_SECRET: "e2e-placeholder",
+      // Sponsorship payments: ONVO in TEST mode, pointed at a local deterministic sandbox the e2e specs start themselves (tests/helpers/onvo-sandbox.ts) — never the
+      // real API, never a real key. These are throwaway values; they exist so the payment option appears and the webhook endpoint is live during e2e.
+      ONVO_SECRET_KEY: "onvo_test_secret_key_e2e",
+      ONVO_WEBHOOK_SECRET: "webhook_secret_e2e",
+      ONVO_ENVIRONMENT: "TEST",
+      ONVO_API_BASE: "http://127.0.0.1:54399",
       RESEND_API_KEY: "",
       NEXT_PUBLIC_SENTRY_DSN: "",
     },

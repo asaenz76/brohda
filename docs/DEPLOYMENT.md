@@ -434,3 +434,8 @@ Sponsor signup relies on **real email verification**; Members do not (the server
 The app fails closed if (1) is missed: `/sponsor/signup` refuses and removes the login it just created. Local development uses `enable_confirmations = true` in `supabase/config.toml`; verification mail is read from Mailpit (`http://127.0.0.1:54324`).
 
 Migrations `185` (new `sponsor_status` values) and `186` (account types, sponsor accounts, triggers, retire `sponsor_users`) apply in order with `supabase db push`. `186` refuses to run if `sponsor_users` still contains any link — verify with `select count(*) from public.sponsor_users` first (production: 0).
+
+
+## ONVO (sponsorship payments) — environment variables
+
+Required for ONVO to be available (all server-side; never `NEXT_PUBLIC_`): `ONVO_SECRET_KEY`, `ONVO_WEBHOOK_SECRET`, `ONVO_ENVIRONMENT` (`TEST` or `LIVE`, matching the key). Optional: `ONVO_LIVE_ENABLED` (must be exactly `true` for LIVE), `ONVO_ALLOW_TEST_IN_PRODUCTION` (must be exactly `true` for a TEST checkout to be shown to Sponsors on the production deployment), `ONVO_API_BASE`. **Production currently has none of these set**, so ONVO is unavailable there and Sponsors see only the manual payment instructions. The webhook URL to register in the ONVO Dashboard is `https://<host>/api/webhooks/onvo`. Migration `189` must be applied (`supabase db push`) before the code that uses it is relied on. See `docs/architecture/commercial-payments.md`.

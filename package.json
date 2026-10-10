@@ -22,6 +22,7 @@
     "set-capability-policy": "dotenv -e .env.local -- tsx scripts/set-capability-policy.ts",
     "seed:dev-grading": "dotenv -e .env.development.local -- tsx scripts/seed-dev-grading.ts",
     "send-beta-sunset-email": "dotenv -e .env.local -- tsx scripts/send-beta-sunset-email.ts",
+    "onvo:test-proof": "NODE_OPTIONS=--conditions=react-server dotenv -e .env.local -- tsx scripts/onvo-test-proof.ts",
     "grade-predictions": "NODE_OPTIONS=--conditions=react-server dotenv -e .env.local -- tsx scripts/grade-predictions.ts",
     "settle-monetary-positions": "NODE_OPTIONS=--conditions=react-server dotenv -e .env.local -- tsx scripts/settle-monetary-positions.ts",
     "resolve-challenges": "NODE_OPTIONS=--conditions=react-server dotenv -e .env.local -- tsx scripts/resolve-challenges.ts",
