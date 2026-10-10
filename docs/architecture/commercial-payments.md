@@ -66,15 +66,59 @@ Brohda's refund **policy** (docs/architecture/sponsor-identity.md, "Refund polic
 
 Super Admin → sponsorship → **Reconcile with provider** reads the provider's own record for an attempt and applies it through the same idempotent path (so a missed webhook is fixed, a repeat is a no-op, a correction is audited). A provider outage during reconciliation changes nothing. Unknown outcomes are never guessed: a creation timeout leaves a `FAILED`/retryable attempt (any session that did get created and is later paid is still matched through its `metadata` attempt id).
 
+## Provider configuration (r66) — which provider takes payments is operational configuration
+
+**Policy vs secrets.** Two things decide whether a Sponsor can pay online, and they live in different places on purpose:
+
+| | Where | Who changes it | Needs a deploy? |
+|---|---|---|---|
+| **Policy** — online payments on/off, and *which* installed provider takes NEW payments | `platform_settings.sponsorship_online_payments_enabled`, `sponsorship_online_payment_provider` (no secrets) | Super Admin, Admin → Sponsorship → *Online sponsorship payments* (audited `settings.online_payments_updated`: previous/new provider, enabled, actor, time) | **No** |
+| **Secrets / runtime configuration** — API keys, webhook secret, TEST/LIVE mode | Hosting environment variables (e.g. the `ONVO_*` names) | Operator, in the host | Needs an env change + redeploy/restart |
+
+Online payment is offered only when **both** say yes: the policy selects a provider **and** that provider's adapter is installed, can take checkout payments, and reports its own configuration valid. If the setting names a provider that is not installed, has missing/inconsistent credentials, or is an unknown key, online payment is **unavailable** — it never silently falls back to another provider. Manual payment is independent and always available.
+
+**Propagation.** The two settings are read from the database on every request (no cache). A Super Admin change applies to the *next* Sponsor page load / payment start, immediately, with no deploy and no migration. Secret changes follow the host's own environment-variable rollout.
+
+**Registry.** `lib/payments/registry.ts` is the one place that lists installed adapters. A provider key is only ever *looked up* there — never executed from data. Adding a provider = write its adapter (`lib/payments/<provider>/`) and add one line to the registry; choosing it, switching, enabling and disabling are then configuration. There is no runtime code loading or plugin system. Tests install a fake second adapter (`TEST_PROVIDER`) through `registerTestAdapter`, which only works when `NODE_ENV === "test"`.
+
+**Capabilities.** Each adapter declares `supportsCheckout / Refund / PartialRefund / Reconciliation / RefundWebhook`. Core code asks these; it never asks "is it ONVO". A provider without a capability simply isn't offered that action (Super Admin falls back to the manual path).
+
+**Database.** `commercial_payment_attempts.provider` accepts any well-formed key (`^[A-Z][A-Z0-9_]{1,39}$`); which keys are *usable* is decided by the application registry, not a CHECK. An unknown key in the database fails closed.
+
+**Historical attempts belong to the provider that processed them.** Every attempt snapshots its provider. Reconcile, refund, refund-check and webhooks always go through the attempt's *original* adapter, whatever is currently selected (or even if online payments are disabled). A provider that is no longer installed cannot be reconciled/refunded — the UI says so and the manual path remains.
+
+**Switching with an open attempt.** An open (CREATED/PENDING) attempt of provider A is never converted to provider B. When a Sponsor starts a payment under B, the service first asks A (through A's adapter) where the attempt stands; if it has ended (failed/expired/paid) it is recorded and B proceeds; if it is still open the Sponsor is told their earlier payment is in progress. Super Admin can also cancel the open attempt explicitly (*Cancel this open payment*, audited as `sponsorship.payment_attempt_cancelled`). A cancelled attempt stays on record and a late provider success is still recognised (duplicate-payment handling applies).
+
+**Disabling** stops only NEW attempts. Webhooks (`/api/webhooks/<provider>` dispatch through the neutral service by provider key, independent of the setting), reconciliation and refunds of existing attempts keep working.
+
+**Sponsor-facing copy is provider-free** ("Pay now", "complete the payment on a secure page"). The Super Admin card shows the provider's registered label as data. The provider-named webhook route is infrastructure.
+
+### Hard-coding audit (every `ONVO`/`onvo` occurrence, classified)
+
+| Where | Classification |
+|---|---|
+| `lib/payments/onvo/*` (adapter, client, config, webhook) | **Allowed** — the ONVO adapter |
+| `lib/payments/registry.ts` (`ONVO: () => new OnvoProvider()`) | **Allowed** — the one installation line |
+| `app/api/webhooks/onvo/route.ts` | **Allowed** — provider-specific URL, passes its key to the neutral `handleProviderWebhook` |
+| `scripts/onvo-test-proof.ts`, `package.json` `onvo:test-proof` | **Allowed** — ONVO-specific operator tool |
+| `.env.example`, `docs/*`, `playwright.config.ts` env | **Allowed** — env var names (secrets) and internal docs/test wiring |
+| `tests/**` ONVO adapter/sandbox tests, `tests/helpers/onvo-sandbox.ts` | **Allowed** — adapter tests |
+| `supabase/migrations/…189` (`check (provider in ('ONVO'))`) | **Historical** — applied migrations are never rewritten; **removed by migration `190`** (replaced by a format check) |
+| `lib/payments/service.ts`, `types.ts`, `config.ts`, `active-provider.ts`, `views.ts` | **Clean** — no provider names (asserted by `tests/unit/provider-neutral-copy.test.ts`) |
+| Sponsor UI, Super Admin card, emails, notifications, legal | **Clean** — asserted by the same test |
+| `…NotifyOnVoid`, `createPositionVoidedNotifications` | Not payments (the substring "onvo" inside "NotifyOnVoid") |
+
+Forbidden patterns now absent: a provider CHECK constraint, `if (provider === "ONVO")` in core, a hard-coded active provider, a "Pay with ONVO" button, provider branding to Sponsors.
+
 ## Environments and safety
 
-`ONVO_SECRET_KEY`, `ONVO_WEBHOOK_SECRET`, `ONVO_ENVIRONMENT` (TEST|LIVE, must agree with the key prefix) are required or ONVO is **unavailable** (fail closed). A live key does **not** enable live payments: `ONVO_LIVE_ENABLED=true` is a separate, deliberate operational flag. TEST checkout is **hidden from Sponsors on the production deployment** unless `ONVO_ALLOW_TEST_IN_PRODUCTION=true`. Secrets are server-side only (never in props, responses, logs, commits). Attempts carry their environment; Super Admin sees a **TEST** badge and "no real money moved — do not count as revenue". No card data, bank data, secrets or raw payloads are stored.
+`ONVO_SECRET_KEY`, `ONVO_WEBHOOK_SECRET`, `ONVO_ENVIRONMENT` (TEST|LIVE, must agree with the key prefix) are required or ONVO is **unavailable** (fail closed). A live key does **not** enable live payments: `ONVO_LIVE_ENABLED=true` is a separate, deliberate operational flag. TEST checkout is **hidden from Sponsors on the production deployment** unless `PAYMENTS_ALLOW_TEST_IN_PRODUCTION=true`. Secrets are server-side only (never in props, responses, logs, commits). Attempts carry their environment; Super Admin sees a **TEST** badge and "no real money moved — do not count as revenue". No card data, bank data, secrets or raw payloads are stored.
 
 ## Operator checklist — TEST (owner)
 
 1. ONVO Dashboard (test mode) → copy the **test secret key** (`onvo_test_secret_key_…`) and the **webhook secret** (`webhook_secret_…`).
 2. Dashboard → Developers → Webhooks → add `https://<host>/api/webhooks/onvo` (production host: `https://brohda.com/api/webhooks/onvo`); enable `checkout-session.succeeded`, `payment-intent.succeeded`, `payment-intent.failed`, `payment-intent.deferred`.
-3. Set in Vercel (Preview or a staging project first): `ONVO_SECRET_KEY`, `ONVO_WEBHOOK_SECRET`, `ONVO_ENVIRONMENT=TEST`. Do **not** set `ONVO_ALLOW_TEST_IN_PRODUCTION` on production unless you intend real Sponsors to see a test checkout.
+3. Set in Vercel (Preview or a staging project first): `ONVO_SECRET_KEY`, `ONVO_WEBHOOK_SECRET`, `ONVO_ENVIRONMENT=TEST`. Do **not** set `PAYMENTS_ALLOW_TEST_IN_PRODUCTION` on production unless you intend real Sponsors to see a test checkout.
 4. Test with ONVO's published test card `4242 4242 4242 4242` (decline `4000 0000 0000 0002`, 3DS `4000 0000 0000 3220`); SINPE test numbers are in ONVO's Testing page. Run `pnpm onvo:test-proof` for the credentialed API proof.
 5. Check Admin → Sponsorship → "Online payments": Environment TEST, Webhook secret configured, Live payments disabled.
 

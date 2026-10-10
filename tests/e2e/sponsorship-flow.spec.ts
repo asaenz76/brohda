@@ -445,8 +445,11 @@ test.describe("ONVO TEST payments", () => {
       });
     });
     await new Promise<void>((resolve) => server.listen(ONVO_PORT, "127.0.0.1", resolve));
+    // Online payments are operational configuration: switched on for these tests by the same platform setting a Super Admin edits, and switched back off after.
+    await admin.from("platform_settings").update({ sponsorship_online_payments_enabled: true, sponsorship_online_payment_provider: "ONVO" }).eq("id", true);
   });
   test.afterAll(async () => {
+    await admin.from("platform_settings").update({ sponsorship_online_payments_enabled: false, sponsorship_online_payment_provider: null }).eq("id", true);
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
@@ -457,6 +460,7 @@ test.describe("ONVO TEST payments", () => {
       await page.goto(`/sponsor/${c.sponsorshipId}`);
       const panel = page.locator('[data-slot="sponsor-payment"]');
       await expect(panel).toContainText("$900.00");
+      expect(await panel.innerText()).not.toMatch(/onvo/i); // a Sponsor never sees a provider brand
       await expect(panel.locator('[data-slot="payment-status"]')).toHaveText("Awaiting payment.");
       // The browser tries to smuggle in a different amount: there is no amount field, and anything added is ignored.
       await page.evaluate(() => {
@@ -469,7 +473,7 @@ test.describe("ONVO TEST payments", () => {
           form.appendChild(input);
         }
       });
-      await panel.getByRole("button", { name: "Pay with ONVO" }).click();
+      await panel.getByRole("button", { name: "Pay now" }).click();
       await expect(page).toHaveURL(new RegExp(`^http://127\\.0\\.0\\.1:${ONVO_PORT}/pay/cs_`));
       const create = sandbox.requests.filter((q) => q.method === "POST" && q.path === "/v1/checkout/sessions/one-time-link").at(-1)!;
       expect(create.body).toMatchObject({ lineItems: [{ quantity: 1, unitAmount: 90000, currency: "USD" }] });
@@ -512,8 +516,10 @@ test.describe("ONVO TEST payments", () => {
       // Super Admin sees the payment (TEST) and the provider status, then approves; only now does it run.
       await loginAs(page, c.superUser.email);
       await page.goto("/admin/sponsorship");
-      await expect(page.locator('[data-slot="provider-status"] [data-slot="provider-environment"]')).toHaveText("TEST");
-      await expect(page.locator('[data-slot="provider-status"]')).toContainText("Live payments: disabled");
+      const card = page.locator('[data-slot="online-payments-status"]');
+      await expect(card.locator('[data-slot="online-payments-state"]')).toHaveText("Enabled");
+      await expect(card.locator('[data-slot="provider-environment"]')).toHaveText("TEST");
+      await expect(card.locator('[data-slot="online-payments-configuration"]')).toHaveText("Ready");
       await page.goto(`/admin/sponsorship/${c.sponsorshipId}`);
       const attemptRow = page.locator('[data-slot="payment-provider-panel"] [data-attempt-id]');
       await expect(attemptRow.locator('[data-slot="payment-environment"]')).toHaveText("TEST");
@@ -535,7 +541,7 @@ test.describe("ONVO TEST payments", () => {
     try {
       await loginAsSponsor(page, c.sponsor.email);
       await page.goto(`/sponsor/${c.sponsorshipId}`);
-      await page.getByRole("button", { name: "Pay with ONVO" }).click();
+      await page.getByRole("button", { name: "Pay now" }).click();
       await expect(page).toHaveURL(new RegExp(`^http://127\\.0\\.0\\.1:${ONVO_PORT}/pay/`));
       const { data: attempt } = await admin.from("commercial_payment_attempts").select("provider_session_id").eq("sponsorship_id", c.sponsorshipId).single();
       const sessionId = attempt!.provider_session_id as string;
@@ -552,9 +558,47 @@ test.describe("ONVO TEST payments", () => {
       await page.goto(`/sponsor/${c.sponsorshipId}`);
       await expect(page.locator('[data-slot="payment-status"]')).toHaveText("Payment failed — you can try again.");
       await expect(page.locator('[data-slot="sponsor-payment"]')).not.toContainText(/declined|processing_error|requires_payment_method/i); // no provider internals
-      await page.getByRole("button", { name: "Pay with ONVO" }).click();
+      await page.getByRole("button", { name: "Pay now" }).click();
       await expect(page).toHaveURL(new RegExp(`^http://127\\.0\\.0\\.1:${ONVO_PORT}/pay/`));
       expect((await admin.from("commercial_payment_attempts").select("status").eq("sponsorship_id", c.sponsorshipId).order("created_at")).data!.map((a) => a.status)).toEqual(["FAILED", "PENDING"]);
+    } finally {
+      await setEnabled(false);
+      await cleanup(c.game);
+    }
+  });
+
+  test("Super Admin turns online payments off and on from the card: Sponsors lose and regain 'Pay now', the change is audited, and the options are only installed providers", async ({ page }) => {
+    const c = await unpaidCampaign(24, "Onvocfg");
+    try {
+      await loginAs(page, c.superUser.email);
+      await page.goto("/admin/sponsorship");
+      const card = page.locator('[data-slot="online-payments-status"]');
+      const select = card.getByLabel("Provider for new payments");
+      expect(await select.locator("option").allInnerTexts()).toEqual(["Disabled", "ONVO"]); // only what this deployment has installed
+      await select.selectOption("DISABLED");
+      await card.getByRole("button", { name: "Save" }).click();
+      await expect(card.getByRole("status")).toHaveText("Online payments are off.");
+      await expect(card.locator('[data-slot="online-payments-state"]')).toHaveText("Disabled");
+
+      await loginAsSponsor(page, c.sponsor.email);
+      await page.goto(`/sponsor/${c.sponsorshipId}`);
+      await expect(page.locator('[data-slot="sponsor-payment"]')).toBeVisible(); // manual payment instructions / status still shown
+      await expect(page.getByRole("button", { name: "Pay now" })).toHaveCount(0);
+
+      await loginAs(page, c.superUser.email);
+      await page.goto("/admin/sponsorship");
+      await card.getByLabel("Provider for new payments").selectOption("ONVO");
+      await card.getByRole("button", { name: "Save" }).click();
+      await expect(card.getByRole("status")).toHaveText("Online payments are on.");
+      await loginAsSponsor(page, c.sponsor.email);
+      await page.goto(`/sponsor/${c.sponsorshipId}`);
+      await expect(page.getByRole("button", { name: "Pay now" })).toBeVisible();
+
+      const { data: logs } = await admin.from("audit_logs").select("before, after").eq("actor_id", c.superUser.id).eq("action", "settings.online_payments_updated").order("created_at");
+      expect(logs).toEqual([
+        { before: { enabled: true, provider: "ONVO" }, after: { enabled: false, provider: null } },
+        { before: { enabled: false, provider: null }, after: { enabled: true, provider: "ONVO" } },
+      ]);
     } finally {
       await setEnabled(false);
       await cleanup(c.game);
@@ -568,7 +612,7 @@ test.describe("ONVO TEST payments", () => {
     try {
       await loginAsSponsor(page, other.email);
       expect((await page.goto(`/sponsor/${c.sponsorshipId}`))?.status()).toBe(404);
-      await expect(page.getByRole("button", { name: "Pay with ONVO" })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Pay now" })).toHaveCount(0);
       await loginAs(page, member.email);
       await page.goto(`/sponsor/${c.sponsorshipId}`);
       await expect(page).toHaveURL(/\/feed$/);

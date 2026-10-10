@@ -15,9 +15,9 @@ const ROOTS = ["app", "components", "lib/email", "lib/notifications", "lib/spons
 // OWNER DECISION pending on whether to genericize it (see the closure report).
 const KNOWN_MEMBER_WALLET_EXCEPTION = new Set(["app/(app)/wallet/wallet-request-form.tsx"]);
 
-// The SPONSORSHIP payment-provider surfaces. The ONVO milestone explicitly requires the Sponsor's "Pay with ONVO" option and a Super Admin status card that names the
-// provider, so these exact files may say so — and ONLY these. Public pages, legal text, emails and notifications, and the sponsorship domain stay provider-free.
-const SPONSORSHIP_PAYMENT_PROVIDER_SURFACES = new Set(["components/sponsorship/SponsorPaymentPanel.tsx", "components/sponsorship/ProviderStatusCard.tsx", "app/api/webhooks/onvo/route.ts"]);
+// The ONLY user-facing-tree file allowed to name a provider: its dedicated webhook endpoint (a provider-specific URL is infrastructure; the handler dispatches through the
+// neutral payment service). Sponsor UI, the Super Admin card, legal, emails and notifications are provider-free — the Super Admin card shows a registered provider's label as DATA.
+const SPONSORSHIP_PAYMENT_PROVIDER_SURFACES = new Set(["app/api/webhooks/onvo/route.ts"]);
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
@@ -45,15 +45,17 @@ describe("provider-neutral product copy", () => {
     for (const f of KNOWN_MEMBER_WALLET_EXCEPTION) expect(f.startsWith("app/(app)/wallet/")).toBe(true);
   });
 
-  it("the sponsorship payment-provider surfaces are exactly these, and nothing public or legal is among them", () => {
-    expect([...SPONSORSHIP_PAYMENT_PROVIDER_SURFACES].sort()).toEqual(["app/api/webhooks/onvo/route.ts", "components/sponsorship/ProviderStatusCard.tsx", "components/sponsorship/SponsorPaymentPanel.tsx"]);
-    for (const f of SPONSORSHIP_PAYMENT_PROVIDER_SURFACES) expect(/legal|public|terms|privacy|rules|landing|email|notif/i.test(f), f).toBe(false);
+  it("the only provider-named surface is the provider's own webhook endpoint; every Sponsor and Super Admin component is provider-free", () => {
+    expect([...SPONSORSHIP_PAYMENT_PROVIDER_SURFACES]).toEqual(["app/api/webhooks/onvo/route.ts"]);
+    for (const f of walk("components/sponsorship")) expect(BRANDS.test(readFileSync(f, "utf8")), f).toBe(false);
+    expect(readFileSync("components/sponsorship/SponsorPaymentPanel.tsx", "utf8")).toContain("Pay now");
   });
 
   it("the sponsorship DOMAIN, notifications and emails are provider-neutral (the provider lives only in lib/payments and the surfaces above)", () => {
     for (const f of walk("lib/sponsorship").concat(walk("lib/sponsor"), walk("lib/email"), walk("lib/notifications"))) expect(BRANDS.test(readFileSync(f, "utf8")), f).toBe(false);
     expect(BRANDS.test(readFileSync("lib/payments/service.ts", "utf8"))).toBe(false); // even the orchestration has no provider words; only the adapter does
-    expect(BRANDS.test(readFileSync("lib/payments/types.ts", "utf8"))).toBe(false);
+    // The provider-neutral core of the payments layer: only lib/payments/<provider>/ and the registry line that installs it may name a provider.
+    for (const f of ["types.ts", "config.ts", "active-provider.ts", "views.ts", "amount.ts"]) expect(BRANDS.test(readFileSync(`lib/payments/${f}`, "utf8")), f).toBe(false);
   });
 
   it("the Privacy Policy names no payment app or processor", () => {

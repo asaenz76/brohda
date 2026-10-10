@@ -11,7 +11,7 @@
  * is covered by the automated suite against the sandbox and by pointing a TEST webhook at a running app (see docs/architecture/commercial-payments.md).
  */
 import { OnvoProvider } from "../lib/payments/onvo/adapter";
-import { resolveOnvoConfig } from "../lib/payments/config";
+import { resolveOnvoConfig } from "../lib/payments/onvo/config";
 
 const wantRefund = process.argv.includes("--refund");
 const step = (ok: boolean, label: string, detail = "") => {

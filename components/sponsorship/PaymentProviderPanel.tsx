@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { LocalDateTime } from "@/components/LocalDateTime";
-import { reconcilePaymentAttemptAction, reconcileRefundAction, refundThroughProviderAction, type AdminPaymentResult } from "@/lib/actions/sponsorship-payments";
+import { cancelPaymentAttemptAction, reconcilePaymentAttemptAction, reconcileRefundAction, refundThroughProviderAction, type AdminPaymentResult } from "@/lib/actions/sponsorship-payments";
 import { formatCommercialAmount } from "@/lib/sponsorship/format";
 import type { AdminPaymentAttempt } from "@/lib/payments/views";
 
@@ -31,7 +31,7 @@ export function PaymentProviderPanel({ sponsorshipId, attempts, paymentStatus }:
         {attempts.map((a) => (
           <li key={a.id} data-attempt-id={a.id} className="space-y-1 text-sm text-text-secondary">
             <p className="flex flex-wrap items-center gap-2">
-              <span className="font-medium text-text-primary">{a.provider}</span>
+              <span className="font-medium text-text-primary">{a.providerLabel}</span>
               <span data-slot="payment-environment" className={a.environment === "TEST" ? "rounded-full bg-warning-muted/20 px-2 py-0.5 text-xs font-semibold text-warning-muted" : "rounded-full bg-secondary px-2 py-0.5 text-xs font-semibold text-text-primary"}>
                 {a.environment === "TEST" ? "TEST" : "LIVE"}
               </span>
@@ -58,17 +58,23 @@ export function PaymentProviderPanel({ sponsorshipId, attempts, paymentStatus }:
               </p>
             ))}
             <div className="flex flex-wrap gap-2">
-              {(a.providerSessionId || a.providerPaymentRef) && (
+              {a.canReconcile && (a.providerSessionId || a.providerPaymentRef) && (
                 <Button type="button" variant="outline" disabled={pending} onClick={() => go(() => reconcilePaymentAttemptAction(sponsorshipId, a.id))}>
                   Reconcile with provider
                 </Button>
               )}
-              {a.status === "SUCCEEDED" && (paymentStatus === "PAID" || paymentStatus === "REFUND_PENDING") && !a.refunds.some((r) => ["REQUESTED", "PENDING", "SUCCEEDED"].includes(r.status)) && (
+              {a.canRefund && a.status === "SUCCEEDED" && (paymentStatus === "PAID" || paymentStatus === "REFUND_PENDING") && !a.refunds.some((r) => ["REQUESTED", "PENDING", "SUCCEEDED"].includes(r.status)) && (
                 <Button type="button" variant="outline" disabled={pending} onClick={() => go(() => refundThroughProviderAction(sponsorshipId, a.id))}>
                   Refund through the provider
                 </Button>
               )}
+              {["CREATED", "PENDING"].includes(a.status) && (
+                <Button type="button" variant="outline" disabled={pending} onClick={() => go(() => cancelPaymentAttemptAction(sponsorshipId, a.id))}>
+                  Cancel this open payment
+                </Button>
+              )}
             </div>
+            {!a.canReconcile && <p className="text-xs text-text-muted">{a.providerLabel} isn&apos;t installed or can&apos;t be checked online in this deployment — reconcile and refund it manually.</p>}
           </li>
         ))}
       </ul>

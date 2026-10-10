@@ -1,5 +1,5 @@
 import "server-only";
-import type { OnvoConfig } from "../config";
+import type { OnvoConfig } from "./config";
 import { PaymentProviderError } from "../types";
 
 // Thin, server-only HTTP client for the ONVO REST API (https://api.onvopay.com/v1, Bearer secret key — see ONVO's Authentication docs). The secret key is

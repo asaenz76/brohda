@@ -5,7 +5,9 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { appOrigin } from "@/lib/app-origin";
 import { requireSuperAdmin } from "@/lib/auth/session";
-import { PaymentError, reconcileAttempt, reconcileRefund, refundThroughProvider, startSponsorPayment } from "@/lib/payments/service";
+import { cancelOpenAttempt, PaymentError, reconcileAttempt, reconcileRefund, refundThroughProvider, startSponsorPayment } from "@/lib/payments/service";
+import { isRegisteredProvider } from "@/lib/payments/registry";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { requireActiveSponsorAccount } from "@/lib/sponsor/session";
 import { getSponsorshipForUser } from "@/lib/sponsorship/repository";
 
@@ -96,4 +98,34 @@ export async function reconcileRefundAction(sponsorshipId: string, refundId: str
   } catch (e) {
     return fail(e);
   }
+}
+
+/** Super Admin: close an open payment attempt (for example to move a Sponsor onto a newly selected provider). The record stays; a late provider success is still recognised. */
+export async function cancelPaymentAttemptAction(sponsorshipId: string, attemptId: string): Promise<AdminPaymentResult> {
+  const admin = await requireSuperAdmin();
+  if (!idSchema.safeParse(attemptId).success) return { success: false, error: "Payment not found." };
+  try {
+    await cancelOpenAttempt(admin.id, attemptId);
+    revalidatePath(`/admin/sponsorship/${sponsorshipId}`);
+    revalidateAdmin();
+    return { success: true, error: null, message: "Open payment cancelled." };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/**
+ * Super Admin: turn online sponsorship payments on/off and choose WHICH installed provider takes new payments. This is operational configuration — no deploy, no secrets.
+ * The provider key is accepted only if it names a registered adapter (the database stores any well-formed key; the application is what knows which ones exist). The change
+ * is audited by the database function; it only affects NEW payments — existing attempts stay with the provider that created them.
+ */
+export async function setOnlinePaymentConfigAction(_prev: AdminPaymentResult | null, formData: FormData): Promise<AdminPaymentResult> {
+  const admin = await requireSuperAdmin();
+  const choice = String(formData.get("provider") ?? "");
+  const enabled = choice !== "" && choice !== "DISABLED";
+  if (enabled && !isRegisteredProvider(choice)) return { success: false, error: "That provider isn't installed in this deployment." };
+  const { error } = await createAdminClient().rpc("admin_set_online_payment_config", { p_admin_id: admin.id, p_enabled: enabled, p_provider: enabled ? choice : null });
+  if (error) return { success: false, error: "Couldn't save the online payment setting." };
+  revalidatePath("/admin/sponsorship");
+  return { success: true, error: null, message: enabled ? "Online payments are on." : "Online payments are off." };
 }
