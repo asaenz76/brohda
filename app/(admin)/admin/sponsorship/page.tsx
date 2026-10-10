@@ -5,6 +5,7 @@ import { isSponsorshipEnabled } from "@/lib/sponsorship/capability";
 import { listAllSponsorships } from "@/lib/sponsorship/repository";
 import { formatCommercialAmount, PAYMENT_STATUS_LABEL, sponsorStatusCopy } from "@/lib/sponsorship/format";
 import { SponsorshipNav } from "./sponsorship-nav";
+import { LegalStatusCard } from "@/components/sponsorship/LegalStatusCard";
 import { OnlinePaymentsCard } from "@/components/sponsorship/OnlinePaymentsCard";
 
 const GROUPS: Array<{ title: string; lifecycle: string[] }> = [
@@ -28,6 +29,7 @@ export default async function SponsorshipQueuePage() {
         <Link href="/admin/settings/brohda" className="text-accent-primary hover:underline">Change in Settings</Link>
       </p>
       <OnlinePaymentsCard />
+      <LegalStatusCard />
       {GROUPS.map((group) => {
         const rows = all.filter((s) => group.lifecycle.includes(s.lifecycle));
         return (

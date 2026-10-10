@@ -79,16 +79,25 @@ describe("the 12-hour rule, exactly (server-controlled time, no sleeping)", () =
     expect(before.cutoffHours).toBe(12);
   });
 
-  it("the cutoff is ONE configurable value, not a number scattered through the code", async () => {
+  it("the cutoff is ONE configurable value, not a number scattered through the code — and a sponsorship keeps the cutoff it was submitted under", async () => {
     const c = await campaign({ kickoffInHours: 48, paid: true });
     const kickoff = await kickoffOf(c.fixtureId);
     const at8h = new Date(kickoff.getTime() - 8 * HOUR);
     expect((await evaluate(c.sponsorshipId, "SPONSOR_CANCELLATION", at8h)).eligible).toBe(false); // default 12
     await admin.from("platform_settings").update({ sponsorship_refund_cutoff_hours: 6 }).eq("id", true);
-    const six = await evaluate(c.sponsorshipId, "SPONSOR_CANCELLATION", at8h);
-    expect(six.eligible).toBe(true);
-    expect(six.cutoffHours).toBe(6);
-    expect((await admin.from("platform_settings").update({ sponsorship_refund_cutoff_hours: -1 }).eq("id", true)).error).not.toBeNull(); // bounded
+    try {
+      // Frozen when it was submitted (r67): changing the setting never re-decides an existing sponsorship.
+      expect(await evaluate(c.sponsorshipId, "SPONSOR_CANCELLATION", at8h)).toMatchObject({ eligible: false, cutoffHours: 12 });
+      // A sponsorship submitted AFTER the change is governed by the new value — the same one configurable setting, read in one place.
+      const later = await campaign({ kickoffInHours: 48, paid: true });
+      const laterKickoff = await kickoffOf(later.fixtureId);
+      const six = await evaluate(later.sponsorshipId, "SPONSOR_CANCELLATION", new Date(laterKickoff.getTime() - 8 * HOUR));
+      expect(six.eligible).toBe(true);
+      expect(six.cutoffHours).toBe(6);
+      expect((await admin.from("platform_settings").update({ sponsorship_refund_cutoff_hours: -1 }).eq("id", true)).error).not.toBeNull(); // bounded
+    } finally {
+      await admin.from("platform_settings").update({ sponsorship_refund_cutoff_hours: 12 }).eq("id", true);
+    }
   });
 });
 

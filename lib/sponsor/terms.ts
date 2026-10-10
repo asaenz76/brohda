@@ -22,6 +22,12 @@ export interface SponsorLegalDocument {
   status: SponsorLegalStatus;
   /** The published page with the text. */
   href: string;
+  /**
+   * The Sponsor refund cutoff (hours before kickoff) THIS VERSION OF THE TEXT states. Part of the legal version, not of operational configuration: once a document is
+   * APPROVED, the text it renders uses this number, and a configured cutoff that differs from it blocks new submissions until a new version is approved
+   * (lib/sponsor/commercial-legal-gate.ts). null while a document is a draft — nothing approved states a number yet.
+   */
+  refundCutoffHours?: number | null;
 }
 
 export const SPONSOR_TERMS_KEY = "sponsor_terms";
@@ -49,6 +55,22 @@ export const MEDIA_AGREEMENT_DOCUMENT: SponsorLegalDocument = {
 /** The document a Sponsor must accept right now, or null when none is approved (a draft binds nobody). */
 export function requiredDocument(doc: SponsorLegalDocument): SponsorLegalDocument | null {
   return doc.status === "APPROVED" ? doc : null;
+}
+
+/**
+ * The Sponsor section of the Privacy Policy. It lives INSIDE the Member Privacy Policy page (lib/legal/documents.ts owns that document's version and Member re-consent), so it
+ * has no version of its own — only a status that says whether counsel has approved the section's wording. While DRAFT, the section carries a visible banner.
+ */
+export const SPONSOR_PRIVACY_SECTION: { key: string; title: string; status: SponsorLegalStatus; href: string } = {
+  key: "privacy_sponsor_section",
+  title: "Privacy Policy — Sponsor accounts and sponsorships",
+  status: "DRAFT",
+  href: "/privacy#sponsors",
+};
+
+/** The cutoff to SHOW in legal text: an approved version states its own number; a draft shows the configured one (it states nothing yet). */
+export function legalRefundCutoffHours(doc: SponsorLegalDocument, configuredHours: number | null): number | null {
+  return doc.status === "APPROVED" && doc.refundCutoffHours != null ? doc.refundCutoffHours : configuredHours;
 }
 
 export const CURRENT_SPONSOR_TERMS = requiredDocument(SPONSOR_TERMS_DOCUMENT);

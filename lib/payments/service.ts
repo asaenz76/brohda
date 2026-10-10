@@ -1,4 +1,5 @@
 import "server-only";
+import { legalRequirementCopy, sponsorCommercialLegalStatus } from "@/lib/sponsor/commercial-legal-gate";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveOnlinePayment } from "./active-provider";
 import { getAdapter } from "./registry";
@@ -10,7 +11,7 @@ import { notifySponsorAccount } from "@/lib/sponsorship/notify";
 // provider outside any transaction, and turn only TRUSTED provider state (a verified webhook, or a server-side read of the provider) into local state.
 export class PaymentError extends Error {
   constructor(
-    readonly code: "unavailable" | "not_payable" | "already_paid" | "not_authorized" | "provider_unavailable" | "in_progress_other_provider" | "unknown",
+    readonly code: "unavailable" | "not_payable" | "already_paid" | "not_authorized" | "provider_unavailable" | "in_progress_other_provider" | "legal_acceptance_required" | "unknown",
     message: string,
   ) {
     super(message);
@@ -109,6 +110,9 @@ export async function startSponsorPayment(input: StartInput, deps: Deps = {}): P
   if (active.state !== "available" || !active.offered || !active.adapter) throw new PaymentError("unavailable", "Online payment isn't available right now.");
   const provider: CommercialPaymentProvider = active.adapter;
   const environment = active.environment;
+  // Whichever provider is active, a new payment waits for the Sponsor's required legal acceptances (one canonical check, no provider-specific legal code).
+  const legal = await sponsorCommercialLegalStatus({ userId: input.userId, sponsorshipId: input.sponsorshipId, stage: "PAYMENT" });
+  if (!legal.ok) throw new PaymentError("legal_acceptance_required", legalRequirementCopy(legal.missing));
   const admin = createAdminClient();
 
   // An open attempt that belongs to ANOTHER provider (the selection changed since it started) is never converted or retired: it is settled through its own provider first.

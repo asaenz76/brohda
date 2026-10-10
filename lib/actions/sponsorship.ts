@@ -9,6 +9,7 @@ import { SponsorshipError } from "@/lib/sponsorship/errors";
 import { draftToDbFields, promotionProblems, sponsorshipDraftSchema, type SponsorshipDraftInput } from "@/lib/sponsorship/validation";
 import { notifySponsorAccount } from "@/lib/sponsorship/notify";
 import { CURRENT_MEDIA_AGREEMENT, CURRENT_SPONSOR_TERMS } from "@/lib/sponsor/terms";
+import { legalRequirementCopy, sponsorCommercialLegalStatus } from "@/lib/sponsor/commercial-legal-gate";
 import { evaluateSponsorshipRefundEligibility, getCancellationRecord } from "@/lib/sponsorship/refund-evaluation";
 
 // Sponsor-facing actions. The caller is only ever "a signed-in user": ownership, the Sponsor being ACTIVE and the capability being ON are all re-checked
@@ -68,6 +69,9 @@ export async function submitSponsorshipAction(id: string, raw: unknown, accepted
   // The agreement is only ever required when counsel has APPROVED one (a draft binds nobody). The acceptance is the Sponsor's own explicit act, checked here
   // on the server; the version recorded is this server's current approved version, never anything the browser sent.
   if (CURRENT_MEDIA_AGREEMENT && acceptedAgreement !== true) return { success: false, error: "Accept the Media and Advertising Agreement to submit." };
+  // The one canonical commercial legal check (Sponsor Terms accepted; the approved Terms' refund number still in force). Never a provider concern.
+  const legal = await sponsorCommercialLegalStatus({ userId: session.userId, sponsorshipId: id, stage: "SUBMIT" });
+  if (!legal.ok) return { success: false, error: legalRequirementCopy(legal.missing) };
   try {
     // Save what is on screen first, so what is submitted is exactly what the sponsor sees.
     await callSponsorshipFunction("sponsor_update_sponsorship", { p_user_id: session.userId, p_id: id, p_fields: draftToDbFields(parsed.data) });
@@ -76,6 +80,25 @@ export async function submitSponsorshipAction(id: string, raw: unknown, accepted
       ? await callSponsorshipFunction("sponsor_submit_with_agreement", { p_user_id: session.userId, p_id: id, p_agreement_key: CURRENT_MEDIA_AGREEMENT.key, p_agreement_version: CURRENT_MEDIA_AGREEMENT.version, p_terms_key: CURRENT_SPONSOR_TERMS?.key ?? null, p_terms_version: CURRENT_SPONSOR_TERMS?.version ?? null })
       : await callSponsorshipFunction("sponsor_submit_sponsorship", { p_user_id: session.userId, p_id: id });
     await notifySponsorAccount(row.sponsor_id, "We received your sponsorship", ["Your sponsorship was submitted to Brohda for review.", "It goes live only after Brohda confirms payment and approves it."]);
+    revalidateSponsor(id);
+    revalidatePath("/admin/sponsorship");
+    return { success: true, error: null, id };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+/**
+ * The Sponsor accepts the current Media and Advertising Agreement for a campaign it has ALREADY submitted (one submitted before the agreement was approved, or whose content
+ * changed after an earlier acceptance). Everything recorded is resolved on the server: the document and version from the registry, the revision, content hash, price and
+ * window from the campaign row. The browser sends only which campaign — the click is the Sponsor's explicit act.
+ */
+export async function acceptMediaAgreementAction(id: string): Promise<SponsorshipActionResult> {
+  const session = await requireActiveSponsorAccount();
+  if (!z.uuid().safeParse(id).success) return { success: false, error: "Sponsorship not found." };
+  if (!CURRENT_MEDIA_AGREEMENT) return { success: false, error: "There is no agreement to accept right now." };
+  try {
+    await callSponsorshipFunction("sponsor_accept_agreement", { p_user_id: session.userId, p_id: id, p_agreement_key: CURRENT_MEDIA_AGREEMENT.key, p_agreement_version: CURRENT_MEDIA_AGREEMENT.version, p_terms_key: CURRENT_SPONSOR_TERMS?.key ?? null, p_terms_version: CURRENT_SPONSOR_TERMS?.version ?? null });
     revalidateSponsor(id);
     revalidatePath("/admin/sponsorship");
     return { success: true, error: null, id };

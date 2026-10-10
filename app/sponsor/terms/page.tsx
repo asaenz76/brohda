@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { publicAccountNav } from "@/components/shell/PublicAccountNav";
 import { getSponsorSession } from "@/lib/sponsor/session";
 import { hasAcceptedCurrentSponsorTerms } from "@/lib/sponsor/legal-acceptance";
-import { CURRENT_SPONSOR_TERMS } from "@/lib/sponsor/terms";
+import { CURRENT_SPONSOR_TERMS, legalRefundCutoffHours, SPONSOR_TERMS_DOCUMENT } from "@/lib/sponsor/terms";
 import { acceptSponsorTermsAction } from "@/lib/actions/sponsor-account";
 import { getSponsorshipConfig } from "@/lib/sponsorship/settings";
 
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 export default async function SponsorTermsPage() {
   const session = await getSponsorSession();
   const needsAcceptance = Boolean(session && CURRENT_SPONSOR_TERMS && !(await hasAcceptedCurrentSponsorTerms(session.userId)));
-  const refundCutoffHours = await getSponsorshipConfig().then((c) => c.refundCutoffHours, () => null);
+  const refundCutoffHours = await getSponsorshipConfig().then((c) => legalRefundCutoffHours(SPONSOR_TERMS_DOCUMENT, c.refundCutoffHours), () => null);
   return (
     <SponsorTermsDocument
       refundCutoffHours={refundCutoffHours}

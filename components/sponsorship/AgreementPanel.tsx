@@ -1,6 +1,7 @@
 import { DraftBanner } from "@/components/legal/DraftBanner";
 import { MediaAgreementTerms } from "@/components/legal/MediaAgreementTerms";
 import { LocalDateTime } from "@/components/LocalDateTime";
+import { AcceptAgreementButton } from "@/components/sponsorship/AcceptAgreementButton";
 import { MEDIA_AGREEMENT_DOCUMENT } from "@/lib/sponsor/terms";
 import { formatCommercialAmount, PAYMENT_STATUS_LABEL } from "@/lib/sponsorship/format";
 import type { AgreementAcceptance, SponsorshipRecord } from "@/lib/sponsorship/repository";
@@ -8,7 +9,7 @@ import type { AgreementAcceptance, SponsorshipRecord } from "@/lib/sponsorship/r
 // The campaign-specific Media and Advertising Agreement: the SCHEDULE is generated from the canonical sponsorship record (so there is exactly one copy of
 // the commercial facts), shown beside the standing terms and the record of any acceptance. Shown only to the Sponsor that owns the campaign and to Super
 // Admin — callers authorize before rendering it. The text is a DRAFT until counsel approves it (lib/sponsor/terms.ts).
-export function AgreementPanel({ s, acceptances, bySuperAdmin = false, refundCutoffHours = null }: { s: SponsorshipRecord; acceptances: AgreementAcceptance[]; bySuperAdmin?: boolean; refundCutoffHours?: number | null }) {
+export function AgreementPanel({ s, acceptances, bySuperAdmin = false, refundCutoffHours = null, canAccept = false }: { s: SponsorshipRecord; acceptances: AgreementAcceptance[]; bySuperAdmin?: boolean; refundCutoffHours?: number | null; canAccept?: boolean }) {
   const doc = MEDIA_AGREEMENT_DOCUMENT;
   const rows: Array<[string, React.ReactNode]> = [
     ["Sponsor", s.sponsorName ?? "—"],
@@ -44,6 +45,7 @@ export function AgreementPanel({ s, acceptances, bySuperAdmin = false, refundCut
         </div>
         <div className="text-sm" data-slot="agreement-acceptance">
           <h3 className="font-semibold text-text-primary">Acceptance</h3>
+          {canAccept && <div className="my-2"><AcceptAgreementButton sponsorshipId={s.id} /></div>}
           {acceptances.length === 0 ? (
             <p className="text-text-secondary">
               {doc.status === "DRAFT"
