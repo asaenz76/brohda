@@ -8,7 +8,7 @@ import type { AgreementAcceptance, SponsorshipRecord } from "@/lib/sponsorship/r
 // The campaign-specific Media and Advertising Agreement: the SCHEDULE is generated from the canonical sponsorship record (so there is exactly one copy of
 // the commercial facts), shown beside the standing terms and the record of any acceptance. Shown only to the Sponsor that owns the campaign and to Super
 // Admin — callers authorize before rendering it. The text is a DRAFT until counsel approves it (lib/sponsor/terms.ts).
-export function AgreementPanel({ s, acceptances, bySuperAdmin = false }: { s: SponsorshipRecord; acceptances: AgreementAcceptance[]; bySuperAdmin?: boolean }) {
+export function AgreementPanel({ s, acceptances, bySuperAdmin = false, refundCutoffHours = null }: { s: SponsorshipRecord; acceptances: AgreementAcceptance[]; bySuperAdmin?: boolean; refundCutoffHours?: number | null }) {
   const doc = MEDIA_AGREEMENT_DOCUMENT;
   const rows: Array<[string, React.ReactNode]> = [
     ["Sponsor", s.sponsorName ?? "—"],
@@ -40,7 +40,7 @@ export function AgreementPanel({ s, acceptances, bySuperAdmin = false }: { s: Sp
           ))}
         </dl>
         <div className="text-sm text-text-secondary">
-          <MediaAgreementTerms />
+          <MediaAgreementTerms cutoffHours={refundCutoffHours} />
         </div>
         <div className="text-sm" data-slot="agreement-acceptance">
           <h3 className="font-semibold text-text-primary">Acceptance</h3>

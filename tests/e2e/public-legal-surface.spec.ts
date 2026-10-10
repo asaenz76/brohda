@@ -133,6 +133,12 @@ test.describe("Sponsor Terms are a visible DRAFT that binds nobody", () => {
     await expect(page.getByText(/Effective/)).toContainText("draft, not yet in effect");
     await expect(page.locator('[data-slot="accept-sponsor-terms"]')).toHaveCount(0);
     for (const subject of ["Sponsor account and eligibility", "Payment", "Refunds", "Sponsor-run promotions", "Member data"]) await expect(page.getByRole("heading", { name: new RegExp(subject) }).first()).toBeVisible();
+    // The refund policy is stated in the Terms with the configured cutoff, and no payment processor is named.
+    const refunds = page.locator("section").filter({ has: page.getByRole("heading", { name: /Refunds/ }) }).first();
+    await expect(refunds).toContainText("at least 12 hours before the Game's scheduled start time");
+    await expect(refunds).toContainText("non-refundable");
+    await expect(refunds).toContainText("Suspending a campaign or a Sponsor account is not a refund");
+    expect((await page.locator("main").innerText()).toLowerCase()).not.toMatch(/stripe|paypal|onvo|venmo|zelle/);
     await page.goto("/sponsor/signup");
     await expect(page.getByLabel(/Sponsor Terms/)).toHaveCount(0); // a draft is never offered for acceptance
     await page.goto("/sponsorship");

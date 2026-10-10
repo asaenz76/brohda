@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
+import { RefundTerms } from "@/components/legal/RefundTerms";
 
 // The STANDING terms of the per-campaign Media and Advertising Agreement (the campaign-specific schedule — Sponsor, Game, dates, price, creative, promotion,
 // payment state — is generated from the canonical sponsorship record and shown next to this text; it is never retyped here).
 // DRAFT — OWNER/COUNSEL REVIEW REQUIRED: this wording was written by engineering and is not legal advice or approved text.
-export const MEDIA_AGREEMENT_SECTIONS: ReadonlyArray<{ id: string; title: string; body: ReactNode }> = [
+export const mediaAgreementSections = (cutoffHours: number | null): ReadonlyArray<{ id: string; title: string; body: ReactNode }> => [
   {
     id: "parties",
     title: "What this agreement covers",
@@ -37,11 +38,7 @@ export const MEDIA_AGREEMENT_SECTIONS: ReadonlyArray<{ id: string; title: string
   {
     id: "refunds",
     title: "Refunds",
-    body: (
-      <p>
-        Refunds are decided case by case under Brohda&apos;s refund policy and are never automatic. The cases the policy addresses are: a paid campaign Brohda rejects; a Sponsor cancellation before approval; a Sponsor cancellation after approval but before the start; a Brohda suspension or cancellation before the start; a suspension after the campaign has started; a Game that is cancelled, postponed or otherwise cannot deliver the sponsorship; and a campaign that has completed.
-      </p>
-    ),
+    body: <RefundTerms cutoffHours={cutoffHours} />,
   },
   {
     id: "liability",
@@ -50,10 +47,10 @@ export const MEDIA_AGREEMENT_SECTIONS: ReadonlyArray<{ id: string; title: string
   },
 ];
 
-export function MediaAgreementTerms() {
+export function MediaAgreementTerms({ cutoffHours = null }: { cutoffHours?: number | null }) {
   return (
     <ol className="space-y-4">
-      {MEDIA_AGREEMENT_SECTIONS.map((s) => (
+      {mediaAgreementSections(cutoffHours).map((s) => (
         <li key={s.id}>
           <h3 className="text-sm font-semibold text-text-primary">{s.title}</h3>
           <div className="mt-1">{s.body}</div>

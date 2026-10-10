@@ -341,3 +341,28 @@ Everything below was written by engineering so the product could operate end to 
 **Suspension (locked V1 behavior, enforced and tested).** Suspending a Sponsor **account** makes its sponsor presentation disappear immediately (the public eligibility policy requires an ACTIVE sponsor). The Game Post, its Markets, Picks, comments and Call BS are untouched, and the campaign, payment and audit history stay. Restoring the account brings a campaign back **only** if it is still paid, approved, intact and inside its window — an expired campaign is never revived. Suspending a campaign (one sponsorship) is a separate action. **Neither ever changes the payment state or refunds anything; a refund is a separate, explicit, audited Super Admin action.**
 
 **Member Terms.** Not rewritten. Sponsor commercial obligations live in the Sponsor Terms and the agreement. **Rules** gained no Sponsor legal text (it stays plain-language).
+
+## 12. Sponsor Terms activation and the final refund policy (closure milestone)
+
+**Owner decisions recorded (canonical):** Sponsor Terms are approved; a Sponsor-initiated cancellation is refund-eligible only when completed **at least 12 hours before the Game's scheduled start** (configurable: `platform_settings.sponsorship_refund_cutoff_hours`, default 12); the rule never applies to Brohda rejection, Brohda-caused cancellation, or a Game that cannot deliver; suspending a Sponsor account hides its live presentation immediately and refunds nothing; no payment processor is named anywhere in the product.
+
+**What is engineered and live:** the refund policy V1 and its enforcement (see `docs/architecture/sponsor-identity.md`, "Refund policy V1"); the 12-hour value exists in exactly one place (the setting); the Sponsor sees the rule and the exact deadline before cancelling; every cancellation freezes an immutable decision snapshot; Super Admin sees eligibility, reason, kickoff, cutoff, cancellation time, payment and refund state. Refunds remain explicit Super Admin actions.
+
+### Sponsor Terms are NOT yet marked APPROVED — activation is blocked on counsel placeholders
+
+The deployed text still contains placeholders that the recorded owner decisions do **not** cover. Per the activation rule, the document was **not** made legally active. These four remain (an automated test, `tests/unit/sponsor-legal-activation-guard.test.tsx`, fails if the document is ever set APPROVED while any of them — or any `[counsel …]`/`[TBD]`/`[DRAFT]`/`[INSERT …]` marker — is present):
+
+1. **Payment** (Sponsor Terms §4) — `[counsel — payment terms]`: who bears taxes/bank charges, currency, due date, late/failed payment.
+2. **Prohibited content and conduct** (§10) — `[counsel — complete list]`.
+3. **Limitation of liability and indemnity** (§16) — `[counsel — limitation of liability, disclaimers and indemnification to be provided]` (the section is entirely a placeholder).
+4. **Media and Advertising Agreement, "Liability"** — `[Limitation of liability and indemnity — wording to be provided by counsel.]` (the agreement also stays DRAFT: its own approval is separate).
+
+**New wording engineering wrote from your decisions — please read it, it is new legal text:** the **Refunds** section of the Sponsor Terms (and the same text inside the media agreement) — `components/legal/RefundTerms.tsx`. It replaces the previous refunds placeholder with the owner-decided rules above. It was *not* written beyond those decisions, with two flagged exceptions: (a) the sentence giving the reason for the deadline ("Brohda needs time to offer the Game to another Sponsor"), and (b) "if a Game is only postponed, Brohda will offer you the choice to keep, replace or be refunded" (from your postponed-Game instruction).
+
+**To activate once the placeholders are resolved** (one change, in `lib/sponsor/terms.ts`): set `SPONSOR_TERMS_DOCUMENT` to `status: "APPROVED"`, `version` to the ISO effective date (the convention the Member documents use, e.g. `"2026-10-12"`), `effectiveDate` to the same date written out; replace the four placeholders in `components/legal/SponsorTermsDocument.tsx`. From that moment: the signup checkbox appears and is required, the server records the approved version, an existing Sponsor must accept before new commercial activity, and a later version re-prompts. Nothing is back-filled: Berria Bikes (an offline organization) and any Super Admin-created sponsorship have **no** acceptance and are never given one.
+
+### Still pending approval
+- **Media agreement** standing terms (separate from the Sponsor Terms; it was not activated just because they were approved).
+- **Privacy**: the Sponsor-data section stays marked DRAFT — Sponsor Terms approval was not treated as Privacy approval. One Member-Privacy example (a named payment app) was replaced by "a payment-app handle" to keep the Privacy Policy free of payment brand names; please confirm.
+- **Proration for a live interruption caused by Brohda** (case E): "the undelivered portion is refundable" is decided; the **method** of working out that portion is not. Super Admin determines and records it until you choose (e.g. fraction of the campaign window not yet elapsed).
+- **Member wallet payment-method labels** (Venmo / Cash App / Zelle, `app/(app)/wallet/wallet-request-form.tsx` and the payment-method catalog): they name the apps *members* pay each other with in the monetary P2P layer (off in production), not Brohda's processor. They were left as they are because monetary P2P is out of scope; decide whether to genericize.

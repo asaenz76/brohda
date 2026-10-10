@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ADMIN_CANCEL_CAUSES, ADMIN_CANCEL_CAUSE_LABEL, type AdminCancelCause } from "@/lib/sponsorship/refund-policy";
 import {
   approveSponsorshipAction,
   cancelSponsorshipByAdminAction,
@@ -34,6 +35,7 @@ export function AdminSponsorshipActions({ id, revision, lifecycle, reviewStatus,
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<AdminSponsorshipResult | null>(null);
   const [reason, setReason] = useState("");
+  const [cause, setCause] = useState<AdminCancelCause>("BROHDA_CANCELLED_NO_BREACH");
   const [reference, setReference] = useState("");
   const [price, setPrice] = useState(priceCents === null ? "" : (priceCents / 100).toFixed(2));
 
@@ -113,9 +115,21 @@ export function AdminSponsorshipActions({ id, revision, lifecycle, reviewStatus,
             </Button>
           )}
           {!["COMPLETED", "REJECTED", "CANCELLED"].includes(lifecycle) && (
-            <Button type="button" variant="outline" disabled={pending} onClick={() => go(() => cancelSponsorshipByAdminAction(id, reason))}>
-              Cancel sponsorship
-            </Button>
+            <>
+              <label className="text-xs text-text-muted">
+                Why Brohda is cancelling (decides refund eligibility)
+                <select aria-label="Cancellation cause" className="mt-1 block rounded-md border border-border-subtle bg-background px-2 py-2 text-sm text-text-primary" value={cause} onChange={(e) => setCause(e.target.value as AdminCancelCause)}>
+                  {ADMIN_CANCEL_CAUSES.map((c) => (
+                    <option key={c} value={c}>
+                      {ADMIN_CANCEL_CAUSE_LABEL[c]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Button type="button" variant="outline" disabled={pending} onClick={() => go(() => cancelSponsorshipByAdminAction(id, reason, cause))}>
+                Cancel sponsorship
+              </Button>
+            </>
           )}
         </div>
       </div>

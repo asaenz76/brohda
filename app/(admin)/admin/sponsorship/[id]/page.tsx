@@ -99,7 +99,7 @@ export default async function AdminSponsorshipDetailPage({ params }: { params: P
 
       <RefundGuidance s={s} />
 
-      <AgreementPanel s={s} acceptances={acceptances} bySuperAdmin />
+      <AgreementPanel s={s} acceptances={acceptances} bySuperAdmin refundCutoffHours={config.refundCutoffHours} />
 
       <AdminSponsorshipActions
         id={s.id}
