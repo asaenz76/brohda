@@ -12,6 +12,8 @@ import { PaymentProviderPanel } from "@/components/sponsorship/PaymentProviderPa
 import { listPaymentAttemptsForAdmin } from "@/lib/payments/views";
 import { SponsorshipEditor, type EditorValues } from "@/components/sponsorship/SponsorshipEditor";
 import { getSponsorshipConfig } from "@/lib/sponsorship/settings";
+import { CURRENT_MEDIA_AGREEMENT, legalRefundCutoffHours, SPONSOR_TERMS_DOCUMENT } from "@/lib/sponsor/terms";
+import { agreementAcceptedForCurrentRevision } from "@/lib/sponsor/commercial-legal-gate";
 import { sponsorCanEdit } from "@/lib/sponsorship/format";
 import { SponsorshipNav } from "../sponsorship-nav";
 
@@ -35,6 +37,7 @@ export default async function AdminSponsorshipDetailPage({ params }: { params: P
   const [events, audit, approvals, acceptances, attempts] = await Promise.all([getPaymentEventsForSponsorship(id), listSponsorshipAudit(id), listApprovalSnapshots(id), listAgreementAcceptances(id), listPaymentAttemptsForAdmin(id)]);
   const copy = sponsorStatusCopy(s);
   const config = await getSponsorshipConfig();
+  const agreementMissing = CURRENT_MEDIA_AGREEMENT ? !(await agreementAcceptedForCurrentRevision(s.id, CURRENT_MEDIA_AGREEMENT)) : false;
   const editable = sponsorCanEdit(s);
   const initial: EditorValues = {
     campaignName: s.campaignName, presentedBy: s.presentedBy ?? "", tagline: s.tagline ?? "", ctaText: s.ctaText ?? "", destinationUrl: s.destinationUrl ?? "", hasPromotion: s.hasPromotion,
@@ -103,9 +106,10 @@ export default async function AdminSponsorshipDetailPage({ params }: { params: P
 
       <RefundGuidance s={s} />
 
-      <AgreementPanel s={s} acceptances={acceptances} bySuperAdmin refundCutoffHours={config.refundCutoffHours} />
+      <AgreementPanel s={s} acceptances={acceptances} bySuperAdmin refundCutoffHours={legalRefundCutoffHours(SPONSOR_TERMS_DOCUMENT, s.refundCutoffHoursAgreed ?? config.refundCutoffHours)} />
 
       <AdminSponsorshipActions
+        agreementMissing={agreementMissing}
         id={s.id}
         revision={s.revision}
         lifecycle={s.lifecycle}

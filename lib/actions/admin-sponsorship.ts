@@ -10,6 +10,8 @@ import { callSponsorshipFunction } from "@/lib/sponsorship/repository";
 import { SponsorshipError } from "@/lib/sponsorship/errors";
 import { draftToDbFields, inventorySchema, promotionProblems, sponsorshipDraftSchema, type SponsorshipDraftInput } from "@/lib/sponsorship/validation";
 import { notifySponsorAccount } from "@/lib/sponsorship/notify";
+import { agreementAcceptedForCurrentRevision } from "@/lib/sponsor/commercial-legal-gate";
+import { CURRENT_MEDIA_AGREEMENT } from "@/lib/sponsor/terms";
 import { ADMIN_CANCEL_CAUSES, type AdminCancelCause } from "@/lib/sponsorship/refund-policy";
 
 // Super Admin sponsorship actions. Every one begins with requireSuperAdmin() (an `admin`-role user is NOT enough: this is commercial authority) and then
@@ -62,9 +64,15 @@ export async function setSponsorshipPriceAction(id: string, priceCents: number):
 }
 
 /** `idempotencyKey` is generated when the form renders: a double-click or retry sends the same key and changes nothing the second time. */
-export async function markSponsorshipPaidAction(id: string, reference: string, note: string, idempotencyKey: string): Promise<AdminSponsorshipResult> {
+export async function markSponsorshipPaidAction(id: string, reference: string, note: string, idempotencyKey: string, offlineArrangement = false): Promise<AdminSponsorshipResult> {
   const admin = await requireSuperAdmin();
   if (!idSchema.safeParse(id).success) return { success: false, error: "Sponsorship not found." };
+  // An ordinary self-service campaign can't be marked paid while a REQUIRED agreement is unaccepted — unless Super Admin explicitly says this is an offline / admin-mediated
+  // arrangement. Nothing is fabricated on the Sponsor's behalf: the campaign simply records, in the payment note, that no acceptance is on file.
+  if (CURRENT_MEDIA_AGREEMENT && !(await agreementAcceptedForCurrentRevision(id, CURRENT_MEDIA_AGREEMENT))) {
+    if (!offlineArrangement) return { success: false, error: "The Sponsor hasn't accepted the campaign agreement. Confirm this is an offline arrangement to mark it paid anyway." };
+    note = `[Offline / admin-mediated arrangement — no Sponsor agreement acceptance on file] ${note}`.trim();
+  }
   return run(id, "admin_mark_sponsorship_paid", { p_admin_id: admin.id, p_id: id, p_reference: reference.slice(0, 200), p_note: note.slice(0, 1000), p_idempotency_key: idempotencyKey || `mark-paid:${id}:${randomUUID()}` }, { subject: "Brohda received your payment", lines: ["Payment for your sponsorship was confirmed.", "It still needs Brohda's approval before it can go live."] });
 }
 

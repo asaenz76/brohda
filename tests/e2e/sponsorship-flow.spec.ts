@@ -627,6 +627,25 @@ test.describe("ONVO TEST payments", () => {
   });
 });
 
+test("Super Admin sees where each Sponsor legal text stands — read-only, no legal text, and no provider branding", async ({ page }) => {
+  const superUser = await createUser("legalstatus", "super_admin");
+  try {
+    await loginAs(page, superUser.email);
+    await page.goto("/admin/sponsorship");
+    const card = page.locator('[data-slot="legal-status"]');
+    await expect(card.locator('[data-slot="legal-terms"]')).toHaveText("Draft · version DRAFT-1 · no effective date");
+    await expect(card.locator('[data-slot="legal-agreement"]')).toHaveText("Draft · version DRAFT-1 · no effective date");
+    await expect(card.locator('[data-slot="legal-privacy-sponsor"]')).toHaveText("Draft");
+    await expect(card.locator('[data-slot="legal-privacy"]')).toContainText("version");
+    await expect(card.locator('[data-slot="legal-refund-cutoff"]')).toContainText("hours before kickoff");
+    await expect(card.locator('[data-slot="legal-policy-mismatch"]')).toHaveCount(0);
+    await expect(card.getByRole("button")).toHaveCount(0); // read-only: legal versions are code-reviewed, not edited here
+    expect(await card.innerText()).not.toMatch(/onvo|stripe|paypal/i);
+  } finally {
+    await admin.auth.admin.deleteUser(superUser.id);
+  }
+});
+
 test("the Super Admin settings page carries the Sponsored Game Posts switch, saves it, and audits it", async ({ page }) => {
   const superUser = await createUser("setsuper", "super_admin");
   await setEnabled(false);

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { LegalPage } from "@/components/legal/LegalPage";
 import { LEGAL_DOCUMENTS } from "@/lib/legal/documents";
+import { SPONSOR_PRIVACY_SECTION } from "@/lib/sponsor/terms";
 import { byMode, byModeLazy, type LegalMoneyMode } from "@/lib/legal/money-mode";
 
 // The Privacy Policy, composed per money mode (lib/legal/money-mode.ts), at SECTION level like the Terms:
@@ -201,7 +202,12 @@ const SECTIONS: readonly SectionDef[] = [
     body: () => (
       <>
         <p>
-          <strong>DRAFT — pending owner and counsel review.</strong> This section describes how we handle information about businesses that
+          {SPONSOR_PRIVACY_SECTION.status === "DRAFT" && (
+            <>
+              <strong>DRAFT — pending owner and counsel review.</strong>{" "}
+            </>
+          )}
+          This section describes how we handle information about businesses that
           apply for, or hold, a Sponsor account. A Sponsor account is separate from a Member account: it has no Member profile and cannot
           make Picks, comment, Call BS, or use any other Member feature.
         </p>
@@ -213,8 +219,9 @@ const SECTIONS: readonly SectionDef[] = [
           notes. For each sponsorship we keep the Game it is attached to, the campaign name, the text and links you provide, any sponsor-run
           promotion details, the agreed price and schedule, the commercial records an administrator enters (such as a payment reference or a
           refund record), a record of the Sponsor terms you accept (which version, and when), and an audit trail of who did what and when.
-          We do not collect card or bank credentials: sponsorship payments are arranged and confirmed outside the App and recorded by an
-          administrator.
+          We do not collect or store card numbers or bank credentials. A sponsorship payment is either arranged outside the App and recorded
+          by an administrator, or, where online payment is offered, made through a third-party payment service provider that receives the
+          information needed to process it and tells us the result; we keep the amount, the payment reference and its status.
         </p>
         <p>
           <strong>What is public and what is private.</strong> Your brand name and logo, and the approved campaign text, call-to-action,

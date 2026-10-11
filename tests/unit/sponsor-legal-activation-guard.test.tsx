@@ -3,6 +3,9 @@ import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SponsorTermsDocument } from "@/components/legal/SponsorTermsDocument";
 import { MEDIA_AGREEMENT_DOCUMENT, SPONSOR_TERMS_DOCUMENT } from "@/lib/sponsor/terms";
+import { PrivacyDocument } from "@/components/legal/PrivacyDocument";
+import { findUnresolvedMarkers } from "@/lib/sponsor/legal-placeholders";
+import { SPONSOR_PRIVACY_SECTION } from "@/lib/sponsor/terms";
 import { SponsorSignupForm } from "@/app/sponsor/(public)/signup/signup-form";
 
 vi.mock("@/lib/actions/sponsor-account", () => ({ sponsorSignupAction: async () => ({ error: null }), resendSponsorVerificationAction: async () => ({ sent: true }) }));
@@ -24,7 +27,7 @@ describe("Sponsor legal documents can't be activated while placeholders remain",
     const found = body.match(PLACEHOLDER) ?? [];
     if (SPONSOR_TERMS_DOCUMENT.status === "APPROVED") {
       expect(found, `Sponsor Terms are APPROVED but still contain placeholders: ${found.join(" | ")}`).toEqual([]);
-      expect(body).not.toMatch(/DRAFT/);
+      expect(findUnresolvedMarkers(body), "Sponsor Terms are APPROVED but still contain unresolved markers").toEqual([]);
       expect(SPONSOR_TERMS_DOCUMENT.version).not.toMatch(/DRAFT/);
       expect(SPONSOR_TERMS_DOCUMENT.effectiveDate).toBeTruthy();
     } else {
@@ -37,6 +40,7 @@ describe("Sponsor legal documents can't be activated while placeholders remain",
     if (MEDIA_AGREEMENT_DOCUMENT.status === "APPROVED") {
       const section = body.slice(body.indexOf("Media and Advertising Agreement (per campaign)"));
       expect(section.match(PLACEHOLDER) ?? []).toEqual([]);
+      expect(findUnresolvedMarkers(section), "the media agreement is APPROVED but still contains unresolved markers").toEqual([]);
     } else {
       expect(MEDIA_AGREEMENT_DOCUMENT.effectiveDate).toBeNull();
     }
@@ -81,5 +85,36 @@ describe("Sponsor signup form: acceptance appears only for an APPROVED document"
     expect(container.textContent).toContain("effective December 1, 2026");
     // The form sends the box and nothing else about the document: the version is the server's.
     expect(container.querySelector('input[name="termsVersion"], input[name="version"]')).toBeNull();
+  });
+});
+
+describe("the unresolved-marker detector", () => {
+  it("flags every kind of marker an approved document must not contain", () => {
+    for (const text of ["[counsel — payment terms]", "Fees are [TBD].", "TODO: write this", "wording to be provided by counsel", "OWNER DECISION required", "PLACEHOLDER", "INSERT clause", "This DRAFT binds nobody", "[Limitation of liability and indemnity — wording to be provided by counsel.]"]) {
+      expect(findUnresolvedMarkers(text), text).not.toEqual([]);
+    }
+  });
+  it("does not flag ordinary legal prose (including the lowercase words counsel, draft and insert)", () => {
+    for (const text of ["You may consult your own counsel before accepting.", "Brohda may reject a draft of the creative.", "Do not insert code into the destination page.", "Refunds are available at least 12 hours before kickoff (see Section 4)."]) {
+      expect(findUnresolvedMarkers(text), text).toEqual([]);
+    }
+  });
+  it("sees through line breaks and spacing", () => {
+    expect(findUnresolvedMarkers("[counsel —\n   complete   list]")).toEqual(["[counsel — complete list]"]);
+  });
+});
+
+describe("the Sponsor section of the Privacy Policy is guarded by the same rule", () => {
+  const sectionText = () => {
+    const { container } = render(<PrivacyDocument mode="active" />);
+    const flat = (container.textContent ?? "").replace(/\s+/g, " ");
+    const start = flat.indexOf("Sponsor accounts and sponsorships");
+    return flat.slice(start, flat.indexOf("Third-party services", start));
+  };
+  it("APPROVED requires no unresolved marker; DRAFT carries a visible draft note", () => {
+    const text = sectionText();
+    expect(text.length).toBeGreaterThan(200);
+    if (SPONSOR_PRIVACY_SECTION.status === "APPROVED") expect(findUnresolvedMarkers(text)).toEqual([]);
+    else expect(text).toContain("DRAFT — pending owner and counsel review");
   });
 });

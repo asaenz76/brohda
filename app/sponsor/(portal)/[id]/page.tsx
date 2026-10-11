@@ -7,7 +7,8 @@ import { LocalDateTime } from "@/components/LocalDateTime";
 import { isSponsorshipEnabled } from "@/lib/sponsorship/capability";
 import { getPaymentEventsForSponsorship, getSponsorshipForUser, listAgreementAcceptances } from "@/lib/sponsorship/repository";
 import { AgreementPanel } from "@/components/sponsorship/AgreementPanel";
-import { CURRENT_MEDIA_AGREEMENT } from "@/lib/sponsor/terms";
+import { CURRENT_MEDIA_AGREEMENT, legalRefundCutoffHours, MEDIA_AGREEMENT_DOCUMENT, SPONSOR_TERMS_DOCUMENT } from "@/lib/sponsor/terms";
+import { legalRequirementCopy, sponsorCommercialLegalStatus } from "@/lib/sponsor/commercial-legal-gate";
 import { CancelSponsorshipPanel } from "@/components/sponsorship/CancelSponsorshipPanel";
 import { evaluateSponsorshipRefundEligibility, getCancellationRecord } from "@/lib/sponsorship/refund-evaluation";
 import { refundCutoffRuleCopy, sponsorCancellationConsequence } from "@/lib/sponsorship/refund-policy";
@@ -37,6 +38,10 @@ export default async function SponsorshipDetailPage({ params, searchParams }: { 
   const payable = enabled && session.sponsor.status === "ACTIVE" && s.lifecycle === "SUBMITTED" && s.paymentStatus !== "PAID" && (s.paymentStatus === "PENDING" || s.paymentStatus === "FAILED");
   const paymentView = payable ? await getSponsorPaymentView(id) : null;
   const onlinePayment = payable ? await resolveOnlinePayment() : null;
+  // The same canonical check the payment service enforces: shown here so the Sponsor is told what is missing instead of meeting a refusal.
+  const legal = payable ? await sponsorCommercialLegalStatus({ userId: session.userId, sponsorshipId: id, stage: "PAYMENT" }) : null;
+  const agreementAccepted = acceptances.some((a) => a.agreementKey === MEDIA_AGREEMENT_DOCUMENT.key && a.agreementVersion === MEDIA_AGREEMENT_DOCUMENT.version && a.revision === s.revision);
+  const canAcceptAgreement = Boolean(CURRENT_MEDIA_AGREEMENT) && session.sponsor.status === "ACTIVE" && s.lifecycle === "SUBMITTED" && !agreementAccepted;
   const initial: EditorValues = {
     campaignName: s.campaignName,
     presentedBy: s.presentedBy ?? "",
@@ -92,7 +97,7 @@ export default async function SponsorshipDetailPage({ params, searchParams }: { 
           </dl>
 
           {payable && (
-            <SponsorPaymentPanel sponsorshipId={s.id} priceCents={s.priceCents} currency={s.currency} latestAttemptStatus={paymentView?.latestStatus ?? null} paymentStatus={s.paymentStatus} offered={onlinePayment?.state === "available" && onlinePayment.offered} idempotencyKey={randomUUID()} notice={paymentNotice ?? null} />
+            <SponsorPaymentPanel sponsorshipId={s.id} priceCents={s.priceCents} currency={s.currency} latestAttemptStatus={paymentView?.latestStatus ?? null} paymentStatus={s.paymentStatus} offered={onlinePayment?.state === "available" && onlinePayment.offered && legal?.ok === true} legalBlock={legal && !legal.ok ? legalRequirementCopy(legal.missing) : null} idempotencyKey={randomUUID()} notice={paymentNotice ?? null} />
           )}
 
           {s.lifecycle === "SUBMITTED" && s.paymentStatus !== "PAID" && config.paymentInstructions && (
@@ -133,7 +138,7 @@ export default async function SponsorshipDetailPage({ params, searchParams }: { 
         </p>
       )}
 
-      <AgreementPanel s={s} acceptances={acceptances} refundCutoffHours={config.refundCutoffHours} />
+      <AgreementPanel s={s} acceptances={acceptances} refundCutoffHours={legalRefundCutoffHours(SPONSOR_TERMS_DOCUMENT, s.refundCutoffHoursAgreed ?? config.refundCutoffHours)} canAccept={canAcceptAgreement} />
 
       {editable ? (
         <Card>

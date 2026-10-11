@@ -28,15 +28,18 @@ interface Props {
   currency: string | null;
   markPaidKey: string;
   paymentEventKey: string;
+  /** An APPROVED campaign agreement is required and this campaign has none accepted at its current revision. */
+  agreementMissing?: boolean;
 }
 
-export function AdminSponsorshipActions({ id, revision, lifecycle, reviewStatus, paymentStatus, priceCents, currency, markPaidKey, paymentEventKey }: Props) {
+export function AdminSponsorshipActions({ id, revision, lifecycle, reviewStatus, paymentStatus, priceCents, currency, markPaidKey, paymentEventKey, agreementMissing = false }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<AdminSponsorshipResult | null>(null);
   const [reason, setReason] = useState("");
   const [cause, setCause] = useState<AdminCancelCause>("BROHDA_CANCELLED_NO_BREACH");
   const [reference, setReference] = useState("");
+  const [offline, setOffline] = useState(false);
   const [price, setPrice] = useState(priceCents === null ? "" : (priceCents / 100).toFixed(2));
 
   const go = (fn: () => Promise<AdminSponsorshipResult>) =>
@@ -73,9 +76,15 @@ export function AdminSponsorshipActions({ id, revision, lifecycle, reviewStatus,
             Payment reference
             <Input className="mt-1 w-56" value={reference} onChange={(e) => setReference(e.target.value)} />
           </label>
-          <Button type="button" disabled={pending} onClick={() => go(() => markSponsorshipPaidAction(id, reference, "", markPaidKey))}>
+          <Button type="button" disabled={pending} onClick={() => go(() => markSponsorshipPaidAction(id, reference, "", markPaidKey, offline))}>
             Mark payment received
           </Button>
+          {agreementMissing && (
+            <label className="flex max-w-md items-start gap-2 text-xs text-text-secondary" data-slot="offline-arrangement">
+              <input type="checkbox" className="mt-0.5" checked={offline} onChange={(e) => setOffline(e.target.checked)} />
+              <span>The Sponsor hasn&apos;t accepted the campaign agreement. This is an offline / admin-mediated arrangement — mark it paid and record that no acceptance is on file.</span>
+            </label>
+          )}
           <p className="text-xs text-text-muted">Recorded with your name and time. Payment alone never publishes.</p>
         </div>
       )}

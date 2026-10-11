@@ -67,6 +67,8 @@ export interface SponsorshipRecord {
   reviewStatus: SponsorshipReviewStatus;
   paymentStatus: SponsorshipPaymentStatus;
   revision: number;
+  /** The refund cutoff (hours) frozen on this sponsorship when it first left DRAFT; null while still a draft. */
+  refundCutoffHoursAgreed: number | null;
   submittedAt: string | null;
   approvedAt: string | null;
   rejectionReason: string | null;
@@ -167,6 +169,7 @@ function toSponsorship(row: any): SponsorshipRecord {
     reviewStatus: row.review_status,
     paymentStatus: row.payment_status,
     revision: row.revision,
+    refundCutoffHoursAgreed: row.refund_cutoff_hours_agreed ?? null,
     submittedAt: row.submitted_at ?? null,
     approvedAt: row.approved_at ?? null,
     rejectionReason: row.rejection_reason ?? null,

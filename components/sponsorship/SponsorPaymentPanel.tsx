@@ -9,6 +9,7 @@ const NOTICE: Record<string, string> = {
   already_paid: "This sponsorship is already paid.",
   not_authorized: "We couldn't find that sponsorship.",
   provider_unavailable: "We couldn't start the payment. Please try again in a moment.",
+  legal_acceptance_required: "Please accept the current Sponsor Terms and the campaign agreement before paying.",
   in_progress_other_provider: "A payment you started earlier is still open. Please finish it, or wait for it to expire, then try again.",
   starting: "Your payment is starting. Refresh this page in a moment.",
   unknown: "Something went wrong. Try again.",
@@ -16,7 +17,7 @@ const NOTICE: Record<string, string> = {
 
 // A Sponsor's payment section: the frozen amount, where payment stands, and — only when online payment is offered — the way to pay. The amount shown is what the
 // server will charge (it reads the same record); there is no amount field anywhere. Manual payment instructions stay available beside it.
-export function SponsorPaymentPanel({ sponsorshipId, priceCents, currency, latestAttemptStatus, paymentStatus, offered, idempotencyKey, notice }: { sponsorshipId: string; priceCents: number | null; currency: string | null; latestAttemptStatus: string | null; paymentStatus: string; offered: boolean; idempotencyKey: string; notice: string | null }) {
+export function SponsorPaymentPanel({ sponsorshipId, priceCents, currency, latestAttemptStatus, paymentStatus, offered, legalBlock = null, idempotencyKey, notice }: { sponsorshipId: string; priceCents: number | null; currency: string | null; latestAttemptStatus: string | null; paymentStatus: string; offered: boolean; legalBlock?: string | null; idempotencyKey: string; notice: string | null }) {
   const pending = latestAttemptStatus === "PENDING" || latestAttemptStatus === "CREATED";
   const headline = paymentStatus === "FAILED" ? "Payment failed — you can try again." : pending ? "Payment pending." : "Awaiting payment.";
   return (
@@ -31,6 +32,11 @@ export function SponsorPaymentPanel({ sponsorshipId, priceCents, currency, lates
       {notice && NOTICE[notice] && (
         <p role="alert" className="text-sm font-medium text-warning-muted">
           {NOTICE[notice]}
+        </p>
+      )}
+      {legalBlock && (
+        <p role="status" data-slot="legal-block" className="text-sm font-medium text-text-primary">
+          {legalBlock}
         </p>
       )}
       {offered && (
