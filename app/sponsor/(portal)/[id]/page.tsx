@@ -143,7 +143,7 @@ export default async function SponsorshipDetailPage({ params, searchParams }: { 
       {editable ? (
         <Card>
           <CardContent className="pt-6">
-            <SponsorshipEditor sponsorshipId={s.id} sponsorId={s.sponsorId} initial={initial} logoUrl={s.logoUrl} logoMaxKb={Math.round(config.logoMaxBytes / 1024)} canCancel={s.paymentStatus !== "PAID"} agreement={CURRENT_MEDIA_AGREEMENT ? { title: CURRENT_MEDIA_AGREEMENT.title, version: CURRENT_MEDIA_AGREEMENT.version, href: CURRENT_MEDIA_AGREEMENT.href } : null} />
+            <SponsorshipEditor sponsorWebsite={s.sponsorWebsite} sponsorshipId={s.id} sponsorId={s.sponsorId} initial={initial} logoUrl={s.logoUrl} logoMaxKb={Math.round(config.logoMaxBytes / 1024)} canCancel={s.paymentStatus !== "PAID"} agreement={CURRENT_MEDIA_AGREEMENT ? { title: CURRENT_MEDIA_AGREEMENT.title, version: CURRENT_MEDIA_AGREEMENT.version, href: CURRENT_MEDIA_AGREEMENT.href } : null} />
           </CardContent>
         </Card>
       ) : (

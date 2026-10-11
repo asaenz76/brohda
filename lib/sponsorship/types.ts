@@ -26,7 +26,6 @@ export interface SponsorshipEligibilityInputs {
   sponsorStatus: SponsorStatus;
   postPublished: boolean;
   fixtureStatus: string;
-  hasDestination: boolean;
 }
 
 /**
@@ -40,6 +39,8 @@ export interface PublicSponsorship {
   ctaText: string | null;
   /** A public URL for the sponsor's logo, or null. */
   logoUrl: string | null;
+  /** True when an approved destination exists (own link, or the Sponsor profile website frozen at approval) — the sponsor line and CTA can link. The URL itself never leaves the server. */
+  hasLink: boolean;
   promotion: PublicPromotion | null;
 }
 

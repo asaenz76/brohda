@@ -24,7 +24,6 @@ function toInputs(r: any): SponsorshipEligibilityInputs {
     sponsorStatus: r.sponsor_status,
     postPublished: r.post_published === true,
     fixtureStatus: r.fixture_status,
-    hasDestination: r.has_destination === true,
   };
 }
 
@@ -43,6 +42,7 @@ function toPublic(r: any, now: Date): PublicSponsorship {
     tagline: r.tagline ?? null,
     ctaText: r.cta_text ?? null,
     logoUrl: sponsorLogoPublicUrl(r.logo_path),
+    hasLink: r.has_link === true,
     promotion: promoOpen
       ? {
           title: r.promotion_title,
@@ -92,9 +92,10 @@ export async function resolveActiveSponsorshipTarget(sponsorshipId: string, now:
     const admin = createAdminClient();
     const { data } = await admin.from("sponsorship_eligibility_inputs").select("*").eq("id", sponsorshipId).maybeSingle();
     if (!data || !isSponsorshipPubliclyActive(toInputs(data), { enabled, now })) return null;
-    const { data: s } = await admin.from("sponsorships").select("destination_url, promotion_destination_url").eq("id", sponsorshipId).single();
-    if (!s?.destination_url) return null;
-    return { postId: data.post_id, destinationUrl: s.destination_url };
+    // The destination frozen at approval (own link, or the Sponsor profile website as it stood then). A profile edit afterwards can't change where a live post sends members.
+    const { data: s } = await admin.from("sponsorships").select("approved_destination_url").eq("id", sponsorshipId).single();
+    if (!s?.approved_destination_url) return null; // no link: no redirect, and no click is ever recorded
+    return { postId: data.post_id, destinationUrl: s.approved_destination_url };
   } catch {
     return null;
   }

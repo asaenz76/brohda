@@ -260,7 +260,7 @@ describe("GamePostCard", () => {
   });
 
   describe("sponsorship presentation", () => {
-    const sponsorship = { id: "22222222-2222-4222-8222-222222222222", presentedBy: "Acme Sports", tagline: null, ctaText: "Learn more", logoUrl: null, promotion: null };
+    const sponsorship = { id: "22222222-2222-4222-8222-222222222222", presentedBy: "Acme Sports", tagline: null, ctaText: "Learn more", logoUrl: null, hasLink: true, promotion: null };
 
     it("an item without a sponsorship renders no sponsor line at all", () => {
       const { container } = render(<GamePostCard item={makeItem()} />);
@@ -327,7 +327,7 @@ describe("GamePostCard", () => {
     });
 
     it("a sponsored card shows BOTH the sponsor line and the action, in separate places, neither hiding the other", () => {
-      const sponsorship = { id: "22222222-2222-4222-8222-222222222222", presentedBy: "Acme Sports", tagline: null, ctaText: "Learn more", logoUrl: null, promotion: null };
+      const sponsorship = { id: "22222222-2222-4222-8222-222222222222", presentedBy: "Acme Sports", tagline: null, ctaText: "Learn more", logoUrl: null, hasLink: true, promotion: null };
       const { container } = render(<GamePostCard item={makeItem({ moreMarketsCount: 2, sponsorship })} />);
       const label = container.querySelector('[data-slot="sponsored-label"]')!;
       const action = seeMore(container)!;

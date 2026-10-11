@@ -627,6 +627,121 @@ test.describe("ONVO TEST payments", () => {
   });
 });
 
+async function linkCampaign(opts: { label: string; website: string | null; destination: string | null; approve: boolean }) {
+  const suffix = randomUUID().slice(0, 6);
+  const game = await seedGamePost(suffix);
+  const sponsor = await createSponsorLogin(`${opts.label} ${suffix}`);
+  await admin.from("sponsors").update({ website: opts.website }).eq("id", sponsor.sponsorId);
+  const superUser = await createUser(`${opts.label}super`, "super_admin");
+  await setEnabled(true);
+  const { data: inv } = await admin.rpc("admin_set_sponsorship_inventory", { p_admin_id: superUser.id, p_post_id: game.postId, p_market_code: "GLOBAL", p_is_sponsorable: true, p_price_cents: 60000, p_currency: "USD", p_starts_at: new Date(Date.now() - HOUR).toISOString(), p_ends_at: new Date(Date.now() + 30 * HOUR).toISOString() });
+  const rpcRow = async (name: string, args: Record<string, unknown>) => {
+    const { data, error } = await admin.rpc(name, args);
+    if (error) throw error;
+    return (Array.isArray(data) ? data[0] : data) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+  };
+  const created = await rpcRow("sponsor_create_sponsorship", { p_user_id: sponsor.id, p_sponsor_id: sponsor.sponsorId, p_inventory_id: (Array.isArray(inv) ? inv[0] : inv).id, p_campaign_name: `${opts.label} campaign` });
+  await rpcRow("sponsor_update_sponsorship", { p_user_id: sponsor.id, p_id: created.id, p_fields: { presented_by: `${opts.label} Co`, tagline: "Ride", cta_text: "Learn more", ...(opts.destination ? { destination_url: opts.destination } : {}) } });
+  await rpcRow("sponsor_submit_sponsorship", { p_user_id: sponsor.id, p_id: created.id });
+  await rpcRow("admin_mark_sponsorship_paid", { p_admin_id: superUser.id, p_id: created.id, p_reference: "INV-LINK", p_note: "bank transfer", p_idempotency_key: randomUUID() });
+  if (opts.approve) {
+    const { data: rev } = await admin.from("sponsorships").select("revision").eq("id", created.id).single();
+    await rpcRow("admin_approve_sponsorship", { p_admin_id: superUser.id, p_id: created.id, p_expected_revision: rev!.revision });
+  }
+  return { game, sponsor, superUser, sponsorshipId: created.id as string, presentedBy: `${opts.label} Co` };
+}
+
+test("a sponsored post links through the Sponsor's profile website when the campaign has no link of its own — one accessible link around logo and name, measured once — and is plain text with no website at all", async ({ page }) => {
+  const SITE = "https://berria.example.com";
+  const fallback = await linkCampaign({ label: "Fallback", website: SITE, destination: null, approve: false });
+  const none = await linkCampaign({ label: "Nolink", website: null, destination: null, approve: true });
+  const own = await linkCampaign({ label: "Own", website: SITE, destination: `${SITE}/launch`, approve: true });
+  const viewer = await createUser("linkviewer");
+  try {
+    // Super Admin review shows exactly where members would be sent — and approving freezes it.
+    await loginAs(page, fallback.superUser.email);
+    await page.goto(`/admin/sponsorship/${fallback.sponsorshipId}`);
+    await expect(page.getByText("Campaign destination", { exact: true })).toBeVisible();
+    const dl = page.locator("dl").first();
+    await expect(dl).toContainText("Sponsor website");
+    await expect(dl).toContainText("Effective destination");
+    await expect(dl).toContainText(`${SITE}`);
+    await expect(dl).toContainText("Sponsor profile website");
+    await page.getByRole("button", { name: "Approve", exact: true }).click();
+    await expect.poll(async () => (await admin.from("sponsorships").select("approved_destination_url").eq("id", fallback.sponsorshipId).single()).data?.approved_destination_url).toBe(SITE);
+
+    // A profile edit AFTER approval can't move the live post.
+    await admin.from("sponsors").update({ website: "https://elsewhere.example.com" }).eq("id", fallback.sponsor.sponsorId);
+
+    await loginAs(page, viewer.email);
+    await page.goto("/feed");
+    const label = (g: { game: { home: string } }) => page.locator("article").filter({ hasText: g.game.home }).first().locator('[data-slot="sponsored-label"]');
+
+    // Fallback: the identity is ONE link (logo + name) with a meaningful accessible name, going through the first-party click path.
+    const link = label(fallback).locator('a[data-slot="sponsor-link"]');
+    await expect(link).toHaveCount(1);
+    await expect(link).toHaveAttribute("aria-label", `Visit ${fallback.presentedBy} (opens in a new tab)`);
+    await expect(link).toHaveAttribute("href", `/sponsorship/click/${fallback.sponsorshipId}`);
+    await expect(link).toHaveAttribute("target", "_blank");
+    expect(await link.getAttribute("rel")).toContain("noopener");
+    await expect(link.locator('[data-slot="sponsor-logo"]')).toHaveCount(1);
+    await expect(label(fallback).getByRole("link", { name: /Learn more/ })).toHaveCount(1); // the CTA works off the same effective destination
+    await link.focus();
+    await expect(link).toBeFocused(); // keyboard reachable
+    const redirect = await page.request.get(`/sponsorship/click/${fallback.sponsorshipId}`, { maxRedirects: 0 });
+    expect(redirect.status()).toBe(302);
+    expect(redirect.headers()["location"]).toBe(`${SITE}/`); // the frozen one, not the edited profile
+    expect((await admin.from("sponsorship_exposure_events").select("id").eq("sponsorship_id", fallback.sponsorshipId).eq("event_type", "CLICK")).data).toHaveLength(1);
+
+    // A campaign's own link overrides the profile website.
+    const redirectOwn = await page.request.get(`/sponsorship/click/${own.sponsorshipId}`, { maxRedirects: 0 });
+    expect(redirectOwn.headers()["location"]).toBe(`${SITE}/launch`);
+
+    // No website, no campaign link: the attribution is visible but not clickable, there is no CTA, and a click URL is a plain 404 that records nothing.
+    const plain = label(none);
+    await expect(plain).toContainText(`Presented by ${none.presentedBy}`);
+    await expect(plain.locator("a")).toHaveCount(0);
+    await expect(plain).not.toContainText("Learn more");
+    expect((await page.request.get(`/sponsorship/click/${none.sponsorshipId}`, { maxRedirects: 0 })).status()).toBe(404);
+    expect((await admin.from("sponsorship_exposure_events").select("id").eq("sponsorship_id", none.sponsorshipId).eq("event_type", "CLICK")).data).toHaveLength(0);
+  } finally {
+    await setEnabled(false);
+    for (const c of [fallback, none, own]) await cleanup(c.game);
+  }
+});
+
+test("the Sponsor's form says the destination link is optional, shows which website will be used, and submits with it blank", async ({ page }) => {
+  const c = await linkCampaign({ label: "Optional", website: "https://berria.example.com/shop", destination: null, approve: false });
+  // a fresh DRAFT for the editor
+  const suffix = randomUUID().slice(0, 6);
+  const game = await seedGamePost(suffix);
+  const sponsor = await createSponsorLogin(`Draftco ${suffix}`);
+  await admin.from("sponsors").update({ website: "https://www.berria.example.com/shop" }).eq("id", sponsor.sponsorId);
+  const superUser = await createUser("draftsuper", "super_admin");
+  await admin.rpc("admin_set_sponsorship_inventory", { p_admin_id: superUser.id, p_post_id: game.postId, p_market_code: "GLOBAL", p_is_sponsorable: true, p_price_cents: 60000, p_currency: "USD", p_starts_at: new Date(Date.now() - HOUR).toISOString(), p_ends_at: new Date(Date.now() + 30 * HOUR).toISOString() });
+  try {
+    await loginAsSponsor(page, sponsor.email);
+    await page.goto("/sponsor/games");
+    const card = page.locator("div").filter({ hasText: `Gridiron Away ${suffix} @ Gridiron Home ${suffix}` }).filter({ has: page.getByRole("button", { name: "Start sponsorship" }) }).last();
+    await card.getByRole("button", { name: "Start sponsorship" }).click();
+    await expect(page).toHaveURL(/\/sponsor\/[0-9a-f-]{36}$/);
+    await expect(page.getByText("Destination link (optional)")).toBeVisible();
+    await expect(page.getByText("Leave blank to use your Sponsor profile website.")).toBeVisible();
+    await expect(page.locator('[data-slot="destination-context"]')).toHaveText("Using Sponsor website: berria.example.com/shop");
+    await page.getByLabel("Destination link").fill(`https://berria.example.com/launch`);
+    await expect(page.locator('[data-slot="destination-context"]')).toHaveCount(0); // a campaign link replaces the context line
+    await page.getByLabel("Destination link").fill("");
+    await page.getByRole("button", { name: "Submit for review" }).click();
+    await expect(page.getByText("Submitted — awaiting payment and review")).toBeVisible();
+    const id = page.url().split("/").pop()!;
+    expect((await admin.from("sponsorships").select("destination_url, lifecycle").eq("id", id).single()).data).toEqual({ destination_url: null, lifecycle: "SUBMITTED" });
+  } finally {
+    await setEnabled(false);
+    await cleanup(game);
+    await cleanup(c.game);
+  }
+});
+
 test("Super Admin sees where each Sponsor legal text stands — read-only, no legal text, and no provider branding", async ({ page }) => {
   const superUser = await createUser("legalstatus", "super_admin");
   try {

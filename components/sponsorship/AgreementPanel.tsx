@@ -2,6 +2,7 @@ import { DraftBanner } from "@/components/legal/DraftBanner";
 import { MediaAgreementTerms } from "@/components/legal/MediaAgreementTerms";
 import { LocalDateTime } from "@/components/LocalDateTime";
 import { AcceptAgreementButton } from "@/components/sponsorship/AcceptAgreementButton";
+import { resolveEffectiveSponsorUrl } from "@/lib/sponsorship/destination";
 import { MEDIA_AGREEMENT_DOCUMENT } from "@/lib/sponsor/terms";
 import { formatCommercialAmount, PAYMENT_STATUS_LABEL } from "@/lib/sponsorship/format";
 import type { AgreementAcceptance, SponsorshipRecord } from "@/lib/sponsorship/repository";
@@ -11,6 +12,8 @@ import type { AgreementAcceptance, SponsorshipRecord } from "@/lib/sponsorship/r
 // Admin — callers authorize before rendering it. The text is a DRAFT until counsel approves it (lib/sponsor/terms.ts).
 export function AgreementPanel({ s, acceptances, bySuperAdmin = false, refundCutoffHours = null, canAccept = false }: { s: SponsorshipRecord; acceptances: AgreementAcceptance[]; bySuperAdmin?: boolean; refundCutoffHours?: number | null; canAccept?: boolean }) {
   const doc = MEDIA_AGREEMENT_DOCUMENT;
+  // The agreement shows where the sponsored post links: the frozen approved destination once approved, otherwise what it would use now.
+  const effective = s.approvedDestinationUrl ? { url: s.approvedDestinationUrl, source: s.destinationUrl ? "CAMPAIGN" : "SPONSOR_PROFILE" } : resolveEffectiveSponsorUrl(s.destinationUrl, s.sponsorWebsite);
   const rows: Array<[string, React.ReactNode]> = [
     ["Sponsor", s.sponsorName ?? "—"],
     ["Game", s.game ? `${s.game.awayTeamName} @ ${s.game.homeTeamName}` : "—"],
@@ -24,7 +27,8 @@ export function AgreementPanel({ s, acceptances, bySuperAdmin = false, refundCut
     ["Agreed price", formatCommercialAmount(s.priceCents, s.currency)],
     ["Payment", PAYMENT_STATUS_LABEL[s.paymentStatus] ?? s.paymentStatus],
     ["Presented by", s.presentedBy ?? "—"],
-    ["Call-to-action", s.ctaText ? `${s.ctaText}${s.destinationUrl ? ` → ${s.destinationUrl}` : ""}` : s.destinationUrl ?? "—"],
+    ["Call-to-action", s.ctaText ? `${s.ctaText}${effective.url ? ` → ${effective.url}` : ""}` : "—"],
+    ["Sponsor link", effective.url ? `${effective.url} (${effective.source === "CAMPAIGN" ? "campaign link" : "Sponsor profile website"})` : "None"],
     ["Sponsor-run promotion", s.hasPromotion ? `${s.promotionTitle ?? "Promotion"} — run by ${s.promotionFulfillmentName ?? "the sponsor"}; rules: ${s.officialRulesUrl ?? "—"}` : "None"],
   ];
   return (

@@ -6,6 +6,7 @@ import { LocalDateTime } from "@/components/LocalDateTime";
 import { getPaymentEventsForSponsorship, getSponsorshipForAdmin, listApprovalSnapshots, listAgreementAcceptances, listSponsorshipAudit } from "@/lib/sponsorship/repository";
 import { formatCommercialAmount, PAYMENT_STATUS_LABEL, sponsorStatusCopy } from "@/lib/sponsorship/format";
 import { AdminSponsorshipActions } from "./admin-actions";
+import { resolveEffectiveSponsorUrl } from "@/lib/sponsorship/destination";
 import { AgreementPanel } from "@/components/sponsorship/AgreementPanel";
 import { RefundGuidance } from "@/components/sponsorship/RefundGuidance";
 import { PaymentProviderPanel } from "@/components/sponsorship/PaymentProviderPanel";
@@ -22,6 +23,13 @@ function SponsorLogo({ url }: { url: string }) {
   return <img src={url} alt="Sponsor logo" className="size-10 rounded bg-white object-contain p-0.5" />;
 }
 
+const link = (url: string | null) =>
+  url ? (
+    <a href={url} target="_blank" rel="noopener noreferrer nofollow" className="text-accent-primary hover:underline">
+      {url}
+    </a>
+  ) : null;
+
 const row = (label: string, value: React.ReactNode) => (
   <>
     <dt className="text-text-muted">{label}</dt>
@@ -36,6 +44,8 @@ export default async function AdminSponsorshipDetailPage({ params }: { params: P
   if (!s) notFound();
   const [events, audit, approvals, acceptances, attempts] = await Promise.all([getPaymentEventsForSponsorship(id), listSponsorshipAudit(id), listApprovalSnapshots(id), listAgreementAcceptances(id), listPaymentAttemptsForAdmin(id)]);
   const copy = sponsorStatusCopy(s);
+  // Where members would be sent right now: the campaign's own link, else the Sponsor profile website. Approving freezes it.
+  const effective = resolveEffectiveSponsorUrl(s.destinationUrl, s.sponsorWebsite);
   const config = await getSponsorshipConfig();
   const agreementMissing = CURRENT_MEDIA_AGREEMENT ? !(await agreementAcceptedForCurrentRevision(s.id, CURRENT_MEDIA_AGREEMENT)) : false;
   const editable = sponsorCanEdit(s);
@@ -73,7 +83,10 @@ export default async function AdminSponsorshipDetailPage({ params }: { params: P
         {row("Logo", s.logoUrl ? <SponsorLogo url={s.logoUrl} /> : null)}
         {row("Short line", s.tagline)}
         {row("Call to action", s.ctaText)}
-        {row("Destination", s.destinationUrl && <a href={s.destinationUrl} target="_blank" rel="noopener noreferrer nofollow" className="text-accent-primary hover:underline">{s.destinationUrl}</a>)}
+        {row("Campaign destination", link(s.destinationUrl))}
+        {row("Sponsor website", link(s.sponsorWebsite))}
+        {row("Effective destination", effective.url ? <>{link(effective.url)} <span className="text-text-muted">({effective.source === "CAMPAIGN" ? "the campaign's own link" : "Sponsor profile website"})</span></> : <span data-slot="effective-destination-none">None — the sponsor line won&apos;t be clickable</span>)}
+        {s.reviewStatus === "APPROVED" && row("Approved destination (frozen)", link(s.approvedDestinationUrl) ?? "None")}
       </dl>
 
       {s.hasPromotion && (
@@ -98,7 +111,7 @@ export default async function AdminSponsorshipDetailPage({ params }: { params: P
             Payment can be recorded and the sponsorship approved only after it is <strong>submitted</strong> (that is when the price is fixed from the inventory and the Game is held).
             Complete the details below and submit it on the sponsor&apos;s behalf, or leave it for the sponsor to submit. Nothing is public until it is paid and approved.
           </p>
-          <SponsorshipEditor mode="admin" sponsorshipId={s.id} sponsorId={s.sponsorId} initial={initial} logoUrl={s.logoUrl} logoMaxKb={Math.round(config.logoMaxBytes / 1024)} canCancel={false} />
+          <SponsorshipEditor mode="admin" sponsorWebsite={s.sponsorWebsite} sponsorshipId={s.id} sponsorId={s.sponsorId} initial={initial} logoUrl={s.logoUrl} logoMaxKb={Math.round(config.logoMaxBytes / 1024)} canCancel={false} />
         </section>
       )}
 
@@ -110,6 +123,7 @@ export default async function AdminSponsorshipDetailPage({ params }: { params: P
 
       <AdminSponsorshipActions
         agreementMissing={agreementMissing}
+        effectiveDestination={effective.url ?? ""}
         id={s.id}
         revision={s.revision}
         lifecycle={s.lifecycle}

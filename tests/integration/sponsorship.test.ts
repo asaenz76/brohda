@@ -754,7 +754,8 @@ describe("Super Admin completes and submits on the sponsor's behalf", () => {
     // The reported dead end: nothing to pay or approve while it is a draft.
     await fails("admin_mark_sponsorship_paid", { p_admin_id: adminId, p_id: draftRow.id, p_reference: "x", p_note: "", p_idempotency_key: `k-${randomUUID()}` }, "invalid_transition");
     await fails("admin_approve_sponsorship", { p_admin_id: adminId, p_id: draftRow.id, p_expected_revision: draftRow.revision }, "invalid_transition");
-    // Incomplete content is refused at submit.
+    // Incomplete content is refused at submit — the sponsor name and logo are still required; the destination link no longer is (r68: the Sponsor profile website is the fallback).
+    await admin.from("sponsorships").update({ presented_by: null }).eq("id", draftRow.id); // (a direct write, so the audit trail below stays exactly the road under test)
     await fails("admin_submit_sponsorship", { p_admin_id: adminId, p_id: draftRow.id }, "incomplete_sponsorship");
     const edited = await ok("admin_update_sponsorship", { p_admin_id: adminId, p_id: draftRow.id, p_fields: fill });
     expect(edited).toMatchObject({ presented_by: "Acme Sports", destination_url: "https://acme.example.com/promo", lifecycle: "DRAFT" });
@@ -912,7 +913,7 @@ describe("public data boundary, one Post, and what is NOT built", () => {
     await pay(adminId, s.id);
     await approve(adminId, s.id);
     const shown = (await loadPublicSponsorships([inv.postId])).get(inv.postId)!;
-    expect(Object.keys(shown).sort()).toEqual(["ctaText", "id", "logoUrl", "presentedBy", "promotion", "tagline"]);
+    expect(Object.keys(shown).sort()).toEqual(["ctaText", "hasLink", "id", "logoUrl", "presentedBy", "promotion", "tagline"]);
     expect(JSON.stringify(shown)).not.toMatch(/150000|INV-1|acme\.example\.com|Campaign|contact/i);
   });
 
