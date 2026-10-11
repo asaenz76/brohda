@@ -82,10 +82,10 @@ export async function recordPaymentEventAction(id: string, event: string, refere
   return run(id, "admin_record_sponsorship_payment_event", { p_admin_id: admin.id, p_id: id, p_event: event, p_reference: reference.slice(0, 200), p_note: note.slice(0, 1000), p_idempotency_key: idempotencyKey || `pay-event:${id}:${randomUUID()}` });
 }
 
-export async function approveSponsorshipAction(id: string, expectedRevision: number): Promise<AdminSponsorshipResult> {
+export async function approveSponsorshipAction(id: string, expectedRevision: number, expectedDestination?: string): Promise<AdminSponsorshipResult> {
   const admin = await requireSuperAdmin();
   if (!idSchema.safeParse(id).success || !Number.isInteger(expectedRevision)) return { success: false, error: "Sponsorship not found." };
-  return run(id, "admin_approve_sponsorship", { p_admin_id: admin.id, p_id: id, p_expected_revision: expectedRevision }, { subject: "Your sponsorship was approved", lines: ["Brohda approved your sponsorship.", "It runs automatically in its scheduled window once payment is confirmed."] });
+  return run(id, "admin_approve_sponsorship", { p_admin_id: admin.id, p_id: id, p_expected_revision: expectedRevision, p_expected_destination: expectedDestination ?? null }, { subject: "Your sponsorship was approved", lines: ["Brohda approved your sponsorship.", "It runs automatically in its scheduled window once payment is confirmed."] });
 }
 
 export async function rejectSponsorshipAction(id: string, reason: string): Promise<AdminSponsorshipResult> {

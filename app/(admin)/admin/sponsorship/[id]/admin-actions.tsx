@@ -30,9 +30,11 @@ interface Props {
   paymentEventKey: string;
   /** An APPROVED campaign agreement is required and this campaign has none accepted at its current revision. */
   agreementMissing?: boolean;
+  /** The destination the reviewer is looking at ("" = none). Sent with the approval so it only goes through if that is still where the sponsorship would link. */
+  effectiveDestination?: string;
 }
 
-export function AdminSponsorshipActions({ id, revision, lifecycle, reviewStatus, paymentStatus, priceCents, currency, markPaidKey, paymentEventKey, agreementMissing = false }: Props) {
+export function AdminSponsorshipActions({ id, revision, lifecycle, reviewStatus, paymentStatus, priceCents, currency, markPaidKey, paymentEventKey, agreementMissing = false, effectiveDestination }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<AdminSponsorshipResult | null>(null);
@@ -91,7 +93,7 @@ export function AdminSponsorshipActions({ id, revision, lifecycle, reviewStatus,
 
       {submitted && reviewStatus === "PENDING" && (
         <div className="flex flex-wrap gap-2">
-          <Button type="button" disabled={pending} onClick={() => go(() => approveSponsorshipAction(id, revision))}>
+          <Button type="button" disabled={pending} onClick={() => go(() => approveSponsorshipAction(id, revision, effectiveDestination))}>
             Approve
           </Button>
         </div>

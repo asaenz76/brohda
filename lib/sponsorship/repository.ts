@@ -48,6 +48,10 @@ export interface SponsorshipRecord {
   tagline: string | null;
   ctaText: string | null;
   destinationUrl: string | null;
+  /** The Sponsor profile website — the fallback link. Resolved on read, never copied onto the sponsorship. */
+  sponsorWebsite: string | null;
+  /** The effective destination frozen at approval (null until approved, and after a material change voids the approval). */
+  approvedDestinationUrl: string | null;
   logoUrl: string | null;
   hasPromotion: boolean;
   promotionTitle: string | null;
@@ -150,6 +154,8 @@ function toSponsorship(row: any): SponsorshipRecord {
     tagline: row.tagline ?? null,
     ctaText: row.cta_text ?? null,
     destinationUrl: row.destination_url ?? null,
+    sponsorWebsite: sponsor?.website ?? null,
+    approvedDestinationUrl: row.approved_destination_url ?? null,
     logoUrl: sponsorLogoPublicUrl(row.logo_path),
     hasPromotion: row.has_promotion,
     promotionTitle: row.promotion_title ?? null,
@@ -181,7 +187,7 @@ function toSponsorship(row: any): SponsorshipRecord {
   };
 }
 
-const SPONSORSHIP_SELECT = `*, sponsors(display_name), ${GAME_SELECT}`;
+const SPONSORSHIP_SELECT = `*, sponsors(display_name, website), ${GAME_SELECT}`;
 
 // --- sponsor side -------------------------------------------------------------------------------------------------------------------------------
 

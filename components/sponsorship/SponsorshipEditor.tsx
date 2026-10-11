@@ -1,5 +1,6 @@
 "use client";
 
+import { displayUrl } from "@/lib/sponsorship/destination";
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -50,6 +51,7 @@ export function SponsorshipEditor({
   logoMaxKb,
   mode = "sponsor",
   agreement = null,
+  sponsorWebsite = null,
 }: {
   sponsorshipId: string;
   sponsorId: string;
@@ -61,6 +63,8 @@ export function SponsorshipEditor({
   mode?: "sponsor" | "admin";
   /** The media agreement the Sponsor must accept to submit — only ever an APPROVED document (null while it is a draft, so nothing is asked). */
   agreement?: { title: string; version: string; href: string } | null;
+  /** The Sponsor profile website: the fallback when the destination link below is left blank. Shown as context only — it is edited in the Sponsor profile, never here. */
+  sponsorWebsite?: string | null;
 }) {
   const router = useRouter();
   const [values, setValues] = useState(initial);
@@ -131,8 +135,18 @@ export function SponsorshipEditor({
       <Field id="tagline" label="Short line (optional)" error={fieldErrors.tagline}>
         <Input id="tagline" value={values.tagline} maxLength={140} onChange={(e) => set("tagline", e.target.value)} />
       </Field>
-      <Field id="destinationUrl" label="Destination link" hint="Where the call to action sends members. https:// only." error={fieldErrors.destinationUrl}>
+      <Field
+        id="destinationUrl"
+        label="Destination link (optional)"
+        hint={values.destinationUrl.trim() ? "Members who tap your name or call to action go here instead of your profile website. https:// only." : "Leave blank to use your Sponsor profile website."}
+        error={fieldErrors.destinationUrl}
+      >
         <Input id="destinationUrl" type="url" inputMode="url" value={values.destinationUrl} onChange={(e) => set("destinationUrl", e.target.value)} />
+        {!values.destinationUrl.trim() && (
+          <p data-slot="destination-context" className="text-xs text-text-secondary">
+            {sponsorWebsite ? `Using Sponsor website: ${displayUrl(sponsorWebsite)}` : "No destination link will be shown because your Sponsor profile has no website."}
+          </p>
+        )}
       </Field>
       <Field id="ctaText" label="Call-to-action text (optional)" hint="For example “Learn more”." error={fieldErrors.ctaText}>
         <Input id="ctaText" value={values.ctaText} maxLength={30} onChange={(e) => set("ctaText", e.target.value)} />

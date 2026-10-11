@@ -5,7 +5,7 @@ import type { SponsorshipEligibilityInputs } from "@/lib/sponsorship/types";
 const NOW = new Date("2026-10-20T20:00:00Z");
 const base = (o: Partial<SponsorshipEligibilityInputs> = {}): SponsorshipEligibilityInputs => ({
   id: "s1", postId: "p1", marketCode: "GLOBAL", lifecycle: "LIVE", paymentStatus: "PAID", reviewStatus: "APPROVED",
-  startsAt: "2026-10-20T18:00:00Z", endsAt: "2026-10-21T02:00:00Z", approvalIntact: true, sponsorStatus: "ACTIVE", postPublished: true, fixtureStatus: "NOT_STARTED", hasDestination: true, ...o,
+  startsAt: "2026-10-20T18:00:00Z", endsAt: "2026-10-21T02:00:00Z", approvalIntact: true, sponsorStatus: "ACTIVE", postPublished: true, fixtureStatus: "NOT_STARTED", ...o,
 });
 const active = (o: Partial<SponsorshipEligibilityInputs> = {}, enabled: unknown = true, now = NOW) => isSponsorshipPubliclyActive(base(o), { enabled, now });
 
@@ -60,7 +60,8 @@ describe("isSponsorshipPubliclyActive — the single public-eligibility policy",
     expect(active({ fixtureStatus: "COMPLETED" })).toBe(true); // the campaign window, not the result, ends it
   });
 
-  it("a sponsorship with no approved destination does not render", () => {
-    expect(active({ hasDestination: false })).toBe(false);
+  it("a destination link is NOT required to render: with or without one a paid, approved, in-window sponsorship is active (the line is simply not clickable without a link)", () => {
+    expect(active()).toBe(true);
+    expect(Object.keys(base())).not.toContain("hasDestination");
   });
 });

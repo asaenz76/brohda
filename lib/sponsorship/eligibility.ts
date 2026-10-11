@@ -32,6 +32,5 @@ export function isSponsorshipPubliclyActive(s: SponsorshipEligibilityInputs, ctx
   if (s.sponsorStatus !== "ACTIVE") return false;
   if (!(ctx.markets ?? viewerMarkets()).includes(s.marketCode)) return false;
   if (!s.postPublished || DEAD_FIXTURE_STATUSES.has(s.fixtureStatus)) return false;
-  if (!s.hasDestination) return false;
   return true;
 }

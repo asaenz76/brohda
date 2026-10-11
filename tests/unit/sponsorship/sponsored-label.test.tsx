@@ -5,7 +5,7 @@ import { SponsoredLabel } from "@/components/sponsorship/SponsoredLabel";
 import { PROMOTION_DISCLOSURE, SponsorPromotion } from "@/components/sponsorship/SponsorPromotion";
 import type { PublicSponsorship } from "@/lib/sponsorship/types";
 
-const sponsorship = (o: Partial<PublicSponsorship> = {}): PublicSponsorship => ({ id: "11111111-1111-4111-8111-111111111111", presentedBy: "Acme Sports", tagline: null, ctaText: "Learn more", logoUrl: "https://x.supabase.co/storage/v1/object/public/sponsor-logos/a/b.webp", promotion: null, ...o });
+const sponsorship = (o: Partial<PublicSponsorship> = {}): PublicSponsorship => ({ id: "11111111-1111-4111-8111-111111111111", presentedBy: "Acme Sports", tagline: null, ctaText: "Learn more", hasLink: true, logoUrl: "https://x.supabase.co/storage/v1/object/public/sponsor-logos/a/b.webp", promotion: null, ...o });
 
 type IOCallback = (entries: Array<Partial<IntersectionObserverEntry>>) => void;
 let observers: Array<{ cb: IOCallback; disconnect: ReturnType<typeof vi.fn> }> = [];
@@ -55,8 +55,44 @@ describe("SponsoredLabel", () => {
     expect(link.getAttribute("href")).not.toMatch(/^https?:/); // never the sponsor's own URL in the page
   });
 
-  it("no call to action → no link; no logo → just the name", () => {
-    const { container } = render(<SponsoredLabel sponsorship={sponsorship({ ctaText: null, logoUrl: null })} trackImpression={false} />);
+  it("the sponsor identity (logo AND name) is ONE link when a destination exists — same first-party click path, new tab, a meaningful accessible name", () => {
+    const { container } = render(<SponsoredLabel sponsorship={sponsorship()} trackImpression={false} />);
+    const link = screen.getByRole("link", { name: "Visit Acme Sports (opens in a new tab)" });
+    expect(link).toHaveAttribute("href", "/sponsorship/click/11111111-1111-4111-8111-111111111111");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link.getAttribute("rel")).toContain("sponsored");
+    expect(link.getAttribute("rel")).toContain("noopener");
+    expect(link.getAttribute("href")).not.toMatch(/^https?:/);
+    // logo and name are inside the SAME anchor (one click event, no nested links), and the logo is decoration only
+    expect(link.querySelector('[data-slot="sponsor-logo"]')).not.toBeNull();
+    expect(link.textContent).toContain("Acme Sports");
+    expect(link.querySelector("a")).toBeNull();
+    expect(container.querySelectorAll('a[data-slot="sponsor-link"]')).toHaveLength(1);
+  });
+
+  it("the sponsor link does not depend on the call to action: no CTA text, link still there", () => {
+    render(<SponsoredLabel sponsorship={sponsorship({ ctaText: null })} trackImpression={false} />);
+    expect(screen.getAllByRole("link")).toHaveLength(1);
+    expect(screen.getByRole("link", { name: /Visit Acme Sports/ })).toBeInTheDocument();
+  });
+
+  it("with a CTA, there are exactly two links (identity + CTA) and both point at the same first-party path", () => {
+    render(<SponsoredLabel sponsorship={sponsorship()} trackImpression={false} />);
+    const links = screen.getAllByRole("link");
+    expect(links).toHaveLength(2);
+    expect(new Set(links.map((l) => l.getAttribute("href"))).size).toBe(1);
+  });
+
+  it("NO effective link: the attribution is visible but not clickable, and a CTA is not rendered as a broken link", () => {
+    const { container } = render(<SponsoredLabel sponsorship={sponsorship({ hasLink: false })} trackImpression={false} />);
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(container.textContent).toContain("Presented by Acme Sports");
+    expect(container.textContent).not.toContain("Learn more");
+    expect(container.querySelector("a")).toBeNull();
+  });
+
+  it("no call to action and no logo → just the name (linked when there is a destination)", () => {
+    const { container } = render(<SponsoredLabel sponsorship={sponsorship({ ctaText: null, logoUrl: null, hasLink: false })} trackImpression={false} />);
     expect(screen.queryByRole("link")).toBeNull();
     expect(container.querySelector("img")).toBeNull();
     expect(container.textContent).toContain("Presented by Acme Sports");
