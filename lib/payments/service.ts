@@ -1,5 +1,6 @@
 import "server-only";
-import { legalRequirementCopy, sponsorCommercialLegalStatus } from "@/lib/sponsor/commercial-legal-gate";
+import { sponsorCommercialLegalStatus } from "@/lib/sponsor/commercial-legal-gate";
+import { legalRequirementCopy } from "@/lib/sponsor/legal-copy";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveOnlinePayment } from "./active-provider";
 import { getAdapter } from "./registry";
@@ -234,6 +235,16 @@ export async function reconcileAttempt(attemptId: string): Promise<ReconcileOutc
   return { attemptId, providerOutcome: state.outcome, applied: String(result.result) };
 }
 
+/** Tell the Sponsor (only the Sponsor's own login — never a Member) that a refund of their payment completed. Called once per refund, when it first becomes SUCCEEDED. */
+async function notifyRefundCompleted(attemptId: string): Promise<void> {
+  const admin = createAdminClient();
+  const { data: a } = await admin.from("commercial_payment_attempts").select("sponsorship_id").eq("id", attemptId).maybeSingle();
+  if (!a) return;
+  const { data: s } = await admin.from("sponsorships").select("sponsor_id").eq("id", a.sponsorship_id).maybeSingle();
+  if (!s) return;
+  await notifySponsorAccount(s.sponsor_id, "Refund completed", ["Brohda refunded your sponsorship payment.", "It can take a little while to appear with your bank or card issuer."]);
+}
+
 export interface RefundOutcome {
   refundId: string;
   status: "pending" | "succeeded" | "failed";
@@ -257,6 +268,7 @@ export async function refundThroughProvider(adminId: string, attemptId: string):
   try {
     const state = await provider.refundPayment({ paymentRef: attempt!.provider_payment_ref, amountCents: r.amount_cents, description: "Sponsorship refund" });
     await admin.rpc("commercial_refund_record", { p_admin_id: adminId, p_refund_id: r.id, p_provider_refund_id: state.refundId, p_status: state.status, p_failure_code: state.failureCode });
+    if (state.status === "succeeded") await notifyRefundCompleted(attemptId);
     return { refundId: r.id, status: state.status, manualFallback: state.status === "failed" };
   } catch (e) {
     // The provider said no (or could not be reached): nothing is marked refunded. The attempt is closed as failed so a manual refund — or a retry — can follow; if the
@@ -277,6 +289,8 @@ export async function reconcileRefund(adminId: string, refundId: string): Promis
   if (!refund?.provider_refund_id) throw new PaymentError("not_payable", "This refund has no provider reference to check.");
   const state = await provider.getRefund(refund.provider_refund_id);
   await admin.rpc("commercial_refund_record", { p_admin_id: adminId, p_refund_id: refundId, p_provider_refund_id: state.refundId, p_status: state.status, p_failure_code: state.failureCode });
+  // Notify only when this check is what moved it to succeeded (a repeat check of an already-succeeded refund says nothing again).
+  if (state.status === "succeeded" && String(refund.status).toUpperCase() !== "SUCCEEDED") await notifyRefundCompleted(refund.attempt_id);
   return { refundId, status: state.status, manualFallback: state.status === "failed" };
 }
 

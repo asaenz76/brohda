@@ -5,7 +5,8 @@ import { readFileSync } from "node:fs";
 import { SponsorTermsDocument } from "@/components/legal/SponsorTermsDocument";
 import { PrivacyDocument } from "@/components/legal/PrivacyDocument";
 import { legalRefundCutoffHours, MEDIA_AGREEMENT_DOCUMENT, SPONSOR_PRIVACY_SECTION, SPONSOR_TERMS_DOCUMENT, type SponsorLegalDocument } from "@/lib/sponsor/terms";
-import { legalRequirementCopy, refundPolicyDiffersFromApprovedTerms } from "@/lib/sponsor/commercial-legal-gate";
+import { refundPolicyDiffersFromApprovedTerms } from "@/lib/sponsor/commercial-legal-gate";
+import { legalRequirementCopy } from "@/lib/sponsor/legal-copy";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({}) }));

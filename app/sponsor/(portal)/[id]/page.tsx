@@ -8,7 +8,7 @@ import { isSponsorshipEnabled } from "@/lib/sponsorship/capability";
 import { getPaymentEventsForSponsorship, getSponsorshipForUser, listAgreementAcceptances } from "@/lib/sponsorship/repository";
 import { AgreementPanel } from "@/components/sponsorship/AgreementPanel";
 import { CURRENT_MEDIA_AGREEMENT, legalRefundCutoffHours, MEDIA_AGREEMENT_DOCUMENT, SPONSOR_TERMS_DOCUMENT } from "@/lib/sponsor/terms";
-import { legalRequirementCopy, sponsorCommercialLegalStatus } from "@/lib/sponsor/commercial-legal-gate";
+import { sponsorPaymentEligibility } from "@/lib/sponsorship/payment-eligibility";
 import { CancelSponsorshipPanel } from "@/components/sponsorship/CancelSponsorshipPanel";
 import { evaluateSponsorshipRefundEligibility, getCancellationRecord } from "@/lib/sponsorship/refund-evaluation";
 import { refundCutoffRuleCopy, sponsorCancellationConsequence } from "@/lib/sponsorship/refund-policy";
@@ -17,7 +17,6 @@ import { formatCommercialAmount, PAYMENT_STATUS_LABEL, sponsorCanEdit, sponsorSt
 import { SponsorshipEditor, type EditorValues } from "@/components/sponsorship/SponsorshipEditor";
 import { SponsorPaymentPanel } from "@/components/sponsorship/SponsorPaymentPanel";
 import { getSponsorPaymentView } from "@/lib/payments/views";
-import { resolveOnlinePayment } from "@/lib/payments/active-provider";
 
 // One sponsorship, for a member of the sponsor that owns it (anyone else gets not-found, indistinguishable from a missing one). The sponsor sees status,
 // the price Brohda set, and payment state — it can edit while editable, submit, and cancel before money. It can never approve, price, mark paid or activate.
@@ -34,12 +33,11 @@ export default async function SponsorshipDetailPage({ params, searchParams }: { 
   const evaluation = cancellable ? await evaluateSponsorshipRefundEligibility(id, "SPONSOR_CANCELLATION") : null;
   const cancellation = s.lifecycle === "CANCELLED" ? await getCancellationRecord(id) : null;
   const editable = enabled && session.sponsor.status === "ACTIVE" && sponsorCanEdit(s);
-  // Online payment is offered only for a submitted, unpaid sponsorship of an ACTIVE Sponsor while the capability is on — and only when online payment is configured and offered.
-  const payable = enabled && session.sponsor.status === "ACTIVE" && s.lifecycle === "SUBMITTED" && s.paymentStatus !== "PAID" && (s.paymentStatus === "PENDING" || s.paymentStatus === "FAILED");
-  const paymentView = payable ? await getSponsorPaymentView(id) : null;
-  const onlinePayment = payable ? await resolveOnlinePayment() : null;
-  // The same canonical check the payment service enforces: shown here so the Sponsor is told what is missing instead of meeting a refusal.
-  const legal = payable ? await sponsorCommercialLegalStatus({ userId: session.userId, sponsorshipId: id, stage: "PAYMENT" }) : null;
+  // Whether starting a payment would be accepted right now — the same canonical check the dashboard uses. Pay now is shown only when it is PAY_NOW.
+  const eligibility = await sponsorPaymentEligibility({ userId: session.userId, sponsorStatus: session.sponsor.status, capabilityEnabled: enabled, sponsorship: { id: s.id, lifecycle: s.lifecycle, paymentStatus: s.paymentStatus } });
+  const paymentView = s.lifecycle === "DRAFT" ? null : await getSponsorPaymentView(id);
+  // The owner-provided manual payment instructions (Settings → Sponsorship): offered while a payment is still owed, beside — never instead of — online payment.
+  const manualInstructions = s.lifecycle === "SUBMITTED" && !["PAID", "REFUND_PENDING", "REFUNDED"].includes(s.paymentStatus) && config.paymentInstructions.trim() ? config.paymentInstructions.trim() : null;
   const agreementAccepted = acceptances.some((a) => a.agreementKey === MEDIA_AGREEMENT_DOCUMENT.key && a.agreementVersion === MEDIA_AGREEMENT_DOCUMENT.version && a.revision === s.revision);
   const canAcceptAgreement = Boolean(CURRENT_MEDIA_AGREEMENT) && session.sponsor.status === "ACTIVE" && s.lifecycle === "SUBMITTED" && !agreementAccepted;
   const initial: EditorValues = {
@@ -96,16 +94,8 @@ export default async function SponsorshipDetailPage({ params, searchParams }: { 
             </dd>
           </dl>
 
-          {payable && (
-            <SponsorPaymentPanel sponsorshipId={s.id} priceCents={s.priceCents} currency={s.currency} latestAttemptStatus={paymentView?.latestStatus ?? null} paymentStatus={s.paymentStatus} offered={onlinePayment?.state === "available" && onlinePayment.offered && legal?.ok === true} legalBlock={legal && !legal.ok ? legalRequirementCopy(legal.missing) : null} idempotencyKey={randomUUID()} notice={paymentNotice ?? null} />
-          )}
-
-          {s.lifecycle === "SUBMITTED" && s.paymentStatus !== "PAID" && config.paymentInstructions && (
-            <div className="space-y-1 rounded-lg border border-border-subtle p-3">
-              <p className="text-sm font-medium text-text-primary">How to pay</p>
-              <p className="whitespace-pre-line text-sm text-text-secondary">{config.paymentInstructions}</p>
-              <p className="text-xs text-text-muted">Brohda confirms payment manually. Payment doesn&apos;t guarantee approval.</p>
-            </div>
+          {s.lifecycle !== "DRAFT" && (
+            <SponsorPaymentPanel sponsorshipId={s.id} priceCents={s.priceCents} currency={s.currency} lifecycle={s.lifecycle} reviewStatus={s.reviewStatus} paymentStatus={s.paymentStatus} latestAttemptStatus={paymentView?.latestStatus ?? null} eligibility={eligibility} manualInstructions={manualInstructions} idempotencyKey={randomUUID()} notice={paymentNotice ?? null} />
           )}
 
           {events.length > 0 && (

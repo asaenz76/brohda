@@ -9,6 +9,8 @@ export class FakeProvider implements CommercialPaymentProvider {
   readonly label = "Test Provider";
   capabilities: ProviderCapabilities = { supportsCheckout: true, supportsRefund: true, supportsPartialRefund: false, supportsReconciliation: true, supportsRefundWebhook: true };
   configured = true;
+  /** What a refund request answers: "succeeded" immediately, or "pending" (then getRefund reports succeeded). */
+  refundMode: "succeeded" | "pending" = "succeeded";
   readonly secret = "fake-webhook-secret";
   sessions = new Map<string, { outcome: NormalizedOutcome; amountCents: number; currency: string }>();
   calls: string[] = [];
@@ -32,7 +34,7 @@ export class FakeProvider implements CommercialPaymentProvider {
   }
   async refundPayment() {
     this.calls.push("refundPayment");
-    return { refundId: `refund_${this.ns}_${++this.n}`, status: "succeeded" as const, failureCode: null };
+    return { refundId: `refund_${this.ns}_${++this.n}`, status: this.refundMode, failureCode: null };
   }
   async getRefund(refundId: string) {
     return { refundId, status: "succeeded" as const, failureCode: null };

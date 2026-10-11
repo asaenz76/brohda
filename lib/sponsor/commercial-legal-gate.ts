@@ -14,7 +14,8 @@ import { CURRENT_MEDIA_AGREEMENT, CURRENT_SPONSOR_TERMS, type SponsorLegalDocume
 //                    (so changing a database setting can never silently change what an accepted legal text means)
 //
 // Everything is resolved on the server from the registry and the database; nothing here reads a version, a timestamp or an account id from a browser.
-export type LegalRequirement = "SPONSOR_TERMS" | "MEDIA_AGREEMENT" | "REFUND_POLICY";
+import type { LegalRequirement } from "./legal-copy";
+export type { LegalRequirement } from "./legal-copy";
 export type CommercialLegalStatus = { ok: true } | { ok: false; missing: LegalRequirement[] };
 /** SUBMIT: putting a campaign in front of Brohda. PAYMENT: starting a payment for a submitted campaign. */
 export type CommercialStage = "SUBMIT" | "PAYMENT";
@@ -52,12 +53,4 @@ export async function sponsorCommercialLegalStatus(
     if (!(await agreementAcceptedForCurrentRevision(input.sponsorshipId, docs.agreement))) missing.push("MEDIA_AGREEMENT");
   }
   return missing.length ? { ok: false, missing } : { ok: true };
-}
-
-/** Sponsor-facing wording for what is missing (provider-neutral, no legal text). */
-export function legalRequirementCopy(missing: LegalRequirement[]): string {
-  if (missing.includes("SPONSOR_TERMS")) return "Please accept the current Sponsor Terms to continue.";
-  if (missing.includes("MEDIA_AGREEMENT")) return "Please accept the Media and Advertising Agreement for this campaign before paying.";
-  if (missing.includes("REFUND_POLICY")) return "New sponsorships are paused briefly while Brohda updates its Sponsor Terms. Please check back soon.";
-  return "A required agreement hasn't been accepted yet.";
 }
