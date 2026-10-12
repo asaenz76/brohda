@@ -825,6 +825,63 @@ test("the Review queue holds ONLY review work: pending requests and applications
   }
 });
 
+test("Super Admin hides a Sponsor (with a confirmation) and unhides it: it leaves the default list, shows under Hidden and All, its status is unchanged, and a hidden ACTIVE Sponsor still signs in with its public campaign untouched", async ({ page }) => {
+  const c = await paidCampaign(24, "Hideui"); // ACTIVE Sponsor with a paid, approved, public campaign
+  const viewer = await createUser("hideviewer");
+  const card = (id: string) => page.locator(`li[data-sponsor-id="${id}"]`);
+  const status = async () => (await admin.from("sponsors").select("status").eq("id", c.sponsor.sponsorId).single()).data!.status;
+  try {
+    await loginAs(page, c.superUser.email);
+    await page.goto("/admin/sponsorship/sponsors");
+    await expect(card(c.sponsor.sponsorId)).toBeVisible(); // visible by default
+    await expect(page.getByRole("navigation", { name: "Sponsor visibility" })).toBeVisible();
+
+    // Hide asks first; Cancel changes nothing.
+    await card(c.sponsor.sponsorId).getByRole("button", { name: "Hide sponsor" }).click();
+    const confirm = card(c.sponsor.sponsorId).locator('[data-slot="hide-confirm"]');
+    await expect(confirm).toContainText("Hide this Sponsor from the normal Sponsors list?");
+    await expect(confirm).toContainText("This does not delete the Sponsor or change its account status.");
+    await expect(confirm).toContainText("stays ACTIVE");
+    await confirm.getByRole("button", { name: "Cancel" }).click();
+    await expect(card(c.sponsor.sponsorId)).toBeVisible();
+
+    await card(c.sponsor.sponsorId).getByRole("button", { name: "Hide sponsor" }).click();
+    await card(c.sponsor.sponsorId).locator('[data-slot="hide-confirm"]').getByRole("button", { name: "Hide", exact: true }).click();
+    await expect(card(c.sponsor.sponsorId)).toHaveCount(0); // gone from the default list
+    expect(await status()).toBe("ACTIVE"); // status untouched
+
+    // Hidden and All bring it back, clearly marked, with Unhide.
+    await page.getByRole("link", { name: /^Hidden/ }).click();
+    await expect(page).toHaveURL(/show=hidden/);
+    await expect(card(c.sponsor.sponsorId).locator('[data-slot="sponsor-hidden-badge"]')).toHaveText("Hidden");
+    await expect(card(c.sponsor.sponsorId).locator('[data-slot="sponsor-account-status"]')).toHaveText("Active"); // Hidden is not a status
+    await expect(card(c.sponsor.sponsorId).getByRole("button", { name: "Unhide sponsor" })).toBeVisible();
+    await page.getByRole("link", { name: "All", exact: true }).click();
+    await expect(card(c.sponsor.sponsorId)).toBeVisible();
+
+    // Hidden ≠ blocked: the ACTIVE Sponsor still signs in, and its public campaign is unchanged.
+    await loginAsSponsor(page, c.sponsor.email);
+    await expect(page).toHaveURL(/\/sponsor$/);
+    await loginAs(page, viewer.email);
+    await page.goto("/feed");
+    await expect(page.locator("article").filter({ hasText: c.game.home }).first().locator('[data-slot="sponsored-label"]')).toContainText("Refund Co");
+
+    // Unhide returns it to the default list, status still unchanged.
+    await loginAs(page, c.superUser.email);
+    await page.goto("/admin/sponsorship/sponsors?show=hidden");
+    await card(c.sponsor.sponsorId).getByRole("button", { name: "Unhide sponsor" }).click();
+    await expect(card(c.sponsor.sponsorId)).toHaveCount(0); // no longer in the Hidden list
+    await page.goto("/admin/sponsorship/sponsors");
+    await expect(card(c.sponsor.sponsorId)).toBeVisible();
+    expect(await status()).toBe("ACTIVE");
+    const { data: log } = await admin.from("audit_logs").select("action, actor_id").eq("entity_type", "sponsor").eq("entity_id", c.sponsor.sponsorId).in("action", ["sponsor.hidden", "sponsor.unhidden"]).order("created_at");
+    expect(log).toEqual([{ action: "sponsor.hidden", actor_id: c.superUser.id }, { action: "sponsor.unhidden", actor_id: c.superUser.id }]);
+  } finally {
+    await setEnabled(false);
+    await cleanup(c.game);
+  }
+});
+
 test("every moved control is in Settings → Brohda — Sponsored Game Posts, online payments and the provider selector, the refund policy and the legal status — exactly once, and an ordinary admin can open neither it nor the queue", async ({ page }) => {
   const superUser = await createUser("setmoved", "super_admin");
   const ordinary = await createUser("ordadmin", "admin");
@@ -844,7 +901,7 @@ test("every moved control is in Settings → Brohda — Sponsored Game Posts, on
 
     // Super Admin-only stays Super Admin-only: an ordinary admin is turned away from both pages and sees none of the controls.
     await loginAs(page, ordinary.email);
-    for (const path of ["/admin/settings/brohda", "/admin/sponsorship"]) {
+    for (const path of ["/admin/settings/brohda", "/admin/sponsorship", "/admin/sponsorship/sponsors"]) {
       await page.goto(path);
       await expect(page).not.toHaveURL(new RegExp(`${path}$`));
       await expect(page.getByLabel("Provider for new payments")).toHaveCount(0);

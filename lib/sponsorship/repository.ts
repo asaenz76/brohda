@@ -1,3 +1,4 @@
+import { DEFAULT_SPONSOR_VISIBILITY, type SponsorVisibilityFilter } from "./sponsor-visibility";
 import { REVIEWABLE_SPONSORSHIP, REVIEWABLE_SPONSOR_STATUS, type ReviewCounts } from "./review-policy";
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -312,12 +313,15 @@ export async function listSponsorshipsAwaitingReview(limit = 200): Promise<Spons
   return (data ?? []).map(toSponsorship);
 }
 
-/** Sponsor account applications awaiting review, oldest first. */
-export async function listSponsorApplicationsAwaitingReview(limit = 200): Promise<SponsorRecord[]> {
+/**
+ * Sponsor account applications awaiting review, oldest first. Hiding a Sponsor from the admin list NEVER removes genuine review work from here — an application that is
+ * independently pending still surfaces (marked hidden), so hiding can't bury pending compliance work.
+ */
+export async function listSponsorApplicationsAwaitingReview(limit = 200): Promise<Array<SponsorRecord & { hiddenAt: string | null }>> {
   const admin = createAdminClient();
-  const { data, error } = await admin.from("sponsors").select("*").eq("status", REVIEWABLE_SPONSOR_STATUS).order("created_at", { ascending: true }).limit(limit);
+  const [{ data, error }, hidden] = await Promise.all([admin.from("sponsors").select("*").eq("status", REVIEWABLE_SPONSOR_STATUS).order("created_at", { ascending: true }).limit(limit), hiddenSponsorMap()]);
   if (error) throw error;
-  return (data ?? []).map(toSponsor);
+  return (data ?? []).map((r) => ({ ...toSponsor(r), hiddenAt: hidden.get(r.id) ?? null }));
 }
 
 /** The number on the Review queue tab: exactly the reviewable objects above, counted by the same filters. */
@@ -350,12 +354,31 @@ export interface AdminSponsorRecord extends SponsorRecord {
   internalReviewNote: string | null;
   /** null for an organization that has no login (e.g. one Super Admin recorded by hand). */
   login: SponsorLogin | null;
+  /** When Super Admin hid this Sponsor from the normal admin list, or null (visible). Admin-only; independent of status. */
+  hiddenAt: string | null;
+}
+
+/** sponsor id → when it was hidden. Service-role only; a Sponsor's own login can never read this. */
+async function hiddenSponsorMap(): Promise<Map<string, string>> {
+  const admin = createAdminClient();
+  const { data } = await admin.from("sponsor_admin_hidden").select("sponsor_id, hidden_at");
+  return new Map((data ?? []).map((r: { sponsor_id: string; hidden_at: string }) => [r.sponsor_id, r.hidden_at]));
+}
+
+export async function countHiddenSponsors(): Promise<number> {
+  return (await hiddenSponsorMap()).size;
 }
 
 /** Sponsors with their one login (sign-in email, verified or not) so Super Admin can review applications — never shown to anyone else. */
-export async function listSponsors(): Promise<AdminSponsorRecord[]> {
+export async function listSponsors(opts: { visibility?: SponsorVisibilityFilter } = {}): Promise<AdminSponsorRecord[]> {
+  const visibility = opts.visibility ?? DEFAULT_SPONSOR_VISIBILITY;
   const admin = createAdminClient();
-  const { data } = await admin.from("sponsors").select("*, sponsor_accounts(user_id)").order("created_at", { ascending: false });
+  const hidden = await hiddenSponsorMap();
+  let query = admin.from("sponsors").select("*, sponsor_accounts(user_id)").order("created_at", { ascending: false });
+  // Filtered in the database. "visible" is the default: hidden Sponsors are absent from the normal list (and so from search); "hidden" and "all" bring them back.
+  if (visibility === "visible" && hidden.size > 0) query = query.not("id", "in", `(${[...hidden.keys()].join(",")})`);
+  if (visibility === "hidden") query = hidden.size > 0 ? query.in("id", [...hidden.keys()]) : query.in("id", ["00000000-0000-0000-0000-000000000000"]);
+  const { data } = await query;
   const rows = (data ?? []) as any[];
   const logins = new Map<string, SponsorLogin>();
   await Promise.all(
@@ -366,7 +389,7 @@ export async function listSponsors(): Promise<AdminSponsorRecord[]> {
       logins.set(r.id, { userId: account.user_id, email: u.user?.email ?? null, emailVerified: Boolean(u.user?.email_confirmed_at) });
     }),
   );
-  return rows.map((r) => ({ ...toSponsor(r), internalReviewNote: r.internal_review_note ?? null, login: logins.get(r.id) ?? null }));
+  return rows.map((r) => ({ ...toSponsor(r), internalReviewNote: r.internal_review_note ?? null, login: logins.get(r.id) ?? null, hiddenAt: hidden.get(r.id) ?? null }));
 }
 
 export async function listSponsorshipAudit(sponsorshipId: string) {

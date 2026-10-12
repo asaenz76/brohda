@@ -147,6 +147,20 @@ export async function createSponsorAction(raw: { displayName: string; legalName?
  * DISABLED are applied by one audited database function that checks Super Admin itself, validates the transition and requires a reason for anything but ACTIVE.
  * The Sponsor is told by email; the reason is shown to the Sponsor, the internal note never is.
  */
+/**
+ * Hide or unhide a Sponsor in the normal admin Sponsors list. Super Admin only. This is ADMIN LIST VISIBILITY and nothing else: it never changes the Sponsor's status, login, sponsorships,
+ * payments, acceptances, audit history or public campaigns (the database function touches only the visibility table), and it never deletes anything.
+ */
+export async function setSponsorHiddenAction(sponsorId: string, hidden: boolean): Promise<AdminSponsorshipResult> {
+  const admin = await requireSuperAdmin();
+  if (!idSchema.safeParse(sponsorId).success || typeof hidden !== "boolean") return { success: false, error: "Sponsor not found." };
+  const { error } = await createAdminClient().rpc("admin_set_sponsor_hidden", { p_admin_id: admin.id, p_sponsor_id: sponsorId, p_hidden: hidden });
+  if (error) return { success: false, error: error.message.includes("sponsor_not_found") ? "Sponsor not found." : "Could not change the Sponsor's visibility." };
+  revalidatePath("/admin/sponsorship/sponsors");
+  revalidatePath("/admin/sponsorship");
+  return { success: true, error: null, id: sponsorId };
+}
+
 export async function setSponsorStatusAction(sponsorId: string, status: string, reason?: string, internalNote?: string): Promise<AdminSponsorshipResult> {
   const admin = await requireSuperAdmin();
   if (!idSchema.safeParse(sponsorId).success || !["ACTIVE", "REJECTED", "SUSPENDED", "DISABLED"].includes(status)) return { success: false, error: "Invalid sponsor status." };

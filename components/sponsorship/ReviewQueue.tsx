@@ -6,7 +6,7 @@ import type { SponsorRecord, SponsorshipRecord } from "@/lib/sponsorship/reposit
 // The Review queue: ONLY objects that need a Super Admin decision right now (what counts is defined once in lib/sponsorship/review-policy.ts). Each row is one specific Sponsor
 // application or one specific sponsorship request. No settings, no status cards, no legal or payment configuration — those live in Settings → Brohda. Presentational on purpose:
 // the page hands it the already-filtered lists, so it can be tested without a database.
-export function ReviewQueue({ sponsorApplications, sponsorships }: { sponsorApplications: SponsorRecord[]; sponsorships: SponsorshipRecord[] }) {
+export function ReviewQueue({ sponsorApplications, sponsorships }: { sponsorApplications: Array<SponsorRecord & { hiddenAt?: string | null }>; sponsorships: SponsorshipRecord[] }) {
   if (sponsorApplications.length === 0 && sponsorships.length === 0) {
     return (
       <p role="status" data-slot="review-empty" className="rounded-lg border border-border-subtle p-4 text-sm text-text-secondary">
@@ -26,11 +26,16 @@ export function ReviewQueue({ sponsorApplications, sponsorships }: { sponsorAppl
               <li key={s.id} data-sponsor-id={s.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm">
                 <span>
                   <span className="font-medium text-text-primary">{s.displayName}</span>
+                  {s.hiddenAt && (
+                    <span data-slot="hidden-badge" className="ml-2 rounded-full border border-border-subtle px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-text-muted">
+                      Hidden
+                    </span>
+                  )}
                   <span className="block text-xs text-text-muted">
                     {[s.contactName, s.website, s.country].filter(Boolean).join(" · ") || "No details yet"} · applied <LocalDateTime iso={s.createdAt} options={{ month: "short", day: "numeric" }} />
                   </span>
                 </span>
-                <Link href={`/admin/sponsorship/sponsors#sponsor-${s.id}`} className="font-medium text-accent-primary hover:underline">
+                <Link href={`/admin/sponsorship/sponsors${s.hiddenAt ? "?show=all" : ""}#sponsor-${s.id}`} className="font-medium text-accent-primary hover:underline">
                   Review application
                 </Link>
               </li>
