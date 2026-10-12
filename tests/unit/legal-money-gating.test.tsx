@@ -1,8 +1,8 @@
 /**
- * Rules, Terms and Privacy follow the ONE consumer money capability (monetary_p2p_enabled). Separately, what the legal documents say about
- * financial RECORDS follows the facts, not the flag: with money off, current-feature copy disappears, but anything we still hold for existing or
- * historical users stays disclosed. Three modes (lib/legal/money-mode.ts):
- *   active (money on) · retained (money off, financial records exist or can't be ruled out) · free (money off, nothing financial ever stored).
+ * Rules, Terms and Privacy follow the ONE consumer money capability (monetary_p2p_enabled) and nothing else (lib/legal/money-mode.ts). Money OFF means NO Member-money
+ * copy at all — the "free" mode — whatever financial records exist internally; money ON shows the approved money copy ("active"). A third, dormant "retained" variant
+ * (money off + a historical-records disclosure) is kept in the documents but never selected by the policy: the owner's direction is that nothing about Member money is
+ * visible while the capability is off. These tests also keep that dormant variant coherent, so it is safe to reinstate deliberately.
  */
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render } from "@testing-library/react";
@@ -11,7 +11,7 @@ import { TermsDocument, termsSectionIds } from "@/components/legal/TermsDocument
 import { PrivacyDocument, privacySectionIds } from "@/components/legal/PrivacyDocument";
 import { RulesContent } from "@/components/rules/RulesContent";
 import { UNKNOWN_RULES_POLICY, type RulesPolicy } from "@/lib/rules/format";
-import { byMode, deriveLegalMoneyMode, type LegalMoneyMode } from "@/lib/legal/money-mode";
+import { byMode, deriveLegalMoneyMode, showsMemberMoney, type LegalMoneyMode } from "@/lib/legal/money-mode";
 import { loadLegalMoneyMode } from "@/lib/legal/money-mode-loader";
 
 vi.mock("server-only", () => ({}));
@@ -88,7 +88,9 @@ describe("Money OFF, clean consumer (no financial data ever stored) — the free
   it("Privacy: no wallet / money / ledger / payout / Position language at all, and no claim about records that do not exist", () => {
     for (const pattern of CURRENT_MONEY_FEATURE) expect(privacy, String(pattern)).not.toMatch(pattern);
     expect(privacy).not.toMatch(/wallet|ledger|payout|withdraw|Position|money records/i);
-    expect(privacy).toContain("We do not collect payment card numbers, bank account numbers");
+    // Money is off: nothing about payment cards, bank accounts or payment apps is published (r70) — only what remains true of a Member's account.
+    expect(privacy).not.toMatch(/payment card|bank account|payment app/i);
+    expect(privacy).toContain("We do not collect government identification.");
     expect(privacy).toContain("You can close your account from your profile settings.");
   });
 
@@ -96,8 +98,12 @@ describe("Money OFF, clean consumer (no financial data ever stored) — the free
     for (const out of [rules, terms, privacy]) expect(out).not.toMatch(PLACEHOLDER);
   });
 
-  it("the Company's own classification disclaimer is unchanged (it is a legal statement, not feature copy — flagged for counsel in the review doc)", () => {
-    expect(terms).toContain("The Company is not a bank, money transmitter, payment processor, escrow agent, broker, bookmaker, gambling operator, or party to any wager, bet, or contest between members.");
+  it("the Company's classification disclaimer (not a bank / bookmaker / party to any wager or bet between members) is Member-money language: hidden while money is off, present where money is described", () => {
+    const DISCLAIMER = "The Company is not a bank, money transmitter, payment processor, escrow agent, broker, bookmaker, gambling operator, or party to any wager, bet, or contest between members.";
+    expect(terms).not.toContain(DISCLAIMER);
+    expect(terms).not.toMatch(/bookmaker|gambling|wager|escrow|money transmitter/i);
+    expect(text(<TermsDocument mode="active" />)).toContain(DISCLAIMER);
+    expect(text(<TermsDocument mode="retained" />)).toContain(DISCLAIMER); // the dormant variant is unchanged
   });
 });
 
@@ -229,8 +235,8 @@ describe("OFF-state structure — financial wording lives ONLY where it is requi
     ]);
   });
 
-  it("Privacy (free): the only mentions are the generic data-minimisation line and the Sponsor business-records section", () => {
-    expect(sectionsOf(<PrivacyDocument mode="free" />).filter((s) => MONEY.test(s.text)).map((s) => s.title)).toEqual(["What we do not collect", "Sponsor accounts and sponsorships"]);
+  it("Privacy (free): the ONLY money-ish wording left is the Sponsor business-records section — a separate product domain, clearly headed — and nothing about Member money", () => {
+    expect(sectionsOf(<PrivacyDocument mode="free" />).filter((s) => MONEY.test(s.text)).map((s) => s.title)).toEqual(["Sponsor accounts and sponsorships"]);
   });
 
   it("Terms (retained): money wording is confined to the records section and the named legal sections (classification disclaimer, risk allocation, administrator authority over records, conduct about false information) — nothing else", () => {
@@ -246,9 +252,9 @@ describe("OFF-state structure — financial wording lives ONLY where it is requi
     ]);
   });
 
-  it("Terms (free): only the classification disclaimer, the generic 'money laundering' conduct rule and the boilerplate 'loss of money' liability wording mention money", () => {
+  it("Terms (free): only the generic 'money laundering' conduct rule and the boilerplate 'loss of money' liability wording mention money — neither describes Member money", () => {
     const hits = sectionsOf(<TermsDocument mode="free" />).filter((s) => MONEY.test(s.text)).map((s) => s.title);
-    expect(hits).toEqual(["What the Service is — and is not", "Your conduct", "Limitation of liability"]);
+    expect(hits).toEqual(["Your conduct", "Limitation of liability"]);
   });
 
   it("Rules (money off): the only money-ish tokens are the Market name 'Moneyline' — no wallet, fee, Position or payment copy", () => {
@@ -257,39 +263,37 @@ describe("OFF-state structure — financial wording lives ONLY where it is requi
   });
 });
 
-describe("the mode decision — one canonical capability, fail-closed", () => {
-  it("derive: money on is active; off + records known/unknown is retained; off + known-none is free", () => {
-    expect(deriveLegalMoneyMode({ flagEnabled: true, retainsFinancialRecords: false })).toBe("active");
-    expect(deriveLegalMoneyMode({ flagEnabled: true, retainsFinancialRecords: null })).toBe("active");
-    expect(deriveLegalMoneyMode({ flagEnabled: false, retainsFinancialRecords: true })).toBe("retained");
-    expect(deriveLegalMoneyMode({ flagEnabled: false, retainsFinancialRecords: null })).toBe("retained");
-    expect(deriveLegalMoneyMode({ flagEnabled: false, retainsFinancialRecords: false })).toBe("free");
+describe("the mode decision — one canonical capability, fail-closed (r70: money OFF always means NO Member-money copy)", () => {
+  it("derive: ONLY a definite true is active; everything else — false, unreadable, malformed — is free; the dormant 'retained' variant is never selected", () => {
+    expect(deriveLegalMoneyMode({ flagEnabled: true })).toBe("active");
+    expect(deriveLegalMoneyMode({ flagEnabled: false })).toBe("free");
+    expect(deriveLegalMoneyMode({ flagEnabled: null })).toBe("free");
+    for (const odd of [undefined, "true", 1, "yes", {}] as unknown[]) expect(deriveLegalMoneyMode({ flagEnabled: odd as never })).toBe("free");
+    for (const flagEnabled of [true, false, null]) expect(deriveLegalMoneyMode({ flagEnabled })).not.toBe("retained");
   });
 
-  it("SETTING UNREADABLE: consumer money copy fails closed (never 'active'), and the stable disclosure remains whenever records exist or can't be ruled out", async () => {
-    expect(deriveLegalMoneyMode({ flagEnabled: null, retainsFinancialRecords: true })).toBe("retained");
-    expect(deriveLegalMoneyMode({ flagEnabled: null, retainsFinancialRecords: null })).toBe("retained");
+  it("SETTING UNREADABLE (throws, rejects, returns junk): money copy fails closed — never 'active'", async () => {
     const throwing = async () => {
       throw new Error("settings unreadable");
     };
-    expect(await loadLegalMoneyMode({ isEnabled: throwing, hasRecords: async () => true })).toBe("retained");
-    expect(await loadLegalMoneyMode({ isEnabled: throwing, hasRecords: async () => null })).toBe("retained");
-    expect(await loadLegalMoneyMode({ isEnabled: throwing, hasRecords: throwing as never })).toBe("retained");
-    // unreadable setting but KNOWN no records: nothing to disclose, nothing consumer-facing about money
-    expect(await loadLegalMoneyMode({ isEnabled: throwing, hasRecords: async () => false })).toBe("free");
+    expect(await loadLegalMoneyMode({ isEnabled: throwing })).toBe("free");
+    expect(await loadLegalMoneyMode({ isEnabled: (async () => undefined) as never })).toBe("free");
+    expect(await loadLegalMoneyMode({ isEnabled: (async () => "true") as never })).toBe("free");
+    expect(await loadLegalMoneyMode({ isEnabled: async () => true })).toBe("active");
+    expect(await loadLegalMoneyMode({ isEnabled: async () => false })).toBe("free");
     // Rules uses the same fail-closed reading: an unreadable policy hides the money section
     expect(headings(<RulesContent policy={UNKNOWN_RULES_POLICY} />)).not.toContain("Money");
   });
 
-  it("an unreadable records check never produces 'free' (we do not claim 'no financial data' on a guess)", async () => {
-    expect(await loadLegalMoneyMode({ isEnabled: async () => false, hasRecords: async () => null })).toBe("retained");
-    expect(await loadLegalMoneyMode({ isEnabled: async () => false, hasRecords: async () => { throw new Error("db down"); } })).toBe("retained");
+  it("the stored financial records no longer influence what is PUBLISHED: the loader has no records dependency at all", async () => {
+    const deps = { isEnabled: async () => false, hasRecords: async () => true } as never;
+    expect(await loadLegalMoneyMode(deps)).toBe("free");
   });
 
-  it("money ON never even looks at the records", async () => {
-    const hasRecords = vi.fn(async () => false);
-    expect(await loadLegalMoneyMode({ isEnabled: async () => true, hasRecords })).toBe("active");
-    expect(hasRecords).not.toHaveBeenCalled();
+  it("showsMemberMoney is true only for the active mode", () => {
+    expect(showsMemberMoney("active")).toBe(true);
+    expect(showsMemberMoney("free")).toBe(false);
+    expect(showsMemberMoney("retained")).toBe(false);
   });
 
   it("byMode requires every mode explicitly (money copy cannot leak into a mode by default)", () => {

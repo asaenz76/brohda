@@ -1,5 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { loadLegalMoneyMode } from "@/lib/legal/money-mode-loader";
+import { showsMemberMoney } from "@/lib/legal/money-mode";
 import { UNKNOWN_RULES_POLICY, type RulesPolicy } from "./format";
 
 /**
@@ -24,14 +26,17 @@ const asNonNegativeInt = (value: unknown): number | null => {
 const asBoolean = (value: unknown): boolean | null => (typeof value === "boolean" ? value : null);
 
 export async function getRulesPolicy(): Promise<RulesPolicy> {
+  // Whether the page may describe Member money is NOT interpreted here: it is the same decision /terms and /privacy use (lib/legal/money-mode.ts — one capability,
+  // fails closed). The numbers below (fee, stake limits) are only quoted when that decision says money is shown.
+  const monetaryEnabled = showsMemberMoney(await loadLegalMoneyMode());
   try {
     const admin = createAdminClient();
     const { data, error } = await admin
       .from("platform_settings")
-      .select("pick_lock_minutes_before_kickoff, p2p_fee_bps, monetary_p2p_min_stake_cents, monetary_p2p_max_stake_cents, monetary_p2p_enabled, call_bs_enabled")
+      .select("pick_lock_minutes_before_kickoff, p2p_fee_bps, monetary_p2p_min_stake_cents, monetary_p2p_max_stake_cents, call_bs_enabled")
       .eq("id", true)
       .single();
-    if (error || !data) return UNKNOWN_RULES_POLICY;
+    if (error || !data) return { ...UNKNOWN_RULES_POLICY, monetaryEnabled };
 
     const min = asNonNegativeInt(data.monetary_p2p_min_stake_cents);
     const max = asNonNegativeInt(data.monetary_p2p_max_stake_cents);
@@ -41,10 +46,10 @@ export async function getRulesPolicy(): Promise<RulesPolicy> {
       feeBps: asNonNegativeInt(data.p2p_fee_bps),
       minStakeCents: limitsUsable ? min : null,
       maxStakeCents: limitsUsable ? max : null,
-      monetaryEnabled: asBoolean(data.monetary_p2p_enabled),
+      monetaryEnabled,
       callBsEnabled: asBoolean(data.call_bs_enabled),
     };
   } catch {
-    return UNKNOWN_RULES_POLICY;
+    return { ...UNKNOWN_RULES_POLICY, monetaryEnabled };
   }
 }

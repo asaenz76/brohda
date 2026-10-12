@@ -98,12 +98,8 @@ const SECTIONS: readonly SectionDef[] = [
             identification.
           </p>
         ),
-        free: (
-          <p>
-            We do not collect payment card numbers, bank account numbers, payment app login credentials, or government
-            identification.
-          </p>
-        ),
+        // Money is off: nothing about payment cards, bank accounts or payment apps is relevant to what a Member's account holds, so nothing about them is published.
+        free: <p>We do not collect government identification.</p>,
       }),
   },
   {

@@ -1,8 +1,8 @@
 /**
- * Rules, Terms and Privacy in a real browser, with optional money ON and OFF. Money OFF here always has a wallet ledger entry on file (the spec
- * creates one), so the OFF state is the "retained" one: current-feature money copy is gone, the disclosure of the financial records we hold
- * stays. (The "no financial data ever stored" state needs a database with an empty ledger and is covered by tests/unit/legal-money-gating.test.tsx.)
- * It flips the platform_settings singleton, so it runs in its own serial project.
+ * Rules, Terms and Privacy in a real browser, with Member monetary P2P ON and OFF. Money OFF means NO Member-money language on any of the three pages — even though the spec
+ * deliberately puts a wallet ledger entry on file (financial records are kept internally; they have no influence on what is published). The server output itself is checked
+ * (the raw HTML), so there is no flash of money copy that script later hides. It flips the platform_settings singleton live (no deploy, no source edit), so it runs in its own
+ * serial project.
  */
 import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
@@ -42,45 +42,97 @@ test("money ON: Rules, Terms and Privacy describe the optional money layer", asy
   await expect(page.getByText("Money is private to the people involved.")).toBeVisible();
 });
 
-test("money OFF (records on file): no current-feature money copy anywhere, no placeholder — and the financial-records disclosure stays", async ({ page }) => {
+// Targeted phrases that exist ONLY in the Member-money copy. Checked against the RAW server HTML (so nothing money-related is sent to the browser to be hidden).
+const MONEY_MARKERS = [
+  "Retained wallet records",
+  "Financial records we still hold",
+  "Service fee",
+  "Deposits and withdrawals happen outside the App",
+  "Money is private to the people involved",
+  "party to any wager, bet, or contest between members",
+  "optional money Position",
+  "may add funds",
+  "commits part of their wallet balance",
+  "optional money between members",
+  "any dispute over money you sent or received off-platform",
+  "payment app login credentials",
+];
+const html = async (page: import("@playwright/test").Page, path: string) => (await page.request.get(path)).text();
+
+test("money OFF (a wallet ledger entry is on file): no Member-money language on /terms, /rules or /privacy — in the page AND in the raw server HTML — and Call BS reads as free", async ({ page }) => {
   await setMoney(false);
+  for (const path of ["/terms", "/rules", "/privacy"]) {
+    const raw = await html(page, path);
+    for (const marker of MONEY_MARKERS) expect(raw, `${path}: ${marker}`).not.toContain(marker);
+  }
+
   await page.goto("/rules");
   await expect(page.getByRole("heading", { name: "Money", exact: true })).toHaveCount(0);
-  const rules = await page.getByRole("main").innerText().catch(async () => page.locator("body").innerText());
-  expect(rules).not.toMatch(/offer money|money Position|wallet/i);
+  const rules = await page.locator("body").innerText();
+  expect(rules).not.toMatch(/offer money|money Position|wallet|stake|fee\b/i);
+  expect(rules).toContain("Call BS is a free, head-to-head challenge between two people who picked opposite sides of the same Market.");
 
   await page.goto("/terms");
   const terms = await page.locator("body").innerText();
-  await expect(page.getByRole("heading", { name: /Service fee/ })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: /Deposits and withdrawals happen outside the App/ })).toHaveCount(0);
-  expect(terms).not.toMatch(/may add funds|commits part of their wallet balance|platform fee|optional money Position/i);
-  await expect(page.getByRole("heading", { name: "3. Retained wallet records and existing balances" })).toBeVisible();
-  expect(terms).toContain("Where a member still has a balance, a withdrawal is paid by an administrator");
+  await expect(page.getByRole("heading", { name: /Service fee|Deposits and withdrawals|Retained wallet records/ })).toHaveCount(0);
+  expect(terms).not.toMatch(/wallet|wager|bookmaker|gambling|escrow|\bPositions?\b|deposit|withdraw|settle|\bbets?\b|stake/i);
 
   await page.goto("/privacy");
   const privacy = await page.locator("body").innerText();
-  expect(privacy).not.toContain("Money is private to the people involved");
-  await expect(page.getByRole("heading", { name: /Financial records we still hold$/ })).toBeVisible();
-  expect(privacy).toContain("kept as permanent records of the Service's ledger");
-  // The disclosure is confined to its own section: every other Privacy section is free of money copy.
-  const sections = await page.locator("section").evaluateAll((els) => els.map((el) => ({ title: el.querySelector("h2")?.textContent ?? "", text: el.textContent ?? "" })));
-  const mentioning = sections.filter((x) => /wallet|withdraw|ledger|balance|\bPositions?\b/i.test(x.text)).map((x) => x.title.replace(/^\d+\.\s*/, ""));
-  expect(mentioning).toEqual(["Financial records we still hold"]);
+  await expect(page.getByRole("heading", { name: /Financial records we still hold/ })).toHaveCount(0);
+  const memberSections = await page.locator("section").evaluateAll((els) => els.filter((el) => !/Sponsor accounts and sponsorships/.test(el.querySelector("h2")?.textContent ?? "")).map((el) => el.textContent ?? ""));
+  expect(memberSections.join(" ")).not.toMatch(/wallet|withdraw|deposit|ledger|balance|\bPositions?\b|payment app|payout|settle/i);
+  expect(privacy).toContain("Sponsor accounts and sponsorships"); // the Sponsor section is a separate domain and stays
 
   for (const out of [rules, terms, privacy]) expect(out).not.toMatch(/coming soon|money[^.]{0,80}(unavailable|switched off|disabled|paused)/i);
 });
 
-test("the cross-references in the shortened Terms still land on real sections", async ({ page }) => {
+test("LIVE TOGGLE with no deploy: OFF hides the money copy, ON shows the approved money sections, OFF hides it again", async ({ page }) => {
+  const present = async () => {
+    const [terms, rules, privacy] = await Promise.all([html(page, "/terms"), html(page, "/rules"), html(page, "/privacy")]);
+    return { terms: terms.includes("Service fee") && terms.includes("Deposits and withdrawals"), rules: rules.includes("Money") && rules.includes("optional money between members"), privacy: privacy.includes("Money is private to the people involved") };
+  };
+  await setMoney(false);
+  expect(await present()).toEqual({ terms: false, rules: false, privacy: false });
+  await setMoney(true);
+  expect(await present()).toEqual({ terms: true, rules: true, privacy: true });
+  await setMoney(false);
+  expect(await present()).toEqual({ terms: false, rules: false, privacy: false });
+});
+
+test("the Rules <meta> description follows the same state (no stale money text in search/preview metadata)", async ({ page }) => {
+  const description = async () => /<meta name="description" content="([^"]*)"/.exec(await html(page, "/rules"))?.[1] ?? "";
+  await setMoney(false);
+  expect(await description()).not.toMatch(/money/i);
+  await setMoney(true);
+  expect(await description()).toMatch(/optional money between members/);
+  await setMoney(false);
+  expect(await description()).not.toMatch(/money/i);
+});
+
+test("the shortened Terms and Privacy keep consecutive numbering and every cross-reference lands on a real section", async ({ page }) => {
   await setMoney(false);
   await page.goto("/terms");
   const headings = await page.getByRole("heading", { level: 2 }).allInnerTexts();
   expect(headings.map((h) => Number(h.split(".")[0]))).toEqual(headings.map((_, i) => i + 1));
   const termination = headings.findIndex((h) => /Termination$/.test(h)) + 1;
   await expect(page.getByText(`(see Section ${termination})`)).toBeVisible();
+  const body = await page.locator("body").innerText();
+  for (const m of body.matchAll(/Section (\d+)/g)) expect(Number(m[1])).toBeLessThanOrEqual(headings.length);
 
   await page.goto("/privacy");
   const pHeadings = await page.getByRole("heading", { level: 2 }).allInnerTexts();
   expect(pHeadings.map((h) => Number(h.split(".")[0]))).toEqual(pHeadings.map((_, i) => i + 1));
-  const records = pHeadings.findIndex((h) => /Financial records we still hold$/.test(h)) + 1;
-  await expect(page.getByText(`described in Section ${records}.`)).toBeVisible();
+  expect(pHeadings.join("|")).not.toMatch(/Financial records/);
+});
+
+test("Sponsor commercial legal surfaces are unaffected by the Member capability", async ({ page }) => {
+  for (const enabled of [false, true]) {
+    await setMoney(enabled);
+    const terms = await html(page, "/sponsor/terms");
+    expect(terms).toContain("one or more methods, including online through a third-party payment service provider");
+    const privacy = await html(page, "/privacy");
+    expect(privacy).toContain("Sponsor accounts and sponsorships");
+    expect(privacy).toContain("third-party payment service provider");
+  }
 });

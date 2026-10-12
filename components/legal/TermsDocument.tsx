@@ -25,6 +25,18 @@ interface SectionDef {
   body: (ctx: { mode: LegalMoneyMode; ref: Ref }) => ReactNode;
 }
 
+/** The Company's classification statement about Member-vs-Member money. It describes the money layer's legal character, so it appears only where that layer is described. */
+function ClassificationDisclaimer() {
+  return (
+    <p>
+      <strong>
+        The Company is not a bank, money transmitter, payment processor, escrow agent, broker,
+        bookmaker, gambling operator, or party to any wager, bet, or contest between members.
+      </strong>
+    </p>
+  );
+}
+
 const ALL: readonly LegalMoneyMode[] = ["active", "retained", "free"];
 
 const SECTIONS: readonly SectionDef[] = [
@@ -71,12 +83,12 @@ const SECTIONS: readonly SectionDef[] = [
             free: () => null,
           })}
         </p>
-        <p>
-          <strong>
-            The Company is not a bank, money transmitter, payment processor, escrow agent, broker,
-            bookmaker, gambling operator, or party to any wager, bet, or contest between members.
-          </strong>
-        </p>
+        {byMode(mode, {
+          active: <ClassificationDisclaimer />,
+          retained: <ClassificationDisclaimer />,
+          // Owner direction: no Member-money / wager / bet language while Member monetary P2P is off. (Flagged for counsel in docs/legal/TERMS_PRIVACY_OWNER_COUNSEL_REVIEW.md §15.)
+          free: null,
+        })}
       </>
     ),
   },

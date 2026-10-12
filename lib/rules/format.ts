@@ -57,3 +57,8 @@ export function describeStakeLimits(minCents: number | null, maxCents: number | 
   if (minCents === null || maxCents === null || minCents < 0 || maxCents < minCents) return null;
   return `between ${formatDollars(minCents)} and ${formatDollars(maxCents)}`;
 }
+
+/** The Rules page's <meta> description. It mentions money only while the page itself describes it, so the metadata can never advertise a feature the page hides. */
+export function rulesMetaDescription(showsMoney: boolean): string {
+  return `A plain explanation of how Brohda works: Picks, Call BS, results${showsMoney ? ", and optional money between members" : ""}.`;
+}

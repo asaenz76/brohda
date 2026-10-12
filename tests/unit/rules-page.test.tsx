@@ -243,7 +243,9 @@ describe("RulesContent — optional money switched off (a complete free product)
     expect(t).toContain("A Pick is free.");
     expect(t).toContain("Picks lock 10 minutes before kickoff");
     expect(t).toContain("accepting a Call BS locks the Picks involved immediately.");
-    expect(t).toContain("Call BS is a head-to-head challenge between two people who picked opposite sides of the same Market.");
+    // Owner direction (r70): Call BS stays clearly FREE when money is hidden — "free" says it without mentioning money at all.
+    expect(t).toContain("Call BS is a free, head-to-head challenge between two people who picked opposite sides of the same Market.");
+    expect(t).not.toMatch(/involves no money/i);
     expect(t).toContain("Call BS never changes it. Your prediction record comes only from your Picks.");
     expect(t).toContain("Call BS results follow from the Market’s result.");
     expect(t).toContain("A voided Call BS is neither a win nor a loss for either person.");
