@@ -1,3 +1,4 @@
+import { REVIEWABLE_SPONSORSHIP, REVIEWABLE_SPONSOR_STATUS, type ReviewCounts } from "./review-policy";
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sponsorLogoPublicUrl } from "./logo";
@@ -293,6 +294,42 @@ export async function listAllSponsorships(filter: { lifecycle?: SponsorshipLifec
   const { data, error } = await query;
   if (error) throw error;
   return (data ?? []).map(toSponsorship);
+}
+
+// --- the Review queue (what needs a Super Admin decision NOW; the definition lives in ./review-policy) -----------------------------------------------
+
+/** Sponsorship requests awaiting review, oldest submission first. Filtered in the database by the canonical review policy. */
+export async function listSponsorshipsAwaitingReview(limit = 200): Promise<SponsorshipRecord[]> {
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("sponsorships")
+    .select(SPONSORSHIP_SELECT)
+    .eq("lifecycle", REVIEWABLE_SPONSORSHIP.lifecycle)
+    .eq("review_status", REVIEWABLE_SPONSORSHIP.reviewStatus)
+    .order("submitted_at", { ascending: true, nullsFirst: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data ?? []).map(toSponsorship);
+}
+
+/** Sponsor account applications awaiting review, oldest first. */
+export async function listSponsorApplicationsAwaitingReview(limit = 200): Promise<SponsorRecord[]> {
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("sponsors").select("*").eq("status", REVIEWABLE_SPONSOR_STATUS).order("created_at", { ascending: true }).limit(limit);
+  if (error) throw error;
+  return (data ?? []).map(toSponsor);
+}
+
+/** The number on the Review queue tab: exactly the reviewable objects above, counted by the same filters. */
+export async function countReviewItems(): Promise<ReviewCounts> {
+  const admin = createAdminClient();
+  const [sponsors, sponsorships] = await Promise.all([
+    admin.from("sponsors").select("id", { count: "exact", head: true }).eq("status", REVIEWABLE_SPONSOR_STATUS),
+    admin.from("sponsorships").select("id", { count: "exact", head: true }).eq("lifecycle", REVIEWABLE_SPONSORSHIP.lifecycle).eq("review_status", REVIEWABLE_SPONSORSHIP.reviewStatus),
+  ]);
+  const sponsorApplications = sponsors.count ?? 0;
+  const requests = sponsorships.count ?? 0;
+  return { sponsorApplications, sponsorships: requests, total: sponsorApplications + requests };
 }
 
 export async function getSponsorshipForAdmin(id: string): Promise<SponsorshipRecord | null> {

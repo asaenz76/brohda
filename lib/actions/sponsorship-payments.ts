@@ -126,6 +126,7 @@ export async function setOnlinePaymentConfigAction(_prev: AdminPaymentResult | n
   if (enabled && !isRegisteredProvider(choice)) return { success: false, error: "That provider isn't installed in this deployment." };
   const { error } = await createAdminClient().rpc("admin_set_online_payment_config", { p_admin_id: admin.id, p_enabled: enabled, p_provider: enabled ? choice : null });
   if (error) return { success: false, error: "Couldn't save the online payment setting." };
+  revalidatePath("/admin/settings/brohda"); // where the control lives (Settings → Brohda → Sponsorship)
   revalidatePath("/admin/sponsorship");
   return { success: true, error: null, message: enabled ? "Online payments are on." : "Online payments are off." };
 }

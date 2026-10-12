@@ -15,7 +15,7 @@ const HOUR = 3_600_000;
 
 test.describe.configure({ mode: "serial" });
 
-async function createUser(label: string, role: "player" | "super_admin" = "player") {
+async function createUser(label: string, role: "player" | "admin" | "super_admin" = "player") {
   const email = `e2e-spons-${label}-${randomUUID()}@test.local`;
   const { data, error } = await admin.auth.admin.createUser({ email, password: PASSWORD, email_confirm: true });
   if (error || !data.user) throw error ?? new Error("failed to create user");
@@ -529,9 +529,9 @@ test.describe("ONVO TEST payments", () => {
       await page.goto("/feed");
       await expect(page.locator("article").filter({ hasText: c.game.home }).locator('[data-slot="sponsored-label"]')).toHaveCount(0);
 
-      // Super Admin sees the payment (TEST) and the provider status, then approves; only now does it run.
+      // Super Admin sees the payment (TEST) and the provider status (now in Settings → Brohda), then approves; only now does it run.
       await loginAs(page, c.superUser.email);
-      await page.goto("/admin/sponsorship");
+      await page.goto("/admin/settings/brohda");
       const card = page.locator('[data-slot="online-payments-status"]');
       await expect(card.locator('[data-slot="online-payments-state"]')).toHaveText("Enabled");
       await expect(card.locator('[data-slot="provider-environment"]')).toHaveText("TEST");
@@ -587,7 +587,7 @@ test.describe("ONVO TEST payments", () => {
     const c = await unpaidCampaign(24, "Onvocfg");
     try {
       await loginAs(page, c.superUser.email);
-      await page.goto("/admin/sponsorship");
+      await page.goto("/admin/settings/brohda");
       const card = page.locator('[data-slot="online-payments-status"]');
       const select = card.getByLabel("Provider for new payments");
       expect(await select.locator("option").allInnerTexts()).toEqual(["Disabled", "ONVO"]); // only what this deployment has installed
@@ -602,7 +602,7 @@ test.describe("ONVO TEST payments", () => {
       await expect(page.getByRole("button", { name: "Pay now" })).toHaveCount(0);
 
       await loginAs(page, c.superUser.email);
-      await page.goto("/admin/sponsorship");
+      await page.goto("/admin/settings/brohda");
       await card.getByLabel("Provider for new payments").selectOption("ONVO");
       await card.getByRole("button", { name: "Save" }).click();
       await expect(card.getByRole("status")).toHaveText("Online payments are on.");
@@ -788,18 +788,88 @@ test("the Sponsor's form says the destination link is optional, shows which webs
   }
 });
 
-test("Super Admin sees where each Sponsor legal text stands — read-only, no legal text, and no provider branding", async ({ page }) => {
+test("the Review queue holds ONLY review work: pending requests and applications appear; reviewed, live and cancelled items and every settings/status/payment/legal card do not — and the tab counts exactly the reviewable items", async ({ page }) => {
+  const pending = await unpaidCampaign(24, "Rqpending"); // SUBMITTED, review PENDING: needs a decision
+  const live = await paidCampaign(24, "Rqlive"); // paid AND approved: not review work
+  const applicant = await createSponsorLogin(`Rqapplicant ${randomUUID().slice(0, 6)}`, "PENDING_REVIEW"); // an application awaiting review
+  try {
+    await loginAs(page, pending.superUser.email);
+    await page.goto("/admin/sponsorship");
+
+    await expect(page.locator(`[data-sponsorship-id="${pending.sponsorshipId}"]`)).toBeVisible();
+    await expect(page.locator(`[data-sponsor-id="${applicant.sponsorId}"]`)).toBeVisible();
+    await expect(page.locator(`[data-sponsorship-id="${live.sponsorshipId}"]`)).toHaveCount(0); // approved + paid: not a review item
+
+    // No configuration or status anywhere on the page.
+    for (const slot of ["online-payments-status", "legal-status", "refund-policy", "online-payments-form"]) await expect(page.locator(`[data-slot="${slot}"]`)).toHaveCount(0);
+    await expect(page.getByLabel("Provider for new payments")).toHaveCount(0);
+    const body = await page.locator("main").innerText().catch(async () => page.locator("body").innerText());
+    expect(body).not.toMatch(/Sponsored Game Posts is|Online sponsorship payments|Provider for new payments|Sponsor Terms|Media and Advertising Agreement|refund cutoff|Sponsorship refund policy/i);
+
+    // The tab count is the number of reviewable objects (at least these two), never anything else.
+    const tab = page.getByRole("navigation", { name: "Sponsorship" }).getByRole("link", { name: /^Review queue/ });
+    const n = Number(/\((\d+)\)/.exec((await tab.innerText()) ?? "")?.[1] ?? "0");
+    expect(n).toBeGreaterThanOrEqual(2);
+    const rows = await page.locator("[data-sponsorship-id], [data-sponsor-id]").count();
+    expect(rows).toBe(n);
+
+    // The reviewed / live campaign is one click away on the Campaigns tab, not in the queue.
+    await page.getByRole("link", { name: "Campaigns", exact: true }).click();
+    await expect(page.locator(`[data-sponsorship-id="${live.sponsorshipId}"]`)).toBeVisible();
+    await expect(page.locator(`[data-sponsorship-id="${pending.sponsorshipId}"]`)).toHaveCount(0);
+  } finally {
+    await setEnabled(false);
+    await admin.from("sponsors").update({ status: "DISABLED" }).eq("id", applicant.sponsorId); // keep the shared queue clean for later runs
+    await cleanup(pending.game);
+    await cleanup(live.game);
+  }
+});
+
+test("every moved control is in Settings → Brohda — Sponsored Game Posts, online payments and the provider selector, the refund policy and the legal status — exactly once, and an ordinary admin can open neither it nor the queue", async ({ page }) => {
+  const superUser = await createUser("setmoved", "super_admin");
+  const ordinary = await createUser("ordadmin", "admin");
+  try {
+    await loginAs(page, superUser.email);
+    await page.goto("/admin/settings/brohda");
+    await expect(page.getByRole("switch", { name: "Sponsored Game Posts" })).toBeVisible();
+    await expect(page.locator('[data-slot="online-payments-status"]')).toHaveCount(1);
+    await expect(page.getByLabel("Provider for new payments")).toHaveCount(1); // ONE selector
+    await expect(page.locator('[data-slot="refund-policy"]')).toHaveCount(1);
+    await expect(page.locator('[data-slot="legal-status"]')).toHaveCount(1);
+    await expect(page.locator("#sponsorship")).toBeVisible();
+    // The Sponsorship tabs link to the settings but render none of them.
+    await page.goto("/admin/sponsorship/inventory");
+    await expect(page.getByLabel("Provider for new payments")).toHaveCount(0);
+    await expect(page.locator('[data-slot="sponsorship-settings-link"]')).toHaveAttribute("href", "/admin/settings/brohda#sponsorship");
+
+    // Super Admin-only stays Super Admin-only: an ordinary admin is turned away from both pages and sees none of the controls.
+    await loginAs(page, ordinary.email);
+    for (const path of ["/admin/settings/brohda", "/admin/sponsorship"]) {
+      await page.goto(path);
+      await expect(page).not.toHaveURL(new RegExp(`${path}$`));
+      await expect(page.getByLabel("Provider for new payments")).toHaveCount(0);
+      await expect(page.locator('[data-slot="legal-status"]')).toHaveCount(0);
+    }
+  } finally {
+    await admin.auth.admin.deleteUser(superUser.id);
+    await admin.auth.admin.deleteUser(ordinary.id);
+  }
+});
+
+test("Settings → Brohda shows where each Sponsor legal text stands and the global refund cutoff — read-only, no legal text, and no provider branding", async ({ page }) => {
   const superUser = await createUser("legalstatus", "super_admin");
   try {
     await loginAs(page, superUser.email);
-    await page.goto("/admin/sponsorship");
+    await page.goto("/admin/settings/brohda");
     const card = page.locator('[data-slot="legal-status"]');
     await expect(card.locator('[data-slot="legal-terms"]')).toHaveText("Draft · version DRAFT-1 · no effective date");
     await expect(card.locator('[data-slot="legal-agreement"]')).toHaveText("Draft · version DRAFT-1 · no effective date");
     await expect(card.locator('[data-slot="legal-privacy-sponsor"]')).toHaveText("Draft");
     await expect(card.locator('[data-slot="legal-privacy"]')).toContainText("version");
-    await expect(card.locator('[data-slot="legal-refund-cutoff"]')).toContainText("hours before kickoff");
-    await expect(card.locator('[data-slot="legal-policy-mismatch"]')).toHaveCount(0);
+    const policy = page.locator('[data-slot="refund-policy"]');
+    await expect(policy.locator('[data-slot="policy-refund-cutoff"]')).toContainText("hours before kickoff");
+    await expect(policy.locator('[data-slot="policy-mismatch"]')).toHaveCount(0);
+    await expect(policy).toContainText("not here"); // global policy; a sponsorship's own eligibility is on its page
     await expect(card.getByRole("button")).toHaveCount(0); // read-only: legal versions are code-reviewed, not edited here
     expect(await card.innerText()).not.toMatch(/onvo|stripe|paypal/i);
   } finally {
