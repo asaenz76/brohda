@@ -62,3 +62,52 @@ export const PAYMENT_STATUS_LABEL: Record<SponsorshipPaymentStatus, string> = {
 /** Which states a sponsor may still edit in (kept in step with the database rule in sponsor_update_sponsorship). */
 export const sponsorCanEdit = (s: { lifecycle: SponsorshipLifecycle; reviewStatus: SponsorshipReviewStatus }): boolean =>
   s.lifecycle === "DRAFT" || (s.lifecycle === "SUBMITTED" && s.reviewStatus === "CHANGES_REQUESTED");
+
+/** The Sponsor-facing word for where Brohda's review stands (separate from payment: payment never approves). */
+export const APPROVAL_STATUS_LABEL: Record<string, string> = {
+  PENDING: "Awaiting review",
+  APPROVED: "Approved",
+  CHANGES_REQUESTED: "Changes requested",
+  REJECTED: "Not approved",
+};
+
+/** What a Sponsor reads for where payment stands — said truthfully: payment alone never approves or schedules anything. */
+export function paymentHeadline(p: { paymentStatus: string; lifecycle: string; reviewStatus: string; openAttempt: boolean }): string {
+  switch (p.paymentStatus) {
+    case "PAID":
+      if (p.lifecycle === "LIVE") return "Payment received. Your sponsorship is live.";
+      if (p.lifecycle === "SCHEDULED") return "Payment received. Your sponsorship is approved and scheduled.";
+      if (p.reviewStatus === "APPROVED") return "Payment received. Your sponsorship is approved.";
+      return "Payment received. Your sponsorship is awaiting Brohda approval.";
+    case "FAILED":
+      return "Payment failed — you can try again.";
+    case "REFUND_PENDING":
+      return "Refund pending.";
+    case "REFUNDED":
+      return "Refunded.";
+    case "CANCELLED":
+      return "Payment cancelled.";
+    default:
+      return p.openAttempt ? "Payment pending." : "Awaiting payment.";
+  }
+}
+
+/** The one-word status shown beside the amount. A submitted sponsorship with no open attempt is simply Unpaid. */
+export function paymentStateLabel(paymentStatus: string, openAttempt: boolean): string {
+  switch (paymentStatus) {
+    case "PAID":
+      return "Paid";
+    case "FAILED":
+      return "Failed";
+    case "REFUND_PENDING":
+      return "Refund pending";
+    case "REFUNDED":
+      return "Refunded";
+    case "CANCELLED":
+      return "Cancelled";
+    case "PENDING":
+      return openAttempt ? "Pending" : "Unpaid";
+    default:
+      return "Unpaid";
+  }
+}

@@ -9,7 +9,8 @@ import { SponsorshipError } from "@/lib/sponsorship/errors";
 import { draftToDbFields, promotionProblems, sponsorshipDraftSchema, type SponsorshipDraftInput } from "@/lib/sponsorship/validation";
 import { notifySponsorAccount } from "@/lib/sponsorship/notify";
 import { CURRENT_MEDIA_AGREEMENT, CURRENT_SPONSOR_TERMS } from "@/lib/sponsor/terms";
-import { legalRequirementCopy, sponsorCommercialLegalStatus } from "@/lib/sponsor/commercial-legal-gate";
+import { sponsorCommercialLegalStatus } from "@/lib/sponsor/commercial-legal-gate";
+import { legalRequirementCopy } from "@/lib/sponsor/legal-copy";
 import { evaluateSponsorshipRefundEligibility, getCancellationRecord } from "@/lib/sponsorship/refund-evaluation";
 
 // Sponsor-facing actions. The caller is only ever "a signed-in user": ownership, the Sponsor being ACTIVE and the capability being ON are all re-checked

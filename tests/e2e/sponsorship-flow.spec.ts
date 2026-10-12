@@ -457,9 +457,18 @@ test.describe("ONVO TEST payments", () => {
     const c = await unpaidCampaign(24, "Onvo");
     try {
       await loginAsSponsor(page, c.sponsor.email);
-      await page.goto(`/sponsor/${c.sponsorshipId}`);
+      // The dashboard shows the commercial state of the Sponsor's own sponsorship and a Pay now action (it opens the sponsorship, where the legal gate and the button live).
+      const dashRow = page.locator('[data-slot="sponsorship-row"]').filter({ hasText: c.game.home });
+      await expect(dashRow.locator('[data-slot="row-amount"]')).toHaveText("$900.00");
+      await expect(dashRow.locator('[data-slot="row-payment"]')).toHaveText("Unpaid");
+      await expect(dashRow.locator('[data-slot="row-approval"]')).toHaveText("Awaiting review");
+      await expect(dashRow).toContainText("Window:");
+      await dashRow.locator('[data-slot="row-pay-now"]').click();
+      await expect(page).toHaveURL(new RegExp(`/sponsor/${c.sponsorshipId}$`));
       const panel = page.locator('[data-slot="sponsor-payment"]');
       await expect(panel).toContainText("$900.00");
+      await expect(panel.locator('[data-slot="payment-currency"]')).toHaveText("USD");
+      await expect(panel.locator('[data-slot="payment-state"]')).toHaveText("Unpaid");
       expect(await panel.innerText()).not.toMatch(/onvo/i); // a Sponsor never sees a provider brand
       await expect(panel.locator('[data-slot="payment-status"]')).toHaveText("Awaiting payment.");
       // The browser tries to smuggle in a different amount: there is no amount field, and anything added is ignored.
@@ -479,9 +488,11 @@ test.describe("ONVO TEST payments", () => {
       expect(create.body).toMatchObject({ lineItems: [{ quantity: 1, unitAmount: 90000, currency: "USD" }] });
       expect(JSON.stringify(create.body)).not.toContain(ONVO_KEY);
 
-      // Coming back is NOT payment: nothing is paid yet, and the page says so.
+      // Coming back is NOT payment: the Sponsor lands back on THEIR SPONSORSHIP, nothing is paid yet, and the page says so.
       await page.goto(`/sponsor/${c.sponsorshipId}/payment/return?result=success`);
-      await expect(page.locator('[data-slot="payment-return-status"]')).toHaveText("Payment pending.");
+      await expect(page).toHaveURL(new RegExp(`/sponsor/${c.sponsorshipId}$`));
+      await expect(page.locator('[data-slot="payment-status"]')).toHaveText("Payment pending.");
+      await expect(page.locator('[data-slot="payment-state"]')).toHaveText("Pending");
       expect((await admin.from("sponsorships").select("payment_status").eq("id", c.sponsorshipId).single()).data!.payment_status).toBe("PENDING");
 
       // A webhook without the secret (or with a wrong one) is refused and changes nothing.
@@ -502,10 +513,15 @@ test.describe("ONVO TEST payments", () => {
       expect((await admin.from("sponsorship_payment_events").select("id").eq("sponsorship_id", c.sponsorshipId).eq("event_type", "PAID")).data).toHaveLength(1);
 
       await page.goto(`/sponsor/${c.sponsorshipId}/payment/return?result=success`);
-      await expect(page.locator('[data-slot="payment-return-status"]')).toHaveText("Payment received.");
-      await expect(page.getByText(/still awaiting Brohda approval/)).toBeVisible();
-      await page.goto(`/sponsor/${c.sponsorshipId}`);
-      await expect(page.locator('[data-slot="sponsor-payment"]')).toHaveCount(0); // nothing left to pay
+      await expect(page).toHaveURL(new RegExp(`/sponsor/${c.sponsorshipId}$`));
+      await expect(page.locator('[data-slot="payment-state"]')).toHaveText("Paid");
+      await expect(page.locator('[data-slot="payment-status"]')).toHaveText("Payment received. Your sponsorship is awaiting Brohda approval.");
+      await expect(page.getByRole("button", { name: "Pay now" })).toHaveCount(0); // nothing left to pay — and still not approved
+      await page.goto("/sponsor");
+      const paidRow = page.locator('[data-slot="sponsorship-row"]').filter({ hasText: c.game.home });
+      await expect(paidRow.locator('[data-slot="row-payment"]')).toHaveText("Paid");
+      await expect(paidRow.locator('[data-slot="row-approval"]')).toHaveText("Awaiting review");
+      await expect(paidRow.locator('[data-slot="row-pay-now"]')).toHaveCount(0);
 
       // PAID is not live: members see nothing sponsored until Super Admin approves.
       const viewer = await createUser("onvoviewer");
@@ -600,6 +616,36 @@ test.describe("ONVO TEST payments", () => {
         { before: { enabled: false, provider: null }, after: { enabled: true, provider: "ONVO" } },
       ]);
     } finally {
+      await setEnabled(false);
+      await cleanup(c.game);
+    }
+  });
+
+  test("manual fallback: with online payments off the Sponsor sees no Pay now but can open the manual payment instructions, and Super Admin can still mark payment received — which never approves", async ({ page }) => {
+    const c = await unpaidCampaign(24, "Onvomanual");
+    const INSTRUCTIONS = "Transfer to the Brohda account and use your campaign name as the reference.";
+    await admin.from("platform_settings").update({ sponsorship_online_payments_enabled: false, sponsorship_payment_instructions: INSTRUCTIONS }).eq("id", true);
+    try {
+      await loginAsSponsor(page, c.sponsor.email);
+      await expect(page.locator('[data-slot="sponsorship-row"]').filter({ hasText: c.game.home }).locator('[data-slot="row-pay-now"]')).toHaveCount(0);
+      await page.goto(`/sponsor/${c.sponsorshipId}`);
+      await expect(page.getByRole("button", { name: "Pay now" })).toHaveCount(0);
+      await expect(page.locator('[data-slot="online-unavailable"]')).toHaveText("Online payment isn't available right now.");
+      const manual = page.locator('[data-slot="manual-instructions"]');
+      await manual.locator("summary").click();
+      await expect(manual).toContainText(INSTRUCTIONS);
+
+      await loginAs(page, c.superUser.email);
+      await page.goto(`/admin/sponsorship/${c.sponsorshipId}`);
+      await page.getByLabel("Payment reference").fill("INV-MANUAL");
+      await page.getByRole("button", { name: "Mark payment received" }).click();
+      await expect.poll(async () => (await admin.from("sponsorships").select("payment_status, review_status").eq("id", c.sponsorshipId).single()).data).toEqual({ payment_status: "PAID", review_status: "PENDING" });
+
+      await loginAsSponsor(page, c.sponsor.email);
+      await page.goto(`/sponsor/${c.sponsorshipId}`);
+      await expect(page.locator('[data-slot="payment-status"]')).toHaveText("Payment received. Your sponsorship is awaiting Brohda approval.");
+    } finally {
+      await admin.from("platform_settings").update({ sponsorship_online_payments_enabled: true, sponsorship_payment_instructions: "" }).eq("id", true);
       await setEnabled(false);
       await cleanup(c.game);
     }

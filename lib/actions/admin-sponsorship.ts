@@ -79,7 +79,7 @@ export async function markSponsorshipPaidAction(id: string, reference: string, n
 export async function recordPaymentEventAction(id: string, event: string, reference: string, note: string, idempotencyKey: string): Promise<AdminSponsorshipResult> {
   const admin = await requireSuperAdmin();
   if (!idSchema.safeParse(id).success) return { success: false, error: "Sponsorship not found." };
-  return run(id, "admin_record_sponsorship_payment_event", { p_admin_id: admin.id, p_id: id, p_event: event, p_reference: reference.slice(0, 200), p_note: note.slice(0, 1000), p_idempotency_key: idempotencyKey || `pay-event:${id}:${randomUUID()}` });
+  return run(id, "admin_record_sponsorship_payment_event", { p_admin_id: admin.id, p_id: id, p_event: event, p_reference: reference.slice(0, 200), p_note: note.slice(0, 1000), p_idempotency_key: idempotencyKey || `pay-event:${id}:${randomUUID()}` }, event === "REFUNDED" ? { subject: "Refund completed", lines: ["Brohda recorded a refund of your sponsorship payment.", "It can take a little while to appear with your bank or card issuer."] } : undefined);
 }
 
 export async function approveSponsorshipAction(id: string, expectedRevision: number, expectedDestination?: string): Promise<AdminSponsorshipResult> {
