@@ -2,16 +2,24 @@ import type { Metadata } from "next";
 import { BookOpen } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getRulesPolicy } from "@/lib/rules/policy";
+import { rulesMetaDescription } from "@/lib/rules/format";
+import { loadLegalMoneyMode } from "@/lib/legal/money-mode-loader";
+import { showsMemberMoney } from "@/lib/legal/money-mode";
 import { RulesContent } from "@/components/rules/RulesContent";
 import { AuthenticatedPage } from "@/components/shell/AuthenticatedPage";
 import { PublicPageFrame } from "@/components/shell/PublicPageFrame";
 import { publicAccountNav } from "@/components/shell/PublicAccountNav";
 import { ColumnHeader } from "@/components/shell/ColumnHeader";
 
-export const metadata: Metadata = {
-  title: "Brohda Rules",
-  description: "A plain explanation of how Brohda works: Picks, Call BS, results, and optional money between members.",
-};
+// The description follows the same decision as the page body (lib/legal/money-mode.ts): it only mentions money while Member money is shown, so the <meta> text can
+// never describe a feature the page itself hides.
+export async function generateMetadata(): Promise<Metadata> {
+  const money = showsMemberMoney(await loadLegalMoneyMode());
+  return {
+    title: "Brohda Rules",
+    description: rulesMetaDescription(money),
+  };
+}
 
 // Read live on every request: the cutoff, fee and stake limits quoted on the
 // page come from the platform settings, and a prerendered copy would go stale.

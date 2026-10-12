@@ -98,7 +98,7 @@ export function RulesContent({ policy }: { policy: RulesPolicy }) {
           <li>
             {money
               ? "Call BS is a free, head-to-head challenge between two people who picked opposite sides of the same Market. It involves no money."
-              : "Call BS is a head-to-head challenge between two people who picked opposite sides of the same Market."}
+              : "Call BS is a free, head-to-head challenge between two people who picked opposite sides of the same Market."}
           </li>
           <li>Sending a Call BS doesn&apos;t lock either Pick. If either of you changes your Pick before it&apos;s accepted, it can no longer be accepted.</li>
           <li>You can have several Call BS waiting at once, and the other person decides whether to accept. It has to be accepted before the cutoff.</li>
