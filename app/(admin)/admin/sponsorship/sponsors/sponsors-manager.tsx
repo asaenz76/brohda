@@ -81,7 +81,7 @@ function SponsorCard({ sponsor, logoMaxKb }: { sponsor: SponsorRow; logoMaxKb: n
   }
 
   return (
-    <li className="space-y-3 rounded-lg border border-border-subtle p-3" data-sponsor-id={sponsor.id}>
+    <li id={`sponsor-${sponsor.id}`} className="scroll-mt-4 space-y-3 rounded-lg border border-border-subtle p-3" data-sponsor-id={sponsor.id}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           {sponsor.logoUrl ? (

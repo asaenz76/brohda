@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { requireSuperAdmin } from "@/lib/auth/session";
 import { getBrohdaSettings } from "@/lib/admin-settings/repository";
+import { LegalStatusCard } from "@/components/sponsorship/LegalStatusCard";
+import { OnlinePaymentsCard } from "@/components/sponsorship/OnlinePaymentsCard";
+import { RefundPolicyCard } from "@/components/sponsorship/RefundPolicyCard";
 import {
   PredictionSettingsSection,
   NotificationSettingsSection,
@@ -32,7 +35,7 @@ export default async function BrohdaSettingsPage() {
         <div>
           <h1 className="text-lg font-semibold text-text-primary">Brohda Settings</h1>
           <p className="text-sm text-text-muted">
-            Product and operational policy for Predictions, Markets, Communities, Conversation, Call BS, Monetary P2P, Reputation, and Operations.
+            Product and operational policy for Predictions, Markets, Communities, Conversation, Call BS, Monetary P2P, Reputation, Operations, and Sponsorship.
             {settings.updatedByDisplayName ? ` Last changed by ${settings.updatedByDisplayName} on ${new Date(settings.updatedAt).toLocaleString()}.` : ""}
           </p>
         </div>
@@ -50,7 +53,17 @@ export default async function BrohdaSettingsPage() {
       <MonetarySettingsSection initial={settings.monetary} updatedAt={settings.updatedAt} />
       <ReputationSettingsSection initial={settings.reputation} updatedAt={settings.updatedAt} />
       <OperationsSettingsSection initial={settings.operations} updatedAt={settings.updatedAt} />
-      <SponsorshipSettingsSection initial={settings.sponsorship} updatedAt={settings.updatedAt} />
+      {/* ONE place for every global Sponsorship setting: capability and defaults (above), then payments, refund policy and legal status. None of it is review work — the Review queue
+          in Admin → Sponsorship shows only what awaits a decision. */}
+      <div id="sponsorship" className="scroll-mt-4 space-y-3">
+        <SponsorshipSettingsSection initial={settings.sponsorship} updatedAt={settings.updatedAt} />
+        <div className="space-y-3" data-slot="sponsorship-more-settings">
+          <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Sponsorship payments, policy and legal</p>
+          <OnlinePaymentsCard />
+          <RefundPolicyCard />
+          <LegalStatusCard />
+        </div>
+      </div>
     </div>
   );
 }
