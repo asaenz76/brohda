@@ -32,6 +32,7 @@ const TRANSIENT_TABLES = [
   "sponsorships",
   "sponsorship_inventory",
   "sponsor_terms_acceptances",
+  "sponsor_admin_hidden",
   "sponsor_accounts",
   "sponsors",
   "notifications",

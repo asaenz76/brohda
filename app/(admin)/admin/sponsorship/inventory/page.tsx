@@ -17,7 +17,7 @@ export default async function SponsorshipInventoryPage() {
   const [config, inventory, sponsorList, postsResult] = await Promise.all([
     getSponsorshipConfig(),
     listAllInventory(),
-    listSponsors(),
+    listSponsors({ visibility: "all" }), // assignment depends on a Sponsor being ACTIVE, not on whether it is hidden from the Sponsors list
     admin
       .from("posts")
       .select("id, fixture_id, fixtures!inner(home_team_name, away_team_name, competition_name, scheduled_start_utc, internal_status)")

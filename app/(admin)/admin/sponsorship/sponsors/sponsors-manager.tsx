@@ -5,7 +5,7 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { createSponsorAction, setSponsorStatusAction } from "@/lib/actions/admin-sponsorship";
+import { createSponsorAction, setSponsorHiddenAction, setSponsorStatusAction } from "@/lib/actions/admin-sponsorship";
 
 interface SponsorRow {
   id: string;
@@ -23,6 +23,8 @@ interface SponsorRow {
   logoUrl: string | null;
   /** The sponsor's one login; null for an organization Super Admin recorded by hand. */
   login: { email: string | null; emailVerified: boolean } | null;
+  /** When this Sponsor was hidden from the normal list (admin-only; independent of status), or null. */
+  hiddenAt: string | null;
 }
 type Note = { ok: boolean; text: string } | null;
 
@@ -51,6 +53,8 @@ function SponsorCard({ sponsor, logoMaxKb }: { sponsor: SponsorRow; logoMaxKb: n
   const [pending, startTransition] = useTransition();
   const [logoNote, setLogoNote] = useState<Note>(null);
   const [statusNote, setStatusNote] = useState<Note>(null);
+  const [visNote, setVisNote] = useState<Note>(null);
+  const [confirmingHide, setConfirmingHide] = useState(false);
   const [reason, setReason] = useState("");
   const [internalNote, setInternalNote] = useState(sponsor.internalReviewNote ?? "");
   const [file, setFile] = useState<File | null>(null);
@@ -98,6 +102,11 @@ function SponsorCard({ sponsor, logoMaxKb }: { sponsor: SponsorRow; logoMaxKb: n
         <span data-slot="sponsor-account-status" className="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-text-primary">
           {STATUS_LABEL[sponsor.status] ?? sponsor.status}
         </span>
+        {sponsor.hiddenAt && (
+          <span data-slot="sponsor-hidden-badge" className="rounded-full border border-border-subtle px-2 py-0.5 text-xs font-medium text-text-muted">
+            Hidden
+          </span>
+        )}
       </div>
       <dl className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
         <div><dt className="inline text-text-muted">Sign-in email: </dt><dd className="inline text-text-primary">{sponsor.login ? `${sponsor.login.email ?? "—"} (${sponsor.login.emailVerified ? "verified" : "not verified"})` : "No login — managed by Brohda"}</dd></div>
@@ -142,6 +151,59 @@ function SponsorCard({ sponsor, logoMaxKb }: { sponsor: SponsorRow; logoMaxKb: n
       </section>
       <Feedback note={statusNote} />
 
+      <section aria-label={`List visibility for ${sponsor.displayName}`} className="space-y-2" data-slot="sponsor-visibility">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-text-muted">Visibility in this list</h3>
+        {sponsor.hiddenAt ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs text-text-secondary">Hidden from the normal Sponsors list. Its account status ({STATUS_LABEL[sponsor.status] ?? sponsor.status}) is unchanged.</p>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={pending}
+              onClick={() =>
+                startTransition(async () => {
+                  const r = await setSponsorHiddenAction(sponsor.id, false);
+                  setVisNote({ ok: r.success, text: r.success ? "Sponsor is visible again." : (r.error ?? "Could not unhide.") });
+                  if (r.success) router.refresh();
+                })
+              }
+            >
+              Unhide sponsor
+            </Button>
+          </div>
+        ) : confirmingHide ? (
+          <div role="alertdialog" aria-label={`Hide ${sponsor.displayName}`} className="space-y-2 rounded-md border border-border-subtle p-3" data-slot="hide-confirm">
+            <p className="text-sm font-medium text-text-primary">Hide this Sponsor from the normal Sponsors list?</p>
+            <p className="text-xs text-text-secondary">This does not delete the Sponsor or change its account status.</p>
+            {sponsor.status === "ACTIVE" && <p className="text-xs text-text-secondary">It is ACTIVE and stays ACTIVE: it can still sign in and operate, and its campaigns are unaffected. Hiding only affects this admin list.</p>}
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                disabled={pending}
+                onClick={() =>
+                  startTransition(async () => {
+                    const r = await setSponsorHiddenAction(sponsor.id, true);
+                    setVisNote({ ok: r.success, text: r.success ? "Sponsor hidden." : (r.error ?? "Could not hide.") });
+                    setConfirmingHide(false);
+                    if (r.success) router.refresh();
+                  })
+                }
+              >
+                Hide
+              </Button>
+              <Button type="button" variant="outline" disabled={pending} onClick={() => setConfirmingHide(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button type="button" variant="outline" disabled={pending} onClick={() => setConfirmingHide(true)}>
+            Hide sponsor
+          </Button>
+        )}
+        <Feedback note={visNote} />
+      </section>
+
       <section aria-label={`Logo for ${sponsor.displayName}`} className="space-y-1">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-text-muted">Logo</h3>
         <div className="flex flex-wrap items-center gap-2">
@@ -161,7 +223,7 @@ function SponsorCard({ sponsor, logoMaxKb }: { sponsor: SponsorRow; logoMaxKb: n
   );
 }
 
-export function SponsorsManager({ sponsors, logoMaxKb }: { sponsors: SponsorRow[]; logoMaxKb: number }) {
+export function SponsorsManager({ sponsors, logoMaxKb, emptyText = "No sponsors yet." }: { sponsors: SponsorRow[]; logoMaxKb: number; emptyText?: string }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [note, setNote] = useState<Note>(null);
@@ -205,7 +267,7 @@ export function SponsorsManager({ sponsors, logoMaxKb }: { sponsors: SponsorRow[
         <Feedback note={note} />
       </form>
       {sponsors.length === 0 ? (
-        <p className="text-sm text-text-muted">No sponsors yet.</p>
+        <p className="text-sm text-text-muted" data-slot="no-sponsors">{emptyText}</p>
       ) : (
         <ul className="space-y-3">
           {sponsors.map((s) => (
