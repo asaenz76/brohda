@@ -17,6 +17,8 @@ import { displayedPrice, formatCommercialAmount, PAYMENT_STATUS_LABEL, sponsorCa
 import { SponsorshipEditor, type EditorValues } from "@/components/sponsorship/SponsorshipEditor";
 import { SponsorPaymentPanel } from "@/components/sponsorship/SponsorPaymentPanel";
 import { getSponsorPaymentView } from "@/lib/payments/views";
+import { getSponsorCampaignResults } from "@/lib/sponsor-intelligence/service";
+import { SponsorResultsCard } from "@/components/sponsor-intelligence/SponsorResultsCard";
 
 // One sponsorship, for a member of the sponsor that owns it (anyone else gets not-found, indistinguishable from a missing one). The sponsor sees status,
 // the price Brohda set, and payment state — it can edit while editable, submit, and cancel before money. It can never approve, price, mark paid or activate.
@@ -37,6 +39,8 @@ export default async function SponsorshipDetailPage({ params, searchParams }: { 
   // Whether starting a payment would be accepted right now — the same canonical check the dashboard uses. Pay now is shown only when it is PAY_NOW.
   const eligibility = await sponsorPaymentEligibility({ userId: session.userId, sponsorStatus: session.sponsor.status, capabilityEnabled: enabled, sponsorship: { id: s.id, lifecycle: s.lifecycle, paymentStatus: s.paymentStatus } });
   const paymentView = s.lifecycle === "DRAFT" ? null : await getSponsorPaymentView(id);
+  // Campaign results: nothing at all unless Super Admin has switched Sponsor Intelligence on, and then only aggregate, small-cohort-suppressed figures for THIS Sponsor's own campaign.
+  const results = await getSponsorCampaignResults(session.userId, id).catch(() => ({ state: "off" as const }));
   // The owner-provided manual payment instructions (Settings → Sponsorship): offered while a payment is still owed, beside — never instead of — online payment.
   const manualInstructions = s.lifecycle === "SUBMITTED" && !["PAID", "REFUND_PENDING", "REFUNDED"].includes(s.paymentStatus) && config.paymentInstructions.trim() ? config.paymentInstructions.trim() : null;
   const agreementAccepted = acceptances.some((a) => a.agreementKey === MEDIA_AGREEMENT_DOCUMENT.key && a.agreementVersion === MEDIA_AGREEMENT_DOCUMENT.version && a.revision === s.revision);
@@ -109,6 +113,8 @@ export default async function SponsorshipDetailPage({ params, searchParams }: { 
           )}
         </CardContent>
       </Card>
+
+      {results.state === "ready" && <SponsorResultsCard report={results.report} />}
 
       {evaluation && (
         <CancelSponsorshipPanel

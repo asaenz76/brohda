@@ -44,7 +44,7 @@ Server action `sponsorSignupAction`: validate → (terms acceptance, once approv
 * **Business email changes** are not self-service in V1 (it is the sign-in identity); handle through support.
 * **Suspending a Sponsor account with live campaigns:** their sponsorships go dark immediately (eligibility requires an ACTIVE sponsor); payment/refund handling stays a manual owner decision. Listed in the owner-decision section of the report.
 * **No multi-user teams or seats** in V1; the one-to-one model is deliberate.
-* **Sponsor Intelligence (future, `sponsor_intelligence_enabled`):** any analytics must be computed from Member identities only and must exclude non-Member (Sponsor) logins; history is never rewritten.
+* **Sponsor Intelligence (`sponsor_intelligence_enabled`, r77):** analytics are computed from Member identities only (`user_profiles.role = 'player'`) and exclude staff and Sponsor logins; history is never rewritten. See `sponsor-intelligence.md`.
 
 ## Terms
 

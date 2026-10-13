@@ -111,7 +111,7 @@ export default defineConfig({
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
-      testIgnore: /admin-brohda-settings|monetary-capability-gating|legal-reconsent|legal-money-gating|sponsorship-flow/,
+      testIgnore: /admin-brohda-settings|monetary-capability-gating|legal-reconsent|legal-money-gating|sponsorship-flow|sponsor-intelligence/,
     },
     {
       name: "chromium-admin-settings",
@@ -150,7 +150,7 @@ export default defineConfig({
     {
       name: "chromium-sponsorship",
       use: { ...devices["Desktop Chrome"] },
-      testMatch: /sponsorship-flow/,
+      testMatch: /sponsorship-flow|sponsor-intelligence/,
       fullyParallel: false,
       dependencies: ["chromium-legal-money"],
     },

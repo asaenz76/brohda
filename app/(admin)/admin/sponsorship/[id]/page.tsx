@@ -17,6 +17,8 @@ import { CURRENT_MEDIA_AGREEMENT, legalRefundCutoffHours, SPONSOR_TERMS_DOCUMENT
 import { agreementAcceptedForCurrentRevision } from "@/lib/sponsor/commercial-legal-gate";
 import { sponsorCanEdit } from "@/lib/sponsorship/format";
 import { SponsorshipNav } from "../sponsorship-nav";
+import { getAdminCampaignResults } from "@/lib/sponsor-intelligence/service";
+import { AdminResultsCard } from "@/components/sponsor-intelligence/AdminResultsCard";
 
 function SponsorLogo({ url }: { url: string }) {
   // eslint-disable-next-line @next/next/no-img-element
@@ -47,6 +49,8 @@ export default async function AdminSponsorshipDetailPage({ params }: { params: P
   // Where members would be sent right now: the campaign's own link, else the Sponsor profile website. Approving freezes it.
   const effective = resolveEffectiveSponsorUrl(s.destinationUrl, s.sponsorWebsite);
   const config = await getSponsorshipConfig();
+  // Exact campaign figures for Super Admin (counts only — no Member is identified). A failure here must never take the page down.
+  const results = await getAdminCampaignResults(id).catch(() => null);
   const agreementMissing = CURRENT_MEDIA_AGREEMENT ? !(await agreementAcceptedForCurrentRevision(s.id, CURRENT_MEDIA_AGREEMENT)) : false;
   const editable = sponsorCanEdit(s);
   const initial: EditorValues = {
@@ -116,6 +120,8 @@ export default async function AdminSponsorshipDetailPage({ params }: { params: P
       )}
 
       <PaymentProviderPanel sponsorshipId={s.id} attempts={attempts} paymentStatus={s.paymentStatus} />
+
+      {results?.state === "ready" && <AdminResultsCard results={results} />}
 
       <RefundGuidance s={s} />
 

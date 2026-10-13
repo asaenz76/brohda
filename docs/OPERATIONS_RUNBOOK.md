@@ -155,6 +155,14 @@ Architecture and the invariants: `docs/architecture/sponsorship.md`. **V1 is man
 
 **Still manual / not built.** Payment collection and refunds; sponsor emails are best-effort and only sent when Resend is configured; sponsor analytics (Sponsor Intelligence — next milestone: aggregate-only reporting on the impression/click hooks already being recorded); a permanent historical "Presented by" credit after a campaign ends.
 
+## Sponsor Intelligence — turning it on or off (Super Admin)
+
+Sponsors see campaign results only while **Settings → Brohda → Sponsorship → Sponsor Intelligence** is on. It is OFF by default, separate from the Sponsored Game Posts switch, and it fails closed (an unreadable setting counts as off). Turning it off removes Sponsors' access on the next request; nothing is deleted and you keep the exact figures on each campaign's admin page ("Performance (exact)").
+
+- **Threshold ("Hide figures under this many Members", default 10, minimum 2):** a figure based on fewer Members is shown to the Sponsor as "Not enough data yet". With few Members on the platform most figures will be withheld — that is the privacy rule working, not a fault. Lowering it makes small groups visible; raise it, not lower it, if in doubt.
+- **Before switching on for real Sponsors:** open a live campaign's admin page and read the "Sponsor sees" column — that is exactly what the Sponsor will be shown at the current threshold.
+- Every change is audited (`settings.sponsor_intelligence_updated`). Definitions and the privacy rules: `docs/architecture/sponsor-intelligence.md`.
+
 ## Grading stopped
 
 **Symptom**: Picks stay PENDING past their Market's resolution; no

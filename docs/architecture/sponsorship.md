@@ -13,7 +13,7 @@ Status: implemented in migration `20260101000181_sponsorship_foundation.sql`. Op
 7. **Sponsor promotions are external, sponsor-run metadata only**: title, description, prize description, official-rules link, who runs it, eligibility summary, dates. They render only inside an approved, active sponsorship.
 8. **Brohda does not run prize draws, qualification or fulfillment.** No entries, qualification, draws, winners, prize custody, prize payout or promotion settlement exist in the schema (asserted by a catalogue test). Members only see a link to the sponsor's official rules and a disclosure that the sponsor — not Brohda — runs it.
 9. **Sponsor-facing user data is not exposed.** Sponsors see only their own sponsorships, status, price and payment state. No member, Pick, location, wallet or behavior data is reachable; impressions/clicks are internal and not exposed to sponsors in this milestone.
-10. **Sponsor Intelligence is a later, aggregate-only layer.** This milestone only records the raw hooks it will need (below). `sponsor_intelligence_enabled` is reserved, not built.
+10. **Sponsor Intelligence is an aggregate-only layer** built on the raw hooks below (see `docs/architecture/sponsor-intelligence.md`, r77). It is a separate capability, `sponsor_intelligence_enabled`, OFF by default.
 11. **One active sponsor per Post + market + period in V1.** Inventory is one slot per `(post_id, market_code)` with one window; a partial unique index lets at most one sponsorship hold a slot (`SUBMITTED`, `SCHEDULED`, `LIVE`, `SUSPENDED`). Two sponsors racing for it: exactly one wins.
 12. **Super Admin owns final pricing.** Price lives on inventory and is snapshotted onto the sponsorship at submission; Super Admin may reprice before payment; once PAID the snapshot is immutable (trigger) and later inventory edits never touch it. Sponsors never set a price.
 
@@ -76,7 +76,7 @@ A campaign ends at its window's `ends_at` (default: configurable hours after kic
 
 - **Impression**: a *signed-in member's* browser reported the "Sponsored · Presented by" line as ≥ 50% visible for ≥ 1 second; stored once per (sponsorship, member, UTC day) by a unique index. A server render or API fetch is not an impression; anonymous visitors are not recorded.
 - **Click**: a request to the first-party `/sponsorship/click/<id>` redirect while the sponsorship is publicly active. The destination is read from the stored, validated record — never from the request — so it cannot be an open redirect. No third-party pixels or cross-site identifiers.
-- Both reference `sponsorship_id` and `post_id` (+ the member id, internal only). Nothing is exposed to sponsors. Downstream questions (uniques, Picks, comments, Call BS) join these with existing tables.
+- Both reference `sponsorship_id` and `post_id` (+ the member id, internal only). The raw rows are never exposed to sponsors; Sponsor Intelligence (r77) reads them only through one service-role aggregate function and shows Sponsors small-cohort-suppressed totals. Downstream questions (uniques, Picks, comments, Call BS) join these with existing tables.
 
 ## Authorization and exposure
 
@@ -84,7 +84,7 @@ All new tables have RLS on with no write grants; sponsors read their own rows, S
 
 ## Deliberately not built
 
-Sponsor Intelligence UI or exports, self-serve ad buying, auctions/bidding, ad networks, personalized ads, sponsor access to individual users, sponsor-created sports content or Markets, sweepstakes/prize engine, sponsor payouts, agency hierarchies, subscription billing, AI creative, MLB/soccer/SEO, any change to monetary P2P, the NBA Spread gate, or sports data.
+Sponsor Intelligence exports or any per-Member data (aggregate results exist — see `sponsor-intelligence.md`), self-serve ad buying, auctions/bidding, ad networks, personalized ads, sponsor access to individual users, sponsor-created sports content or Markets, sweepstakes/prize engine, sponsor payouts, agency hierarchies, subscription billing, AI creative, MLB/soccer/SEO, any change to monetary P2P, the NBA Spread gate, or sports data.
 
 ## Destination link is optional; the Sponsor website is the fallback (r68)
 

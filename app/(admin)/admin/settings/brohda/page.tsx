@@ -3,6 +3,7 @@ import { requireSuperAdmin } from "@/lib/auth/session";
 import { getBrohdaSettings } from "@/lib/admin-settings/repository";
 import { LegalStatusCard } from "@/components/sponsorship/LegalStatusCard";
 import { OnlinePaymentsCard } from "@/components/sponsorship/OnlinePaymentsCard";
+import { SponsorIntelligenceCard } from "@/components/sponsor-intelligence/SponsorIntelligenceCard";
 import { RefundPolicyCard } from "@/components/sponsorship/RefundPolicyCard";
 import {
   PredictionSettingsSection,
@@ -62,6 +63,7 @@ export default async function BrohdaSettingsPage() {
           <OnlinePaymentsCard />
           <RefundPolicyCard />
           <LegalStatusCard />
+          <SponsorIntelligenceCard />
         </div>
       </div>
     </div>
