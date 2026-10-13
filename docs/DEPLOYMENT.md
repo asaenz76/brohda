@@ -178,11 +178,27 @@ can never stack, and one job's lock never affects another job's.
 | `/api/cron/prune-provider-request-log` | none (DB-only) | No | `runProviderRequestLogRetention` | Every 5 minutes |
 | `/api/cron/ingest-nfl-markets` | api_nfl | Yes | `runNflMarketIngestion` — no-ops unless `platform_settings.market_ingestion_enabled` | **Once daily, 07:00 UTC** — see incident note below |
 | `/api/cron/publish-posts` | none (DB-only) | No | `runPostPublication` — no-ops unless `platform_settings.post_publication_enabled` | Every 5 minutes (recommended) |
-| `/api/cron/distribute-posts` | none (DB-only) | No | `runCommunityDistribution` — no-ops unless `platform_settings.community_distribution_enabled` | Every 5-15 minutes (recommended — a full reconciliation scan, not just new Posts) |
+| `/api/cron/distribute-posts` | none (DB-only) | No | `runCommunityDistribution` — no-ops unless `platform_settings.community_distribution_enabled` | Every 5-15 minutes (recommended). Still reconciles every published Post, but only the ones missing a Community link cost any work (`posts_needing_distribution`, migration 195) |
 | `/api/cron/advance-sponsorships` | none (DB-only) | No | `advance_sponsorships()` — SCHEDULED → LIVE → COMPLETED and release of expired unpaid holds. Housekeeping only: public rendering re-verifies every condition on each read, so a missed run never shows or hides a sponsorship wrongly | Every 5 minutes (**add this cron-job.org entry**; Job Health shows "never run" until you do). A healthy no-op while Sponsored Game Posts is OFF |
 | `/api/cron/grade-predictions` | none (DB-only) | No | `runGradingJob` — batch size from `platform_settings.grading_batch_size` | Every 2 minutes (recommended) |
 | `/api/cron/resolve-challenges` | none (DB-only) | No | `resolveAcceptedChallenges` — batch size from `platform_settings.challenge_resolution_batch_size` | Every 2 minutes, after grading (recommended) |
 | `/api/cron/settle-monetary-positions` | none (DB-only) | No | `runSettlementJob` — batch size from `platform_settings.settlement_batch_size` | Every 2 minutes, after grading (recommended) |
+
+**Egress and request volume (r75, 2026-10-13).** The Supabase Free plan allows 5 GB of egress a month, and production hit it (HTTP 402
+`exceed_egress_quota`, which locked everyone out of sign-in and froze the feed). Measured read-only from `pg_stat_statements` and `background_jobs`
+on 2026-10-12: about 16.6 million API requests since 23 July, ~2,600 in a 10-minute window. The cause was not traffic — it was three recurring jobs
+re-reading their whole working set every tick even when nothing needed doing:
+
+| Job | Before | After (migration 195) |
+| --- | --- | --- |
+| `distribute-posts` | Walked every published Post (116 in production, ~14 API requests each ≈ 1,600 requests per run, ≈ 56 s average and up to 109 s per run), re-inserting links that already existed, each logged by Postgres as a duplicate-key error | One call returns only the Posts still missing a link (`posts_needing_distribution`); a complete Post costs nothing. The links are written with `ON CONFLICT DO NOTHING`, so no duplicate-key errors; the policy is read once per run, not once per Post |
+| `publish-posts` | Paged every upcoming Game id (≈ 4,200), then their Posts and Markets in 150-id chunks — ~100 requests per run | One call (`fixtures_needing_publication`) returns only the Games that still need publishing work. Same rule, applied in the database |
+| `sync-fixtures-nfl` | Read every stored fixture of the sport on every run (≈ 1,300-1,400 rows each for NBA and NHL; PostgREST silently stops at 1,000) | Reads only the rows already in a terminal status plus the few Games the provider reports COMPLETED that are not stored as terminal yet |
+
+Not changed by r75, and recorded here so it is a decision rather than an accident: `ingest-nfl-markets` runs about every 16 minutes in production
+(91 runs and ~3,500 `get_odds` provider requests in 24 h), not once daily as the incident note below describes; the 2-minute jobs
+(`grade-predictions`, `resolve-challenges`, `settle-monetary-positions`) run ~685 times a day each. Prediction freshness is `discovery_fresh_within_minutes`
+= 60, so a daily ingestion would grey out the cards — confirm the real cron-job.org schedule before treating the "once daily" text as current.
 
 **`ingest-nfl-markets` quota-exhaustion incident (2026-09-25 – 2026-09-27).**
 This job's fixture-eligibility query had no upper bound on
