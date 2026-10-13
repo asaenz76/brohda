@@ -111,3 +111,13 @@ export function paymentStateLabel(paymentStatus: string, openAttempt: boolean): 
       return "Unpaid";
   }
 }
+
+/**
+ * The price to SHOW a Sponsor for a sponsorship: the frozen price once there is one, otherwise the price Brohda currently lists for that Game — the number the Sponsor already saw
+ * on Available Games. (A draft has no frozen price yet; it is copied from the listing when the sponsorship is submitted.) Display only: what is charged is always the frozen
+ * price read by the server, never anything computed here.
+ */
+export function displayedPrice(s: { priceCents: number | null; currency: string | null; listedPriceCents?: number | null; listedCurrency?: string | null }): { cents: number | null; currency: string | null } {
+  if (s.priceCents !== null && s.priceCents !== undefined) return { cents: s.priceCents, currency: s.currency };
+  return { cents: s.listedPriceCents ?? null, currency: s.listedCurrency ?? null };
+}

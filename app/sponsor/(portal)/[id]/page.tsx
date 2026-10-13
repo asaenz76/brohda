@@ -13,7 +13,7 @@ import { CancelSponsorshipPanel } from "@/components/sponsorship/CancelSponsorsh
 import { evaluateSponsorshipRefundEligibility, getCancellationRecord } from "@/lib/sponsorship/refund-evaluation";
 import { refundCutoffRuleCopy, sponsorCancellationConsequence } from "@/lib/sponsorship/refund-policy";
 import { getSponsorshipConfig } from "@/lib/sponsorship/settings";
-import { formatCommercialAmount, PAYMENT_STATUS_LABEL, sponsorCanEdit, sponsorStatusCopy } from "@/lib/sponsorship/format";
+import { displayedPrice, formatCommercialAmount, PAYMENT_STATUS_LABEL, sponsorCanEdit, sponsorStatusCopy } from "@/lib/sponsorship/format";
 import { SponsorshipEditor, type EditorValues } from "@/components/sponsorship/SponsorshipEditor";
 import { SponsorPaymentPanel } from "@/components/sponsorship/SponsorPaymentPanel";
 import { getSponsorPaymentView } from "@/lib/payments/views";
@@ -28,6 +28,7 @@ export default async function SponsorshipDetailPage({ params, searchParams }: { 
   if (!s) notFound();
   const [enabled, config, events, acceptances] = await Promise.all([isSponsorshipEnabled(), getSponsorshipConfig(), getPaymentEventsForSponsorship(id), listAgreementAcceptances(id)]);
   const copy = sponsorStatusCopy(s);
+  const price = displayedPrice(s); // the frozen price, or (for a draft) the price Brohda lists for this Game
   // Cancelling (once submitted): the rule, the exact deadline and the consequence are worked out here, on the server, from the canonical Game start time.
   const cancellable = enabled && session.sponsor.status === "ACTIVE" && ["SUBMITTED", "SCHEDULED", "LIVE"].includes(s.lifecycle);
   const evaluation = cancellable ? await evaluateSponsorshipRefundEligibility(id, "SPONSOR_CANCELLATION") : null;
@@ -83,8 +84,7 @@ export default async function SponsorshipDetailPage({ params, searchParams }: { 
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
             <dt className="text-text-muted">Price</dt>
             <dd className="text-text-primary">
-              {s.priceCents === null ? "Set by Brohda when you submit" : formatCommercialAmount(s.priceCents, s.currency)}
-              <span className="block text-xs text-text-muted">Set by Brohda — it can&apos;t be changed here.</span>
+              {price.cents === null ? "Set by Brohda when you submit" : formatCommercialAmount(price.cents, price.currency)}
             </dd>
             <dt className="text-text-muted">Payment</dt>
             <dd className="text-text-primary">{PAYMENT_STATUS_LABEL[s.paymentStatus]}</dd>

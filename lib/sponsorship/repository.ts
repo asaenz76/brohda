@@ -65,8 +65,12 @@ export interface SponsorshipRecord {
   promotionEligibilitySummary: string | null;
   promotionStartsAt: string | null;
   promotionEndsAt: string | null;
+  /** The price FROZEN on this sponsorship (set when it is submitted, or by Super Admin); null while a draft has none yet. */
   priceCents: number | null;
   currency: string | null;
+  /** The price Brohda currently lists for this Game's inventory — what a draft will be priced at when submitted. Display only; never the amount that is charged. */
+  listedPriceCents: number | null;
+  listedCurrency: string | null;
   startsAt: string;
   endsAt: string;
   lifecycle: SponsorshipLifecycle;
@@ -171,6 +175,8 @@ function toSponsorship(row: any): SponsorshipRecord {
     promotionEndsAt: row.promotion_ends_at ?? null,
     priceCents: row.price_cents ?? null,
     currency: row.currency ?? null,
+    listedPriceCents: (Array.isArray(row.sponsorship_inventory) ? row.sponsorship_inventory[0] : row.sponsorship_inventory)?.price_cents ?? null,
+    listedCurrency: (Array.isArray(row.sponsorship_inventory) ? row.sponsorship_inventory[0] : row.sponsorship_inventory)?.currency ?? null,
     startsAt: row.starts_at,
     endsAt: row.ends_at,
     lifecycle: row.lifecycle,
@@ -189,7 +195,7 @@ function toSponsorship(row: any): SponsorshipRecord {
   };
 }
 
-const SPONSORSHIP_SELECT = `*, sponsors(display_name, website), ${GAME_SELECT}`;
+const SPONSORSHIP_SELECT = `*, sponsors(display_name, website), sponsorship_inventory(price_cents, currency), ${GAME_SELECT}`;
 
 // --- sponsor side -------------------------------------------------------------------------------------------------------------------------------
 

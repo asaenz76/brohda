@@ -66,3 +66,21 @@ describe("what a Sponsor reads about payment — truthful, one word plus one sen
     expect(APPROVAL_STATUS_LABEL.REJECTED).toBe("Not approved");
   });
 });
+
+import { displayedPrice } from "@/lib/sponsorship/format";
+
+describe("the price shown to a Sponsor", () => {
+  it("is the frozen price when there is one (the listed price is ignored)", () => {
+    expect(displayedPrice({ priceCents: 199950, currency: "USD", listedPriceCents: 250000, listedCurrency: "USD" })).toEqual({ cents: 199950, currency: "USD" });
+  });
+  it("for a draft with no frozen price yet, it is the price Brohda lists for that Game", () => {
+    expect(displayedPrice({ priceCents: null, currency: null, listedPriceCents: 250000, listedCurrency: "USD" })).toEqual({ cents: 250000, currency: "USD" });
+  });
+  it("with neither, there is nothing to show (the page then says it is set when submitted)", () => {
+    expect(displayedPrice({ priceCents: null, currency: null })).toEqual({ cents: null, currency: null });
+    expect(displayedPrice({ priceCents: null, currency: null, listedPriceCents: null, listedCurrency: null })).toEqual({ cents: null, currency: null });
+  });
+  it("a frozen price of 0 is still a price (it is not mistaken for 'missing')", () => {
+    expect(displayedPrice({ priceCents: 0, currency: "USD", listedPriceCents: 250000, listedCurrency: "USD" })).toEqual({ cents: 0, currency: "USD" });
+  });
+});

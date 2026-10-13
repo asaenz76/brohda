@@ -1139,6 +1139,33 @@ test("Super Admin takes an assigned draft all the way — complete it, submit on
   }
 });
 
+test("a DRAFT shows the price Brohda lists for its Game — just the price, with no 'set by Brohda' note and no placeholder — on the sponsorship page and on the dashboard row", async ({ page }) => {
+  const suffix = randomUUID().slice(0, 6);
+  const game = await seedGamePost(suffix);
+  const superUser = await createUser("draftpricesuper", "super_admin");
+  const sponsorUser = await createSponsorLogin(`Draft Price ${suffix}`);
+  await setEnabled(true);
+  const { data: inv } = await admin.rpc("admin_set_sponsorship_inventory", { p_admin_id: superUser.id, p_post_id: game.postId, p_market_code: "GLOBAL", p_is_sponsorable: true, p_price_cents: 250000, p_currency: "USD", p_starts_at: new Date(Date.now() - HOUR).toISOString(), p_ends_at: new Date(Date.now() + 30 * HOUR).toISOString() });
+  const invId = (Array.isArray(inv) ? inv[0] : inv).id as string;
+  const { data: assigned } = await admin.rpc("admin_assign_sponsorship", { p_admin_id: superUser.id, p_sponsor_id: sponsorUser.sponsorId, p_inventory_id: invId, p_campaign_name: "Draft priced" });
+  const sponsorshipId = (Array.isArray(assigned) ? assigned[0] : assigned).id as string;
+  try {
+    expect((await admin.from("sponsorships").select("price_cents, lifecycle").eq("id", sponsorshipId).single()).data).toEqual({ price_cents: null, lifecycle: "DRAFT" }); // no frozen price yet
+    await loginAsSponsor(page, sponsorUser.email);
+    await page.goto(`/sponsor/${sponsorshipId}`);
+    const priceRow = page.locator("dt", { hasText: /^Price$/ }).locator("xpath=following-sibling::dd[1]");
+    await expect(priceRow).toHaveText("$2,500.00");
+    await expect(page.getByText(/set by Brohda|can't be changed here/i)).toHaveCount(0);
+    await page.goto("/sponsor");
+    await expect(page.locator('[data-slot="sponsorship-row"]').filter({ hasText: game.home }).locator('[data-slot="row-amount"]')).toHaveText("$2,500.00");
+    await page.goto("/sponsor/games");
+    await expect(page.getByText(/price set by Brohda/i)).toHaveCount(0);
+  } finally {
+    await setEnabled(false);
+    await cleanup(game);
+  }
+});
+
 test("pricing is Super Admin's: the sponsor sees the price but has no way to change it, and a price the Super Admin set is the price that is submitted", async ({ page }) => {
   const suffix = randomUUID().slice(0, 6);
   const game = await seedGamePost(suffix);
@@ -1162,7 +1189,8 @@ test("pricing is Super Admin's: the sponsor sees the price but has no way to cha
     await page.goto(`/sponsor/${sponsorshipId}`);
     // The price is shown in the campaign's own Price row (the agreement panel repeats it from the same record, so scope to the row).
     await expect(page.locator("dt", { hasText: /^Price$/ }).locator("xpath=following-sibling::dd[1]")).toContainText("$1,999.50");
-    await expect(page.getByText("Set by Brohda — it can't be changed here.")).toBeVisible();
+    // Just the price: no explanatory note about who sets it (Brohda sets every price; saying so beside the number is noise).
+    await expect(page.getByText(/set by Brohda|can't be changed here/i)).toHaveCount(0);
     // No control anywhere on the sponsor's page edits a price.
     await expect(page.getByRole("main").getByRole("textbox", { name: /price|amount|cost/i })).toHaveCount(0);
     await expect(page.getByRole("spinbutton")).toHaveCount(0);
