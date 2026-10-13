@@ -8,7 +8,7 @@ import { isSponsorshipEnabled } from "@/lib/sponsorship/capability";
 import { listSponsorshipsForSponsor } from "@/lib/sponsorship/repository";
 import { resolveOnlinePayment } from "@/lib/payments/active-provider";
 import { sponsorPaymentEligibility } from "@/lib/sponsorship/payment-eligibility";
-import { APPROVAL_STATUS_LABEL, formatCommercialAmount, paymentStateLabel, sponsorStatusCopy } from "@/lib/sponsorship/format";
+import { APPROVAL_STATUS_LABEL, displayedPrice, formatCommercialAmount, paymentStateLabel, sponsorStatusCopy } from "@/lib/sponsorship/format";
 
 // The Sponsor's home. It always shows where the ACCOUNT stands (under review / approved / not approved / suspended / disabled) and only that sponsor's own
 // sponsorships. Browsing Games and starting a sponsorship need an ACTIVE account AND the sponsorship capability being on.
@@ -65,7 +65,7 @@ export default async function SponsorHomePage() {
                         </p>
                         <p className="text-sm text-text-secondary">{status.label}</p>
                         <p className="text-xs text-text-muted" data-slot="sponsorship-commercial">
-                          <span data-slot="row-amount">{formatCommercialAmount(s.priceCents, s.currency)}</span>
+                          <span data-slot="row-amount">{formatCommercialAmount(displayedPrice(s).cents, displayedPrice(s).currency)}</span>
                           {" · "}Payment: <span data-slot="row-payment">{paymentStateLabel(s.paymentStatus, false)}</span>
                           {" · "}Approval: <span data-slot="row-approval">{APPROVAL_STATUS_LABEL[s.reviewStatus] ?? s.reviewStatus}</span>
                           {" · "}Window: <LocalDateTime iso={s.startsAt} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} /> – <LocalDateTime iso={s.endsAt} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
