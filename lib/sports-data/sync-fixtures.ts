@@ -3,13 +3,14 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAuditLog } from "@/lib/audit/log";
 import { upsertFixturesBatch } from "./persist";
 import { TERMINAL_STATUSES } from "./status-map";
-import type { FixtureInternalStatus, NormalizedFixture, SportsOddsProvider } from "./types";
+import type { NormalizedFixture, SportsOddsProvider } from "./types";
 import { getProviderStatus } from "./provider-gateway";
 import { getOddsProvider } from "./provider-registry";
 import { shouldReserveQuota } from "./quota-reserve";
 import { extractErrorMessage } from "./provider-errors";
 import { activeSportConfigs, type SportConfig } from "./sport-registry";
 import { errorMessage } from "@/lib/utils/error-message";
+import { fetchAllRows, fetchInChunks } from "@/lib/utils/batch";
 
 // The one fixture sync for every sport (parameterised by lib/sports-data/sport-registry.ts; originally written for the NFL, whose behaviour it
 // preserves exactly — the NFL comments below describe the design every sport inherits).
@@ -110,21 +111,30 @@ export async function runSportFixtureSync(config: SportConfig, now: Date = new D
     });
   }
 
-  const { data: existingRows } = await admin
-    .from("fixtures")
-    .select("id, external_fixture_id, internal_status")
-    .eq("provider", config.provider);
-  const storedTerminal = new Set(
-    (existingRows ?? [])
-      .filter((row) => TERMINAL_STATUSES.includes(row.internal_status as FixtureInternalStatus))
-      .map((row) => row.external_fixture_id),
+  // Only what this run actually uses is read, not every stored fixture of the provider on every tick (an NBA / NHL season is ~1,300-1,400 rows, and PostgREST
+  // silently stops a plain read at 1,000 — so the old whole-table read both cost ~100 KB per sport per run and could miss rows).
+  //   1. the rows already in a terminal status (the skip set), paged;
+  //   2. the internal id of any Game the provider reports COMPLETED that is NOT yet stored as terminal — needed so its confirmed result is reconciled this
+  //      same tick. Normally empty or a handful of Games.
+  const terminalRows = await fetchAllRows((from, to) =>
+    admin
+      .from("fixtures")
+      .select("id, external_fixture_id")
+      .eq("provider", config.provider)
+      .in("internal_status", [...TERMINAL_STATUSES])
+      .order("id")
+      .range(from, to),
   );
+  const storedTerminal = new Set(terminalRows.map((row) => row.external_fixture_id));
   // Confirmed-result reconciliation below needs the internal fixture id
   // (the FK nfl_game_results.fixture_id points at), keyed by the same
   // external_fixture_id the provider array uses.
-  const fixtureIdByExternalId = new Map(
-    (existingRows ?? []).map((row) => [row.external_fixture_id, row.id as string]),
+  const fixtureIdByExternalId = new Map(terminalRows.map((row) => [row.external_fixture_id, row.id as string]));
+  const completedNotYetTerminal = fixtures.filter((f) => f.internalStatus === "COMPLETED" && !storedTerminal.has(f.externalFixtureId)).map((f) => f.externalFixtureId);
+  const completedRows = await fetchInChunks<{ id: string; external_fixture_id: string }>(completedNotYetTerminal, (chunk) =>
+    admin.from("fixtures").select("id, external_fixture_id").eq("provider", config.provider).in("external_fixture_id", chunk),
   );
+  for (const row of completedRows) fixtureIdByExternalId.set(row.external_fixture_id, row.id);
 
   // Batched, not per-fixture (see upsertFixturesBatch's own comment) — a
   // first-ever sync writing ~320 new games serially, 3 round trips each,

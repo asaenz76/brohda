@@ -3,7 +3,6 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getOddsProvider } from "@/lib/sports-data/provider-registry";
 import { SPORT_CONFIGS } from "@/lib/sports-data/sport-registry";
-import { fetchAllRows, fetchInChunks } from "@/lib/utils/batch";
 import { listActiveMarketsForFixture } from "@/lib/prediction-markets/repository";
 import { ensurePostForFixture, getPostByFixtureId, publishPost } from "./repository";
 import { getPostPublicationPolicy } from "./policy";
@@ -25,32 +24,19 @@ export interface PostPublicationOutcome {
 
 /**
  * Not-yet-started Games of every sport that has a registered provider (retired soccer history is excluded by construction) that still NEED
- * publishing work. Batched, not per-Game: an NBA / NHL season has ~1,300 future Games, and one post lookup plus one market lookup per Game on every
- * run would be thousands of queries a tick for almost no new work. So the candidate set is narrowed in three set-based reads — the Games, the
- * subset that has an ACTIVE Market (when policy requires one), and which of those already have a published Post — and only the remainder is touched.
+ * publishing work. An NBA / NHL season has ~1,300 future Games, so the candidate set is decided in ONE set-based database call
+ * (`fixtures_needing_publication`, migration 195) that returns only the remainder — not by paging every upcoming Game and then every Post and Market for
+ * them on each run, which was ~100 API requests a tick for almost no new work. The rule is unchanged: work remains for a Game that is not yet published AND
+ * either has an ACTIVE Market to publish with (or the policy does not require one), or has no Post row yet (the Post is still created unpublished, ready
+ * the moment a Market appears — exactly what publishing has always done).
  */
 async function listEligibleFixtureIds(requiresActiveMarket: boolean): Promise<string[]> {
   const admin = createAdminClient();
   const providers = SPORT_CONFIGS.filter((c) => getOddsProvider(c.provider) !== null).map((c) => c.provider);
-  const nowIso = new Date().toISOString();
-  const rows = await fetchAllRows((from, to) =>
-    admin.from("fixtures").select("id").in("provider", providers).eq("internal_status", "NOT_STARTED").gt("scheduled_start_utc", nowIso).order("id").range(from, to),
-  );
-  const ids = rows.map((r) => r.id as string);
-  if (ids.length === 0) return [];
-
-  const posts = await fetchInChunks<{ fixture_id: string; published_at: string | null }>(ids, (chunk) => admin.from("posts").select("fixture_id, published_at").in("fixture_id", chunk));
-  const published = new Set(posts.filter((p) => p.published_at !== null).map((p) => p.fixture_id));
-  const hasPost = new Set(posts.map((p) => p.fixture_id));
-
-  if (!requiresActiveMarket) return ids.filter((id) => !published.has(id));
-
-  const withMarket = new Set(
-    (await fetchInChunks<{ fixture_id: string }>(ids, (chunk) => admin.from("markets").select("fixture_id").in("fixture_id", chunk).eq("status", "ACTIVE"))).map((m) => m.fixture_id),
-  );
-  // Work remains for a Game that is not yet published AND either has a Market to publish with, or has no Post row yet (the Post is still created
-  // unpublished, ready the moment a Market appears — exactly what publishing has always done).
-  return ids.filter((id) => !published.has(id) && (withMarket.has(id) || !hasPost.has(id)));
+  if (providers.length === 0) return [];
+  const { data, error } = await admin.rpc("fixtures_needing_publication", { p_providers: providers, p_requires_active_market: requiresActiveMarket });
+  if (error) throw error;
+  return ((data ?? []) as Array<{ id: string }>).map((r) => r.id);
 }
 
 /**

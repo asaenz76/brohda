@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureLeagueCommunity, ensureSportCommunity, ensureTeamCommunity } from "./repository";
 import { resolveFixtureSportsEntities } from "./fixture-resolution";
 import { getCommunityDistributionPolicy } from "./policy";
+import type { CommunityDistributionPolicy } from "./types";
 import { activeSportConfigs, getSportLabel } from "@/lib/sports-data/sport-registry";
 import { fetchAllRows, fetchInChunks } from "@/lib/utils/batch";
 
@@ -17,10 +18,14 @@ export type DistributePostToCommunityOutcome = "created" | "existing";
 /** Idempotent (§17): a unique_violation on the composite PK means this exact (post, community) pair already exists — a safe no-op, not an error. */
 export async function distributePostToCommunity(postId: string, communityId: string): Promise<DistributePostToCommunityOutcome> {
   const admin = createAdminClient();
-  const { error } = await admin.from("post_communities").insert({ post_id: postId, community_id: communityId });
-  if (!error) return "created";
-  if (error.code === "23505") return "existing";
-  throw error;
+  // ON CONFLICT DO NOTHING rather than insert-and-catch-23505: the reconciliation re-asserts links that already exist, and a duplicate-key error is
+  // logged by Postgres every time it happens. An already-existing pair comes back as zero inserted rows.
+  const { data, error } = await admin
+    .from("post_communities")
+    .upsert({ post_id: postId, community_id: communityId }, { onConflict: "post_id,community_id", ignoreDuplicates: true })
+    .select("post_id");
+  if (error) throw error;
+  return (data ?? []).length > 0 ? "created" : "existing";
 }
 
 export async function listCommunityIdsForPost(postId: string): Promise<string[]> {
@@ -51,8 +56,13 @@ export interface FixtureDistributionOutcome {
  * §43) — re-running finds every Community/relation already ensured and
  * does nothing further.
  */
-export async function distributePostForFixture(postId: string, fixtureId: string): Promise<FixtureDistributionOutcome> {
-  const policy = await getCommunityDistributionPolicy();
+export async function distributePostForFixture(
+  postId: string,
+  fixtureId: string,
+  // The batch job reads the policy once per run and passes it in; a single caller may omit it.
+  knownPolicy?: CommunityDistributionPolicy,
+): Promise<FixtureDistributionOutcome> {
+  const policy = knownPolicy ?? (await getCommunityDistributionPolicy());
   const entities = await resolveFixtureSportsEntities(fixtureId);
   if (!entities) return { distributedCommunityIds: [], skippedReasons: ["fixture-not-found"] };
 
@@ -125,11 +135,22 @@ export async function ensureCommunitiesForActiveSports(
   return created;
 }
 
+/**
+ * How many Community links a fully distributed Post carries under this policy: home + away team, the league, the sport — each only when its own
+ * flag is on. This is the single definition of "complete", used to leave finished Posts alone.
+ */
+export function expectedCommunityLinksPerPost(policy: Pick<CommunityDistributionPolicy, "teamEnabled" | "leagueEnabled" | "sportEnabled">): number {
+  return (policy.teamEnabled ? 2 : 0) + (policy.leagueEnabled ? 1 : 0) + (policy.sportEnabled ? 1 : 0);
+}
+
 export interface CommunityDistributionSummary {
   ranAt: string;
   policyEnabled: boolean;
   /** Communities created this run for teams / leagues / sports that had none (see ensureCommunitiesForActiveSports). */
   communitiesEnsured?: number;
+  /** Published Posts in total (every one is reconciled, but only the incomplete ones cost any work). */
+  postsPublished?: number;
+  /** Published Posts that still lacked some expected Community link and so were worked on this run. */
   postsExamined: number;
   outcomes: Array<{ postId: string } & FixtureDistributionOutcome>;
   failures: Array<{ postId: string; error: string }>;
@@ -163,17 +184,20 @@ export async function runCommunityDistribution(): Promise<CommunityDistributionS
     failures.push({ postId: "(ensure communities)", error: errorMessage(err) });
   }
 
-  const { data: posts, error } = await admin.from("posts").select("id, fixture_id").not("published_at", "is", null);
+  // Every published Post is still reconciled — but "reconciled" now means the database tells us which ones are missing a link, so a complete Post
+  // costs nothing. (Walking every Post on every run took ~14 API requests per Post, every run, for the whole season.)
+  const { data: incomplete, error } = await admin.rpc("posts_needing_distribution", { p_expected_links: expectedCommunityLinksPerPost(policy) });
   if (error) throw error;
+  const { count: postsPublished } = await admin.from("posts").select("id", { count: "exact", head: true }).not("published_at", "is", null);
 
-  for (const post of posts ?? []) {
+  for (const post of incomplete ?? []) {
     try {
-      const outcome = await distributePostForFixture(post.id, post.fixture_id);
+      const outcome = await distributePostForFixture(post.id, post.fixture_id, policy);
       outcomes.push({ postId: post.id, ...outcome });
     } catch (err) {
       failures.push({ postId: post.id, error: errorMessage(err) });
     }
   }
 
-  return { ranAt: new Date().toISOString(), policyEnabled: true, communitiesEnsured, postsExamined: (posts ?? []).length, outcomes, failures };
+  return { ranAt: new Date().toISOString(), policyEnabled: true, communitiesEnsured, postsPublished: postsPublished ?? undefined, postsExamined: (incomplete ?? []).length, outcomes, failures };
 }
