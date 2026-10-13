@@ -62,23 +62,23 @@ export const JOB_REGISTRY: readonly JobDefinition[] = [
   {
     // Real-production incident fix (Stage 4C, R13.10): this job's own
     // eligibility query was unbounded (every not-yet-started fixture for
-    // the rest of the season, not just this week), and at the old
-    // 15-minute external cron-job.org schedule that meant ~21,700 real
-    // `get_odds` provider requests/day — ~3x the entire API-NFL PRO
-    // plan's 7,500/day limit. The query itself is now bounded to the
-    // current sportsbook week (lib/prediction-markets/ingestion/nfl.ts's
-    // listEligibleNflFixtures), but the OTHER half of the fix — reducing
-    // the actual trigger frequency from every 15 minutes to once daily —
-    // lives in cron-job.org's own external schedule, not in this
-    // repository; this cadence value must match whatever that schedule
-    // is actually set to, since it's read only for staleness detection
-    // (Job Health), never for triggering the job itself.
+    // the rest of the season, not just this week), which at a 15-minute
+    // schedule meant ~21,700 real `get_odds` provider requests/day — ~3x the
+    // API-NFL PRO plan's 7,500/day limit. The query itself is now bounded to
+    // the current sportsbook week (lib/prediction-markets/ingestion/nfl.ts's
+    // listEligibleNflFixtures). The owner-confirmed schedule is every 15
+    // minutes (2026-10-13): Prediction cards go stale after
+    // `discovery_fresh_within_minutes` (60), so markets have to be refreshed
+    // well inside that window. The trigger lives in cron-job.org's own
+    // external schedule, not in this repository; this cadence value must
+    // match whatever that schedule is actually set to, since it's read only
+    // for staleness detection (Job Health), never for triggering the job.
     id: "ingest-nfl-markets",
     displayName: "Ingest NFL markets",
     route: "/api/cron/ingest-nfl-markets",
     category: "brohda-social",
     criticality: "standard",
-    expectedCadenceMinutes: 1440,
+    expectedCadenceMinutes: 15,
   },
   {
     id: "publish-posts",
@@ -102,7 +102,7 @@ export const JOB_REGISTRY: readonly JobDefinition[] = [
     route: "/api/cron/grade-predictions",
     category: "brohda-social",
     criticality: "critical",
-    expectedCadenceMinutes: 2,
+    expectedCadenceMinutes: 5,
   },
   {
     id: "resolve-challenges",
@@ -110,7 +110,7 @@ export const JOB_REGISTRY: readonly JobDefinition[] = [
     route: "/api/cron/resolve-challenges",
     category: "brohda-social",
     criticality: "standard",
-    expectedCadenceMinutes: 2,
+    expectedCadenceMinutes: 5,
   },
   {
     id: "settle-monetary-positions",
@@ -118,6 +118,6 @@ export const JOB_REGISTRY: readonly JobDefinition[] = [
     route: "/api/cron/settle-monetary-positions",
     category: "brohda-monetary",
     criticality: "critical",
-    expectedCadenceMinutes: 2,
+    expectedCadenceMinutes: 5,
   },
 ] as const;

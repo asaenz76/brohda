@@ -175,14 +175,14 @@ can never stack, and one job's lock never affects another job's.
 | `/api/cron/lock-pools` | none (DB-only) | No | `lockDuePools` | Every 1 minute |
 | `/api/cron/process-results` | none (DB-only) | No | `processAwaitingResults` | Every 1 minute |
 | `/api/cron/sync-fixtures-nfl` | api_nfl | Yes — one request per tick regardless of season size | `runNflFixtureSync` | Every 5 minutes |
-| `/api/cron/prune-provider-request-log` | none (DB-only) | No | `runProviderRequestLogRetention` | Every 5 minutes |
-| `/api/cron/ingest-nfl-markets` | api_nfl | Yes | `runNflMarketIngestion` — no-ops unless `platform_settings.market_ingestion_enabled` | **Once daily, 07:00 UTC** — see incident note below |
+| `/api/cron/prune-provider-request-log` | none (DB-only) | No | `runProviderRequestLogRetention` **and** `runBackgroundJobsRetention` (cron run-history retention, below) — one route, one scheduler entry | Every 5 minutes |
+| `/api/cron/ingest-nfl-markets` | api_nfl | Yes | `runNflMarketIngestion` — no-ops unless `platform_settings.market_ingestion_enabled` | **Every 15 minutes** (owner-confirmed 2026-10-13; the incident note below describes the earlier once-daily decision, since superseded) |
 | `/api/cron/publish-posts` | none (DB-only) | No | `runPostPublication` — no-ops unless `platform_settings.post_publication_enabled` | Every 5 minutes (recommended) |
 | `/api/cron/distribute-posts` | none (DB-only) | No | `runCommunityDistribution` — no-ops unless `platform_settings.community_distribution_enabled` | Every 5-15 minutes (recommended). Still reconciles every published Post, but only the ones missing a Community link cost any work (`posts_needing_distribution`, migration 195) |
 | `/api/cron/advance-sponsorships` | none (DB-only) | No | `advance_sponsorships()` — SCHEDULED → LIVE → COMPLETED and release of expired unpaid holds. Housekeeping only: public rendering re-verifies every condition on each read, so a missed run never shows or hides a sponsorship wrongly | Every 5 minutes (**add this cron-job.org entry**; Job Health shows "never run" until you do). A healthy no-op while Sponsored Game Posts is OFF |
-| `/api/cron/grade-predictions` | none (DB-only) | No | `runGradingJob` — batch size from `platform_settings.grading_batch_size` | Every 2 minutes (recommended) |
-| `/api/cron/resolve-challenges` | none (DB-only) | No | `resolveAcceptedChallenges` — batch size from `platform_settings.challenge_resolution_batch_size` | Every 2 minutes, after grading (recommended) |
-| `/api/cron/settle-monetary-positions` | none (DB-only) | No | `runSettlementJob` — batch size from `platform_settings.settlement_batch_size` | Every 2 minutes, after grading (recommended) |
+| `/api/cron/grade-predictions` | none (DB-only) | No | `runGradingJob` — batch size from `platform_settings.grading_batch_size` | **Every 5 minutes** |
+| `/api/cron/resolve-challenges` | none (DB-only) | No | `resolveAcceptedChallenges` — batch size from `platform_settings.challenge_resolution_batch_size` | **Every 5 minutes**, offset after grading |
+| `/api/cron/settle-monetary-positions` | none (DB-only) | No | `runSettlementJob` — batch size from `platform_settings.settlement_batch_size` | **Every 5 minutes** while that legacy subsystem still exists, offset after grading |
 
 **Egress and request volume (r75, 2026-10-13).** The Supabase Free plan allows 5 GB of egress a month, and production hit it (HTTP 402
 `exceed_egress_quota`, which locked everyone out of sign-in and froze the feed). Measured read-only from `pg_stat_statements` and `background_jobs`
@@ -195,10 +195,19 @@ re-reading their whole working set every tick even when nothing needed doing:
 | `publish-posts` | Paged every upcoming Game id (≈ 4,200), then their Posts and Markets in 150-id chunks — ~100 requests per run | One call (`fixtures_needing_publication`) returns only the Games that still need publishing work. Same rule, applied in the database |
 | `sync-fixtures-nfl` | Read every stored fixture of the sport on every run (≈ 1,300-1,400 rows each for NBA and NHL; PostgREST silently stops at 1,000) | Reads only the rows already in a terminal status plus the few Games the provider reports COMPLETED that are not stored as terminal yet |
 
-Not changed by r75, and recorded here so it is a decision rather than an accident: `ingest-nfl-markets` runs about every 16 minutes in production
-(91 runs and ~3,500 `get_odds` provider requests in 24 h), not once daily as the incident note below describes; the 2-minute jobs
-(`grade-predictions`, `resolve-challenges`, `settle-monetary-positions`) run ~685 times a day each. Prediction freshness is `discovery_fresh_within_minutes`
-= 60, so a daily ingestion would grey out the cards — confirm the real cron-job.org schedule before treating the "once daily" text as current.
+**Intended schedules (owner decision, 2026-10-13).** `ingest-nfl-markets` every **15 minutes** (Prediction cards go stale after
+`discovery_fresh_within_minutes` = 60, so markets must refresh well inside that); `grade-predictions`, `resolve-challenges` and
+`settle-monetary-positions` every **5 minutes** (production was running them every ~2 minutes, ~685 times a day each, and `ingest-nfl-markets` about every
+16 minutes). The schedules live only in cron-job.org's dashboard, which this repository cannot change — the exact entries to set are in the cron-job.org
+table in §5 below. `lib/jobs/registry.ts` already carries the intended cadences, which only affect how long Job Health waits before calling a job stale: a
+job that still runs more often than its registry cadence is never flagged.
+
+**Cron run-history retention (r76).** `background_jobs` gets one row per run and nothing ever deleted one (~359,000 rows / 220 MB, about two thirds of
+the database, ~274,000 of them from jobs that no longer exist). The same `prune-provider-request-log` route now also deletes old rows through
+`delete_old_background_jobs_rows` (migration 195), in batches of 1,000 rows, at most 20 batches a tick, stopping at the first short batch. The window is
+`platform_settings.background_job_retention_days` (owner-approved: 14 days; an operator changes it with SQL — it is deliberately not a Settings control
+yet). A missing or malformed value deletes nothing. The newest 50 rows of every job name are always kept, however old, so a rare or discontinued job still
+shows its last runs and Job Health cannot regress to "never run". Nothing outside `background_jobs` is touched.
 
 **`ingest-nfl-markets` quota-exhaustion incident (2026-09-25 – 2026-09-27).**
 This job's fixture-eligibility query had no upper bound on
@@ -219,7 +228,7 @@ needed together:
    season-wide candidate set into a small, constant one (~14-16 NFL
    games/week).
 2. **Cadence reduction** (external, cron-job.org dashboard only — **not**
-   a code change, must be applied by hand): 15 minutes → once daily. This
+   a code change, must be applied by hand): 15 minutes → once daily. *(Superseded 2026-10-13: the owner-confirmed schedule is every 15 minutes again — see Intended schedules above. The unbounded query is what was fixed; the provider request volume is now bounded by the sportsbook week, not by the schedule alone.)* This
    product deliberately does not use real market odds for pricing (see
    product decision behind Milestone R13.10), so daily-refreshed lines are
    sufficient; there is no reason to re-fetch the same ~15 games' odds 96
@@ -275,13 +284,13 @@ cron-job.org's own settings and the Vercel env var):
 | Process results | `https://brohda.com/api/cron/process-results` | Every 1 minute | `Authorization: Bearer <CRON_SECRET>` |
 | Sync NFL fixtures | `https://brohda.com/api/cron/sync-fixtures-nfl` | Every 5 minutes | `Authorization: Bearer <CRON_SECRET>` |
 | Prune provider request log | `https://brohda.com/api/cron/prune-provider-request-log` | Every 5 minutes | `Authorization: Bearer <CRON_SECRET>` |
-| Ingest NFL markets | `https://brohda.com/api/cron/ingest-nfl-markets` | Once daily, 07:00 UTC | `Authorization: Bearer <CRON_SECRET>` |
+| Ingest NFL markets | `https://brohda.com/api/cron/ingest-nfl-markets` | Every 15 minutes | `Authorization: Bearer <CRON_SECRET>` |
 | Publish posts | `https://brohda.com/api/cron/publish-posts` | Every 5 minutes | `Authorization: Bearer <CRON_SECRET>` |
 | Distribute posts | `https://brohda.com/api/cron/distribute-posts` | Every 5-15 minutes | `Authorization: Bearer <CRON_SECRET>` |
 | Advance sponsorships | `https://brohda.com/api/cron/advance-sponsorships` | Every 5 minutes | `Authorization: Bearer <CRON_SECRET>` |
-| Grade predictions | `https://brohda.com/api/cron/grade-predictions` | Every 2 minutes | `Authorization: Bearer <CRON_SECRET>` |
-| Resolve Call BS Challenges | `https://brohda.com/api/cron/resolve-challenges` | Every 2 minutes, offset after grading | `Authorization: Bearer <CRON_SECRET>` |
-| Settle monetary Positions | `https://brohda.com/api/cron/settle-monetary-positions` | Every 2 minutes, offset after grading | `Authorization: Bearer <CRON_SECRET>` |
+| Grade predictions | `https://brohda.com/api/cron/grade-predictions` | Every 5 minutes | `Authorization: Bearer <CRON_SECRET>` |
+| Resolve Call BS Challenges | `https://brohda.com/api/cron/resolve-challenges` | Every 5 minutes, offset after grading | `Authorization: Bearer <CRON_SECRET>` |
+| Settle monetary Positions | `https://brohda.com/api/cron/settle-monetary-positions` | Every 5 minutes (while that legacy subsystem still exists), offset after grading | `Authorization: Bearer <CRON_SECRET>` |
 
 Leaving cron off Vercel entirely also means Vercel's Hobby (free) plan is
 sufficient for hosting — no Pro upgrade is required purely for this.
