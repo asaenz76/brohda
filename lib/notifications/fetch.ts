@@ -12,6 +12,8 @@ export interface NotificationRow {
   post_id: string | null;
   /** Populated for type=prediction_graded and every CALL_BS_* type — the specific Market this notification is about. See lib/notifications/links.ts's resolveNotificationHref for the per-type priority between this and post_id. */
   market_id: string | null;
+  /** Populated for the MESSAGE_* types: the conversation the notification is about. */
+  conversation_id?: string | null;
   read_at: string | null;
   created_at: string;
 }
@@ -40,7 +42,7 @@ export async function getNotifications(userId: string): Promise<NotificationRow[
   const supabase = await createClient();
   const { data } = await supabase
     .from("notifications")
-    .select("id, type, title, body, transaction_id, post_id, market_id, read_at, created_at")
+    .select("id, type, title, body, transaction_id, post_id, market_id, conversation_id, read_at, created_at")
     .eq("user_id", userId)
     .in("type", NOTIFICATION_CENTER_TYPES)
     .order("created_at", { ascending: false });

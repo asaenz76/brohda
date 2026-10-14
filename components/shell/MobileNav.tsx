@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, Menu, Search, Settings, Shield, Wallet } from "lucide-react";
+import { BookOpen, Menu, MessageSquare, Search, Settings, Shield, Wallet } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 import { LogoutRow } from "@/components/shell/LogoutRow";
 import { MenuSheet, menuItemClass } from "@/components/shell/MenuSheet";
-import { MOBILE_NAV, activeNavKey, visibleNav, type ShellNavItem } from "@/components/shell/nav";
+import { MESSAGES_NAV, MOBILE_NAV, activeNavKey, visibleNav, type ShellNavItem } from "@/components/shell/nav";
 import { cn } from "@/lib/utils";
 import { formatCents } from "@/lib/utils/money";
 
@@ -47,6 +47,8 @@ export function MobileNav({
   showSocialNav,
   showWallet,
   unreadNotificationCount,
+  showMessages = false,
+  unreadMessageCount = 0,
   availableCents,
   heldCents,
   isAdmin,
@@ -56,6 +58,8 @@ export function MobileNav({
   showSocialNav: boolean;
   showWallet: boolean;
   unreadNotificationCount: number;
+  showMessages?: boolean;
+  unreadMessageCount?: number;
   availableCents: number;
   heldCents: number;
   isAdmin: boolean;
@@ -85,14 +89,32 @@ export function MobileNav({
             triggerClassName={cn(itemClass, "w-full text-text-muted hover:text-text-secondary")}
             triggerContent={
               <>
-                <Menu className="size-5" aria-hidden="true" />
-                <span>Menu</span>
+                <span className="relative flex h-6 items-center">
+                  <Menu className="size-5" aria-hidden="true" />
+                  {showMessages && unreadMessageCount > 0 && <span aria-hidden="true" className="absolute -right-1 -top-1 size-2.5 rounded-full bg-danger" />}
+                </span>
+                <span>
+                  Menu
+                  {showMessages && unreadMessageCount > 0 && <span className="sr-only"> ({unreadMessageCount} unread messages)</span>}
+                </span>
               </>
             }
             popupTestId="auth-mobile-menu"
           >
             {(close) => (
               <nav aria-label="Menu" className="space-y-1">
+                {showMessages && (
+                  <Link href={MESSAGES_NAV.href} onClick={close} className={menuItemClass}>
+                    <MessageSquare className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
+                    <span>Messages</span>
+                    {unreadMessageCount > 0 && (
+                      <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold text-white">
+                        <span aria-hidden="true">{unreadMessageCount > 9 ? "9+" : unreadMessageCount}</span>
+                        <span className="sr-only">{unreadMessageCount} unread</span>
+                      </span>
+                    )}
+                  </Link>
+                )}
                 <Link href="/search" onClick={close} className={menuItemClass}>
                   <Search className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
                   Search

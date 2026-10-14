@@ -79,6 +79,11 @@ export const NOTIFICATION_CENTER_TYPES = [
   "MONETARY_POSITION_SETTLED_WIN",
   "MONETARY_POSITION_SETTLED_LOSS",
   "MONETARY_POSITION_VOIDED",
+  // Member Messaging (migration 198): a message request, its acceptance, and a new message. Created only by the messaging_send / messaging_respond_request database functions, which already
+  // apply the capability, blocks, mutes and the per-conversation coalescing; each row carries conversation_id (see lib/notifications/links.ts). The text never carries message content.
+  "MESSAGE_REQUEST_RECEIVED",
+  "MESSAGE_REQUEST_ACCEPTED",
+  "MESSAGE_RECEIVED",
 ] as const;
 
 export type NotificationCenterType = (typeof NOTIFICATION_CENTER_TYPES)[number];

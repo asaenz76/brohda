@@ -7,6 +7,8 @@ import { getHeadToHeadRecords, listCallBsHistory } from "@/lib/challenges/histor
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
 import { CallBsHistory } from "@/components/profile/CallBsHistory";
 import { FollowButton } from "@/components/profile/FollowButton";
+import { MessageMemberLink } from "@/components/messaging/MessageMemberLink";
+import { isMessagingEnabled } from "@/lib/messaging/config";
 import { ProfileTabNav, type ProfileTab } from "../profile-tab-nav";
 import { PredictionsHistory } from "../predictions-history";
 import { CommunitiesTab } from "../communities-tab";
@@ -44,7 +46,7 @@ export default async function PublicProfilePage({
   if (!profile) notFound();
   if (profile.id === currentUser.id) redirect("/profile");
 
-  const [{ data: countsRows }, { data: isFollowing }, reputation, callBsRecord, callBsHistory, headToHeadMap] = await Promise.all([
+  const [{ data: countsRows }, { data: isFollowing }, reputation, callBsRecord, callBsHistory, headToHeadMap, messagingOn] = await Promise.all([
     supabase.rpc("get_follow_counts", { p_user_id: profile.id }),
     supabase.rpc("is_following", { p_follower_id: currentUser.id, p_followee_id: profile.id }),
     getUserPredictionRecord(profile.id),
@@ -52,6 +54,7 @@ export default async function PublicProfilePage({
     listCallBsHistory(profile.id),
     // Your own record against this person — shown only when the two of you have resolved Call BS history.
     getHeadToHeadRecords(currentUser.id, [profile.id]),
+    isMessagingEnabled(),
   ]);
 
   const counts = Array.isArray(countsRows) ? countsRows[0] : countsRows;
@@ -71,7 +74,13 @@ export default async function PublicProfilePage({
         followingCount={counts?.following_count ?? 0}
         profileHref={`/profile/${identifier}`}
         callBsRecord={callBsRecord}
-        action={<FollowButton followeeId={profile.id} initiallyFollowing={Boolean(isFollowing)} />}
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <FollowButton followeeId={profile.id} initiallyFollowing={Boolean(isFollowing)} />
+            {/* Messaging: the entry exists only while the capability is ON, only on someone else's profile (this page is never your own). */}
+            {messagingOn && <MessageMemberLink memberId={profile.id} />}
+          </div>
+        }
       />
 
       <CallBsHistory entries={callBsHistory} subjectIsViewer={false} subjectName={profile.display_name} headToHead={headToHeadMap.get(profile.id) ?? null} />
