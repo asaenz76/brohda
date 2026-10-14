@@ -111,7 +111,7 @@ export default defineConfig({
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
-      testIgnore: /admin-brohda-settings|monetary-capability-gating|legal-reconsent|legal-money-gating|sponsorship-flow/,
+      testIgnore: /admin-brohda-settings|monetary-capability-gating|legal-reconsent|legal-money-gating|sponsorship-flow|sponsor-intelligence/,
     },
     {
       name: "chromium-admin-settings",
@@ -153,6 +153,15 @@ export default defineConfig({
       testMatch: /sponsorship-flow/,
       fullyParallel: false,
       dependencies: ["chromium-legal-money"],
+    },
+    // Flips sponsorship_enabled AND the Sponsor Intelligence settings, and restores them afterwards — so it must never run beside sponsorship-flow, which relies on
+    // sponsorship_enabled staying ON for the whole of its journey. Same rule as every project above: its own project, chained after the one it must not overlap.
+    {
+      name: "chromium-sponsor-intelligence",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: /sponsor-intelligence/,
+      fullyParallel: false,
+      dependencies: ["chromium-sponsorship"],
     },
   ],
 });
