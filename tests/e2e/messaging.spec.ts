@@ -299,8 +299,9 @@ test("Block from a profile is a relationship boundary: the blocker's view hides 
   await expect(signalCard).toContainText("The same message sent repeatedly");
   await expect(signalCard).toContainText("flagged only");
   await signalCard.getByRole("button", { name: "Dismiss" }).click();
-  await expect(signalCard.getByRole("status")).toContainText("Signal updated.");
-  expect((await admin.from("messaging_abuse_signals").select("status").eq("id", signal!.id).single()).data!.status).toBe("DISMISSED");
+  // The outcome, not the transient confirmation: resolving re-renders the list without this signal, so the card (and its status line) goes away.
+  await expect.poll(async () => (await admin.from("messaging_abuse_signals").select("status").eq("id", signal!.id).single()).data!.status).toBe("DISMISSED");
+  await expect(signalCard).toHaveCount(0);
 
   const reportCard = page.locator('[data-slot="report"]', { hasText: b.displayName }).first();
   await reportCard.getByText("Place a retention hold").click();
@@ -308,12 +309,12 @@ test("Block from a profile is a relationship boundary: the blocker's view hides 
   await expect(reportCard.getByRole("alert")).toContainText("Add a short note");
   await reportCard.getByLabel("Why (required)").fill("counsel asked us to keep this case");
   await reportCard.getByRole("button", { name: "Place hold" }).click();
-  await expect(reportCard.getByRole("status")).toContainText("Hold placed.");
+  // Outcome-based: placing the hold re-renders the page with the hold listed, so the confirmation line may already be gone.
+  await expect.poll(async () => (await admin.from("messaging_retention_holds").select("id").eq("report_id", report!.id).is("released_at", null)).data?.length).toBe(1);
   await page.reload();
   await expect(page.locator('[data-slot="holds"]')).toContainText("one report");
   await page.locator('[data-slot="hold"]').first().getByRole("button", { name: "Release hold" }).click();
-  await expect(page.locator('[data-slot="hold"]').first().getByRole("status")).toContainText("Hold released.");
-  expect((await admin.from("messaging_retention_holds").select("released_at").eq("report_id", report!.id).single()).data!.released_at).not.toBeNull();
+  await expect.poll(async () => (await admin.from("messaging_retention_holds").select("released_at").eq("report_id", report!.id).single()).data!.released_at).not.toBeNull();
   await shot(page, "moderation-signals-holds");
 
   // A unblocks B: the placeholder goes away.
