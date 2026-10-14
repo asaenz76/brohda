@@ -204,7 +204,11 @@ test("off by default; Super Admin turns it on; two Members request, accept, repl
   await report.locator("summary").click();
   await expect(report).toContainText("Here is the game I mean");
   await report.getByRole("button", { name: "Hide message" }).click();
-  await expect(report.locator('[data-slot="report-actions"]')).toContainText("Report updated.");
+  // The outcome, not the transient confirmation: resolving moves the report out of "Open" (so the card this locator points at is re-rendered away) and into "Recently resolved" as actioned.
+  const resolved = page.locator('[data-slot="report"][data-status="ACTIONED"]').filter({ hasText: b.displayName });
+  await expect(resolved).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('[data-slot="report"][data-status="OPEN"]').filter({ hasText: b.displayName })).toHaveCount(0);
+  await expect(resolved).toContainText("Actioned");
   await shot(page, "moderation");
   await loginAs(page, b.email);
   await page.goto(conversationUrl);
