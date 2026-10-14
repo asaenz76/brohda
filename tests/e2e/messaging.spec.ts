@@ -201,7 +201,7 @@ test("off by default; Super Admin turns it on; two Members request, accept, repl
   await page.goto("/admin/moderation");
   const report = page.locator('[data-slot="report"][data-status="OPEN"]').filter({ hasText: b.displayName });
   await expect(report).toBeVisible();
-  await report.locator("summary").click();
+  await report.getByText(/^Evidence \(/).click();
   await expect(report).toContainText("Here is the game I mean");
   await report.getByRole("button", { name: "Hide message" }).click();
   // The outcome, not the transient confirmation: resolving moves the report out of "Open" (so the card this locator points at is re-rendered away) and into "Recently resolved" as actioned.
@@ -228,4 +228,101 @@ test("off by default; Super Admin turns it on; two Members request, accept, repl
   await page.goto("/messages");
   await shot(page, "inbox-mobile");
   await page.setViewportSize({ width: 1280, height: 720 });
+});
+
+test("Block from a profile is a relationship boundary: the blocker's view hides the blocked Member's comment, nobody else's changes, replies between the pair are refused, and moderation shows signals and holds", async ({ page }) => {
+  test.setTimeout(240_000);
+  await admin.from("platform_settings").update({ messaging_enabled: true }).eq("id", true);
+  const superAdmin = await createMember("owner", "super_admin");
+  const a = await createMember("blocker");
+  const b = await createMember("blocked");
+  const c = await createMember("bystander");
+
+  const suffix = randomUUID().slice(0, 6);
+  const { data: fixture } = await admin
+    .from("fixtures")
+    .insert({ provider: "api_nfl", external_fixture_id: `e2e-block-${randomUUID()}`, sport: "american_football", home_team_name: `Blk Home ${suffix}`, away_team_name: `Blk Away ${suffix}`, competition_name: "NFL", competition_external_id: "1", scheduled_start_utc: new Date(Date.now() + 24 * 3_600_000).toISOString(), internal_status: "NOT_STARTED" })
+    .select("id")
+    .single();
+  const { data: post } = await admin.from("posts").insert({ fixture_id: fixture!.id, published_at: new Date().toISOString() }).select("id").single();
+  const aText = `from-blocker-${suffix}`;
+  const bText = `from-blocked-${suffix}`;
+  const cText = `bystander-reply-${suffix}`;
+  const aComment = (await admin.rpc("add_post_comment", { p_post_id: post!.id, p_user_id: a.id, p_body: aText, p_parent_comment_id: null }).single()).data as Row;
+  const bComment = (await admin.rpc("add_post_comment", { p_post_id: post!.id, p_user_id: b.id, p_body: bText, p_parent_comment_id: null }).single()).data as Row;
+  await admin.rpc("add_post_comment", { p_post_id: post!.id, p_user_id: c.id, p_body: cText, p_parent_comment_id: bComment.id });
+  expect(aComment.id).toBeTruthy();
+
+  // A blocks B from B's profile. Block works without opening a conversation, and asks first.
+  await loginAs(page, a.email);
+  await page.goto(`/profile/${b.username}`);
+  const block = page.locator('[data-slot="block-member"]');
+  await block.getByRole("button", { name: "Block", exact: true }).click();
+  await expect(block.getByRole("alertdialog")).toContainText("Everyone else still sees them");
+  await block.getByRole("button", { name: "Block", exact: true }).click();
+  await expect(block.getByRole("status")).toContainText("Blocked.");
+  await expect(block.getByRole("button", { name: "Unblock" })).toBeVisible();
+  await shot(page, "profile-blocked");
+
+  // A's view: B's comment is a placeholder (kept only because C replied beneath it); C's reply and A's own comment are there; B's text is not.
+  await page.goto(`/post/${post!.id}`);
+  await expect(page.getByText(aText)).toBeVisible();
+  await expect(page.locator('[data-slot="comment-hidden-by-block"]')).toBeVisible();
+  await expect(page.getByText(cText)).toBeVisible();
+  await expect(page.getByText(bText)).toHaveCount(0);
+  await shot(page, "post-blocked-view");
+
+  // B (the blocked Member) sees everything exactly as before, and a direct reply to A is refused with one neutral sentence.
+  await loginAs(page, b.email);
+  await page.goto(`/post/${post!.id}`);
+  await expect(page.getByText(aText)).toBeVisible();
+  await expect(page.getByText(bText)).toBeVisible();
+  await expect(page.locator('[data-slot="comment-hidden-by-block"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "Reply" }).first().click(); // A's comment is first in the thread
+  await page.getByPlaceholder(/^Reply to /).fill("hello blocker");
+  await page.getByRole("button", { name: "Post", exact: true }).first().click();
+  await expect(page.getByText("You can't reply to this comment.")).toBeVisible();
+  expect((await admin.from("post_comments").select("id").eq("body", "hello blocker")).data).toEqual([]);
+
+  // Everyone else (C) sees both comments normally: a block is not moderation.
+  await loginAs(page, c.email);
+  await page.goto(`/post/${post!.id}`);
+  await expect(page.getByText(aText)).toBeVisible();
+  await expect(page.getByText(bText)).toBeVisible();
+
+  // Moderation: an abuse signal and a retention hold are visible to the Super Admin and can be dismissed / released, each with a note and an audit entry.
+  const { data: signal } = await admin.from("messaging_abuse_signals").insert({ member_id: b.id, signal_type: "DUPLICATE_BURST", observed_count: 6, threshold: 4, window_seconds: 86400 }).select("id").single();
+  const { data: report } = await admin.from("message_reports").insert({ reporter_id: c.id, reported_member_id: b.id, scope: "CONVERSATION", reason: "SPAM", evidence: [] }).select("id").single();
+  await loginAs(page, superAdmin.email);
+  await page.goto("/admin/moderation");
+  const signalCard = page.locator(`[data-slot="abuse-signal"][data-type="DUPLICATE_BURST"]`, { hasText: b.displayName });
+  await expect(signalCard).toContainText("The same message sent repeatedly");
+  await expect(signalCard).toContainText("flagged only");
+  await signalCard.getByRole("button", { name: "Dismiss" }).click();
+  // The outcome, not the transient confirmation: resolving re-renders the list without this signal, so the card (and its status line) goes away.
+  await expect.poll(async () => (await admin.from("messaging_abuse_signals").select("status").eq("id", signal!.id).single()).data!.status).toBe("DISMISSED");
+  await expect(signalCard).toHaveCount(0);
+
+  const reportCard = page.locator('[data-slot="report"]', { hasText: b.displayName }).first();
+  await reportCard.getByText("Place a retention hold").click();
+  await reportCard.getByRole("button", { name: "Place hold" }).click();
+  await expect(reportCard.getByRole("alert")).toContainText("Add a short note");
+  await reportCard.getByLabel("Why (required)").fill("counsel asked us to keep this case");
+  await reportCard.getByRole("button", { name: "Place hold" }).click();
+  // Outcome-based: placing the hold re-renders the page with the hold listed, so the confirmation line may already be gone.
+  await expect.poll(async () => (await admin.from("messaging_retention_holds").select("id").eq("report_id", report!.id).is("released_at", null)).data?.length).toBe(1);
+  await page.reload();
+  await expect(page.locator('[data-slot="holds"]')).toContainText("one report");
+  await page.locator('[data-slot="hold"]').first().getByRole("button", { name: "Release hold" }).click();
+  await expect.poll(async () => (await admin.from("messaging_retention_holds").select("released_at").eq("report_id", report!.id).single()).data!.released_at).not.toBeNull();
+  await shot(page, "moderation-signals-holds");
+
+  // A unblocks B: the placeholder goes away.
+  await loginAs(page, a.email);
+  await page.goto(`/profile/${b.username}`);
+  await page.locator('[data-slot="block-member"]').getByRole("button", { name: "Unblock" }).click();
+  await expect(page.locator('[data-slot="block-member"]').getByRole("status")).toContainText("Unblocked.");
+  await page.goto(`/post/${post!.id}`);
+  await expect(page.getByText(bText)).toBeVisible();
+  await expect(page.locator('[data-slot="comment-hidden-by-block"]')).toHaveCount(0);
 });

@@ -42,6 +42,12 @@ async function conversationIsActive(viewerId: string, otherId: string): Promise<
   return data?.status === "ACTIVE";
 }
 
+/** Is a temporary restriction on opening NEW requests in force for this Member? Applied only by an explicit, switched-on abuse rule; a failed lookup never blocks anyone. */
+async function requestsRestricted(userId: string): Promise<boolean> {
+  const { data, error } = await createAdminClient().rpc("messaging_is_restricted", { p_user_id: userId });
+  return !error && data === true;
+}
+
 async function sendThroughDatabase(userId: string, recipientId: string, args: { kind: "TEXT" | "SHARE"; body: string | null; share: ShareTarget | null; idempotencyKey: string }, maxLength: number) {
   const { data, error } = await createAdminClient().rpc("messaging_send", {
     p_user_id: userId,
@@ -68,7 +74,10 @@ export async function sendMessageAction(input: { recipientId: string; body: stri
   if (!body) return result("empty");
   if (body.length > config.maxMessageLength) return result("too_long", {}, config.maxMessageLength);
   if (!(await checkMessagingSendRateLimit(user.id, config))) return result("rate_limited");
-  if (!(await conversationIsActive(user.id, input.recipientId)) && !(await checkMessagingRequestRateLimit(user.id, config))) return result("rate_limited");
+  if (!(await conversationIsActive(user.id, input.recipientId))) {
+    if (await requestsRestricted(user.id)) return result("restricted");
+    if (!(await checkMessagingRequestRateLimit(user.id, config))) return result("rate_limited");
+  }
   return sendThroughDatabase(user.id, input.recipientId, { kind: "TEXT", body, share: null, idempotencyKey: input.idempotencyKey }, config.maxMessageLength);
 }
 
@@ -82,7 +91,10 @@ export async function shareObjectAction(input: { recipientId: string; type?: Sha
   // The sender's own authority over what they share is re-checked here, whatever the client sent.
   if (!(await senderMayShare(user.id, target))) return result("share_unavailable");
   if (!(await checkMessagingSendRateLimit(user.id, config))) return result("rate_limited");
-  if (!(await conversationIsActive(user.id, input.recipientId)) && !(await checkMessagingRequestRateLimit(user.id, config))) return result("rate_limited");
+  if (!(await conversationIsActive(user.id, input.recipientId))) {
+    if (await requestsRestricted(user.id)) return result("restricted");
+    if (!(await checkMessagingRequestRateLimit(user.id, config))) return result("rate_limited");
+  }
   return sendThroughDatabase(user.id, input.recipientId, { kind: "SHARE", body: null, share: target, idempotencyKey: input.idempotencyKey }, config.maxMessageLength);
 }
 

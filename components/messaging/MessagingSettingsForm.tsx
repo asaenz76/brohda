@@ -3,11 +3,11 @@
 import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { setMessagingConfigAction, type MessagingAdminResult } from "@/lib/actions/messaging-admin";
-import { MESSAGING_SETTING_FIELDS } from "@/lib/messaging/settings-fields";
+import { MESSAGING_BOOLEAN_FIELDS, MESSAGING_SETTING_FIELDS } from "@/lib/messaging/settings-fields";
 
 export function MessagingSettingsForm({ enabled, values }: { enabled: boolean; values: Record<string, number | boolean | null> }) {
   const [state, action, pending] = useActionState<MessagingAdminResult | null, FormData>(setMessagingConfigAction, null);
-  const groups = [...new Set(MESSAGING_SETTING_FIELDS.map((f) => f.group))];
+  const groups = [...new Set([...MESSAGING_SETTING_FIELDS.map((f) => f.group), ...MESSAGING_BOOLEAN_FIELDS.map((f) => f.group)])];
   return (
     <form action={action} className="space-y-4" data-slot="messaging-settings-form">
       <label className="flex items-center gap-2 text-sm font-medium text-text-primary">
@@ -17,6 +17,15 @@ export function MessagingSettingsForm({ enabled, values }: { enabled: boolean; v
       {groups.map((group) => (
         <fieldset key={group} className="space-y-2">
           <legend className="text-xs font-semibold uppercase tracking-wide text-text-muted">{group}</legend>
+          {MESSAGING_BOOLEAN_FIELDS.filter((f) => f.group === group).map((f) => (
+            <label key={f.key} className="flex items-start gap-2 text-xs font-medium text-text-secondary">
+              <input type="checkbox" name={f.key} defaultChecked={values[f.key] === true} className="mt-0.5 size-4" />
+              <span>
+                {f.label}
+                <span className="block font-normal text-text-muted">{f.help}</span>
+              </span>
+            </label>
+          ))}
           <div className="grid gap-3 sm:grid-cols-2">
             {MESSAGING_SETTING_FIELDS.filter((f) => f.group === group).map((f) => (
               <label key={f.key} className="space-y-1 text-xs font-medium text-text-secondary">

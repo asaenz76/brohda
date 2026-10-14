@@ -102,6 +102,26 @@ Reuses the existing generic `check_and_increment_rate_limit` primitive, namespac
 
 `challenges` was added to `tests/integration/table-privilege-hygiene.test.ts`'s `REPRESENTATIVE_TABLES`.
 
+## Expiry reasons and the "ignored" policy (r80, migration 199)
+
+`challenges.expiry_reason` records **why** a Call BS ended without being answered. It is set exactly when `status = 'EXPIRED'` (a `CHECK` plus a guard trigger: a writer that forgets gets `OTHER_SYSTEM_REASON`, never a silent NULL, and a non-expired row can never carry one).
+
+| Reason | Set when | Counts as ignored? |
+| --- | --- | --- |
+| `NO_RESPONSE` | Nobody answered before the cutoff, the Game started, or the Game finished with it unanswered | **yes — the only one** |
+| `GAME_OR_MARKET_CANCELLED` | Game postponed / suspended / abandoned / cancelled, or the Market deactivated | no |
+| `SYSTEM_INVALIDATED` | A Pick changed or was graded, the Market vanished, or the provider status is `UNKNOWN` | no |
+| `COMPETING_CHALLENGE_RESOLVED` | Another Call BS involving either Member was accepted first (the accept cascade), or a Pick already belongs to a pairing | no |
+| `ACCOUNT_STATE_CHANGE` | Either account stopped being eligible (deactivated or closed) | no |
+| `RELATIONSHIP_BLOCKED` | One Member blocked the other (at block time, or caught at accept time) | no |
+| `OTHER_SYSTEM_REASON` | Anything else, **and every Call BS that expired before reasons were recorded** (their cause was never known) | no |
+
+The policy is centralised twice, with a parity test: `public.challenge_expiry_counts_as_ignored(reason)` in the database and `lib/challenges/expiry.ts` in code (`expiryCountsAsIgnored`, `challengeResponseRate`). The game-driven classification is one SQL function (`challenge_game_expiry_reason`) used by both the sweep and the accept path. `call_bs_response_stats(recipient)` computes the future public metrics only through that policy: *answerable* = accepted + declined + genuinely ignored; pending and system-expired Call BS are in neither number; a Member with nothing answerable has a NULL rate, never 0%. "Challenges ignored" and "Challenge response rate" must read these and nothing else, so a Member is never punished for a system-driven expiration. (A recipient who clicks Accept after the cutoff is recorded as `NO_RESPONSE`: nobody answered in time.)
+
+## Block
+
+A block between two Members, in either direction, refuses `call_bs()` (one neutral `relationship_blocked` for both directions), expires a pending Call BS between them as `RELATIONSHIP_BLOCKED`, makes `accept_call_bs()` fail the same way, and removes the "Call BS" prompt between them in discovery. Accepted and resolved Call BS are history and unchanged. See `messaging.md` for the full boundary.
+
 ## Independence from Community distribution and Comments
 
 `challenges` has no `community_id` and no `post_id` column — verified directly by inspecting the live row's own columns, not just the TypeScript type. Nothing in `lib/challenges/` reads or writes `post_communities`, `communities`, or `post_comments`. A Comment's text is never treated as evidence of an opposing Pick (§44) — the only path into a Challenge is a real, canonical `predictions` row.

@@ -77,6 +77,14 @@ export async function getMarketParticipants(
     acceptedPairedUserIds = new Set((acceptedRows ?? []).flatMap((c) => [c.challenger_user_id, c.recipient_user_id]));
   }
 
+  // Block is a relationship boundary: a Call BS is never offered between a blocked pair, in either direction. Offered nowhere, so it reveals nothing about who blocked whom.
+  const blockedUserIds = new Set<string>();
+  if (viewerRow) {
+    const { data: blocks, error: blocksError } = await admin.from("member_blocks").select("blocker_id, blocked_id").or(`blocker_id.eq.${viewerId},blocked_id.eq.${viewerId}`);
+    if (blocksError) throw blocksError;
+    for (const b of blocks ?? []) blockedUserIds.add(b.blocker_id === viewerId ? b.blocked_id : b.blocker_id);
+  }
+
   const userIds = [...new Set(participantRows.map((r) => r.user_id))];
   // Same reasoning as lib/post-comments/repository.ts's own author lookup:
   // `public_profiles` grants SELECT to `authenticated` only, not
@@ -102,7 +110,8 @@ export async function getMarketParticipants(
         viewerRow.lifecycle_state !== "GRADED" &&
         !existingPairPredictionIds.has(row.id) &&
         !acceptedPairedUserIds.has(viewerId) &&
-        !acceptedPairedUserIds.has(row.user_id),
+        !acceptedPairedUserIds.has(row.user_id) &&
+        !blockedUserIds.has(row.user_id),
     );
     // Why a Call BS isn't offered, for the UI: the target is exclusively paired already. acceptedPairedUserIds is only populated
     // while the viewer could still act (enabled, before cutoff, viewer picked and not graded), so this is false otherwise.

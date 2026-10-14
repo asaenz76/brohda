@@ -6,6 +6,7 @@
 // domain's own shape only.
 
 import type { PredictionOutcome } from "@/lib/predictions/types";
+import type { ChallengeExpiryReason } from "./expiry";
 
 export type ChallengeStatus = "PENDING" | "ACCEPTED" | "DECLINED" | "EXPIRED" | "RESOLVED";
 
@@ -37,6 +38,8 @@ export interface Challenge {
   recipientSelectionSnapshot: PredictionOutcome;
 
   status: ChallengeStatus;
+  /** Why it ended unanswered. Non-null exactly when status = EXPIRED (see lib/challenges/expiry.ts for which reasons ever count against a Member). */
+  expiryReason: ChallengeExpiryReason | null;
   result: ChallengeResult | null;
 
   acceptedAt: string | null;

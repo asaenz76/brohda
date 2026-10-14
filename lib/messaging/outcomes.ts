@@ -13,6 +13,7 @@ export type MessagingOutcome =
   | "request_pending_accept_first"
   | "duplicate_message"
   | "rate_limited"
+  | "restricted"
   | "not_found"
   | "unsent"
   | "unsend_disabled"
@@ -39,6 +40,7 @@ const COPY: Record<MessagingOutcome, string> = {
   request_pending_accept_first: "This Member sent you a request. Accept it to reply.",
   duplicate_message: "You just sent that.",
   rate_limited: "You're going too fast. Wait a moment and try again.",
+  restricted: "New Message Requests are paused on your account for now. You can still message Members you already talk to.",
   not_found: "That isn't available.",
   unsent: "Message deleted.",
   unsend_disabled: "Messages can't be deleted right now.",

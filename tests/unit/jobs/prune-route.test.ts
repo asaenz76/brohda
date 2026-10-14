@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 let providerLogResult: () => Promise<unknown>;
 let backgroundJobsResult: () => Promise<unknown>;
+let messagingResult: () => Promise<unknown>;
 const providerLogCalls = vi.fn();
 const backgroundJobsCalls = vi.fn();
+const messagingCalls = vi.fn();
 
 vi.mock("@/lib/sports-data/provider-request-log-retention", () => ({
   runProviderRequestLogRetention: () => {
@@ -15,6 +17,12 @@ vi.mock("@/lib/jobs/retention", () => ({
   runBackgroundJobsRetention: () => {
     backgroundJobsCalls();
     return backgroundJobsResult();
+  },
+}));
+vi.mock("@/lib/messaging/retention", () => ({
+  runMessagingRetention: () => {
+    messagingCalls();
+    return messagingResult();
   },
 }));
 // recordJobRun is exercised by its own tests; here it just runs the job and hands the result back.
@@ -30,6 +38,8 @@ beforeEach(() => {
   process.env.CRON_SECRET = "test-secret";
   providerLogCalls.mockClear();
   backgroundJobsCalls.mockClear();
+  messagingCalls.mockClear();
+  messagingResult = async () => ({ enabled: false, rounds: 0, removed: {} });
   providerLogResult = async () => ({ batchesRun: 1, rowsDeleted: 7 });
   backgroundJobsResult = async () => ({ batchesRun: 2, rowsDeleted: 1500, retentionDays: 14 });
 });
@@ -55,6 +65,7 @@ describe("prune-provider-request-log cron route", () => {
       batchesRun: 1,
       rowsDeleted: 7,
       backgroundJobs: { batchesRun: 2, rowsDeleted: 1500, retentionDays: 14 },
+      messaging: { enabled: false, rounds: 0, removed: {} },
       failures: [],
     });
   });
@@ -78,5 +89,31 @@ describe("prune-provider-request-log cron route", () => {
     expect(body.rowsDeleted).toBe(7);
     expect(body.backgroundJobs).toBeNull();
     expect(body.failures).toEqual([{ step: "background_jobs", error: "history prune failed" }]);
+  });
+
+  it("Messaging retention runs on the same path in its own failure domain: its failure skips nothing else and is reported", async () => {
+    messagingResult = async () => {
+      throw new Error("messaging purge failed");
+    };
+    const body = await (await GET(request("Bearer test-secret"))).json();
+    expect(providerLogCalls).toHaveBeenCalledTimes(1);
+    expect(backgroundJobsCalls).toHaveBeenCalledTimes(1);
+    expect(body.rowsDeleted).toBe(7);
+    expect(body.backgroundJobs.rowsDeleted).toBe(1500);
+    expect(body.messaging).toBeNull();
+    expect(body.failures).toEqual([{ step: "messaging_retention", error: "messaging purge failed" }]);
+  });
+
+  it("an earlier failure never skips Messaging retention", async () => {
+    providerLogResult = async () => {
+      throw new Error("log prune failed");
+    };
+    backgroundJobsResult = async () => {
+      throw new Error("history prune failed");
+    };
+    const body = await (await GET(request("Bearer test-secret"))).json();
+    expect(messagingCalls).toHaveBeenCalledTimes(1);
+    expect(body.messaging).toEqual({ enabled: false, rounds: 0, removed: {} });
+    expect(body.failures).toHaveLength(2);
   });
 });

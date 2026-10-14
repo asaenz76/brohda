@@ -84,6 +84,8 @@ export const NOTIFICATION_CENTER_TYPES = [
   "MESSAGE_REQUEST_RECEIVED",
   "MESSAGE_REQUEST_ACCEPTED",
   "MESSAGE_RECEIVED",
+  // A generic "we reviewed your report" note to the reporter; it has no destination and carries nothing but one of two fixed sentences.
+  "MESSAGE_REPORT_OUTCOME",
 ] as const;
 
 export type NotificationCenterType = (typeof NOTIFICATION_CENTER_TYPES)[number];

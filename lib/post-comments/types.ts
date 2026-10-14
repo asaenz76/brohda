@@ -27,4 +27,9 @@ export interface PostCommentAuthor {
 export interface PostCommentWithAuthor extends PostComment {
   author: PostCommentAuthor;
   replies: PostCommentWithAuthor[];
+  /**
+   * The VIEWER blocked this comment's author, so this view shows a placeholder instead of the comment (kept only to hold the replies other Members left beneath it). Per-viewer presentation only:
+   * the comment itself is unchanged and every other Member still sees it normally. Never true for a viewer who was blocked BY the author.
+   */
+  hiddenByBlock?: boolean;
 }

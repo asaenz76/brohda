@@ -17,6 +17,7 @@ function challenge(overrides: Partial<Challenge> & { status: ChallengeStatus }):
     recipientPredictionId: OTHER_PICK,
     challengerSelectionSnapshot: "YES",
     recipientSelectionSnapshot: "NO",
+    expiryReason: null,
     result: null,
     acceptedAt: null,
     declinedAt: null,
@@ -85,7 +86,7 @@ describe("deriveChallengeActionState", () => {
   });
 
   it("prefers ACCEPTED over PENDING over EXPIRED when several match the same pair", () => {
-    const expired = challenge({ id: "old", status: "EXPIRED" });
+    const expired = challenge({ id: "old", status: "EXPIRED", expiryReason: "NO_RESPONSE" });
     const pending = challenge({ id: "mid", status: "PENDING" });
     const accepted = challenge({ id: "new", status: "ACCEPTED" });
     expect(derive([expired, pending, accepted])).toEqual({ kind: "accepted" });

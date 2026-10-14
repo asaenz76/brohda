@@ -175,7 +175,7 @@ can never stack, and one job's lock never affects another job's.
 | `/api/cron/lock-pools` | none (DB-only) | No | `lockDuePools` | Every 1 minute |
 | `/api/cron/process-results` | none (DB-only) | No | `processAwaitingResults` | Every 1 minute |
 | `/api/cron/sync-fixtures-nfl` | api_nfl | Yes — one request per tick regardless of season size | `runNflFixtureSync` | Every 5 minutes |
-| `/api/cron/prune-provider-request-log` | none (DB-only) | No | `runProviderRequestLogRetention` **and** `runBackgroundJobsRetention` (cron run-history retention, below) — one route, one scheduler entry | Every 5 minutes |
+| `/api/cron/prune-provider-request-log` | none (DB-only) | No | `runProviderRequestLogRetention`, `runBackgroundJobsRetention` (cron run-history retention, below) **and** `runMessagingRetention` (Messaging retention — a no-op until `platform_settings.messaging_retention_purge_enabled` is switched on) — one route, one scheduler entry | Every 5 minutes |
 | `/api/cron/ingest-nfl-markets` | api_nfl | Yes | `runNflMarketIngestion` — no-ops unless `platform_settings.market_ingestion_enabled` | **Every 15 minutes** (owner-confirmed 2026-10-13; the incident note below describes the earlier once-daily decision, since superseded) |
 | `/api/cron/publish-posts` | none (DB-only) | No | `runPostPublication` — no-ops unless `platform_settings.post_publication_enabled` | Every 5 minutes (recommended) |
 | `/api/cron/distribute-posts` | none (DB-only) | No | `runCommunityDistribution` — no-ops unless `platform_settings.community_distribution_enabled` | Every 5-15 minutes (recommended). Still reconciles every published Post, but only the ones missing a Community link cost any work (`posts_needing_distribution`, migration 195) |
@@ -208,6 +208,8 @@ the database, ~274,000 of them from jobs that no longer exist). The same `prune-
 `platform_settings.background_job_retention_days` (owner-approved: 14 days; an operator changes it with SQL — it is deliberately not a Settings control
 yet). A missing or malformed value deletes nothing. The newest 50 rows of every job name are always kept, however old, so a rare or discontinued job still
 shows its last runs and Job Health cannot regress to "never run". Nothing outside `background_jobs` is touched.
+
+**Messaging retention (r80).** The same route also runs `runMessagingRetention`, which calls `messaging_purge_expired` (migration 199) in bounded batches (500 rows per category per call, at most 10 calls a tick). It deletes **nothing** until `messaging_retention_purge_enabled` is switched on in Settings → Brohda → Messaging (default OFF); the durations (unsent originals 30 days, report evidence 180 days after the case closes, message content 30 days after account closure, Messaging security metadata 365 days, ordinary messages no age-based purge) are policy settings. Messages on an open report or under a retention hold are never removed. `audit_logs` is append-only and is never touched. No new cron-job.org entry is needed — the existing every-5-minutes entry carries it, and the run is reported on the `messaging` field and any problem on `failures` (step `messaging_retention`).
 
 **`ingest-nfl-markets` quota-exhaustion incident (2026-09-25 – 2026-09-27).**
 This job's fixture-eligibility query had no upper bound on

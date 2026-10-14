@@ -2,6 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Challenge, ChallengeRecord, ChallengeResult, ChallengeStatus } from "./types";
 import type { PredictionOutcome } from "@/lib/predictions/types";
+import type { ChallengeExpiryReason } from "./expiry";
 
 // Milestone R7 — the sole query/mutation surface for `challenges`, matching
 // this codebase's established one-repository-per-table convention.
@@ -34,6 +35,7 @@ interface ChallengeRow {
   challenger_selection_snapshot: PredictionOutcome;
   recipient_selection_snapshot: PredictionOutcome;
   status: ChallengeStatus;
+  expiry_reason: ChallengeExpiryReason | null;
   result: ChallengeResult | null;
   accepted_at: string | null;
   declined_at: string | null;
@@ -53,6 +55,7 @@ function toDomain(row: ChallengeRow): Challenge {
     challengerSelectionSnapshot: row.challenger_selection_snapshot,
     recipientSelectionSnapshot: row.recipient_selection_snapshot,
     status: row.status,
+    expiryReason: row.expiry_reason,
     result: row.result,
     acceptedAt: row.accepted_at,
     declinedAt: row.declined_at,
