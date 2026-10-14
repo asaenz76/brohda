@@ -4,6 +4,7 @@ import { getBrohdaSettings } from "@/lib/admin-settings/repository";
 import { LegalStatusCard } from "@/components/sponsorship/LegalStatusCard";
 import { OnlinePaymentsCard } from "@/components/sponsorship/OnlinePaymentsCard";
 import { SponsorIntelligenceCard } from "@/components/sponsor-intelligence/SponsorIntelligenceCard";
+import { MessagingSettingsCard } from "@/components/messaging/MessagingSettingsCard";
 import { RefundPolicyCard } from "@/components/sponsorship/RefundPolicyCard";
 import {
   PredictionSettingsSection,
@@ -66,6 +67,7 @@ export default async function BrohdaSettingsPage() {
           <SponsorIntelligenceCard />
         </div>
       </div>
+      <MessagingSettingsCard />
     </div>
   );
 }

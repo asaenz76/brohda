@@ -6,7 +6,7 @@ import { BookOpen, Settings, Shield, Wallet } from "lucide-react";
 import { LogoutRow } from "@/components/shell/LogoutRow";
 import { cn } from "@/lib/utils";
 import { formatCents } from "@/lib/utils/money";
-import { PRIMARY_NAV, activeNavKey, visibleNav, type ShellNavItem } from "@/components/shell/nav";
+import { activeNavKey, railNav, type ShellNavItem } from "@/components/shell/nav";
 
 const rowClass =
   "relative flex min-h-11 items-center gap-3 rounded-md px-3 text-[15px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60";
@@ -46,6 +46,8 @@ export function LeftNav({
   showSocialNav,
   showWallet,
   unreadNotificationCount,
+  showMessages = false,
+  unreadMessageCount = 0,
   availableCents,
   heldCents,
   isAdmin,
@@ -54,6 +56,8 @@ export function LeftNav({
   showSocialNav: boolean;
   showWallet: boolean;
   unreadNotificationCount: number;
+  showMessages?: boolean;
+  unreadMessageCount?: number;
   availableCents: number;
   heldCents: number;
   isAdmin: boolean;
@@ -65,8 +69,8 @@ export function LeftNav({
 
   return (
     <nav aria-label="Primary" className="flex flex-col gap-1">
-      {visibleNav(PRIMARY_NAV, showSocialNav).map((item) => (
-        <NavRow key={item.key} item={item} active={active === item.key} unread={item.key === "notifications" ? unreadNotificationCount : undefined} />
+      {railNav(showSocialNav, showMessages).map((item) => (
+        <NavRow key={item.key} item={item} active={active === item.key} unread={item.key === "notifications" ? unreadNotificationCount : item.key === "messages" ? unreadMessageCount : undefined} />
       ))}
 
       <div className="mt-3 flex flex-col gap-1 border-t border-border-subtle pt-3">

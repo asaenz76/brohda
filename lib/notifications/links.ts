@@ -27,7 +27,12 @@ const PAIR_NOTIFICATION_TYPES = new Set([
   "MONETARY_POSITION_VOIDED",
 ]);
 
+const MESSAGE_NOTIFICATION_TYPES = new Set(["MESSAGE_REQUEST_RECEIVED", "MESSAGE_REQUEST_ACCEPTED", "MESSAGE_RECEIVED"]);
+
 export function resolveNotificationHref(n: NotificationRow): string | null {
+  // Messaging: straight to the conversation (a request is answered there).
+  if (MESSAGE_NOTIFICATION_TYPES.has(n.type)) return n.conversation_id ? `/messages/${n.conversation_id}` : "/messages";
+
   // Not about the recipient's own money — always the admin wallet-requests
   // queue, regardless of transaction_id (null for this type).
   if (n.type === "WALLET_REQUEST_SUBMITTED") return "/admin/wallet-requests";

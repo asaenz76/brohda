@@ -111,7 +111,7 @@ export default defineConfig({
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
-      testIgnore: /admin-brohda-settings|monetary-capability-gating|legal-reconsent|legal-money-gating|sponsorship-flow|sponsor-intelligence/,
+      testIgnore: /admin-brohda-settings|monetary-capability-gating|legal-reconsent|legal-money-gating|sponsorship-flow|sponsor-intelligence|messaging/,
     },
     {
       name: "chromium-admin-settings",
@@ -162,6 +162,14 @@ export default defineConfig({
       testMatch: /sponsor-intelligence/,
       fullyParallel: false,
       dependencies: ["chromium-sponsorship"],
+    },
+    // Flips platform_settings.messaging_enabled (and the polling interval) — its own project, chained last, so no other spec ever runs while Messaging is on or off beneath it.
+    {
+      name: "chromium-messaging",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: /messaging/,
+      fullyParallel: false,
+      dependencies: ["chromium-sponsor-intelligence"],
     },
   ],
 });

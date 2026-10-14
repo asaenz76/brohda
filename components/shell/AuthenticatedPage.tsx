@@ -2,6 +2,8 @@ import { isAdminOrAbove } from "@/lib/auth/guards";
 import { getAppShellProps } from "@/lib/app-shell-props";
 import { getSocialPredictionAccessPolicy } from "@/lib/social/access";
 import { getConsumerMonetaryAccess } from "@/lib/monetary/capability";
+import { isMessagingEnabled } from "@/lib/messaging/config";
+import { getUnreadSummary } from "@/lib/messaging/queries";
 import { AuthenticatedShell } from "@/components/shell/AuthenticatedShell";
 import type { UserProfile } from "@/lib/auth/session";
 
@@ -20,8 +22,21 @@ export async function AuthenticatedPage({ user, children }: { user: UserProfile;
   // account (platform revenue, an operator figure, not a personal wallet), so for a super admin the capability reads their personal balance instead.
   const money = await getConsumerMonetaryAccess(user, user.role === "super_admin" ? undefined : { totalCents: availableCents + heldCents, heldCents });
 
+  // Messaging: the entry and its unread count exist only while the capability is ON (off = nothing is shown and no extra query is made).
+  const showMessages = await isMessagingEnabled();
+  const unreadMessages = showMessages ? await getUnreadSummary() : { unreadConversations: 0, pendingRequests: 0 };
+
   return (
-    <AuthenticatedShell user={user} availableCents={availableCents} heldCents={heldCents} unreadNotificationCount={unreadNotificationCount} showSocialNav={showSocialNav} showWallet={money.canSeeWallet}>
+    <AuthenticatedShell
+      user={user}
+      availableCents={availableCents}
+      heldCents={heldCents}
+      unreadNotificationCount={unreadNotificationCount}
+      showSocialNav={showSocialNav}
+      showWallet={money.canSeeWallet}
+      showMessages={showMessages}
+      unreadMessageCount={unreadMessages.unreadConversations + unreadMessages.pendingRequests}
+    >
       {children}
     </AuthenticatedShell>
   );

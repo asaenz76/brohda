@@ -1,4 +1,4 @@
-import { Bell, Compass, Home, Search, User } from "lucide-react";
+import { Bell, Compass, Home, MessageSquare, Search, User } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 // The authenticated app's navigation, defined once and read by both the
@@ -7,7 +7,7 @@ import type { LucideIcon } from "lucide-react";
 //
 // There is deliberately no "Create"/"New post" entry: Game Posts are
 // published by Brohda only, so a member has nothing to create.
-export type ShellNavKey = "home" | "discovery" | "notifications" | "search" | "profile" | "wallet" | "settings" | "rules";
+export type ShellNavKey = "home" | "discovery" | "notifications" | "messages" | "search" | "profile" | "wallet" | "settings" | "rules";
 
 export interface ShellNavItem {
   key: ShellNavKey;
@@ -21,6 +21,8 @@ export interface ShellNavItem {
 export const HOME_NAV: ShellNavItem = { key: "home", label: "Home", href: "/feed", icon: Home };
 export const DISCOVERY_NAV: ShellNavItem = { key: "discovery", label: "Discovery", href: "/discovery", icon: Compass, socialGated: true };
 export const NOTIFICATIONS_NAV: ShellNavItem = { key: "notifications", label: "Notifications", href: "/notifications", icon: Bell };
+/** Shown only while Messaging is ON (the shell decides; each /messages page enforces its own access). Not part of PRIMARY_NAV so nothing changes while the capability is off. */
+export const MESSAGES_NAV: ShellNavItem = { key: "messages", label: "Messages", href: "/messages", icon: MessageSquare };
 export const SEARCH_NAV: ShellNavItem = { key: "search", label: "Search", href: "/search", icon: Search };
 export const PROFILE_NAV: ShellNavItem = { key: "profile", label: "Profile", href: "/profile", icon: User };
 
@@ -34,6 +36,14 @@ export function visibleNav(items: readonly ShellNavItem[], showSocialNav: boolea
   return items.filter((item) => showSocialNav || !item.socialGated);
 }
 
+/** The desktop rail with Messages inserted right after Notifications when Messaging is on. */
+export function railNav(showSocialNav: boolean, showMessages: boolean): ShellNavItem[] {
+  const items = visibleNav(PRIMARY_NAV, showSocialNav);
+  if (!showMessages) return items;
+  const at = items.findIndex((i) => i.key === "notifications");
+  return [...items.slice(0, at + 1), MESSAGES_NAV, ...items.slice(at + 1)];
+}
+
 /**
  * Which nav entry the current route belongs to. `profileSlug` is the
  * viewer's own profile segment (username, falling back to id) so that
@@ -44,6 +54,7 @@ export function activeNavKey(pathname: string, profileSlug: string | null): Shel
   if (under("/feed")) return "home";
   if (under("/discovery") || under("/community")) return "discovery";
   if (under("/notifications") || under("/activity")) return "notifications";
+  if (under("/messages")) return "messages";
   if (under("/search")) return "search";
   if (under("/wallet")) return "wallet";
   if (under("/rules")) return "rules";

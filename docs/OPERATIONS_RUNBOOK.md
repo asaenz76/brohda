@@ -163,6 +163,15 @@ Sponsors see campaign results only while **Settings → Brohda → Sponsorship �
 - **Before switching on for real Sponsors:** open a live campaign's admin page and read the "Sponsor sees" column — that is exactly what the Sponsor will be shown at the current threshold.
 - Every change is audited (`settings.sponsor_intelligence_updated`). Definitions and the privacy rules: `docs/architecture/sponsor-intelligence.md`.
 
+## Messaging — turning it on, off and moderating (Super Admin)
+
+Member Messaging is **OFF** until **Settings → Brohda → Messaging** is switched on; it fails closed (an unreadable setting counts as off). Turning it off hides Messaging at once and keeps every record; nothing is deleted.
+
+- **Before switching on in production:** confirm migration 198 is applied, then sign in as a Member and check the Messages entry, a profile's Message button and a test conversation between two test Members. Do not create real conversations to verify.
+- **Reports:** Admin → Moderation lists open reports with the bounded evidence taken when each was filed. There is no way to browse conversations. *Hide message* leaves a tombstone for both Members and keeps the evidence on the report; every resolution is audited.
+- **Policy** (message length, requests before a reply, the unsend window, rate limits, refresh interval) changes immediately and is audited (`settings.messaging_updated`). Retention durations are blank (keep everything) until the owner and counsel approve them; the purge function exists but is **not scheduled**.
+- Design, privacy and limits: `docs/architecture/messaging.md`.
+
 ## Grading stopped
 
 **Symptom**: Picks stay PENDING past their Market's resolution; no

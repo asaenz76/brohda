@@ -25,6 +25,7 @@ const TABS: Array<{ href: string; label: string; superAdminOnly?: boolean; activ
   { href: "/admin/discovery-categories", label: "Discovery Categories", superAdminOnly: true },
   { href: "/admin/predictions", label: "Predictions", superAdminOnly: true },
   { href: "/admin/sponsorship", label: "Sponsorship", superAdminOnly: true },
+  { href: "/admin/moderation", label: "Moderation", superAdminOnly: true },
 ];
 
 export function AdminNav({ role }: { role: "super_admin" | "admin" | "player" }) {

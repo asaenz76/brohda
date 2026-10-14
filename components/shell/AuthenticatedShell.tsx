@@ -27,6 +27,8 @@ export function AuthenticatedShell({
   unreadNotificationCount,
   showSocialNav,
   showWallet,
+  showMessages = false,
+  unreadMessageCount = 0,
   children,
 }: {
   user: UserProfile;
@@ -36,12 +38,15 @@ export function AuthenticatedShell({
   showSocialNav: boolean;
   /** The Wallet entry (and its balance) is shown only when the consumer money capability allows it. */
   showWallet: boolean;
+  /** Messaging is ON: show the Messages entry, with the unread count. (A UX signal; each /messages page enforces its own access.) */
+  showMessages?: boolean;
+  unreadMessageCount?: number;
   children: React.ReactNode;
 }) {
   // The viewer's own profile segment: the same one ProfilePage uses for its follower links.
   const profileSlug = user.username ?? user.id;
   const isAdmin = isAdminOrAbove(user);
-  const navProps = { profileSlug, showSocialNav, showWallet, unreadNotificationCount, availableCents, heldCents, isAdmin };
+  const navProps = { profileSlug, showSocialNav, showWallet, unreadNotificationCount, showMessages, unreadMessageCount, availableCents, heldCents, isAdmin };
 
   return (
     <div className="min-h-full bg-background">
