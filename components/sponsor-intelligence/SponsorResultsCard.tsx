@@ -43,11 +43,11 @@ const GROUPS: Array<{ title: string; rows: MetricRow[] }> = [
   {
     title: "Call BS",
     rows: [
-      { kind: "metric", key: "callBsMembers", label: "Members in a Call BS", help: "Members on either side of a Call BS on this Game." },
-      { kind: "metric", key: "callBsChallenges", label: "Call BS challenges", help: "Challenges made on this Game's Markets." },
-      { kind: "metric", key: "callBsAccepted", label: "Accepted challenges", help: "Challenges the other Member accepted." },
-      { kind: "rate", key: "callBsAcceptance", label: "Challenges accepted", help: "Of the challenges made, the share that were accepted." },
-      { kind: "rate", key: "callBsEngagement", label: "Pickers who joined a Call BS", help: "Of the Members who made a Pick, the share who took part in a Call BS." },
+      { kind: "metric", key: "callBsMembers", label: "Members who used Call BS", help: "Members on either side of a Call BS on this Game." },
+      { kind: "metric", key: "callBsChallenges", label: "Call BS challenges", help: "Free Call BS challenges made on this Game's Markets." },
+      { kind: "metric", key: "callBsAccepted", label: "Accepted Call BS challenges", help: "Call BS challenges the other Member accepted." },
+      { kind: "rate", key: "callBsAcceptance", label: "Call BS acceptance rate", help: "Of the Call BS challenges the other Member answered (accepted or declined), the share they accepted. Challenges still waiting or left unanswered are not counted." },
+      { kind: "rate", key: "callBsEngagement", label: "Pickers who used Call BS", help: "Of the Members who made a Pick on this Game, the share who used Call BS." },
     ],
   },
   {

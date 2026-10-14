@@ -241,6 +241,7 @@ describe("exact aggregates", () => {
     expect(a.commenters).toBe(2);
     expect(a.callBsChallenges).toBe(1);
     expect(a.callBsAccepted).toBe(1);
+    expect(a.callBsAnswered).toBe(1);
     expect(a.callBsMembers).toBe(2);
     expect(a.callBsPickers).toBe(2);
     expect(a.game).toEqual({ homeTeamName: "Seed Home", awayTeamName: "Seed Away", sport: "american_football" });
@@ -272,6 +273,32 @@ describe("exact aggregates", () => {
     expect(byId[second.data!.id]).toMatchObject({ template: "TOTAL", lineValue: 47.5, members: 1, yesCount: 0, noCount: 1 });
     expect(agg.picks).toBe(3);
     expect(agg.pickMembers).toBe(2);
+  });
+
+  it("Call BS: counts every challenge, the accepted ones, and only the ANSWERED ones (accepted or declined) as the acceptance-rate denominator", async () => {
+    const sponsor = await seedSponsorAccount("IntelCallBs");
+    const c = await campaign(sponsor);
+    const users = await Promise.all(Array.from({ length: 10 }, (_, i) => seedUser(`cb${i}`)));
+    const picks: string[] = [];
+    for (const [i, u] of users.entries()) picks.push(await seedPick(u, c.marketId, i % 2 === 0 ? "YES" : "NO"));
+    const row = (a: number, b: number, extra: Record<string, unknown>) => ({
+      market_id: c.marketId, challenger_user_id: users[a], recipient_user_id: users[b], challenger_prediction_id: picks[a], recipient_prediction_id: picks[b],
+      challenger_selection_snapshot: a % 2 === 0 ? "YES" : "NO", recipient_selection_snapshot: b % 2 === 0 ? "YES" : "NO", ...extra,
+    });
+    const now = new Date().toISOString();
+    const { error } = await admin.from("challenges").insert([
+      row(0, 1, { status: "PENDING" }), // not answered yet
+      row(2, 3, { status: "DECLINED", declined_at: now }), // answered: declined
+      row(4, 5, { status: "EXPIRED" }), // not answered: expiry does not record why, so it is not counted
+      row(6, 7, { status: "ACCEPTED", accepted_at: now }), // answered: accepted
+      row(8, 9, { status: "RESOLVED", accepted_at: now, resolved_at: now, result: "VOID" }), // answered: accepted, then decided
+    ]);
+    expect(error, error?.message).toBeNull();
+    const a = await aggregates(c.id);
+    expect(a.callBsChallenges).toBe(5);
+    expect(a.callBsAccepted).toBe(2);
+    expect(a.callBsAnswered).toBe(3);
+    expect(a.callBsMembers).toBe(10);
   });
 
   it("returns null for a sponsorship that does not exist", async () => {

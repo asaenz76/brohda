@@ -38,6 +38,8 @@ export interface RawAggregates {
   commenters: number;
   callBsChallenges: number;
   callBsAccepted: number;
+  /** Challenges the recipient explicitly answered (accepted or declined) — the denominator of the acceptance rate. */
+  callBsAnswered: number;
   callBsMembers: number;
   callBsPickers: number;
   returningMembers: number;
@@ -63,6 +65,7 @@ export const METRIC_KEYS = [
   "callBsPickers",
   "callBsChallenges",
   "callBsAccepted",
+  "callBsAnswered",
   "returningMembers",
 ] as const;
 export type MetricKey = (typeof METRIC_KEYS)[number];
@@ -76,9 +79,9 @@ export type SponsorRate = number | "none" | null;
 export interface SponsorRates {
   /** Of the Members who saw it, the share who made a Pick. */
   participation: SponsorRate;
-  /** Of the Call BS challenges, the share the recipient accepted. */
+  /** Of the Call BS challenges the recipient ANSWERED (accepted or declined), the share they accepted. "none" when none was answered yet. */
   callBsAcceptance: SponsorRate;
-  /** Of the Members who made a Pick, the share who took part in a Call BS. */
+  /** Of the Members who made a Pick, the share who used Call BS — a Pick-to-Call-BS conversion rate, distinct from the count of Members who used it. */
   callBsEngagement: SponsorRate;
 }
 
@@ -129,6 +132,17 @@ function numberOr0(n: unknown): number {
   return typeof n === "number" && Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
+/**
+ * The Call BS acceptance rate: accepted / answered. A zero denominator is "none" (shown as "—", never 0%): nothing was answered, which identifies nobody. Otherwise the answered count must itself be
+ * shown, and the accepted/declined split must be safe (a small number of declines would be revealed by the percentage), or the rate is withheld.
+ */
+function acceptanceRate(accepted: number, answered: number, answeredShown: SuppressedCount, minCohort: number): SponsorRate {
+  if (answered === 0) return "none";
+  if (answeredShown === null) return null;
+  if (suppressSubset(accepted, answered, minCohort) === null) return null;
+  return Math.round((accepted / answered) * 100);
+}
+
 function rate(part: SuppressedCount, whole: SuppressedCount): SponsorRate {
   if (part === null || whole === null) return null;
   return whole > 0 ? Math.round((part / whole) * 100) : "none";
@@ -164,6 +178,7 @@ export function buildSponsorReport(raw: RawAggregates, minCohort: number, sportL
     repeatViewers: suppressSubset(v("repeatViewers"), v("uniqueViewers"), minCohort),
     viewersWhoPicked: suppressSubset(v("viewersWhoPicked"), v("uniqueViewers"), minCohort),
     callBsAccepted: suppressSubset(v("callBsAccepted"), v("callBsChallenges"), minCohort),
+    callBsAnswered: suppressSubset(v("callBsAnswered"), v("callBsChallenges"), minCohort),
     callBsPickers: suppressSubset(v("callBsPickers"), v("pickMembers"), minCohort),
     returningMembers: suppressSubset(v("returningMembers"), v("pickMembers"), minCohort),
   };
@@ -180,7 +195,10 @@ export function buildSponsorReport(raw: RawAggregates, minCohort: number, sportL
     metrics.repeatViewers = null;
     metrics.viewersWhoPicked = null;
   }
-  if (metrics.callBsChallenges === null) metrics.callBsAccepted = null;
+  if (metrics.callBsChallenges === null) {
+    metrics.callBsAccepted = null;
+    metrics.callBsAnswered = null;
+  }
   if (metrics.pickMembers === null) {
     metrics.callBsPickers = null;
     metrics.returningMembers = null;
@@ -188,7 +206,7 @@ export function buildSponsorReport(raw: RawAggregates, minCohort: number, sportL
 
   const rates: SponsorRates = {
     participation: rate(metrics.viewersWhoPicked, metrics.uniqueViewers),
-    callBsAcceptance: rate(metrics.callBsAccepted, metrics.callBsChallenges),
+    callBsAcceptance: acceptanceRate(v("callBsAccepted"), v("callBsAnswered"), metrics.callBsAnswered, minCohort),
     callBsEngagement: rate(metrics.callBsPickers, metrics.pickMembers),
   };
 
