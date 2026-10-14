@@ -51,6 +51,14 @@ function CommentRow({
   // enforced here in the UI too, not just by add_post_comment rejecting it.
   onReply?: () => void;
 }) {
+  if (comment.hiddenByBlock) {
+    // Placeholder for a comment by a Member the viewer blocked: no author, no text, no actions — it only keeps the replies beneath it in context.
+    return (
+      <p className="text-sm italic text-text-muted" data-slot="comment-hidden-by-block">
+        [comment hidden — you blocked this Member]
+      </p>
+    );
+  }
   const isRemoved = comment.deletedAt !== null;
   const profileHref = `/profile/${comment.author.username ?? comment.author.id}`;
   const canRemove = !isRemoved && (comment.author.id === viewer.id || viewer.isModerator);
@@ -191,7 +199,7 @@ export function PostConversation({
                 viewer={viewer}
                 isPending={isPending}
                 onDelete={handleDelete}
-                onReply={() => {
+                onReply={comment.hiddenByBlock ? undefined : () => {
                   setReplyingToId(comment.id);
                   setReplyBody("");
                 }}

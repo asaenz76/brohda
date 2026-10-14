@@ -18,8 +18,8 @@ export async function MessagingSettingsCard() {
         <p role="alert" className="text-xs font-medium text-warning-muted">The settings couldn&apos;t be read, so Messaging stays off until they can.</p>
       )}
       <p className="text-xs text-text-muted">
-        Messaging is private between two Members: no groups, no images. Turning it off hides it at once and keeps every record. Retention left blank keeps everything; set durations only after the owner and counsel
-        approve them.
+        Messaging is private between two Members: no groups, no images. Turning it off hides it at once and keeps every record. Retention durations start at the owner&apos;s operational policy and can be changed here without a
+        deploy; nothing is deleted until the retention purge switch is turned on.
       </p>
     </section>
   );

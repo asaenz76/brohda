@@ -7,6 +7,7 @@ import { getHeadToHeadRecords, listCallBsHistory } from "@/lib/challenges/histor
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
 import { CallBsHistory } from "@/components/profile/CallBsHistory";
 import { FollowButton } from "@/components/profile/FollowButton";
+import { BlockMemberButton } from "@/components/profile/BlockMemberButton";
 import { MessageMemberLink } from "@/components/messaging/MessageMemberLink";
 import { isMessagingEnabled } from "@/lib/messaging/config";
 import { ProfileTabNav, type ProfileTab } from "../profile-tab-nav";
@@ -46,9 +47,11 @@ export default async function PublicProfilePage({
   if (!profile) notFound();
   if (profile.id === currentUser.id) redirect("/profile");
 
-  const [{ data: countsRows }, { data: isFollowing }, reputation, callBsRecord, callBsHistory, headToHeadMap, messagingOn] = await Promise.all([
+  const [{ data: countsRows }, { data: isFollowing }, { data: blockRow }, reputation, callBsRecord, callBsHistory, headToHeadMap, messagingOn] = await Promise.all([
     supabase.rpc("get_follow_counts", { p_user_id: profile.id }),
     supabase.rpc("is_following", { p_follower_id: currentUser.id, p_followee_id: profile.id }),
+    // RLS lets a Member read only their OWN blocks, so this can only ever say "have I blocked them" — never whether they blocked me.
+    supabase.from("member_blocks").select("blocked_id").eq("blocked_id", profile.id).maybeSingle(),
     getUserPredictionRecord(profile.id),
     getUserCallBsRecord(profile.id),
     listCallBsHistory(profile.id),
@@ -79,6 +82,7 @@ export default async function PublicProfilePage({
             <FollowButton followeeId={profile.id} initiallyFollowing={Boolean(isFollowing)} />
             {/* Messaging: the entry exists only while the capability is ON, only on someone else's profile (this page is never your own). */}
             {messagingOn && <MessageMemberLink memberId={profile.id} />}
+            <BlockMemberButton memberId={profile.id} memberName={profile.display_name} initiallyBlocked={Boolean(blockRow)} />
           </div>
         }
       />

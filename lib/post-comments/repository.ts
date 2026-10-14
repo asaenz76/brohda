@@ -1,5 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { hideBlockedAuthors } from "./block-view";
 import type { PostComment, PostCommentAuthor, PostCommentWithAuthor } from "./types";
 
 // Milestone R6 — the sole query/mutation surface for `post_comments`,
@@ -63,7 +64,7 @@ const DEFAULT_TOP_LEVEL_LIMIT = 100;
  * private profile fields — §31). Two queries plus one batched author
  * lookup — no N+1.
  */
-export async function getPostConversation(postId: string, limit: number = DEFAULT_TOP_LEVEL_LIMIT): Promise<PostCommentWithAuthor[]> {
+export async function getPostConversation(postId: string, limit: number = DEFAULT_TOP_LEVEL_LIMIT, viewerId?: string): Promise<PostCommentWithAuthor[]> {
   const admin = createAdminClient();
 
   // This query runs on the service role (batched author lookups, no
@@ -126,8 +127,17 @@ export async function getPostConversation(postId: string, limit: number = DEFAUL
     repliesByParent.set(reply.parentCommentId as string, list);
   }
 
-  return topLevel.map((comment) => ({ ...comment, author: unknownAuthor(comment.userId), replies: repliesByParent.get(comment.id) ?? [] }));
+  const tree = topLevel.map((comment) => ({ ...comment, author: unknownAuthor(comment.userId), replies: repliesByParent.get(comment.id) ?? [] }));
+  return viewerId ? hideBlockedAuthors(tree, await getBlockedAuthorIds(viewerId)) : tree;
 }
+
+/** The Members THIS viewer has blocked. Only the blocker's own list: being blocked by someone changes nothing about what you see. */
+async function getBlockedAuthorIds(viewerId: string): Promise<Set<string>> {
+  const { data, error } = await createAdminClient().from("member_blocks").select("blocked_id").eq("blocker_id", viewerId);
+  if (error) throw error;
+  return new Set((data ?? []).map((b) => b.blocked_id));
+}
+
 
 /**
  * Live count (§20) — deliberately not a denormalized counter (unlike

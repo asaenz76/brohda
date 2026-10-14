@@ -9,7 +9,7 @@ import { getTestAdminClient, getTestAnonClient, getTestDatabaseUrl } from "./hel
 import { seedGame, seedPick, seedSponsorAccount, seedUser } from "./helpers/game-seed";
 import { getMessagingConfig } from "@/lib/messaging/config";
 import { resolveSharedObject, senderMayShare } from "@/lib/messaging/share";
-import { MESSAGING_SETTING_FIELDS } from "@/lib/messaging/settings-fields";
+import { MESSAGING_BOOLEAN_FIELDS, MESSAGING_SETTING_FIELDS } from "@/lib/messaging/settings-fields";
 
 const admin = getTestAdminClient();
 const PASSWORD = "integration-test-password-123";
@@ -282,7 +282,7 @@ describe("configuration", () => {
   it("every messaging_* policy column is editable from the Super Admin form (nothing is a silent constant), and the form ranges match the table constraints", async () => {
     const { data } = await admin.from("platform_settings").select("*").eq("id", true).single();
     const columnsInTable = Object.keys(data!).filter((k) => k.startsWith("messaging_")).sort();
-    const inForm = ["messaging_enabled", ...MESSAGING_SETTING_FIELDS.map((f) => f.key)].sort();
+    const inForm = ["messaging_enabled", ...MESSAGING_BOOLEAN_FIELDS.map((f) => f.key), ...MESSAGING_SETTING_FIELDS.map((f) => f.key)].sort();
     expect(inForm).toEqual(columnsInTable);
     for (const f of MESSAGING_SETTING_FIELDS) {
       // The form's own bounds are accepted by the database, and one step outside each bound is refused.
@@ -296,6 +296,9 @@ describe("configuration", () => {
     await admin.from("platform_settings").update({
       messaging_max_message_length: 1000, messaging_max_unanswered_requests: 2, messaging_unsend_window_seconds: 900, messaging_duplicate_window_seconds: 30, messaging_send_rate_window_seconds: 60, messaging_send_rate_max: 20,
       messaging_request_rate_window_seconds: 3600, messaging_request_rate_max: 5, messaging_report_rate_window_seconds: 3600, messaging_report_rate_max: 10, messaging_poll_interval_seconds: 10,
+      messaging_abuse_window_seconds: 86400, messaging_abuse_requests_threshold: 12, messaging_abuse_declines_threshold: 3, messaging_abuse_blocks_threshold: 3, messaging_abuse_reports_threshold: 3,
+      messaging_abuse_duplicate_threshold: 4, messaging_abuse_rapid_window_seconds: 600, messaging_abuse_rapid_threshold: 60, messaging_abuse_coordinated_threshold: 8, messaging_abuse_restrict_hours: 24,
+      messaging_retention_unsent_days: 30, messaging_retention_reported_days: 180, messaging_retention_closed_account_days: 30, messaging_retention_audit_days: 365,
     }).eq("id", true);
   });
 });

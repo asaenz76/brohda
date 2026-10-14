@@ -93,3 +93,7 @@ Audited and deliberately not built. The roadmap names this milestone "Post Conve
 ## Open decisions
 
 None newly introduced by this milestone. R5's two carried-forward open decisions (postponed-but-rescheduled Pick eligibility; `SUSPENDED`/`ABANDONED`/`AWARDED` grading policy) remain exactly as R5 left them — R6 does not touch Pick eligibility at all, and deliberately does not let Comment eligibility inherit or reinforce R5's conservative Pick-status rule; the two domains' eligibility rules are intentionally different (Post-publication-only vs. Game-status-gated) and R6 does not make R5's rule more permanent by echoing it.
+
+## Block (r80)
+
+A Member block never deletes or hides a comment for anyone but the blocker, and never moderates. Two narrow effects: `add_post_comment` refuses a **direct reply** between a blocked pair (one neutral `relationship_blocked`; top-level comments are public and unaffected), and `getPostConversation(postId, limit, viewerId)` hides, **from that viewer only**, comments by Members the viewer blocked (`lib/post-comments/block-view.ts`: a comment others replied to stays as a placeholder with no text or identity, otherwise it is left out). The blocked Member sees the thread exactly as before. There is no @mention engine, so nothing there needs suppressing; if one is added it must consult `members_blocked`.

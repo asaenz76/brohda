@@ -39,7 +39,8 @@ const sendOk = async (from: string, to: string, body = text()) => {
 
 const settingsKeys = [
   "messaging_enabled", "messaging_max_message_length", "messaging_max_unanswered_requests", "messaging_unsend_window_seconds", "messaging_duplicate_window_seconds",
-  "messaging_retention_messages_days", "messaging_retention_unsent_days", "messaging_retention_reported_days", "messaging_retention_deleted_account_days", "messaging_retention_moderation_days",
+  "messaging_retention_messages_days", "messaging_retention_unsent_days", "messaging_retention_reported_days", "messaging_retention_closed_account_days", "messaging_retention_moderation_days",
+  "messaging_retention_audit_days", "messaging_retention_purge_enabled",
 ];
 let saved: Row | null = null;
 const setSettings = async (values: Record<string, unknown>) => {
@@ -49,7 +50,12 @@ const setSettings = async (values: Record<string, unknown>) => {
 beforeEach(async () => {
   const { data } = await admin.from("platform_settings").select(settingsKeys.join(",")).eq("id", true).single();
   saved = data as Row | null;
-  await setSettings({ messaging_enabled: true, messaging_max_message_length: 1000, messaging_max_unanswered_requests: 2, messaging_unsend_window_seconds: 900, messaging_duplicate_window_seconds: 30 });
+  // The retention durations start blank in these tests (each test sets only the one it exercises); the shipped defaults are asserted in messaging-owner-decisions.test.ts. The purge switch is on so the purge can be exercised.
+  await setSettings({
+    messaging_enabled: true, messaging_max_message_length: 1000, messaging_max_unanswered_requests: 2, messaging_unsend_window_seconds: 900, messaging_duplicate_window_seconds: 30,
+    messaging_retention_messages_days: null, messaging_retention_unsent_days: null, messaging_retention_reported_days: null, messaging_retention_closed_account_days: null,
+    messaging_retention_moderation_days: null, messaging_retention_audit_days: null, messaging_retention_purge_enabled: true,
+  });
 });
 afterEach(async () => {
   if (saved) await setSettings(saved);
@@ -629,10 +635,13 @@ describe("settings and retention", () => {
     expect((await admin.from("platform_settings").select("messaging_retention_messages_days").eq("id", true).single()).data!.messaging_retention_messages_days).toBeNull();
   });
 
-  it("the defaults: capability OFF, retention keeps everything", async () => {
-    // beforeEach switched the capability on for the test; the shipped defaults live in the column definitions.
-    const { data } = await admin.rpc("messaging_purge_expired", { p_batch: 100 });
-    expect(data).toEqual({ messages: 0, unsentEvidence: 0, reportedEvidence: 0, deletedAccountConversations: 0, moderationRecords: 0 });
+  it("with the master switch off the purge deletes nothing, whatever the durations say", async () => {
+    const { a, b } = await activePair();
+    const old = await sendOk(a, b);
+    await admin.from("messages").update({ created_at: new Date(Date.now() - 400 * 86_400_000).toISOString() }).eq("id", old.messageId);
+    await setSettings({ messaging_retention_messages_days: 30, messaging_retention_purge_enabled: false });
+    expect((await admin.rpc("messaging_purge_expired", { p_batch: 100 })).data).toEqual({ enabled: false });
+    expect((await admin.from("messages").select("id").eq("id", old.messageId)).data).toHaveLength(1);
   });
 
   it("with NULL durations the purge deletes nothing, however old; with durations it deletes only that category, in bounded batches", async () => {
@@ -656,7 +665,7 @@ describe("settings and retention", () => {
     expect(((await admin.rpc("messaging_purge_expired", { p_batch: 2 })).data as Row).messages).toBeLessThanOrEqual(2);
   });
 
-  it("unsent evidence, reported evidence, moderation records and deleted-account conversations each follow their OWN duration", async () => {
+  it("unsent evidence, reported evidence and moderation records each follow their OWN duration", async () => {
     const { a, b, conversationId } = await activePair();
     const m = await sendOk(a, b, "evidence body");
     await ok("messaging_unsend", { p_user_id: a, p_message_id: m.messageId });
@@ -685,23 +694,26 @@ describe("settings and retention", () => {
     expect((await admin.from("message_reports").select("id").eq("id", rep.reportId)).data).toEqual([]);
   });
 
-  it("when one account is gone the conversation stays readable to the other Member and read-only, and its own retention can remove it", async () => {
+  it("when one account is gone the conversation stays readable to the other Member and read-only; a missing profile alone is NOT treated as closure", async () => {
     const { a, b, conversationId } = await activePair();
     await sendOk(a, b, "still here");
-    // There is no self-service account deletion; an operator removing an account clears its dependents first (notifications are not cascaded), which is outside Messaging.
+    // There is no self-service hard delete; an operator removing an account clears its dependents first (notifications are not cascaded), which is outside Messaging.
     await admin.from("notifications").delete().eq("user_id", a);
     const { error } = await admin.from("user_profiles").delete().eq("id", a);
     expect(error, error?.message).toBeNull();
-    const conv = (await admin.from("conversations").select("*").eq("id", conversationId).single()).data as Row;
+    const conv = (await admin.from("conversations").select("*").eq("id", conversationId)).data![0] as Row;
     expect([conv.member_low, conv.member_high].filter((x) => x === null)).toHaveLength(1); // no dangling foreign key
     const asB = await clientFor(b);
     const { data } = await asB.from("messages").select("body, sender_id").eq("conversation_id", conversationId);
     expect(data!.some((m) => m.body === "still here")).toBe(true);
     expect(data!.some((m) => m.sender_id === null)).toBe(true); // the placeholder identity: no PII retained about the removed account
     expect((await send(b, a, text())).data?.outcome).toBe("unavailable"); // read-only
+    // Closure comes ONLY from the canonical marker: a missing profile, however old the conversation, is never inferred to be a closure.
     await admin.from("conversations").update({ last_message_at: new Date(Date.now() - 400 * 86_400_000).toISOString() }).eq("id", conversationId);
-    await setSettings({ messaging_retention_deleted_account_days: 30 });
-    expect(((await admin.rpc("messaging_purge_expired", { p_batch: 100 })).data as Row).deletedAccountConversations).toBeGreaterThanOrEqual(1);
-    expect((await admin.from("conversations").select("id").eq("id", conversationId)).data).toEqual([]);
+    await setSettings({ messaging_retention_closed_account_days: 30 });
+    const r = (await admin.rpc("messaging_purge_expired", { p_batch: 100 })).data as Row;
+    expect(r.closedAccountMessages).toBe(0);
+    expect(r.closedAccountConversations).toBe(0);
+    expect((await admin.from("conversations").select("id").eq("id", conversationId)).data).toHaveLength(1);
   });
 });

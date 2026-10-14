@@ -35,6 +35,8 @@ const CALL_BS_ERROR_COPY: Record<string, string> = {
   market_not_found: "That market couldn't be found.",
   past_challenge_cutoff: "It's too close to kickoff to call BS.",
   duplicate_pending_challenge: "You already have a pending Call BS with this pick.",
+  // One neutral message for a block in either direction, so it never reveals who blocked whom.
+  relationship_blocked: "You can't call BS on this Member.",
 };
 
 function copyForCallBsError(message: string): string {

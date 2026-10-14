@@ -18,8 +18,8 @@ import type { PostCommentWithAuthor } from "@/lib/post-comments/types";
 // scope decision: see docs/architecture/post-conversation.md.
 
 export async function getPostConversationAction(postId: string): Promise<PostCommentWithAuthor[]> {
-  await requireUser();
-  return getPostConversation(postId);
+  const user = await requireUser();
+  return getPostConversation(postId, undefined, user.id);
 }
 
 export type AddPostCommentResult = { error: string | null; comment: PostCommentWithAuthor | null };
@@ -45,6 +45,7 @@ export async function addPostCommentAction(postId: string, body: string, parentC
     if (message.includes("nesting_too_deep")) return { error: "Replies can't be nested further.", comment: null };
     if (message.includes("post_not_found")) return { error: "This post isn't available for comments.", comment: null };
     if (message.includes("body_too_long")) return { error: "That comment is too long.", comment: null };
+    if (message.includes("relationship_blocked")) return { error: "You can't reply to this comment.", comment: null };
     if (message.includes("parent_not_found")) return { error: "That comment couldn't be found.", comment: null };
     return { error: "Could not post your comment.", comment: null };
   }

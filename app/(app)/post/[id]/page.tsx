@@ -68,7 +68,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
   const [activeMarkets, policy, conversation, communities, sponsorship] = await Promise.all([
     listDisplayableMarketsForFixture(post.fixtureId),
     getPostPublicationPolicy(),
-    getPostConversation(post.id),
+    getPostConversation(post.id, undefined, user.id),
     getCommunityRefsForPost(post.id),
     loadPublicSponsorshipForPost(post.id),
   ]);
