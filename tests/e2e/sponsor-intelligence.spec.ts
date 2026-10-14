@@ -158,6 +158,13 @@ test("off by default; Super Admin turns it on; the Sponsor sees only suppressed 
   // The newer figures: repeat viewers (nobody saw it on a second day), the participation rate (3 viewers, all of whom picked: 100%) and the Market split (3 vs 3).
   await expect(page.locator('[data-slot="metric-repeatViewers"]')).toContainText("0");
   await expect(page.locator('[data-slot="rate-participation"]')).toContainText("100%");
+  // Call BS wording and the empty-denominator rule: no challenges were answered, so the acceptance rate reads "—", never 0%.
+  await expect(page.locator('[data-slot="metric-callBsMembers"]')).toContainText("Members who used Call BS");
+  await expect(page.locator('[data-slot="metric-callBsAccepted"]')).toContainText("Accepted Call BS challenges");
+  await expect(page.locator('[data-slot="rate-callBsAcceptance"]')).toContainText("Call BS acceptance rate");
+  await expect(page.locator('[data-slot="rate-callBsAcceptance"]')).toContainText("—");
+  await expect(page.locator('[data-slot="rate-callBsAcceptance"]')).not.toContainText("0%");
+  await expect(page.locator('[data-slot="rate-callBsEngagement"]')).toContainText("Pickers who used Call BS");
   const marketRow = page.locator('[data-slot="market-row"]').first();
   await expect(marketRow).toContainText("Moneyline");
   await expect(marketRow).toContainText("6 Members");

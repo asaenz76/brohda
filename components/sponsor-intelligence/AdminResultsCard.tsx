@@ -15,10 +15,11 @@ const LABEL: Record<MetricKey, string> = {
   commenters: "Members who commented",
   comments: "Comments",
   replies: "Replies",
-  callBsMembers: "Members in a Call BS",
-  callBsPickers: "Pickers who joined a Call BS",
+  callBsMembers: "Members who used Call BS",
+  callBsPickers: "Pickers who used Call BS",
   callBsChallenges: "Call BS challenges",
-  callBsAccepted: "Accepted challenges",
+  callBsAccepted: "Accepted Call BS challenges",
+  callBsAnswered: "Answered Call BS challenges (accepted or declined)",
   returningMembers: "Returning Members",
 };
 

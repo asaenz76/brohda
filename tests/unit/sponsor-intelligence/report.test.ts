@@ -21,6 +21,7 @@ function raw(overrides: Partial<RawAggregates> = {}): RawAggregates {
     commenters: 15,
     callBsChallenges: 6,
     callBsAccepted: 4,
+    callBsAnswered: 5,
     callBsMembers: 8,
     callBsPickers: 8,
     returningMembers: 12,
@@ -83,7 +84,7 @@ describe("buildSponsorReport", () => {
 
   it("an empty campaign shows zeros (identifying nobody) and nothing is flagged withheld", () => {
     const r = buildSponsorReport(
-      raw({ impressions: 0, uniqueViewers: 0, repeatViewers: 0, clicks: 0, picks: 0, pickMembers: 0, viewersWhoPicked: 0, comments: 0, replies: 0, commenters: 0, callBsChallenges: 0, callBsAccepted: 0, callBsMembers: 0, callBsPickers: 0, returningMembers: 0, markets: [], sportAffinity: [], teamAffinity: [] }),
+      raw({ impressions: 0, uniqueViewers: 0, repeatViewers: 0, clicks: 0, picks: 0, pickMembers: 0, viewersWhoPicked: 0, comments: 0, replies: 0, commenters: 0, callBsChallenges: 0, callBsAccepted: 0, callBsAnswered: 0, callBsMembers: 0, callBsPickers: 0, returningMembers: 0, markets: [], sportAffinity: [], teamAffinity: [] }),
       10,
       label,
     );
@@ -116,10 +117,12 @@ describe("new V1 metrics", () => {
     expect(r.rates.callBsAcceptance).toBeNull(); // 6 challenges is below the threshold, so no rate
     expect(r.rates.callBsEngagement).toBeNull(); // only 8 pickers joined a Call BS: below the threshold
     expect(buildSponsorReport(raw({ callBsPickers: 12 }), 10, label).rates.callBsEngagement).toBe(40); // 12 of 30 pickers
-    const big = buildSponsorReport(raw({ callBsChallenges: 30, callBsAccepted: 12, callBsMembers: 20 }), 10, label);
-    expect(big.rates.callBsAcceptance).toBe(40);
+    // 12 accepted of 24 answered = 50%: the 16 challenges nobody answered are NOT in the denominator.
+    const big = buildSponsorReport(raw({ callBsChallenges: 40, callBsAccepted: 12, callBsAnswered: 24, callBsMembers: 30 }), 10, label);
+    expect(big.rates.callBsAcceptance).toBe(50);
+    expect(big.metrics.callBsAccepted).toBe(12); // the raw count of accepted challenges is shown as a count, separately from the rate
     // 12 of 20 accepted would leave 8 who did not: that remainder is a small group, so neither the count nor the rate is shown.
-    const revealing = buildSponsorReport(raw({ callBsChallenges: 20, callBsAccepted: 12, callBsMembers: 20 }), 10, label);
+    const revealing = buildSponsorReport(raw({ callBsChallenges: 20, callBsAccepted: 12, callBsAnswered: 20, callBsMembers: 20 }), 10, label);
     expect(revealing.metrics.callBsAccepted).toBeNull();
     expect(revealing.rates.callBsAcceptance).toBeNull();
     // No denominator → no rate, never a fabricated 0%.
@@ -157,6 +160,31 @@ describe("new V1 metrics", () => {
     expect(shown.every((n) => n === 0 || n >= 10)).toBe(true);
     // Sentiment percentages are only present for Markets whose both sides were ≥ k, so no percentage can encode a count under k.
     for (const m of r.markets) if (m.sentiment) expect(m.members).not.toBeNull();
+  });
+});
+
+describe("Call BS acceptance rate", () => {
+  it("shows \"—\" (never 0%) when nothing was answered", () => {
+    expect(buildSponsorReport(raw({ callBsChallenges: 30, callBsAccepted: 0, callBsAnswered: 0, callBsMembers: 20 }), 10, label).rates.callBsAcceptance).toBe("none");
+    // …including when there are only a few challenges: \"none answered\" identifies nobody and shows no count.
+    expect(buildSponsorReport(raw({ callBsChallenges: 3, callBsAccepted: 0, callBsAnswered: 0, callBsMembers: 3 }), 10, label).rates.callBsAcceptance).toBe("none");
+    expect(buildSponsorReport(raw({ callBsChallenges: 0, callBsAccepted: 0, callBsAnswered: 0, callBsMembers: 0 }), 10, label).rates.callBsAcceptance).toBe("none");
+  });
+
+  it("an accepted-of-answered percentage that would reveal a small group of declines is withheld", () => {
+    // 28 accepted of 30 answered: the 2 who declined would be inferable from the percentage.
+    expect(buildSponsorReport(raw({ callBsChallenges: 40, callBsAccepted: 28, callBsAnswered: 30, callBsMembers: 30 }), 10, label).rates.callBsAcceptance).toBeNull();
+    expect(buildSponsorReport(raw({ callBsChallenges: 40, callBsAccepted: 20, callBsAnswered: 30, callBsMembers: 30 }), 10, label).rates.callBsAcceptance).toBe(67);
+  });
+
+  it("is withheld while the answered figure itself is under the threshold", () => {
+    expect(buildSponsorReport(raw({ callBsChallenges: 40, callBsAccepted: 4, callBsAnswered: 6, callBsMembers: 30 }), 10, label).rates.callBsAcceptance).toBeNull();
+  });
+
+  it("the Pick-to-Call-BS conversion is a percentage of Pickers, distinct from the count of Members who used Call BS", () => {
+    const r = buildSponsorReport(raw({ callBsMembers: 12, callBsPickers: 12, pickMembers: 30 }), 10, label);
+    expect(r.metrics.callBsMembers).toBe(12);
+    expect(r.rates.callBsEngagement).toBe(40);
   });
 });
 
