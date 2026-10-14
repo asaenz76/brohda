@@ -1,11 +1,11 @@
 import { Bell, MessageCircle, Target } from "lucide-react";
-import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 import { requireUser } from "@/lib/auth/session";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
 import { getNotifications } from "@/lib/notifications/fetch";
 import { attachNotificationHrefs, type NotificationWithHref } from "@/lib/notifications/links";
 import { markNotificationsReadAction } from "@/lib/actions/notifications";
+import { NotificationItem } from "@/components/notifications/NotificationItem";
 import { Button } from "@/components/ui/button";
 import { LocalDateTime } from "@/components/LocalDateTime";
 import { cn } from "@/lib/utils";
@@ -21,10 +21,10 @@ import { ColumnHeader } from "@/components/shell/ColumnHeader";
  * wallet-ledger content; wallet history lives at /wallet, which already
  * showed the complete ledger independently before this phase.
  *
- * Read state (spec §25): preserved exactly as it was — the one existing,
- * well-defined, already-predictable pattern (an explicit "Mark all read"
- * action, never an automatic mark-on-view/mark-on-click) carried over
- * rather than inventing new semantics.
+ * Read state: "Mark all read" is the bulk action. Opening an individual
+ * notification marks that one read (NotificationItem) — simply viewing the
+ * list marks nothing, so an unread notification is only ever cleared by the
+ * Member opening it or choosing "Mark all read".
  */
 export default async function NotificationsPage() {
   const user = await requireUser();
@@ -91,5 +91,11 @@ function NotificationRow({ notification: n }: { notification: NotificationWithHr
     </div>
   );
 
-  return <li>{n.href ? <Link href={n.href} className="block outline-none hover:bg-surface-secondary focus-visible:ring-3 focus-visible:ring-ring/50">{content}</Link> : content}</li>;
+  return (
+    <li>
+      <NotificationItem id={n.id} href={n.href} unread={isUnread} className="block outline-none hover:bg-surface-secondary focus-visible:ring-3 focus-visible:ring-ring/50">
+        {content}
+      </NotificationItem>
+    </li>
+  );
 }

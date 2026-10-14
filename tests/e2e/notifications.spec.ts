@@ -141,6 +141,39 @@ test.describe("Notifications", () => {
     }
   });
 
+  test("opening one notification marks just that one read; viewing the list marks nothing; a row with no destination is cleared by pressing it", async ({ page }) => {
+    const suffix = randomUUID();
+    const email = `e2e-notif-open-${suffix}@example.com`;
+    const userIds: string[] = [];
+    try {
+      const userId = await createPlayer(email, "e2enotifopen");
+      userIds.push(userId);
+      const withLink = await createNotification(userId, "MESSAGE_RECEIVED", { title: "Opens messages", body: "Has a destination (the inbox)" });
+      const other = await createNotification(userId, "MESSAGE_REQUEST_ACCEPTED", { title: "Stays unread", body: "Not opened" });
+      const noLink = await createNotification(userId, "MESSAGE_REPORT_OUTCOME", { title: "We reviewed your report", body: "We reviewed your report and action was taken." });
+      const readAt = async (id: string) => (await admin.from("notifications").select("read_at").eq("id", id).single()).data!.read_at;
+
+      await loginAs(page, email);
+      await page.goto("/notifications");
+      // Merely viewing the list marks nothing.
+      expect(await readAt(withLink)).toBeNull();
+      expect(await readAt(noLink)).toBeNull();
+
+      // A row with no destination is a button: pressing it marks it read in place.
+      await page.getByRole("button", { name: /We reviewed your report/ }).click();
+      await expect.poll(() => readAt(noLink)).not.toBeNull();
+      await expect(page.getByRole("button", { name: /We reviewed your report/ })).toHaveCount(0);
+
+      // Opening a row with a destination marks THAT row read, then goes there; the other stays unread.
+      await page.getByRole("link", { name: /Opens messages/ }).click();
+      await expect(page).toHaveURL(/\/messages/);
+      expect(await readAt(withLink)).not.toBeNull();
+      expect(await readAt(other)).toBeNull();
+    } finally {
+      await cleanup(userIds);
+    }
+  });
+
   test("empty state is restrained, with no Pool/wallet language", async ({ page }) => {
     const suffix = randomUUID();
     const email = `e2e-notif-empty-${suffix}@example.com`;
