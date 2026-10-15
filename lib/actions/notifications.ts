@@ -50,3 +50,20 @@ export async function markNotificationsReadAction() {
 
   revalidatePath("/notifications");
 }
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Marks ONE notification read — the one the Member just opened. Scoped to the caller's own row by requireUser(); a client-supplied id for someone else's notification (or a malformed one) matches nothing and
+ * changes nothing. Idempotent. "Mark all read" stays as the bulk action.
+ */
+export async function markNotificationReadAction(notificationId: string): Promise<void> {
+  const user = await requireUser();
+  if (typeof notificationId !== "string" || !UUID.test(notificationId)) return;
+  await createAdminClient()
+    .from("notifications")
+    .update({ read_at: new Date().toISOString() })
+    .eq("id", notificationId)
+    .eq("user_id", user.id)
+    .is("read_at", null);
+}

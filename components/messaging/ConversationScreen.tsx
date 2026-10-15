@@ -102,10 +102,11 @@ export function ConversationScreen(props: Props) {
     };
   }, [poll, pollIntervalSeconds]);
 
-  // The read cursor moves once per change in the newest message, never per message.
+  // Opening a conversation (a request included) marks it read: the cursor moves once per change in the newest message, never per message, and that conversation's own notifications are cleared with it
+  // (messaging_mark_read), so the bell no longer needs "mark all read" for something the Member has just looked at.
   const newestSeq = messages.length ? messages[messages.length - 1].seq : 0;
   useEffect(() => {
-    if (newestSeq > 0 && status === "ACTIVE") void markConversationReadAction(conversationId, newestSeq);
+    if (newestSeq > 0) void markConversationReadAction(conversationId, newestSeq);
     endRef.current?.scrollIntoView({ block: "end" });
   }, [conversationId, newestSeq, status]);
 

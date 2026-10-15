@@ -137,6 +137,10 @@ test("off by default; Super Admin turns it on; two Members request, accept, repl
   await shot(page, "inbox-requests");
   await requestRow.click();
   await expect(page.locator('[data-slot="request-banner"]')).toBeVisible();
+  // Opening the request clears that conversation's "wants to message you" notification (no "mark all read" needed).
+  await expect
+    .poll(async () => (await admin.from("notifications").select("id", { count: "exact", head: true }).eq("user_id", b.id).eq("type", "MESSAGE_REQUEST_RECEIVED").is("read_at", null)).count)
+    .toBe(0);
   await expect(page.locator('[data-slot="composer"]')).toHaveCount(0); // no reply until accepted
   await page.getByRole("button", { name: "Accept" }).click();
   await expect(page.locator('[data-slot="request-banner"]')).toHaveCount(0);
