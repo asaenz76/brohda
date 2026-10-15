@@ -35,6 +35,8 @@ const TRANSIENT_TABLES = [
   "sponsor_admin_hidden",
   "sponsor_accounts",
   "sponsors",
+  "confidence_ledger_entries",
+  "confidence_accounts",
   "messaging_retention_holds",
   "messaging_abuse_signals",
   "messaging_restrictions",

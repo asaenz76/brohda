@@ -176,6 +176,17 @@ Member Messaging is **OFF** until **Settings → Brohda → Messaging** is switc
 - **Policy** (message length, requests before a reply, the unsend window, rate limits, refresh interval, retention, abuse thresholds) changes immediately and is audited (`settings.messaging_updated`).
 - Design, privacy and limits: `docs/architecture/messaging.md`.
 
+## Confidence — turning it on, off and adjusting (Super Admin)
+
+Confidence (internal reputation, 🔥) is **OFF** until **Settings → Brohda → Confidence** is switched on; it fails closed everywhere. Turning it off hides it from Members at once and keeps every record. It cannot be bought, redeemed or transferred and has no cash value.
+
+- **Before switching on in production:** confirm migration 201 is applied; confirm the baseline (default 50), Daily Claim (default 1) and interval (default 24 h) are what you want; then switch it on. Every eligible Member receives the baseline **once** — new Members automatically, existing Members through the housekeeping cron in bounded batches (and at first profile view). Watch **Admin → Confidence**: *Accounts* should reach *eligible Members* and *Ledger mismatches* must stay 0.
+- **Daily Claim** is an active Member action: only below the baseline, never above it, one per rolling interval from the last claim, no catch-up for missed days.
+- **Changing the baseline never rewrites balances** (it changes new grants and the claim ceiling). Settings changes are validated as a whole and audited (`settings.confidence_updated`).
+- **Adjusting a Member** (Admin → Confidence → look up a username): a signed change with a reason and a required private note, recorded as a new ledger entry; or reverse one entry (once). Nothing overwrites history; the balance can never go below 0. Both are audited (`confidence.adjusted`, `confidence.reversed`).
+- **No payments:** there is no purchase, checkout or recovery payment path and none will be added without an explicit owner decision.
+- Design and rules: `docs/architecture/confidence.md`.
+
 ## Grading stopped
 
 **Symptom**: Picks stay PENDING past their Market's resolution; no

@@ -12,6 +12,7 @@ import { ProfileTabNav, type ProfileTab } from "./profile-tab-nav";
 import { PredictionsHistory } from "./predictions-history";
 import { CommunitiesTab } from "./communities-tab";
 import { ColumnHeader } from "@/components/shell/ColumnHeader";
+import { ConfidenceCard } from "@/components/confidence/ConfidenceCard";
 
 /**
  * Own Profile (Phase F, Brohda 2.0 redesign) — a social identity, not a
@@ -76,6 +77,8 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
           </Link>
         }
       />
+
+      <ConfidenceCard memberId={user.id} />
 
       <CallBsHistory entries={callBsHistory} subjectIsViewer subjectName={user.display_name} />
 
