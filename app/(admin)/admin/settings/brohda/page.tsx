@@ -5,6 +5,7 @@ import { LegalStatusCard } from "@/components/sponsorship/LegalStatusCard";
 import { OnlinePaymentsCard } from "@/components/sponsorship/OnlinePaymentsCard";
 import { SponsorIntelligenceCard } from "@/components/sponsor-intelligence/SponsorIntelligenceCard";
 import { MessagingSettingsCard } from "@/components/messaging/MessagingSettingsCard";
+import { ConfidenceSettingsCard } from "@/components/confidence/ConfidenceSettingsCard";
 import { RefundPolicyCard } from "@/components/sponsorship/RefundPolicyCard";
 import {
   PredictionSettingsSection,
@@ -68,6 +69,7 @@ export default async function BrohdaSettingsPage() {
         </div>
       </div>
       <MessagingSettingsCard />
+      <ConfidenceSettingsCard />
     </div>
   );
 }

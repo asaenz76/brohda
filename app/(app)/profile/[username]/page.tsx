@@ -10,6 +10,8 @@ import { FollowButton } from "@/components/profile/FollowButton";
 import { BlockMemberButton } from "@/components/profile/BlockMemberButton";
 import { MessageMemberLink } from "@/components/messaging/MessageMemberLink";
 import { isMessagingEnabled } from "@/lib/messaging/config";
+import { getPublicConfidence } from "@/lib/confidence/service";
+import { ConfidenceBadge } from "@/components/confidence/ConfidenceBadge";
 import { ProfileTabNav, type ProfileTab } from "../profile-tab-nav";
 import { PredictionsHistory } from "../predictions-history";
 import { CommunitiesTab } from "../communities-tab";
@@ -47,7 +49,7 @@ export default async function PublicProfilePage({
   if (!profile) notFound();
   if (profile.id === currentUser.id) redirect("/profile");
 
-  const [{ data: countsRows }, { data: isFollowing }, { data: blockRow }, reputation, callBsRecord, callBsHistory, headToHeadMap, messagingOn] = await Promise.all([
+  const [{ data: countsRows }, { data: isFollowing }, { data: blockRow }, reputation, callBsRecord, callBsHistory, headToHeadMap, messagingOn, publicConfidence] = await Promise.all([
     supabase.rpc("get_follow_counts", { p_user_id: profile.id }),
     supabase.rpc("is_following", { p_follower_id: currentUser.id, p_followee_id: profile.id }),
     // RLS lets a Member read only their OWN blocks, so this can only ever say "have I blocked them" — never whether they blocked me.
@@ -58,6 +60,8 @@ export default async function PublicProfilePage({
     // Your own record against this person — shown only when the two of you have resolved Call BS history.
     getHeadToHeadRecords(currentUser.id, [profile.id]),
     isMessagingEnabled(),
+    // PUBLIC Confidence: the total only, and null while the capability is OFF.
+    getPublicConfidence(profile.id).catch(() => null),
   ]);
 
   const counts = Array.isArray(countsRows) ? countsRows[0] : countsRows;
@@ -86,6 +90,12 @@ export default async function PublicProfilePage({
           </div>
         }
       />
+
+      {publicConfidence !== null && (
+        <p className="text-sm text-text-secondary" data-slot="public-confidence">
+          Confidence <ConfidenceBadge points={publicConfidence} className="font-semibold text-text-primary" />
+        </p>
+      )}
 
       <CallBsHistory entries={callBsHistory} subjectIsViewer={false} subjectName={profile.display_name} headToHead={headToHeadMap.get(profile.id) ?? null} />
 

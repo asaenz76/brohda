@@ -946,7 +946,8 @@ describe("public data boundary, one Post, and what is NOT built", () => {
     await client.connect();
     try {
       const { rows } = await client.query(`select table_name from information_schema.tables where table_schema = 'public' and table_name ~* '(prize|draw|winner|qualif|entry_|_entries|sweepstake|contest)'`);
-      expect(rows.map((r) => r.table_name).filter((n) => !["pool_entries", "pools_entries"].includes(n))).toEqual([]);
+      // `confidence_ledger_entries` is the Confidence accounting ledger (internal reputation, no prizes) — an accounting "entry", not a contest entry — so it is the one deliberate exception.
+      expect(rows.map((r) => r.table_name).filter((n) => !["pool_entries", "pools_entries", "confidence_ledger_entries"].includes(n))).toEqual([]);
       const { rows: cols } = await client.query(`select column_name from information_schema.columns where table_schema = 'public' and table_name like 'sponsor%' and column_name ~* '(winner|draw|qualif|entry|custody|payout)'`);
       expect(cols).toEqual([]);
     } finally {

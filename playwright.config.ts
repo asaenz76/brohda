@@ -111,7 +111,7 @@ export default defineConfig({
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
-      testIgnore: /admin-brohda-settings|monetary-capability-gating|legal-reconsent|legal-money-gating|sponsorship-flow|sponsor-intelligence|messaging/,
+      testIgnore: /admin-brohda-settings|monetary-capability-gating|legal-reconsent|legal-money-gating|sponsorship-flow|sponsor-intelligence|messaging|confidence/,
     },
     {
       name: "chromium-admin-settings",
@@ -170,6 +170,14 @@ export default defineConfig({
       testMatch: /messaging/,
       fullyParallel: false,
       dependencies: ["chromium-sponsor-intelligence"],
+    },
+    // Flips platform_settings.confidence_enabled (and its policy) — its own project, chained last, so no other spec ever runs while Confidence is on or off beneath it.
+    {
+      name: "chromium-confidence",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: /confidence/,
+      fullyParallel: false,
+      dependencies: ["chromium-messaging"],
     },
   ],
 });
