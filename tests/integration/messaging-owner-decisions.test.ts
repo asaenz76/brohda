@@ -801,3 +801,54 @@ describe("reporter outcome notifications", () => {
     expect(notes).toHaveLength(0);
   });
 });
+
+describe("opening a conversation clears that conversation's notifications", () => {
+  const unread = async (userId: string, conversationId?: string) => {
+    let q = admin.from("notifications").select("id", { count: "exact", head: true }).eq("user_id", userId).is("read_at", null).like("type", "MESSAGE%");
+    if (conversationId) q = q.eq("conversation_id", conversationId);
+    return (await q).count ?? 0;
+  };
+
+  it("an incoming request's notification clears when the recipient opens it, and the accepted / new-message ones when the other side opens the conversation", async () => {
+    const a = await seedUser("nc-a");
+    const b = await seedUser("nc-b");
+    const first = await sendOk(a, b);
+    const conv = first.conversationId as string;
+    expect(await unread(b, conv)).toBe(1); // MESSAGE_REQUEST_RECEIVED
+    await ok("messaging_mark_read", { p_user_id: b, p_conversation_id: conv, p_seq: 1 });
+    expect(await unread(b, conv)).toBe(0);
+    await ok("messaging_respond_request", { p_user_id: b, p_conversation_id: conv, p_action: "ACCEPT" });
+    expect(await unread(a, conv)).toBe(1); // MESSAGE_REQUEST_ACCEPTED
+    await sendOk(b, a);
+    expect(await unread(a, conv)).toBe(2); // + MESSAGE_RECEIVED (coalesced to one)
+    await ok("messaging_mark_read", { p_user_id: a, p_conversation_id: conv, p_seq: 2 });
+    expect(await unread(a, conv)).toBe(0);
+  });
+
+  it("clears only that conversation, only the caller's, and nothing that is not a Messaging notification", async () => {
+    const a = await seedUser("nc-c");
+    const b = await seedUser("nc-d");
+    const c = await seedUser("nc-e");
+    const one = await sendOk(a, b);
+    const two = await sendOk(c, b);
+    await admin.from("notifications").insert({ user_id: b, type: "CALL_BS_RECEIVED", title: "Someone called BS", body: "x" });
+    await ok("messaging_mark_read", { p_user_id: b, p_conversation_id: one.conversationId, p_seq: 1 });
+    expect(await unread(b, one.conversationId)).toBe(0);
+    expect(await unread(b, two.conversationId)).toBe(1); // the other conversation is untouched
+    expect((await admin.from("notifications").select("id", { count: "exact", head: true }).eq("user_id", b).eq("type", "CALL_BS_RECEIVED").is("read_at", null)).count).toBe(1);
+    // A stranger asking about someone else's conversation changes nothing.
+    await ok("messaging_mark_read", { p_user_id: c, p_conversation_id: one.conversationId, p_seq: 1 });
+    expect(await unread(b, two.conversationId)).toBe(1);
+    expect((await admin.from("notifications").select("read_at").eq("user_id", a).eq("type", "MESSAGE_REQUEST_ACCEPTED")).data).toEqual([]);
+  });
+
+  it("a stranger cannot clear someone else's conversation notifications by guessing its id", async () => {
+    const a = await seedUser("nc-f");
+    const b = await seedUser("nc-g");
+    const stranger = await seedUser("nc-h");
+    const first = await sendOk(a, b);
+    await ok("messaging_mark_read", { p_user_id: stranger, p_conversation_id: first.conversationId, p_seq: 99 });
+    expect(await unread(b, first.conversationId)).toBe(1);
+  });
+});
+
