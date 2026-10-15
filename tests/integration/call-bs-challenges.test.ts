@@ -4,7 +4,7 @@
  * Challenge resolution, notifications, rate limiting, and security. Real
  * local Supabase throughout.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getTestAdminClient, getTestAnonClient, getTestSupabaseConfig } from "./helpers/test-env";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { setPick, getPredictionById } from "@/lib/predictions/repository";
@@ -113,6 +113,12 @@ async function pick(userId: string, marketId: string, selectedOutcome: "YES" | "
 async function setPolicy(overrides: Record<string, unknown>) {
   await admin.from("platform_settings").update(overrides).eq("id", true);
 }
+
+// Every test starts with Call BS on and the usual policy, whatever ran before it. (This used to rely on the PREVIOUS test's cleanup having switched Call BS back on, so a shuffled order — a Resolution test
+// running right after the "rejects creation while call_bs_enabled is false" test, or first — failed with `call_bs_disabled`.)
+beforeEach(async () => {
+  await setPolicy({ call_bs_enabled: true, pick_lock_minutes_before_kickoff: 10, call_bs_rate_limit_window_seconds: 60, call_bs_rate_limit_max_attempts: 10 });
+});
 
 afterEach(async () => {
   if (createdMarketIds.length > 0) {
