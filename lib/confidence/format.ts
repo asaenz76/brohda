@@ -41,12 +41,16 @@ export function formatWait(ms: number): string {
   return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
 }
 
-/** The future stake ladder: non-empty, strictly ascending, positive whole numbers, bounded. Mirrors the database check (confidence_stakes_valid). */
-export const STAKE_LADDER_MAX_LENGTH = 10;
-export const STAKE_MAX = 1000;
+/**
+ * The largest value any Confidence number setting (baseline, interval hours, a stake) can hold: the database column type is a 32-bit integer, so this is a genuine technical limit — not a product choice. Everything
+ * below it (how big the baseline is, how long the interval, how many stakes and how large) is product policy chosen in Settings.
+ */
+export const INT4_MAX = 2_147_483_647;
+
+/** The future stake ladder: non-empty, strictly ascending, positive whole numbers. Mirrors the database check (confidence_stakes_valid). */
 export function isValidStakeLadder(stakes: unknown): stakes is number[] {
-  if (!Array.isArray(stakes) || stakes.length < 1 || stakes.length > STAKE_LADDER_MAX_LENGTH) return false;
-  if (!stakes.every((s) => typeof s === "number" && Number.isInteger(s) && s >= 1 && s <= STAKE_MAX)) return false;
+  if (!Array.isArray(stakes) || stakes.length < 1) return false;
+  if (!stakes.every((s) => typeof s === "number" && Number.isInteger(s) && s >= 1 && s <= INT4_MAX)) return false;
   return stakes.every((s, i) => i === 0 || s > stakes[i - 1]);
 }
 

@@ -34,10 +34,10 @@ The Confidence domain is **separate from the Member monetary wallet** (`wallet_b
 | Setting | Default | Notes |
 | --- | --- | --- |
 | `confidence_enabled` | **false** | Fails closed everywhere (UI, server actions, RLS). |
-| `confidence_baseline` | 50 | Initial grant **and** the Daily Claim ceiling. Changing it **never rewrites existing balances**. |
+| `confidence_baseline` | 50 | Initial grant **and** the Daily Claim ceiling (≥ 1). Changing it **never rewrites existing balances**. |
 | `confidence_daily_claim_amount` | 1 | Global, 1–5, never above the baseline. |
-| `confidence_daily_claim_interval_hours` | 24 | Rolling, from the last successful claim. |
-| `confidence_allowed_stakes` | `{1,2,3,4,5}` | The future stake ladder (non-empty, strictly ascending, positive, ≤1000, ≤10 entries). Nothing reads it until Milestone 4. |
+| `confidence_daily_claim_interval_hours` | 24 | Rolling, from the last successful claim (≥ 1 whole hour). |
+| `confidence_allowed_stakes` | `{1,2,3,4,5}` | The future stake ladder (non-empty, strictly ascending, positive whole numbers; any length). Nothing reads it until Milestone 4. |
 
 Edited on Settings → Brohda → Confidence through one audited function (`settings.confidence_updated`), validated as a whole and applied or refused as a whole (the table's own constraints are the authority). Only true invariants are hard-coded; none of 50, 1, 24 h or 1–5 is a constant in the database functions, the server, the UI or the tests (tests read the configured value).
 
@@ -61,7 +61,7 @@ Edited on Settings → Brohda → Confidence through one audited function (`sett
 
 ## Admin adjustments and reversals
 
-Both are compensating **ledger entries** — nothing is overwritten. `admin_confidence_adjust` needs Super Admin, a canonical reason, a note, a signed non-zero amount (≤1,000,000) and an idempotency key; the result can never be negative; audited (`confidence.adjusted`). `admin_confidence_reverse` writes the opposite entry for one ledger entry (once; a reversal can't be reversed; refused if it would go negative); audited (`confidence.reversed`).
+Both are compensating **ledger entries** — nothing is overwritten. `admin_confidence_adjust` needs Super Admin, a canonical reason, a note, a signed non-zero amount (any amount a 64-bit balance can hold) and an idempotency key; the result can never be negative; audited (`confidence.adjusted`). `admin_confidence_reverse` writes the opposite entry for one ledger entry (once; a reversal can't be reversed; refused if it would go negative); audited (`confidence.reversed`).
 
 ## Economy observability
 
@@ -74,3 +74,21 @@ Both are compensating **ledger entries** — nothing is overwritten. `admin_conf
 ## Milestone 4 handoff
 
 Settlement, when built, is: stake N — correct ⇒ reserved stake returned + N newly issued (net +N); incorrect ⇒ stake burned (net −N); void ⇒ reserved stake returned (net 0). The model is ready for it: `reserved` and `reserved_delta` exist, the ledger types are extensible, and the stake ladder is already configurable. None of it is implemented now.
+
+## Hard-coding audit (owner rule: nothing that doesn't need to be hard-coded is hard-coded)
+
+Every literal in the schema and code, classified. **A** = genuine technical/security/schema invariant; **B** = configurable product policy; **C** = implementation safety bound (a concrete technical reason, not a product rule).
+
+| Value | Class | Where it lives / why |
+| --- | --- | --- |
+| Baseline 50, Daily Claim 1, interval 24 h, ladder `{1,2,3,4,5}`, capability OFF | **B** | `platform_settings` defaults only; read live everywhere. |
+| Baseline upper limit | **A** | None beyond the 32-bit `integer` column (2,147,483,647). The earlier 1,000,000 cap had no technical reason and was **removed**. |
+| Interval upper limit | **A** | None beyond the 32-bit integer column. The earlier 168-hour cap was product policy with no technical reason and was **removed** (minimum stays 1 whole hour: 0 would turn the rolling interval off, contradicting the rule). |
+| Stake ladder length and size | **A** | Only "non-empty, strictly ascending, positive integers" (semantic) and the integer column's range. The earlier ≤10 entries / ≤1000 caps were product choices and were **removed**. |
+| Daily Claim amount 1–5, and ≤ baseline | **B (owner-approved product constraint)** | Approved by the owner as a product constraint; stays as a table check. |
+| Admin adjustment size | **A** | Any amount the 64-bit balance can hold (overflow is refused). The earlier ±1,000,000 cap had no technical reason and was **removed**. |
+| `available`/`reserved` ≥ 0, `total` = available + reserved, one account per Member, one initial grant per Member ever, ledger append-only, canonical entry types and reason codes, `reserved_delta = 0` until Picks | **A** | Accounting/security invariants the owner specified; enforced as database constraints and triggers. |
+| Note ≤ 500 characters; idempotency key 8–100 characters; ledger `metadata` ≤ 2000 characters | **C** | Bounds on free text so a row, an index entry and a screen stay small (a UUID is 36 characters; the note matches the other private notes in the product). Not Brohda product rules. |
+| Backfill batch ≤ 1000 per call (default 200), 10 calls per cron tick | **C** | Bounds one call's work under PostgREST's 8-second statement timeout and one cron request's duration; the backlog drains over ticks. |
+| Member history shows the latest 100 (admin lookup 100, hard maximum 200) | **C** | Payload bound for an unpaginated list. |
+| Economy percentiles (p10/25/50/75/90) | — | A reporting choice, not policy. |

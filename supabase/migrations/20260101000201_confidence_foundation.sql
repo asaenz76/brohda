@@ -13,24 +13,24 @@
 -- ---------------------------------------------------------------------------------------------------------------------------------------------
 -- Settings (product policy — all changeable without a deploy)
 -- ---------------------------------------------------------------------------------------------------------------------------------------------
--- The future stake ladder must be a non-empty, strictly ascending list of positive whole numbers with a technical ceiling.
+-- The future stake ladder must be a non-empty, strictly ascending list of positive whole numbers. The only upper limit is the integer type itself; how many choices a selector offers, and how large they are, is product policy.
 create or replace function public.confidence_stakes_valid(p_stakes integer[])
 returns boolean
 language sql
 immutable
 as $$
   select p_stakes is not null
-    and cardinality(p_stakes) between 1 and 10
+    and cardinality(p_stakes) >= 1
     and array_ndims(p_stakes) = 1
-    and not exists (select 1 from unnest(p_stakes) with ordinality as s(v, i) where s.v is null or s.v < 1 or s.v > 1000)
+    and not exists (select 1 from unnest(p_stakes) with ordinality as s(v, i) where s.v is null or s.v < 1)
     and not exists (select 1 from unnest(p_stakes) with ordinality as a(v, i) join unnest(p_stakes) with ordinality as b(v, i) on b.i = a.i + 1 where b.v <= a.v);
 $$;
 
 alter table public.platform_settings
   add column confidence_enabled boolean not null default false,
-  add column confidence_baseline integer not null default 50 check (confidence_baseline between 1 and 1000000),
+  add column confidence_baseline integer not null default 50 check (confidence_baseline >= 1),
   add column confidence_daily_claim_amount integer not null default 1 check (confidence_daily_claim_amount between 1 and 5),
-  add column confidence_daily_claim_interval_hours integer not null default 24 check (confidence_daily_claim_interval_hours between 1 and 168),
+  add column confidence_daily_claim_interval_hours integer not null default 24 check (confidence_daily_claim_interval_hours >= 1),
   add column confidence_allowed_stakes integer[] not null default '{1,2,3,4,5}' check (public.confidence_stakes_valid(confidence_allowed_stakes)),
   add constraint platform_settings_confidence_claim_within_baseline check (confidence_daily_claim_amount <= confidence_baseline);
 
@@ -108,7 +108,7 @@ create table public.confidence_ledger_entries (
   constraint confidence_entry_shape check (
     (entry_type = 'INITIAL_GRANT' and available_delta > 0 and actor_id is null and reason_code is null and reverses_entry_id is null)
     or (entry_type = 'DAILY_CLAIM' and available_delta > 0 and actor_id is null and reason_code is null and reverses_entry_id is null)
-    or (entry_type = 'ADMIN_ADJUSTMENT' and available_delta <> 0 and abs(available_delta) <= 1000000 and actor_id is not null and reason_code is not null and note is not null and reverses_entry_id is null)
+    or (entry_type = 'ADMIN_ADJUSTMENT' and available_delta <> 0 and actor_id is not null and reason_code is not null and note is not null and reverses_entry_id is null)
     or (entry_type = 'REVERSAL' and available_delta <> 0 and actor_id is not null and reverses_entry_id is not null and reason_code is null))
 );
 -- Exactly one initial grant per Member, ever — even if the grant is later reversed.
@@ -355,7 +355,7 @@ declare
 begin
   perform public.require_super_admin(p_admin_id);
   if p_reason_code not in ('REMEDIATION', 'CORRECTION', 'SUPPORT_CASE') then raise exception 'invalid_reason'; end if;
-  if p_amount is null or p_amount = 0 or abs(p_amount) > 1000000 then return jsonb_build_object('outcome', 'invalid_amount'); end if;
+  if p_amount is null or p_amount = 0 then return jsonb_build_object('outcome', 'invalid_amount'); end if;
   v_note := nullif(btrim(regexp_replace(left(coalesce(p_note, ''), 500), '[\r\n\t]+', ' ', 'g')), '');
   if v_note is null or char_length(v_note) < 3 then return jsonb_build_object('outcome', 'note_required'); end if;
   if p_idempotency_key is null or char_length(p_idempotency_key) not between 8 and 100 then raise exception 'invalid_idempotency_key'; end if;
@@ -367,6 +367,8 @@ begin
       values (p_member_id, 'ADMIN_ADJUSTMENT', p_amount, p_reason_code, v_note, p_admin_id, p_idempotency_key) returning * into v_entry;
   exception when others then
     if sqlerrm = 'confidence_negative_balance' then return jsonb_build_object('outcome', 'would_go_negative'); end if;
+    -- A change too large for the 64-bit balance is not a representable amount.
+    if sqlstate = '22003' then return jsonb_build_object('outcome', 'invalid_amount'); end if;
     raise;
   end;
   insert into public.audit_logs (actor_id, action, entity_type, entity_id, reason, after)

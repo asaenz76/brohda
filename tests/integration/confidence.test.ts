@@ -245,6 +245,35 @@ describe("accounts and the initial grant", () => {
 });
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------
+describe("staff Members are Members", () => {
+  it("an admin and a Super Admin who are Members get the same account, grant and claim rules as everyone else — no exclusion and no advantage", async () => {
+    const roles = ["player", "admin", "super_admin"] as const;
+    const ids: Record<string, string> = {};
+    for (const role of roles) {
+      const id = await seedUnbootstrapped(`staff-${role}`);
+      await admin.from("user_profiles").update({ role }).eq("id", id);
+      staffIds.push(id);
+      ids[role] = id;
+      expect((await ok("confidence_bootstrap_member", { p_member_id: id })).outcome, role).toBe("granted");
+    }
+    const baseline = (await settings()).confidence_baseline as number;
+    for (const role of roles) {
+      const a = (await account(ids[role]))!;
+      expect(Number(a.available), role).toBe(baseline);
+      expect(await entries(ids[role], "INITIAL_GRANT"), role).toHaveLength(1);
+      // At the baseline nobody — staff included — can claim.
+      expect((await claim(ids[role])).data?.outcome, role).toBe("at_or_above_baseline");
+    }
+    // Below the baseline every role gets exactly the same capped claim.
+    const sa = await superAdmin();
+    for (const role of roles) await setAvailable(sa, ids[role], baseline - 3);
+    for (const role of roles) expect((await claim(ids[role])).data, role).toMatchObject({ outcome: "claimed", amount: 1 });
+    // A Sponsor is still excluded.
+    const sponsor = await seedSponsorAccount("StaffContrast");
+    expect((await ok("confidence_bootstrap_member", { p_member_id: sponsor.userId })).outcome).toBe("ineligible");
+  });
+});
+
 describe("the Daily Claim", () => {
   it("restores the configured amount below the baseline and never beyond it", async () => {
     const sa = await superAdmin();
@@ -476,7 +505,7 @@ describe("accounting integrity", () => {
     expect((await adjust(sa, id, 5, "", "CORRECTION")).data?.outcome).toBe("note_required");
     expect((await adjust(sa, id, 5, "ok note", "BECAUSE")).error).not.toBeNull(); // not a canonical reason
     expect((await adjust(sa, id, 0)).data?.outcome).toBe("invalid_amount");
-    expect((await adjust(sa, id, 1_000_001)).data?.outcome).toBe("invalid_amount");
+    expect((await rpc("admin_confidence_adjust", { p_admin_id: sa, p_member_id: id, p_amount: "9223372036854775807", p_reason_code: "CORRECTION", p_note: "overflow", p_idempotency_key: randomUUID() })).data?.outcome).toBe("invalid_amount");
     expect((await adjust(sa, randomUUID(), 5)).data?.outcome).toBe("no_account");
     const done = await adjust(sa, id, 7, "support ticket 42", "SUPPORT_CASE");
     expect(done.data?.outcome).toBe("adjusted");
@@ -649,18 +678,17 @@ describe("configuration", () => {
     const original = await settings();
     for (const bad of [
       { confidence_baseline: 0 },
-      { confidence_baseline: 1_000_001 },
+      { confidence_baseline: 2147483648 }, // beyond the 32-bit integer column
       { confidence_daily_claim_amount: 0 },
       { confidence_daily_claim_amount: 6 },
       { confidence_daily_claim_interval_hours: 0 },
-      { confidence_daily_claim_interval_hours: 169 },
+      { confidence_daily_claim_interval_hours: 2147483648 },
       { confidence_daily_claim_amount: 5, confidence_baseline: 4 }, // a claim can't exceed the baseline
       { confidence_allowed_stakes: [] },
       { confidence_allowed_stakes: [3, 2, 1] },
       { confidence_allowed_stakes: [1, 1, 2] },
       { confidence_allowed_stakes: [0, 1] },
-      { confidence_allowed_stakes: [1, 1001] },
-      { confidence_allowed_stakes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
+      { confidence_allowed_stakes: [1, 2147483648] },
       { confidence_allowed_stakes: "1,2,3" },
       { confidence_allowed_stakes: [1, null, 3] },
     ]) {
@@ -672,6 +700,22 @@ describe("configuration", () => {
     // The table itself also refuses direct writes of malformed values.
     expect((await admin.from("platform_settings").update({ confidence_allowed_stakes: [5, 1] }).eq("id", true)).error).not.toBeNull();
     expect((await admin.from("platform_settings").update({ confidence_daily_claim_amount: 9 }).eq("id", true)).error).not.toBeNull();
+  });
+
+  it("nothing arbitrary caps the policy: a large baseline, a long interval, a long or large ladder and a large adjustment are all accepted", async () => {
+    const sa = await superAdmin();
+    await ok("admin_set_confidence_config", {
+      p_admin_id: sa,
+      p_config: { confidence_baseline: 5_000_000, confidence_daily_claim_interval_hours: 720, confidence_allowed_stakes: Array.from({ length: 25 }, (_, i) => (i + 1) * 100) },
+    });
+    expect(await settings()).toMatchObject({ confidence_baseline: 5_000_000, confidence_daily_claim_interval_hours: 720 });
+    expect(((await settings()).confidence_allowed_stakes as number[]).length).toBe(25);
+    const id = await seedUnbootstrapped("big-policy");
+    await ok("confidence_bootstrap_member", { p_member_id: id });
+    expect(Number((await account(id))!.available)).toBe(5_000_000);
+    expect((await adjust(sa, id, 2_500_000, "large but legitimate correction")).data?.outcome).toBe("adjusted");
+    expect(Number((await account(id))!.available)).toBe(7_500_000);
+    expect((await admin.rpc("confidence_reconcile")).data).toEqual([]);
   });
 
   it("the stake ladder is configurable and ordered; the defaults are the owner's: 50 / 1 / 24h / 1-2-3-4-5, capability OFF", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { confidenceLabel, describeEntry, formatConfidence, formatSignedConfidence, formatWait, isValidStakeLadder, parseStakeLadder } from "@/lib/confidence/format";
+import { INT4_MAX, confidenceLabel, describeEntry, formatConfidence, formatSignedConfidence, formatWait, isValidStakeLadder, parseStakeLadder } from "@/lib/confidence/format";
 
 describe("Confidence formatting", () => {
   it("writes the unit with the flame and the words for screen readers", () => {
@@ -34,14 +34,16 @@ describe("Confidence formatting", () => {
 });
 
 describe("the future stake ladder", () => {
-  it("accepts a non-empty, strictly ascending list of positive whole numbers within the bound", () => {
+  it("accepts any non-empty, strictly ascending list of positive whole numbers — how many and how large is product policy, not a code limit", () => {
     expect(isValidStakeLadder([1, 2, 3, 4, 5])).toBe(true);
     expect(isValidStakeLadder([5])).toBe(true);
-    expect(isValidStakeLadder([1, 5, 10, 1000])).toBe(true);
+    expect(isValidStakeLadder([1, 5, 10, 1000, 100000])).toBe(true);
+    expect(isValidStakeLadder(Array.from({ length: 40 }, (_, i) => i + 1))).toBe(true);
+    expect(isValidStakeLadder([1, INT4_MAX])).toBe(true);
   });
 
-  it("rejects empty, unordered, duplicate, non-positive, fractional, oversized and over-long lists", () => {
-    for (const bad of [[], [3, 2, 1], [1, 1, 2], [0, 1], [-1, 2], [1.5, 2], [1, 1001], [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], "1,2", null, undefined, [1, null], [NaN]]) {
+  it("rejects empty, unordered, duplicate, non-positive and fractional lists, and anything the 32-bit integer column cannot hold", () => {
+    for (const bad of [[], [3, 2, 1], [1, 1, 2], [0, 1], [-1, 2], [1.5, 2], [1, INT4_MAX + 1], "1,2", null, undefined, [1, null], [NaN]]) {
       expect(isValidStakeLadder(bad), JSON.stringify(bad)).toBe(false);
     }
   });

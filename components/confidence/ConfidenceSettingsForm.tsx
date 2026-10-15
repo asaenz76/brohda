@@ -18,7 +18,7 @@ export function ConfidenceSettingsForm({ settings }: { settings: ConfidenceSetti
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="space-y-1 text-xs font-medium text-text-secondary">
           Baseline (Confidence)
-          <input type="number" name="confidence_baseline" min={1} max={1000000} defaultValue={settings.baseline} className={input} aria-describedby="conf-baseline-help" />
+          <input type="number" name="confidence_baseline" min={1} defaultValue={settings.baseline} className={input} aria-describedby="conf-baseline-help" />
           <span id="conf-baseline-help" className="block font-normal text-text-muted">
             What a new Member starts with and the ceiling for Daily Claims. Changing it never changes anyone&apos;s existing balance.
           </span>
@@ -32,7 +32,7 @@ export function ConfidenceSettingsForm({ settings }: { settings: ConfidenceSetti
         </label>
         <label className="space-y-1 text-xs font-medium text-text-secondary">
           Time between claims (hours)
-          <input type="number" name="confidence_daily_claim_interval_hours" min={1} max={168} defaultValue={settings.dailyClaimIntervalHours} className={input} aria-describedby="conf-interval-help" />
+          <input type="number" name="confidence_daily_claim_interval_hours" min={1} defaultValue={settings.dailyClaimIntervalHours} className={input} aria-describedby="conf-interval-help" />
           <span id="conf-interval-help" className="block font-normal text-text-muted">
             Counted from a Member&apos;s last claim, not from midnight, so time zones never matter.
           </span>

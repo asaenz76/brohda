@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireSuperAdmin } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isUuid } from "@/lib/messaging/share";
-import { isValidStakeLadder, parseStakeLadder } from "@/lib/confidence/format";
+import { INT4_MAX, isValidStakeLadder, parseStakeLadder } from "@/lib/confidence/format";
 
 export interface ConfidenceAdminResult {
   success: boolean;
@@ -22,11 +22,11 @@ export async function setConfidenceConfigAction(_prev: ConfidenceAdminResult | n
   const amount = number("confidence_daily_claim_amount");
   const interval = number("confidence_daily_claim_interval_hours");
   const stakes = parseStakeLadder(String(formData.get("confidence_allowed_stakes") ?? ""));
-  if (!Number.isInteger(baseline) || baseline < 1 || baseline > 1_000_000) return fail("Baseline must be a whole number from 1 to 1,000,000.");
+  if (!Number.isInteger(baseline) || baseline < 1 || baseline > INT4_MAX) return fail("Baseline must be a whole number of at least 1.");
   if (!Number.isInteger(amount) || amount < 1 || amount > 5) return fail("Daily Claim must be a whole number from 1 to 5.");
   if (amount > baseline) return fail("Daily Claim can't be larger than the baseline.");
-  if (!Number.isInteger(interval) || interval < 1 || interval > 168) return fail("The Daily Claim interval must be a whole number of hours from 1 to 168.");
-  if (!stakes || !isValidStakeLadder(stakes)) return fail("The stake ladder must be 1 to 10 increasing whole numbers (each 1 to 1,000), like 1, 2, 3, 4, 5.");
+  if (!Number.isInteger(interval) || interval < 1 || interval > INT4_MAX) return fail("The Daily Claim interval must be a whole number of hours, at least 1.");
+  if (!stakes || !isValidStakeLadder(stakes)) return fail("The stake ladder must be increasing whole numbers of at least 1, like 1, 2, 3, 4, 5.");
   const enabled = formData.get("confidence_enabled") === "on";
   const { error } = await createAdminClient().rpc("admin_set_confidence_config", {
     p_admin_id: admin.id,
@@ -49,7 +49,7 @@ export async function adjustConfidenceAction(input: { memberId: string; amount: 
   const outcome = (data as { outcome?: string } | null)?.outcome;
   if (error || !outcome) return fail("Couldn't record the adjustment.");
   if (outcome === "note_required") return fail("Add a short note saying why.");
-  if (outcome === "invalid_amount") return fail("The amount must be a whole number other than 0, up to 1,000,000.");
+  if (outcome === "invalid_amount") return fail("The amount must be a whole number other than 0.");
   if (outcome === "no_account") return fail("That Member has no Confidence account yet.");
   if (outcome === "would_go_negative") return fail("That would take the Member below 0.");
   if (outcome !== "adjusted") return fail("Couldn't record the adjustment.");
