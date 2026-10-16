@@ -431,7 +431,7 @@ test("Inline markets J, K, M, N, O: an existing secondary Pick is shown on load;
   test.setTimeout(300_000);
   const m = await createMember("inline2");
   await admin.rpc("confidence_bootstrap_member", { p_member_id: m.id });
-  const existing = await fullGame("existing");
+  const existing = await fullGame("secondary");
   const late = await fullGame("latewin", 60);
   await pickViaDb(m.id, existing.spreadId, "YES");
   await admin.from("fixtures").update({ scheduled_start_utc: new Date(Date.now() + 5 * 60_000).toISOString() }).eq("id", late.fixtureId); // inside the 10-minute window
@@ -457,10 +457,7 @@ test("Inline markets J, K, M, N, O: an existing secondary Pick is shown on load;
   await page.setViewportSize({ width: 375, height: 800 });
   await gotoFeedReady(page);
   const cm = card(page, existing);
-  // Exactly one card for the Game. If it is ever doubled, say WHAT was found (the Post ids and the cards' text) instead of only "2 != 1".
-  await expect
-    .poll(async () => (await cm.count()) === 1 || JSON.stringify(await page.evaluate((needle) => [...document.querySelectorAll("article")].filter((a) => a.textContent?.includes(needle)).map((a) => ({ label: a.getAttribute("aria-label"), href: a.querySelector('a[href^="/post/"]')?.getAttribute("href"), parent: a.parentElement?.tagName + "." + a.parentElement?.className.slice(0, 60), text: (a.textContent ?? "").slice(0, 120) })), existing.home)), { timeout: 20_000 })
-    .toBe(true);
+  await expect(cm).toHaveCount(1); // one card per Game: every seeded Game in this file has its own name
   await seeMore(cm).click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   const cardBox = (await cm.boundingBox())!;
