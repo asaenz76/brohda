@@ -8,13 +8,16 @@ import { isValidStakeLadder } from "./format";
 
 export interface ConfidenceConfig {
   enabled: true;
+  /** New Confidence-backed Picks may be made. (Turning this off never strands an existing reserved stake: those still settle.) */
+  backedPicksEnabled: boolean;
   baseline: number;
   dailyClaimAmount: number;
   dailyClaimIntervalHours: number;
   allowedStakes: number[];
 }
 
-const COLUMNS = "confidence_enabled, confidence_baseline, confidence_daily_claim_amount, confidence_daily_claim_interval_hours, confidence_allowed_stakes";
+const COLUMNS =
+  "confidence_enabled, confidence_backed_picks_enabled, confidence_baseline, confidence_daily_claim_amount, confidence_daily_claim_interval_hours, confidence_allowed_stakes, confidence_notify_correct, confidence_notify_incorrect, confidence_notify_void";
 const isPositiveInt = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n) && n >= 1;
 
 /** The validated policy, or null when the capability is OFF or any value is unreadable/malformed — callers treat null as OFF. */
@@ -26,6 +29,7 @@ export const getConfidenceConfig = cache(async (): Promise<ConfidenceConfig | nu
     if (data.confidence_daily_claim_amount > data.confidence_baseline || !isValidStakeLadder(data.confidence_allowed_stakes)) return null;
     return {
       enabled: true,
+      backedPicksEnabled: data.confidence_backed_picks_enabled === true,
       baseline: data.confidence_baseline,
       dailyClaimAmount: data.confidence_daily_claim_amount,
       dailyClaimIntervalHours: data.confidence_daily_claim_interval_hours,
@@ -48,6 +52,10 @@ export const isConfidenceEnabled = cache(async (): Promise<boolean> => {
 
 export interface ConfidenceSettingsForAdmin {
   enabled: boolean;
+  backedPicksEnabled: boolean;
+  notifyCorrect: string;
+  notifyIncorrect: string;
+  notifyVoid: string;
   baseline: number;
   dailyClaimAmount: number;
   dailyClaimIntervalHours: number;
@@ -60,9 +68,33 @@ export async function getConfidenceSettingsForAdmin(): Promise<ConfidenceSetting
   if (error || !data) throw new Error("Could not read the Confidence settings.");
   return {
     enabled: data.confidence_enabled === true,
+    backedPicksEnabled: data.confidence_backed_picks_enabled === true,
+    notifyCorrect: data.confidence_notify_correct,
+    notifyIncorrect: data.confidence_notify_incorrect,
+    notifyVoid: data.confidence_notify_void,
     baseline: data.confidence_baseline,
     dailyClaimAmount: data.confidence_daily_claim_amount,
     dailyClaimIntervalHours: data.confidence_daily_claim_interval_hours,
     allowedStakes: data.confidence_allowed_stakes,
   };
+}
+
+/** The wording appended to a Confidence-backed Pick's graded notification, from settings. Falls back to the built-in sentences if unreadable — a copy problem never withholds the notification. */
+export const DEFAULT_SETTLEMENT_COPY = { correct: "+{{amount}}🔥 Confidence.", incorrect: "−{{amount}}🔥 Confidence.", void: "Your {{amount}} Confidence was returned." } as const;
+
+export async function getConfidenceSettlementCopy(): Promise<{ correct: string; incorrect: string; void: string }> {
+  try {
+    const { data, error } = await createAdminClient().from("platform_settings").select("confidence_notify_correct, confidence_notify_incorrect, confidence_notify_void").eq("id", true).single();
+    if (error || !data) return { ...DEFAULT_SETTLEMENT_COPY };
+    const ok = [data.confidence_notify_correct, data.confidence_notify_incorrect, data.confidence_notify_void].every((v) => typeof v === "string" && v.length > 0);
+    return ok ? { correct: data.confidence_notify_correct, incorrect: data.confidence_notify_incorrect, void: data.confidence_notify_void } : { ...DEFAULT_SETTLEMENT_COPY };
+  } catch {
+    return { ...DEFAULT_SETTLEMENT_COPY };
+  }
+}
+
+/** The sentence for a settled stake: the configured template for the result with {{amount}} replaced (plain literal substitution, never evaluated). */
+export function renderSettlementSentence(result: "CORRECT" | "INCORRECT" | "VOID", amount: number, copy: { correct: string; incorrect: string; void: string }): string {
+  const template = result === "CORRECT" ? copy.correct : result === "INCORRECT" ? copy.incorrect : copy.void;
+  return template.replaceAll("{{amount}}", String(amount));
 }

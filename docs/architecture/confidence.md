@@ -1,10 +1,10 @@
-# Confidence economy foundation (r82, Milestone 3)
+# Confidence economy (r82 foundation, Milestone 3 · r84 Confidence-backed Picks, Milestone 4)
 
 **Confidence is scarce internal reputation capital a Member puts behind their own prediction.** Public name: *Confidence*; unit: *Confidence points*; shorthand: 🔥 (`🔥50`, `+5🔥`, `−5🔥`). This milestone builds the permanent foundation — accounts, an immutable ledger, the initial grant and the Daily Claim, configuration, and aggregate observability. It does **not** build Confidence-backed Picks, Sponsored Confidence or Rewards, and nothing about Picks, grading or Call BS changes. **The capability ships OFF.**
 
 ## Permanent product rules
 
-Confidence **cannot be purchased, redeemed or transferred**; it has **no cash value** and no payment-provider dependency; it is earned or recovered only through Brohda mechanisms. There is no Buy/Recover-with-money path, checkout, fiat/USDT/stablecoin purchase, withdrawal, Member-to-Member transfer, marketplace or gifting — and none of that exists as dormant code. A static test (`tests/unit/confidence/domain-guard.test.ts`) reads the real source and fails if the schema or code imports or names wallet, monetary, payment-provider, transfer, redemption, purchase, price or cash concepts, or uses the Cred/Gold/coin/chip/token vocabulary, or touches Picks/Call BS/grading.
+Confidence **cannot be purchased, redeemed or transferred**; it has **no cash value** and no payment-provider dependency; it is earned or recovered only through Brohda mechanisms. There is no Buy/Recover-with-money path, checkout, fiat/USDT/stablecoin purchase, withdrawal, Member-to-Member transfer, marketplace or gifting — and none of that exists as dormant code. A static test (`tests/unit/confidence/domain-guard.test.ts`) reads the real source and fails if the schema or code imports or names wallet, monetary, payment-provider, transfer, redemption, purchase, price or cash concepts, or uses the Cred/Gold/coin/chip/token vocabulary, or touches Call BS. Picks are touched only by the narrow Milestone 4 attach/settlement path (see below); grading itself is never reimplemented here.
 
 The Confidence domain is **separate from the Member monetary wallet** (`wallet_balances` / `wallet_transactions` / the P2P ledger). It reads, writes and references none of it, so the monetary system can be removed at the replacement gate without touching Confidence. Sponsorship payments are separate and untouched.
 
@@ -71,9 +71,25 @@ Both are compensating **ledger entries** — nothing is overwritten. `admin_conf
 
 1 Sponsor Intelligence ✔ · 2 Messaging ✔ · **3 Confidence foundation (this)** · 4 Confidence-backed Picks · 5 Sponsored Confidence Drops · 6 Brohda Rewards Platform · 7 Rivalry · 8 Economy recommendations · 9 Soak / replacement gate · 10 Monetary P2P destruction. The old paid Confidence Recovery milestone is **retired**.
 
-## Milestone 4 handoff
+## Milestone 4 — Confidence-backed Picks (r84, migration 203)
 
-Settlement, when built, is: stake N — correct ⇒ reserved stake returned + N newly issued (net +N); incorrect ⇒ stake burned (net −N); void ⇒ reserved stake returned (net 0). The model is ready for it: `reserved` and `reserved_delta` exist, the ledger types are extensible, and the stake ladder is already configurable. None of it is implemented now.
+A Member may put Confidence behind their **own** Pick, before the canonical deadline: *"How confident are you?"* — an amount from the configured ladder, an explicit confirmation, then **reserve + Pick lock happen in one transaction**. Available −N, reserved +N, total unchanged. After that the Pick and the stake are immutable.
+
+**Capability.** `platform_settings.confidence_backed_picks_enabled` (default **OFF**), separate from `confidence_enabled`. It gates only *new* commitments. Turning either switch off never strands a reserved stake: settlement is independent of both.
+
+**Data.** `confidence_prediction_stakes` — one row per Pick (unique `prediction_id`), the minimum record binding Member, Pick, Market, Game, side and amount, plus the ladder in force at commit time. Guard triggers enforce: the Member owns the Pick, it is still PENDING, side/market match, the amount was on the ladder; afterwards only the one-way RESERVED→SETTLED transition is possible and nothing is ever deleted. A Pick with a stake can never change its side, whoever writes it. The ledger gains four entry types tied to the stake (`stake_id`): `PREDICTION_RESERVE` (avail −N, res +N), `PREDICTION_RELEASE` (avail +N, res −N), `PREDICTION_WIN` (res −N, avail +2N), `PREDICTION_LOSS` (res −N). Unique indexes allow exactly one reserve and one settlement per stake.
+
+**Attach** (`confidence_attach_stake`, service role; the server action derives the Member from the session). Lock order is Pick → stake → account. The canonical deadline is the same helper `set_pick` uses (`pick_market_timing`: kickoff minus `pick_lock_minutes_before_kickoff`), evaluated with `clock_timestamp()` **after** the row locks, against authoritative Game state — never the client. The stake is the *second* lock reason: an existing `lock_reason` (an accepted Call BS, a money Position) is kept; otherwise it becomes `CONFIDENCE_COMMITTED`. A Pick locked by `CUTOFF` can't be backed. Outcomes: attached/replay, disabled, ineligible, not_found, already_backed, pick_graded, game_started, past_deadline, invalid_amount, insufficient (availability, never total), idempotency_conflict.
+
+**Settlement** comes only from the canonical grade and happens **exactly once**: an AFTER UPDATE trigger on the PENDING→GRADED transition settles in the *same transaction* as grading (failures contained: grading is never blocked), backed by an indexed retry-safe sweep (`confidence_settle_pending`, run by the housekeeping cron as its own failure domain, `confidence_settlement`). Correct ⇒ net **+N** (reserved N returned + N newly issued); incorrect ⇒ net **−N**; void ⇒ **0**. No fees, no odds, no multipliers, no money. Grading is permanent, so there is no regrade path.
+
+**Daily Claim** eligibility and the baseline cap now use **total** Confidence (so reserving can't create eligibility); the credit lands in available. Example: 45 available + 5 reserved = 50 → nothing to claim; 44 + 5 → claimable; 42 + 5 with a claim of 5 → 3 credited.
+
+**Surface.** The signed-in shell shows one always-visible **total** (`🔥50`, accessible label "50 Confidence[: 47 available, 3 reserved]"), desktop and mobile, hidden for Sponsors and while Confidence is off; it reads the Confidence domain only (`getShellConfidence`) — the monetary wallet row is untouched. The existing "your Pick was graded" notification is *enriched* (never a second notification) with the configured sentence per result (`confidence_notify_correct/incorrect/void`, `{{amount}}` placeholder). Private history shows reserve/settlement rows with the available/reserved split; the public profile shows total Confidence; the 🔥N conviction chip appears only on already-visible Picks. Sentiment, accuracy and Call BS are unchanged (Call BS has no Confidence economics).
+
+**Integrity.** `confidence_reconcile` also requires each account's `reserved` to equal the sum of its active stakes. `confidence_reconcile_stakes` reports SETTLED_WITHOUT_ENTRY, ENTRY_WITHOUT_SETTLEMENT, RESERVE_ENTRY_MISSING_OR_WRONG and STRANDED_RESERVE (graded > 15 min with no settlement). `admin_confidence_reverse` refuses any entry that belongs to a stake. The economy overview adds active/total backed Picks, reserved, committed, average committed, winnings issued, losses burned, void returns, by-amount distribution and 7/30-day net change.
+
+**Deployment order.** Migration 203 is additive and must be applied (`supabase db push`) **before** the code that reads it is merged and deployed; the capability ships OFF.
 
 ## Hard-coding audit (owner rule: nothing that doesn't need to be hard-coded is hard-coded)
 
@@ -87,8 +103,13 @@ Every literal in the schema and code, classified. **A** = genuine technical/secu
 | Stake ladder length and size | **A** | Only "non-empty, strictly ascending, positive integers" (semantic) and the integer column's range. The earlier ≤10 entries / ≤1000 caps were product choices and were **removed**. |
 | Daily Claim amount 1–5, and ≤ baseline | **B (owner-approved product constraint)** | Approved by the owner as a product constraint; stays as a table check. |
 | Admin adjustment size | **A** | Any amount the 64-bit balance can hold (overflow is refused). The earlier ±1,000,000 cap had no technical reason and was **removed**. |
-| `available`/`reserved` ≥ 0, `total` = available + reserved, one account per Member, one initial grant per Member ever, ledger append-only, canonical entry types and reason codes, `reserved_delta = 0` until Picks | **A** | Accounting/security invariants the owner specified; enforced as database constraints and triggers. |
+| `available`/`reserved` ≥ 0, `total` = available + reserved, one account per Member, one initial grant per Member ever, ledger append-only, canonical entry types and reason codes; prediction entries tied to exactly one stake with the 1:1 settlement shape (reserve ±N, win +N net, loss −N net, void 0 — a true V1 product invariant, not a tunable) | **A** | Accounting/security invariants the owner specified; enforced as database constraints and triggers. |
 | Note ≤ 500 characters; idempotency key 8–100 characters; ledger `metadata` ≤ 2000 characters | **C** | Bounds on free text so a row, an index entry and a screen stay small (a UUID is 36 characters; the note matches the other private notes in the product). Not Brohda product rules. |
 | Backfill batch ≤ 1000 per call (default 200), 10 calls per cron tick | **C** | Bounds one call's work under PostgREST's 8-second statement timeout and one cron request's duration; the backlog drains over ticks. |
 | Member history shows the latest 100 (admin lookup 100, hard maximum 200) | **C** | Payload bound for an unpaginated list. |
 | Economy percentiles (p10/25/50/75/90) | — | A reporting choice, not policy. |
+| Backed-Pick amounts | **B** | The ladder in `platform_settings.confidence_allowed_stakes`, snapshotted on the stake at commit time. |
+| Pick deadline | **B** | `pick_lock_minutes_before_kickoff` (existing Pick policy), via the one shared `pick_market_timing` helper. |
+| Settlement sentences | **B** | `confidence_notify_correct/incorrect/void` in `platform_settings`, editable on the Confidence settings card. |
+| Settlement sweep batch 200 (max 1000); stranded-reserve grace 15 minutes | **C** | Bounds one cron call's work; the grace is only a reporting threshold for "settlement should already have happened". |
+| `FLAME_ROW_MAX = 5` | **C** | A layout bound for the selector's width: above it a choice is written `🔥N` instead of N flames. Any ladder works. |

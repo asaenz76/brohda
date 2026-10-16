@@ -2,7 +2,7 @@ import { requireSuperAdmin } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { LocalDateTime } from "@/components/LocalDateTime";
 import { AdjustConfidenceForm, ReverseEntryButton } from "@/components/confidence/AdminConfidenceTools";
-import { describeEntry, formatConfidence, formatSignedConfidence } from "@/lib/confidence/format";
+import { describeEntry, describeEntryChange, formatConfidence, formatSignedConfidence } from "@/lib/confidence/format";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +25,18 @@ interface Overview {
   dailyClaims: { count: number; total: number };
   adminAdjustments: { count: number; net: number };
   reversals: { count: number; net: number };
+  predictions: {
+    activeBackedPicks: number;
+    reserved: number;
+    totalCommitted: number;
+    backedPicks: number;
+    averageCommitted: number | null;
+    winningsIssued: number;
+    lossesBurned: number;
+    voidReleases: number;
+    byAmount: Record<string, number>;
+  };
+  netChange: { days7: number; days30: number };
   reconciliationMismatches: number;
 }
 
@@ -37,17 +49,17 @@ export default async function AdminConfidencePage({ searchParams }: { searchPara
   const { data } = await admin.rpc("confidence_economy_overview");
   const o = data as Overview | null;
 
-  let lookup: { id: string; displayName: string; username: string | null; available: number | null; entries: Array<Record<string, any>> } | null = null; // eslint-disable-line @typescript-eslint/no-explicit-any
+  let lookup: { id: string; displayName: string; username: string | null; available: number | null; reserved: number; entries: Array<Record<string, any>> } | null = null; // eslint-disable-line @typescript-eslint/no-explicit-any
   let lookupMissing = false;
   if (member?.trim()) {
     const { data: profile } = await admin.from("user_profiles").select("id, display_name, username").eq("username", member.trim().toLowerCase()).maybeSingle();
     if (!profile) lookupMissing = true;
     else {
       const [{ data: account }, { data: entries }] = await Promise.all([
-        admin.from("confidence_accounts").select("available").eq("member_id", profile.id).maybeSingle(),
-        admin.from("confidence_ledger_entries").select("id, entry_type, available_delta, available_after, reason_code, note, reverses_entry_id, created_at").eq("member_id", profile.id).order("created_at", { ascending: false }).order("id", { ascending: false }).limit(100),
+        admin.from("confidence_accounts").select("available, reserved").eq("member_id", profile.id).maybeSingle(),
+        admin.from("confidence_ledger_entries").select("id, entry_type, available_delta, reserved_delta, available_after, reason_code, note, reverses_entry_id, stake_id, created_at").eq("member_id", profile.id).order("created_at", { ascending: false }).order("id", { ascending: false }).limit(100),
       ]);
-      lookup = { id: profile.id, displayName: profile.display_name, username: profile.username, available: account ? Number(account.available) : null, entries: entries ?? [] };
+      lookup = { id: profile.id, displayName: profile.display_name, username: profile.username, available: account ? Number(account.available) : null, reserved: account ? Number(account.reserved) : 0, entries: entries ?? [] };
     }
   }
   const reversedIds = new Set((lookup?.entries ?? []).filter((e) => e.reverses_entry_id).map((e) => e.reverses_entry_id as string));
@@ -75,7 +87,28 @@ export default async function AdminConfidencePage({ searchParams }: { searchPara
               ["Daily Claims", `${fmt(o.dailyClaims.count)} · ${formatConfidence(o.dailyClaims.total)}`],
               ["Adjustments", `${fmt(o.adminAdjustments.count)} · net ${formatSignedConfidence(o.adminAdjustments.net)}`],
               ["Reversals", `${fmt(o.reversals.count)} · net ${formatSignedConfidence(o.reversals.net)}`],
+              ["Net change, 7 days", formatSignedConfidence(o.netChange.days7)],
+              ["Net change, 30 days", formatSignedConfidence(o.netChange.days30)],
               ["Ledger mismatches", fmt(o.reconciliationMismatches)],
+            ].map(([k, v]) => (
+              <div key={k}>
+                <dt className="text-xs text-text-muted">{k}</dt>
+                <dd className="font-medium text-text-primary">{v}</dd>
+              </div>
+            ))}
+          </dl>
+          <h3 className="pt-1 text-xs font-semibold uppercase tracking-wide text-text-muted">Confidence behind picks</h3>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3" data-slot="backed-picks">
+            {[
+              ["Active backed picks", fmt(o.predictions.activeBackedPicks)],
+              ["Reserved now", formatConfidence(o.predictions.reserved)],
+              ["Backed picks, all time", fmt(o.predictions.backedPicks)],
+              ["Committed, all time", formatConfidence(o.predictions.totalCommitted)],
+              ["Average committed", fmt(o.predictions.averageCommitted)],
+              ["Winnings issued", formatConfidence(o.predictions.winningsIssued)],
+              ["Losses burned", formatConfidence(o.predictions.lossesBurned)],
+              ["Returned on void", formatConfidence(o.predictions.voidReleases)],
+              ["By amount", Object.entries(o.predictions.byAmount).map(([a, n]) => `🔥${a} × ${n}`).join(" · ") || "—"],
             ].map(([k, v]) => (
               <div key={k}>
                 <dt className="text-xs text-text-muted">{k}</dt>
@@ -103,6 +136,7 @@ export default async function AdminConfidencePage({ searchParams }: { searchPara
             <p className="text-text-primary">
               <span className="font-semibold">{lookup.displayName}</span> {lookup.username ? `(@${lookup.username})` : ""} ·{" "}
               {lookup.available === null ? "no Confidence account yet" : <span data-slot="member-available">{formatConfidence(lookup.available)}</span>}
+              {lookup.available !== null && lookup.reserved > 0 ? <span className="text-text-muted" data-slot="member-reserved"> · {formatConfidence(lookup.reserved)} reserved behind picks</span> : null}
             </p>
             {lookup.available !== null && <AdjustConfidenceForm memberId={lookup.id} />}
             <ul className="divide-y divide-border-subtle rounded-md border border-border-subtle" data-slot="member-ledger">
@@ -118,10 +152,10 @@ export default async function AdminConfidencePage({ searchParams }: { searchPara
                     <p className="text-text-muted">
                       <LocalDateTime iso={e.created_at} options={{ month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }} />
                     </p>
-                    {e.entry_type !== "REVERSAL" && !reversedIds.has(e.id) && <ReverseEntryButton entryId={e.id} />}
+                    {e.entry_type !== "REVERSAL" && !e.stake_id && !reversedIds.has(e.id) && <ReverseEntryButton entryId={e.id} />}
                   </div>
                   <div className="text-right">
-                    <p className="font-semibold text-text-primary">{formatSignedConfidence(Number(e.available_delta))}</p>
+                    <p className="font-semibold text-text-primary">{describeEntryChange(e.entry_type, Number(e.available_delta), Number(e.reserved_delta)).headline}</p>
                     <p className="text-text-muted">{formatConfidence(Number(e.available_after))}</p>
                   </div>
                 </li>

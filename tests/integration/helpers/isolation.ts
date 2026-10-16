@@ -36,6 +36,7 @@ const TRANSIENT_TABLES = [
   "sponsor_accounts",
   "sponsors",
   "confidence_ledger_entries",
+  "confidence_prediction_stakes",
   "confidence_accounts",
   "messaging_retention_holds",
   "messaging_abuse_signals",

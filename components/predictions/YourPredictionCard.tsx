@@ -1,5 +1,12 @@
 import type { Prediction } from "@/lib/predictions/types";
 import type { Choice } from "@/lib/prediction-markets/selection-labels";
+import { confidenceLabel, formatConfidence, formatSignedConfidence } from "@/lib/confidence/format";
+
+/** The Confidence committed behind this Pick, if any (shown only on the viewer's own Pick). */
+export interface PickStake {
+  amount: number;
+  result: "CORRECT" | "INCORRECT" | "VOID" | null;
+}
 
 // Market detail's "you already predicted here" state (roadmap STEP 17).
 // Never implies the user currently holds a financial position — this is a
@@ -9,13 +16,29 @@ import type { Choice } from "@/lib/prediction-markets/selection-labels";
 // repeating the current numbers itself (mirrors the FreshnessNote
 // no-duplicated-copy precedent from Milestone 2).
 
-export function YourPredictionCard({ prediction, choices }: { prediction: Prediction; choices: [Choice, Choice] }) {
+export function YourPredictionCard({ prediction, choices, stake = null }: { prediction: Prediction; choices: [Choice, Choice]; stake?: PickStake | null }) {
   const pickedLabel = choices.find((c) => c.outcome === prediction.selectedOutcome)?.label;
 
   return (
     <div className="space-y-1 rounded-lg border-2 border-text-primary bg-secondary p-4">
       <p className="text-sm font-semibold text-text-primary">You picked: {pickedLabel}</p>
+      {stake && (
+        <p className="text-sm font-medium text-text-primary" data-slot="pick-confidence" aria-label={`${confidenceLabel(stake.amount)}${prediction.lifecycleState === "PENDING" ? ", locked" : ""}`}>
+          <span aria-hidden="true">
+            {formatConfidence(stake.amount)} Confidence{prediction.lifecycleState === "PENDING" ? " · Locked" : ""}
+          </span>
+        </p>
+      )}
       <ResultLine prediction={prediction} />
+      {stake && prediction.lifecycleState === "GRADED" && stake.result && (
+        <p className="text-xs font-medium text-text-primary" data-slot="pick-confidence-result">
+          {stake.result === "CORRECT"
+            ? formatSignedConfidence(stake.amount)
+            : stake.result === "INCORRECT"
+              ? formatSignedConfidence(-stake.amount)
+              : `${formatConfidence(stake.amount)} returned`}
+        </p>
+      )}
     </div>
   );
 }

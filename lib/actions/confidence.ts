@@ -26,7 +26,8 @@ export async function claimDailyConfidenceAction(idempotencyKey: string): Promis
   const { data, error } = await createAdminClient().rpc("confidence_daily_claim", { p_member_id: user.id, p_idempotency_key: idempotencyKey });
   if (error || !data) return { ok: false, outcome: "error", message: "Something went wrong. Try again." };
   const row = data as { outcome: string; amount?: number; total?: number; nextAvailableAt?: string };
-  revalidatePath("/profile");
+  // The shell balance, the profile card and the history all change.
+  revalidatePath("/", "layout");
   switch (row.outcome) {
     case "claimed":
       return { ok: true, outcome: "claimed", message: `Claimed ${formatSignedConfidence(row.amount ?? 0)}`, total: row.total, nextClaimAt: row.nextAvailableAt ?? null };

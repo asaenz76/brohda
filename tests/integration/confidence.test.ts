@@ -807,7 +807,7 @@ describe("economy observability", () => {
     expect(o.reversals.count).toBeGreaterThanOrEqual(1);
     expect(o.reconciliationMismatches).toBe(0);
     // Aggregates only: nothing in it names a Member.
-    expect(Object.keys(o).sort()).toEqual(["accounts", "adminAdjustments", "aboveBaseline", "atBaseline", "available", "average", "baseline", "belowBaseline", "dailyClaims", "distribution", "eligibleMembers", "initialGrants", "median", "reconciliationMismatches", "reserved", "reversals", "totalConfidence"].sort());
+    expect(Object.keys(o).sort()).toEqual(["accounts", "adminAdjustments", "aboveBaseline", "atBaseline", "available", "average", "baseline", "belowBaseline", "dailyClaims", "distribution", "eligibleMembers", "initialGrants", "median", "netChange", "predictions", "reconciliationMismatches", "reserved", "reversals", "totalConfidence"].sort());
     expect(JSON.stringify(o)).not.toMatch(/member_id|note|actor|email/i);
   });
 

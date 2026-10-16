@@ -213,6 +213,8 @@ shows its last runs and Job Health cannot regress to "never run". Nothing outsid
 
 **Confidence bootstrap (r82).** The same route also runs `runConfidenceBootstrap`, which calls `confidence_bootstrap_batch` (migration 201) — at most 200 Members per call and 10 calls a tick — to give every eligible existing Member their account and the one initial grant. It is a **no-op while `confidence_enabled` is OFF** (the default). It is reported on the `confidence` field and any problem on `failures` (step `confidence_bootstrap`). No new cron-job.org entry is needed. Migration 201 must be applied **before** the code that reads it deploys (the Confidence reads fail closed on an unreadable setting, but the admin pages and the cron step need the schema).
 
+**Confidence-backed Picks (r84, migration 203).** Same route, additional step `runConfidenceSettlementSweep` (`confidence_settle_pending`, ≤ 200 stakes per call): normally finds nothing, because a backed Pick settles in the same transaction as its grade; it settles any stake whose settlement was deferred, and it runs **regardless of either Confidence switch** so a reserved stake can never be stranded. Reported on `confidenceSettlement`, failures on `failures` (step `confidence_settlement`). **Apply migration 203 (`supabase db push`) BEFORE merging the code** — it is additive, and the code reads the new tables/columns/functions (applying the schema first avoids a `degraded` housekeeping window). `confidence_backed_picks_enabled` ships OFF.
+
 **`ingest-nfl-markets` quota-exhaustion incident (2026-09-25 – 2026-09-27).**
 This job's fixture-eligibility query had no upper bound on
 `scheduled_start_utc` — every not-yet-started fixture for the rest of the

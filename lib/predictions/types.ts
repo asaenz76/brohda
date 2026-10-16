@@ -37,7 +37,7 @@ export type PredictionResult = "CORRECT" | "INCORRECT" | "VOID";
  * vocabulary for a future R7 Free Call BS Challenge acceptance — not
  * settable by anything in this milestone.
  */
-export type PredictionLockReason = "CUTOFF" | "CHALLENGE_ACCEPTED";
+export type PredictionLockReason = "CUTOFF" | "CHALLENGE_ACCEPTED" | "MONETARY_POSITION_ACCEPTED" | "CONFIDENCE_COMMITTED";
 
 /** Brohda's own provider-neutral consumer market status, snapshotted at prediction time. */
 export type PredictionMarketStatusSnapshot = "ACTIVE" | "CLOSED" | "RESOLVED";

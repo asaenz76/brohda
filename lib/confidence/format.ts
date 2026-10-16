@@ -1,6 +1,6 @@
 // How Confidence is written everywhere a Member reads it. Pure and client-safe. The unit is "Confidence points"; the visual shorthand is the flame. Nothing here mentions money, a wallet or a payout.
 
-export type ConfidenceEntryType = "INITIAL_GRANT" | "DAILY_CLAIM" | "ADMIN_ADJUSTMENT" | "REVERSAL";
+export type ConfidenceEntryType = "INITIAL_GRANT" | "DAILY_CLAIM" | "ADMIN_ADJUSTMENT" | "REVERSAL" | "PREDICTION_RESERVE" | "PREDICTION_RELEASE" | "PREDICTION_WIN" | "PREDICTION_LOSS";
 
 /** "🔥47" — and the words a screen reader should say instead of the flame. */
 export function formatConfidence(points: number): string {
@@ -24,7 +24,36 @@ export const ENTRY_DESCRIPTION: Record<ConfidenceEntryType, string> = {
   DAILY_CLAIM: "Daily Claim",
   ADMIN_ADJUSTMENT: "Adjustment by Brohda",
   REVERSAL: "Correction by Brohda",
+  PREDICTION_RESERVE: "Prediction reserved",
+  PREDICTION_RELEASE: "Prediction void",
+  PREDICTION_WIN: "Prediction correct",
+  PREDICTION_LOSS: "Prediction incorrect",
 };
+
+/**
+ * How one ledger entry reads to the Member: what changed in the number they care about and, for a reserve/release, the plain-language movement between available and reserved. A reserve does not change the
+ * total, so it is shown as the amount set aside (not a loss); a correct Pick is +N net (the N is returned and N new is issued); an incorrect Pick is −N; a void returns the N.
+ */
+export function describeEntryChange(type: string, availableDelta: number, reservedDelta: number): { headline: string; detail: string | null } {
+  const total = availableDelta + reservedDelta;
+  switch (type) {
+    case "PREDICTION_RESERVE":
+      return { headline: `${formatConfidence(reservedDelta)} reserved`, detail: `−${Math.abs(availableDelta)} available · +${reservedDelta} reserved` };
+    case "PREDICTION_WIN":
+      return { headline: formatSignedConfidence(total), detail: null };
+    case "PREDICTION_LOSS":
+      return { headline: formatSignedConfidence(total), detail: null };
+    case "PREDICTION_RELEASE":
+      return { headline: `${formatConfidence(availableDelta)} returned`, detail: null };
+    default:
+      return { headline: formatSignedConfidence(total), detail: null };
+  }
+}
+
+/** One flame per point of a choice, for the ladder: 🔥, 🔥🔥, 🔥🔥🔥 … (the accessible label is always the number in words). */
+export function flames(points: number): string {
+  return "🔥".repeat(Math.max(0, Math.trunc(points)));
+}
 
 export function describeEntry(type: string): string {
   return ENTRY_DESCRIPTION[type as ConfidenceEntryType] ?? "Confidence update";
@@ -59,4 +88,10 @@ export function parseStakeLadder(text: string): number[] | null {
   const parts = text.split(",").map((p) => p.trim()).filter((p) => p !== "");
   if (parts.length === 0 || !parts.every((p) => /^\d+$/.test(p))) return null;
   return parts.map(Number);
+}
+
+/** The most flames drawn in a row before a ladder choice is written as 🔥N instead — a layout bound for the selector's width, not a product limit (any ladder works). */
+export const FLAME_ROW_MAX = 5;
+export function ladderFlames(points: number): string {
+  return points <= FLAME_ROW_MAX ? flames(points) : formatConfidence(points);
 }
