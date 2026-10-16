@@ -1,5 +1,5 @@
-import { getStakeUiStates, type StakeUiState } from "@/lib/confidence/stakes";
 import "server-only";
+import { getStakeUiStates, type StakeUiState } from "@/lib/confidence/stakes";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Post } from "@/lib/posts/types";
 import type { Community } from "./types";
@@ -7,7 +7,7 @@ import { listFollowedCommunityIds } from "./follows";
 import { listCommunitiesByIds } from "./repository";
 import { listCommunityIdsForPost } from "./distribution";
 import { getPostPublicationPolicy } from "@/lib/posts/policy";
-import { listDisplayableMarketsForFixtures } from "@/lib/prediction-markets/repository";
+import { listDisplayableMarketsForFixtures, type MarketRecord } from "@/lib/prediction-markets/repository";
 import { selectPrimaryMarket } from "@/lib/posts/primary-market";
 import { getChoicePresentation, type Choice } from "@/lib/prediction-markets/selection-labels";
 import { getPickAggregatesForMarkets, listLatestUserPredictionsForMarkets } from "@/lib/predictions/repository";
@@ -18,7 +18,7 @@ import { classifyFreshness } from "@/lib/prediction-markets/discovery/policy";
 import { deriveConsumerStatus } from "@/lib/prediction-markets/discovery/status";
 import { getFreshnessPolicy } from "@/lib/prediction-markets/discovery/policy";
 import { getPostCommentCountsForPosts } from "@/lib/post-comments/repository";
-import type { PredictionOutcome } from "@/lib/predictions/types";
+import type { Prediction, PredictionOutcome } from "@/lib/predictions/types";
 import { loadPublicSponsorships } from "@/lib/sponsorship/public";
 import type { PublicSponsorship } from "@/lib/sponsorship/types";
 
@@ -123,6 +123,8 @@ export interface FeedMarketSummary {
   choices: [Choice, Choice];
   /** "Moneyline" | "Spread" | "Total 47.5", or null when only the generic fallback labels exist (then the question is the context). */
   marketLabel: string | null;
+  /** The heading an expanded Market is introduced by: "Game Total 224", "Spread", "Moneyline" (null for a Market the presentation can't describe). Same presentation source as the labels above. */
+  heading: string | null;
   /**
    * Phase C (Brohda 2.0 redesign, spec §13-14 "do not fake sentiment") —
    * real Brohda Pick-share sentiment (lib/predictions/sentiment.ts),
@@ -188,6 +190,11 @@ export interface FeedItem {
    * reads (hidden, archived and invalid Markets are not in that set). 0 means the card has nothing more to offer.
    */
   moreMarketsCount?: number;
+  /**
+   * The Game's OTHER displayable Markets, in the canonical order (the configured template priority), each carrying exactly what the primary Market does — the viewer's Pick, sentiment (revealed only after their Pick on THAT
+   * Market), the eligibility reason and the Confidence state — so the card can offer every Market inline. Present only for a signed-in viewer's feed; absent for the logged-out front door (which links to the Post).
+   */
+  secondaryMarkets?: FeedMarketSummary[];
   /** The active, approved, paid sponsorship for this Post (null when none / capability off) — presentation only, never part of the Post's identity. */
   sponsorship?: PublicSponsorship | null;
 }
@@ -306,7 +313,128 @@ export async function getSocialFeed(userId: string | null, limit: number = FEED_
 
   const items = await enrichFeedRows(rows, userId, followedPostIds, publicationPolicy, predictionPolicy, freshnessPolicy);
   items.sort(compareFeedItems);
-  return withSponsorships(items.slice(0, limit));
+  return withSponsorships(await withSecondaryMarkets(items.slice(0, limit), userId, publicationPolicy, predictionPolicy, freshnessPolicy));
+}
+
+interface SummarizeMarketInput {
+  market: MarketRecord;
+  sport: string;
+  homeTeamName: string;
+  awayTeamName: string;
+  viewerPrediction: Prediction | undefined;
+  aggregate: Parameters<typeof computePickSentiment>[0];
+  stakeStates: Map<string, StakeUiState>;
+  now: Date;
+  predictionPolicy: Awaited<ReturnType<typeof getPredictionPolicy>>;
+  freshnessPolicy: Awaited<ReturnType<typeof getFreshnessPolicy>>;
+}
+
+/**
+ * ONE Market on a feed card, for the primary Market and every secondary Market alike — the same eligibility decision, the same Pick-first sentiment reveal, the same choice presentation, the same Confidence state.
+ * Nothing about a Market's treatment depends on whether it is the primary one.
+ */
+function summarizeMarket({ market, sport, homeTeamName, awayTeamName, viewerPrediction, aggregate, stakeStates, now, predictionPolicy, freshnessPolicy }: SummarizeMarketInput): FeedMarketSummary {
+  // Pick-first reveal: Brohda's crowd sentiment is shown only to someone who has made a Pick on this Market. A logged-out visitor or a
+  // member who hasn't picked gets no percentages and no count — withheld here, so no surface can show them by accident.
+  const sentimentRevealed = viewerPrediction !== undefined;
+  const sentiment = sentimentRevealed ? computePickSentiment(aggregate) : { yesPercent: null, noPercent: null, totalPickCount: 0 };
+
+  // Same eligibility decision MarketPredictionCard makes for a single Market (lib/predictions/policy.ts's checkMarketEligibility), computed in-memory:
+  // every input is already in scope, so no extra query per Market.
+  let pickDisabledReason: string | null = null;
+  const isEditable = !viewerPrediction || (viewerPrediction.lockedAt === null && viewerPrediction.lifecycleState === "PENDING");
+  if (isEditable) {
+    const consumerStatus = deriveConsumerStatus(market.status, market.resolvedOutcome);
+    const freshness = classifyFreshness(market.lastSyncedAt, market.yesPrice != null || market.noPrice != null, freshnessPolicy);
+    const eligibility = checkMarketEligibility({ consumerStatus, freshness, yesPrice: market.yesPrice, noPrice: market.noPrice, closesAt: market.closesAt, now }, predictionPolicy);
+    pickDisabledReason = eligibility.eligible ? null : copyForIneligible(eligibility.reason);
+  } else {
+    // Existing Pick, but locked — same copy PredictionActions itself falls back to for a locked Pick.
+    pickDisabledReason = "Picks are locked for this game.";
+  }
+
+  const presentation = getChoicePresentation({ ...market, homeTeamName, awayTeamName, sport });
+  return {
+    id: market.id,
+    question: market.question,
+    yesLabel: presentation.choices.find((c) => c.outcome === "YES")!.label,
+    noLabel: presentation.choices.find((c) => c.outcome === "NO")!.label,
+    choices: presentation.choices,
+    marketLabel: presentation.marketLabel,
+    heading: presentation.heading,
+    yesPercent: sentiment.yesPercent,
+    noPercent: sentiment.noPercent,
+    totalPickCount: sentiment.totalPickCount,
+    sentimentRevealed,
+    status: market.status,
+    viewerSelection: viewerPrediction?.selectedOutcome ?? null,
+    isEditable,
+    pickDisabledReason,
+    viewerPredictionId: viewerPrediction?.id ?? null,
+    confidence: (viewerPrediction && stakeStates.get(viewerPrediction.id)) || { state: "none" },
+  };
+}
+
+/**
+ * Every Game's OTHER displayable Markets, attached to the already-chosen feed items (the page, not the candidate pool), for a signed-in viewer. A constant number of batched reads however many Markets or Games the page
+ * holds: one for the Markets, one for the viewer's Picks on them, one for the aggregate of only those Markets the viewer has Picked (sentiment is Pick-first, so no other Market needs it), and one Confidence call for
+ * their Picks. Ordered by the configured template priority (the same setting that decides the primary Market), unknown templates last, then by id for a stable order.
+ */
+async function withSecondaryMarkets(
+  items: FeedItem[],
+  userId: string | null,
+  publicationPolicy: Awaited<ReturnType<typeof getPostPublicationPolicy>>,
+  predictionPolicy: Awaited<ReturnType<typeof getPredictionPolicy>>,
+  freshnessPolicy: Awaited<ReturnType<typeof getFreshnessPolicy>>,
+): Promise<FeedItem[]> {
+  // The logged-out front door cannot Pick: it keeps the link to the Post.
+  if (!userId || items.length === 0) return items;
+  const fixtureIds = [...new Set(items.map((i) => i.post.fixtureId))];
+  const markets = await listDisplayableMarketsForFixtures(fixtureIds);
+  const priority = publicationPolicy.primaryMarketTemplatePriority;
+  const rank = (template: string) => {
+    const at = priority.indexOf(template);
+    return at === -1 ? priority.length : at;
+  };
+  const primaryIds = new Set(items.map((i) => i.primaryMarket?.id).filter((id): id is string => Boolean(id)));
+  const secondaryByFixture = new Map<string, MarketRecord[]>();
+  for (const market of markets) {
+    if (primaryIds.has(market.id)) continue;
+    const bucket = secondaryByFixture.get(market.fixtureId) ?? [];
+    bucket.push(market);
+    secondaryByFixture.set(market.fixtureId, bucket);
+  }
+  for (const bucket of secondaryByFixture.values()) bucket.sort((a, b) => rank(a.marketTemplate) - rank(b.marketTemplate) || a.id.localeCompare(b.id));
+  const secondaryIds = [...secondaryByFixture.values()].flat().map((m) => m.id);
+  if (secondaryIds.length === 0) return items;
+
+  const viewerPredictions = await listLatestUserPredictionsForMarkets(userId, secondaryIds);
+  const [aggregates, stakeStates] = await Promise.all([
+    getPickAggregatesForMarkets([...viewerPredictions.keys()]),
+    getStakeUiStates(userId, [...viewerPredictions.values()].map((p) => p.id)),
+  ]);
+  const now = new Date();
+  return items.map((item) => {
+    const others = secondaryByFixture.get(item.post.fixtureId) ?? [];
+    if (others.length === 0) return item;
+    return {
+      ...item,
+      secondaryMarkets: others.map((market) =>
+        summarizeMarket({
+          market,
+          sport: item.sport,
+          homeTeamName: item.homeTeamName,
+          awayTeamName: item.awayTeamName,
+          viewerPrediction: viewerPredictions.get(market.id),
+          aggregate: aggregates.get(market.id),
+          stakeStates,
+          now,
+          predictionPolicy,
+          freshnessPolicy,
+        }),
+      ),
+    };
+  });
 }
 
 /**
@@ -369,52 +497,18 @@ async function enrichFeedRows(
     let primaryMarket: FeedMarketSummary | null = null;
 
     if (primary) {
-      const viewerPrediction = viewerPredictions.get(primary.id);
-      // Pick-first reveal: Brohda's crowd sentiment is shown only to someone who has made a Pick on this Market. A logged-out visitor or a
-      // member who hasn't picked gets no percentages and no count — withheld here, so no surface can show them by accident.
-      const sentimentRevealed = viewerPrediction !== undefined;
-      const sentiment = sentimentRevealed ? computePickSentiment(pickAggregates.get(primary.id)) : { yesPercent: null, noPercent: null, totalPickCount: 0 };
-
-      // Same eligibility decision MarketPredictionCard makes for a single
-      // Market (lib/predictions/policy.ts's checkMarketEligibility), just
-      // computed in-memory here for every feed item instead of one page
-      // load per Market — no extra query, every input is already in scope.
-      let pickDisabledReason: string | null = null;
-      const isEditable = !viewerPrediction || (viewerPrediction.lockedAt === null && viewerPrediction.lifecycleState === "PENDING");
-      if (isEditable) {
-        const consumerStatus = deriveConsumerStatus(primary.status, primary.resolvedOutcome);
-        const freshness = classifyFreshness(primary.lastSyncedAt, primary.yesPrice != null || primary.noPrice != null, freshnessPolicy);
-        const eligibility = checkMarketEligibility(
-          { consumerStatus, freshness, yesPrice: primary.yesPrice, noPrice: primary.noPrice, closesAt: primary.closesAt, now },
-          predictionPolicy,
-        );
-        pickDisabledReason = eligibility.eligible ? null : copyForIneligible(eligibility.reason);
-      } else {
-        // Existing Pick, but locked — same copy PredictionActions itself
-        // falls back to for a locked Pick (see that component's own
-        // `locked` branch).
-        pickDisabledReason = "Picks are locked for this game.";
-      }
-
-      const presentation = getChoicePresentation({ ...primary, homeTeamName: row.fixtures!.home_team_name, awayTeamName: row.fixtures!.away_team_name, sport: row.fixtures!.sport });
-      primaryMarket = {
-        id: primary.id,
-        question: primary.question,
-        yesLabel: presentation.choices.find((c) => c.outcome === "YES")!.label,
-        noLabel: presentation.choices.find((c) => c.outcome === "NO")!.label,
-        choices: presentation.choices,
-        marketLabel: presentation.marketLabel,
-        yesPercent: sentiment.yesPercent,
-        noPercent: sentiment.noPercent,
-        totalPickCount: sentiment.totalPickCount,
-        sentimentRevealed,
-        status: primary.status,
-        viewerSelection: viewerPrediction?.selectedOutcome ?? null,
-        isEditable,
-        pickDisabledReason,
-        viewerPredictionId: viewerPrediction?.id ?? null,
-        confidence: (viewerPrediction && stakeStates.get(viewerPrediction.id)) || { state: "none" },
-      };
+      primaryMarket = summarizeMarket({
+        market: primary,
+        sport: row.fixtures!.sport,
+        homeTeamName: row.fixtures!.home_team_name,
+        awayTeamName: row.fixtures!.away_team_name,
+        viewerPrediction: viewerPredictions.get(primary.id),
+        aggregate: pickAggregates.get(primary.id),
+        stakeStates,
+        now,
+        predictionPolicy,
+        freshnessPolicy,
+      });
     }
 
     return {
@@ -506,7 +600,7 @@ export async function getCommunityTimeline(communityId: string, userId: string |
   }));
 
   deNoised.sort(compareCommunityTimelineItems);
-  return withSponsorships(deNoised.slice(0, limit));
+  return withSponsorships(await withSecondaryMarkets(deNoised.slice(0, limit), userId, publicationPolicy, predictionPolicy, freshnessPolicy));
 }
 
 /** Presentation only: attaches the active sponsorship (if any) to each returned item. Never changes which Posts appear, their order, or any sports content. */

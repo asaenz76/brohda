@@ -60,6 +60,8 @@ export interface ChoicePresentation {
   choices: [Choice, Choice];
   /** A compact label for the Market itself ("Moneyline", "Spread", "Total 47.5"), or null when the template is unknown. */
   marketLabel: string | null;
+  /** The heading a Market is introduced by when several are shown together: "Game Total 47.5", "Spread", "Moneyline". Null when the template is unknown. */
+  heading: string | null;
   /** True when the labels came from the template + Game data; false for the legacy/generic fallback. */
   templateAware: boolean;
 }
@@ -99,6 +101,7 @@ function fallback(source: SelectionLabelSource): ChoicePresentation {
       { outcome: "NO", label: noLabel, accessibleName: `Pick ${noLabel}` },
     ],
     marketLabel: null,
+    heading: null,
     templateAware: false,
   };
 }
@@ -117,6 +120,7 @@ export function getChoicePresentation(source: SelectionLabelSource): ChoicePrese
         { outcome: "NO", label: `Under ${line}`, accessibleName: `Pick Under ${line} total ${unit}` },
       ],
       marketLabel: `Total ${line}`,
+      heading: `Game Total ${line}`,
       templateAware: true,
     };
   }
@@ -141,7 +145,8 @@ export function getChoicePresentation(source: SelectionLabelSource): ChoicePrese
     const homeChoice = yesSide === "HOME" ? yes : no;
     const awayChoice = yesSide === "HOME" ? no : yes;
     const [first, second] = orderTeamsForDisplay(source.sport ?? "", homeChoice, awayChoice);
-    return { choices: [first, second], marketLabel: marketTemplate === "MONEYLINE" ? MONEYLINE_MARKET_LABEL : SPREAD_MARKET_LABEL, templateAware: true };
+    const label = marketTemplate === "MONEYLINE" ? MONEYLINE_MARKET_LABEL : SPREAD_MARKET_LABEL;
+    return { choices: [first, second], marketLabel: label, heading: label, templateAware: true };
   }
 
   return fallback(source);

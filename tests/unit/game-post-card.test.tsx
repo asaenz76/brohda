@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GamePostCard } from "@/components/posts/GamePostCard";
 import type { FeedItem } from "@/lib/communities/feed";
@@ -392,6 +392,119 @@ describe("GamePostCard", () => {
       }
       const { container } = render(<GamePostCard mode="public" item={withPick({ state: "open", available: 5, allowedStakes: [1], locksAt: new Date().toISOString() })} />);
       expect(container.textContent).not.toMatch(/How confident/);
+    });
+  });
+
+  describe("inline multi-market expansion (a signed-in viewer's feed)", () => {
+    const teams = { homeTeamName: "Home Test NFL", awayTeamName: "Away Test NFL", sport: "american_football" };
+    const market = (id: string, source: Parameters<typeof choiceFields>[0], overrides: Partial<NonNullable<FeedItem["primaryMarket"]>> = {}): NonNullable<FeedItem["primaryMarket"]> => ({
+      ...makeItem().primaryMarket!,
+      id,
+      ...choiceFields({ ...teams, ...source }),
+      viewerPredictionId: null,
+      confidence: { state: "none" },
+      ...overrides,
+    });
+    const total = (overrides = {}) => market("m-total", { marketTemplate: "TOTAL", yesSide: null, lineValue: 224 }, overrides);
+    const spread = (overrides = {}) => market("m-spread", { marketTemplate: "SPREAD", yesSide: "HOME", lineValue: -2.5 }, overrides);
+    const withMarkets = (secondary: NonNullable<FeedItem["primaryMarket"]>[]) => makeItem({ moreMarketsCount: secondary.length, secondaryMarkets: secondary });
+    const toggle = () => screen.getByRole("button", { name: /markets for/i });
+
+    it("is collapsed by default: a See more markets button, and none of the other Markets' choices are available", () => {
+      render(<GamePostCard item={withMarkets([total(), spread()])} />);
+      expect(toggle()).toHaveAttribute("aria-expanded", "false");
+      expect(toggle()).toHaveTextContent(/see more markets/i);
+      const panel = document.querySelector('[data-slot="more-markets-panel"]') as HTMLElement;
+      expect(panel).toHaveAttribute("hidden");
+      // Only the primary Market's two choices are reachable while collapsed.
+      expect(screen.getAllByRole("button", { name: /^Pick / })).toHaveLength(2);
+    });
+
+    it("expands inline on click — no navigation — under one 'Make your prediction' title, each Market under its own heading, never repeating the title", () => {
+      render(<GamePostCard item={withMarkets([total(), spread()])} />);
+      fireEvent.click(toggle());
+      expect(toggle()).toHaveAttribute("aria-expanded", "true");
+      expect(toggle()).toHaveTextContent(/show fewer markets/i);
+      const panel = document.querySelector('[data-slot="more-markets-panel"]') as HTMLElement;
+      expect(panel).not.toHaveAttribute("hidden");
+      expect(within(panel).getAllByText("Make your prediction")).toHaveLength(1);
+      expect(within(panel).getAllByRole("heading").map((h) => h.textContent)).toEqual(["Game Total 224", "Spread"]);
+      expect(toggle().closest("a")).toBeNull(); // a button on the card, not a link to the Post
+    });
+
+    it("a TOTAL offers Over/Under the exact canonical line, a SPREAD offers the two team-native signed lines with spoken names", () => {
+      render(<GamePostCard item={withMarkets([total(), spread()])} />);
+      fireEvent.click(toggle());
+      expect(screen.getByRole("button", { name: "Pick Over 224 total points" })).toHaveTextContent("Over 224");
+      expect(screen.getByRole("button", { name: "Pick Under 224 total points" })).toHaveTextContent("Under 224");
+      expect(screen.getByRole("button", { name: "Pick Home Test NFL minus 2.5" })).toHaveTextContent("Home Test NFL -2.5");
+      expect(screen.getByRole("button", { name: "Pick Away Test NFL plus 2.5" })).toHaveTextContent("Away Test NFL +2.5");
+    });
+
+    it("groups each Market's choices under its heading for assistive technology", () => {
+      render(<GamePostCard item={withMarkets([total(), spread()])} />);
+      fireEvent.click(toggle());
+      expect(screen.getByRole("group", { name: "Game Total 224" })).toBeInTheDocument();
+      expect(screen.getByRole("group", { name: "Spread" })).toBeInTheDocument();
+    });
+
+    it("collapses again without touching anything: the Markets stay mounted, only hidden", () => {
+      render(<GamePostCard item={withMarkets([total()])} />);
+      fireEvent.click(toggle());
+      fireEvent.click(toggle());
+      expect(toggle()).toHaveAttribute("aria-expanded", "false");
+      expect(document.querySelector('[data-slot="more-markets-panel"]')).toHaveAttribute("hidden");
+      expect(document.querySelectorAll('[data-slot="feed-market"]')).toHaveLength(2);
+    });
+
+    it("each Market reveals ITS OWN sentiment only after the viewer's Pick on that Market", () => {
+      render(
+        <GamePostCard
+          item={withMarkets([
+            total({ viewerSelection: "YES", viewerPredictionId: "p-total", sentimentRevealed: true, yesPercent: 63, noPercent: 37, totalPickCount: 8 }),
+            spread(),
+          ])}
+        />,
+      );
+      fireEvent.click(toggle());
+      const totalSection = document.querySelector('[data-market-id="m-total"]') as HTMLElement;
+      const spreadSection = document.querySelector('[data-market-id="m-spread"]') as HTMLElement;
+      expect(totalSection).toHaveTextContent("Over 224 63% · Under 224 37% · 8 predicted");
+      expect(spreadSection.querySelector('[data-slot="market-sentiment"]')).toBeNull();
+      expect(spreadSection).toHaveTextContent("Make your pick to see how everyone else picked.");
+    });
+
+    it("offers Confidence on a secondary Market exactly as on the primary one, and shows a commitment as locked", () => {
+      render(
+        <GamePostCard
+          item={withMarkets([
+            total({ viewerSelection: "NO", viewerPredictionId: "p-total", confidence: { state: "open", available: 47, allowedStakes: [1, 2, 3, 4, 5], locksAt: new Date().toISOString() } }),
+            spread({ viewerSelection: "YES", viewerPredictionId: "p-spread", isEditable: false, pickDisabledReason: "Picks are locked for this game.", confidence: { state: "staked", amount: 2, stakeState: "RESERVED", result: null } }),
+          ])}
+        />,
+      );
+      fireEvent.click(toggle());
+      const totalSection = document.querySelector('[data-market-id="m-total"]') as HTMLElement;
+      expect(within(totalSection).getByText("How confident are you?", { selector: "p" })).toBeInTheDocument();
+      expect(within(totalSection).getByText(/You have 🔥47 available/)).toBeInTheDocument();
+      expect(within(totalSection).getByRole("group", { name: "How confident are you? Game Total 224" })).toBeInTheDocument();
+      const spreadSection = document.querySelector('[data-market-id="m-spread"]') as HTMLElement;
+      expect(within(spreadSection).getByLabelText("2 Confidence, locked")).toBeInTheDocument();
+      expect(within(spreadSection).queryByText("How confident are you?")).toBeNull();
+    });
+
+    it("a Game with one Market shows no See more markets control at all", () => {
+      render(<GamePostCard item={makeItem()} />);
+      expect(screen.queryByRole("button", { name: /markets for/i })).toBeNull();
+      expect(document.querySelector('[data-slot="see-more-markets"]')).toBeNull();
+    });
+
+    it("the logged-out front door keeps the link to the Post (nothing to pick there)", () => {
+      render(<GamePostCard mode="public" item={withMarkets([total()])} />);
+      const link = document.querySelector('[data-slot="see-more-markets"]') as HTMLAnchorElement;
+      expect(link.tagName).toBe("A");
+      expect(link).toHaveAttribute("href", "/post/post-1");
+      expect(document.querySelector('[data-slot="more-markets-panel"]')).toBeNull();
     });
   });
 });

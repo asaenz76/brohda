@@ -8,6 +8,7 @@ export function choiceFields(source: SelectionLabelSource) {
     noLabel: p.choices.find((c) => c.outcome === "NO")!.label,
     choices: p.choices,
     marketLabel: p.marketLabel,
+    heading: p.heading,
   };
 }
 

@@ -160,9 +160,9 @@ test("sponsor drafts and submits â†’ Super Admin confirms payment and approves â
     await expect(cta).toHaveAttribute("href", `/sponsorship/click/${sponsorshipId}`);
     await expect(cta).toHaveAttribute("rel", /sponsored/);
     await expect(cta).toHaveAttribute("target", "_blank");
-    await expect(article.getByTestId("prediction-actions")).toBeVisible(); // the Pick controls are untouched
+    await expect(article.getByTestId("prediction-actions").first()).toBeVisible(); // the primary Pick controls are untouched (the other Markets sit collapsed, hidden, below)
     // SEE MORE MARKETS and the sponsor line coexist: both visible, different places, neither covering the other, at the narrowest width too.
-    const more = article.getByRole("link", { name: /^See more markets/i });
+    const more = article.locator('[data-slot="see-more-markets"]'); // a link on the logged-out card, a button (opens in place) for a Member
     await expect(more).toBeVisible();
     for (const width of [320, 1280]) {
       await page.setViewportSize({ width, height: 900 });
@@ -191,7 +191,7 @@ test("sponsor drafts and submits â†’ Super Admin confirms payment and approves â
     const offArticle = page.locator("article").filter({ hasText: game.home }).first();
     await expect(offArticle).toBeVisible();
     await expect(offArticle.locator('[data-slot="sponsored-label"]')).toHaveCount(0);
-    await expect(offArticle.getByTestId("prediction-actions")).toBeVisible();
+    await expect(offArticle.getByTestId("prediction-actions").first()).toBeVisible();
     expect((await page.request.get(`/sponsorship/click/${sponsorshipId}`, { maxRedirects: 0 })).status()).toBe(404);
     const row = (await admin.from("sponsorships").select("lifecycle, payment_status, review_status").eq("id", sponsorshipId).single()).data;
     expect(row).toEqual({ lifecycle: "LIVE", payment_status: "PAID", review_status: "APPROVED" }); // history untouched
