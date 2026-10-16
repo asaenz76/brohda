@@ -20,10 +20,12 @@ const suffix = randomUUID().slice(0, 8);
 const seeded = { users: [] as string[], fixtures: [] as string[], markets: [] as string[], posts: [] as string[] };
 
 async function createUser(prefix: string, role: "player" | "super_admin" = "player") {
-  const email = `cph-${prefix}-${suffix}@test.local`;
+  // Unique per CALL (not just per module load): the file-level setup can run again in a worker that already ran it, and a fixed email would then collide.
+  const tag = randomUUID().slice(0, 6);
+  const email = `cph-${prefix}-${tag}-${suffix}@test.local`;
   const { data, error } = await admin.auth.admin.createUser({ email, password: PASSWORD, email_confirm: true });
   if (error || !data.user) throw error ?? new Error("failed to create user");
-  const username = `cph${prefix}${suffix}`.slice(0, 24);
+  const username = `cph${prefix}${tag}${suffix}`.slice(0, 24);
   const { error: profileError } = await admin.from("user_profiles").insert({ id: data.user.id, display_name: `CPH ${prefix} ${suffix}`, username, role, is_active: true });
   if (profileError) throw profileError;
   seeded.users.push(data.user.id);
