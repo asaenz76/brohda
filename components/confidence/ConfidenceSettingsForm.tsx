@@ -15,6 +15,13 @@ export function ConfidenceSettingsForm({ settings }: { settings: ConfidenceSetti
         <input type="checkbox" name="confidence_enabled" defaultChecked={settings.enabled} className="size-4" />
         Members can see and earn Confidence
       </label>
+      <label className="flex items-start gap-2 text-sm font-medium text-text-primary">
+        <input type="checkbox" name="confidence_backed_picks_enabled" defaultChecked={settings.backedPicksEnabled} className="mt-0.5 size-4" />
+        <span>
+          Members can put Confidence behind their picks
+          <span className="block text-xs font-normal text-text-muted">Off by default. Turning it off never strands Confidence already behind a pick: those still settle from the result.</span>
+        </span>
+      </label>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="space-y-1 text-xs font-medium text-text-secondary">
           Baseline (Confidence)
@@ -45,6 +52,22 @@ export function ConfidenceSettingsForm({ settings }: { settings: ConfidenceSetti
           </span>
         </label>
       </div>
+      <fieldset className="space-y-2">
+        <legend className="text-xs font-semibold uppercase tracking-wide text-text-muted">What a graded pick says about Confidence</legend>
+        {(
+          [
+            ["confidence_notify_correct", "When the pick was correct", settings.notifyCorrect],
+            ["confidence_notify_incorrect", "When the pick was incorrect", settings.notifyIncorrect],
+            ["confidence_notify_void", "When the pick was void", settings.notifyVoid],
+          ] as const
+        ).map(([name, label, value]) => (
+          <label key={name} className="block space-y-1 text-xs font-medium text-text-secondary">
+            {label}
+            <input type="text" name={name} defaultValue={value} maxLength={200} className={input} />
+          </label>
+        ))}
+        <p className="text-xs text-text-muted">Added to the existing &ldquo;your pick was graded&rdquo; notification. Use {"{{amount}}"} for the committed amount.</p>
+      </fieldset>
       <Button type="submit" variant="outline" disabled={pending}>
         Save
       </Button>

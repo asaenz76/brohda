@@ -26,8 +26,8 @@ function copy(path: string): string {
   return readFileSync(join(ROOT, path), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 }
 
-const SQL = ["supabase/migrations/20260101000201_confidence_foundation.sql"];
-const TS = [...walk("lib/confidence"), "lib/actions/confidence.ts", "lib/actions/confidence-admin.ts", ...walk("components/confidence"), "app/(app)/profile/confidence/page.tsx", "app/(admin)/admin/confidence/page.tsx"];
+const SQL = ["supabase/migrations/20260101000201_confidence_foundation.sql", "supabase/migrations/20260101000203_confidence_backed_picks.sql"];
+const TS = [...walk("lib/confidence"), "lib/actions/confidence.ts", "lib/actions/confidence-admin.ts", "lib/actions/confidence-stakes.ts", ...walk("components/confidence"), "app/(app)/profile/confidence/page.tsx", "app/(admin)/admin/confidence/page.tsx"];
 
 describe("the Confidence domain is not money", () => {
   it("imports nothing from the wallet, monetary, payment or sponsorship code", () => {
@@ -74,10 +74,34 @@ describe("the Confidence domain is not money", () => {
     }
   });
 
-  it("does not touch Picks, Call BS or grading yet", () => {
+  it("Call BS has no Confidence economics: nothing in the domain reads, writes or references a Call BS challenge", () => {
     for (const file of TS) {
-      expect(readFileSync(join(ROOT, file), "utf8"), file).not.toMatch(/lib\/predictions|lib\/challenges|set_pick|accept_call_bs|grading/);
+      expect(readFileSync(join(ROOT, file), "utf8"), file).not.toMatch(/lib\/challenges|accept_call_bs|acceptCallBS|callBS/);
     }
-    expect(code(SQL[0])).not.toMatch(/\bpredictions\b|\bchallenges\b/);
+    for (const file of SQL) expect(code(file), file).not.toMatch(/\bchallenges\b|\bchallenge_/);
+  });
+
+  it("the Pick coupling is narrow: only the attach/status/settlement code reads Picks, and grading itself is never reimplemented here", () => {
+    for (const file of TS) {
+      expect(readFileSync(join(ROOT, file), "utf8"), file).not.toMatch(/lib\/predictions\/(grading|streak|repository)|runGradingJob|markPredictionGraded|set_pick/);
+    }
+    // Settlement is driven by the canonical grade (the PENDING -> GRADED transition), never by anything the Member or a client supplies.
+    const migration = readFileSync(join(ROOT, SQL[1]), "utf8");
+    expect(migration).toMatch(/after update of lifecycle_state on public\.predictions/);
+    expect(code(SQL[1])).not.toMatch(/p_result|p_outcome/);
+  });
+
+  it("the shell balance indicator reads the Confidence domain only: no wallet, currency or payment coupling", () => {
+    for (const file of ["components/confidence/ConfidenceBalance.tsx", "components/confidence/ConfidenceBacking.tsx", "lib/confidence/stakes.ts"]) {
+      const raw = readFileSync(join(ROOT, file), "utf8");
+      expect(code(file), file).not.toMatch(/wallet|currency|payment|\$\{?\s*amount|sponsor/i);
+      for (const i of raw.match(/from\s+["']([^"']+)["']/g) ?? []) expect(i, `${file}: ${i}`).not.toMatch(/wallet|monetary|payments|onvo|lemon|sponsorship/i);
+    }
+  });
+
+  it("an amount behind a Pick is a whole number from the configured ladder: no odds, fee, payout or stake multiplier exists in code or schema", () => {
+    for (const file of [SQL[1], "lib/confidence/stakes.ts", "lib/actions/confidence-stakes.ts", "components/confidence/ConfidenceBacking.tsx"]) {
+      expect(code(file), file).not.toMatch(/\b(odds|multiplier|payout|fee|fees|rake|commission|leverage|boost)\b/i);
+    }
   });
 });

@@ -28,15 +28,23 @@ export async function setConfidenceConfigAction(_prev: ConfidenceAdminResult | n
   if (!Number.isInteger(interval) || interval < 1 || interval > INT4_MAX) return fail("The Daily Claim interval must be a whole number of hours, at least 1.");
   if (!stakes || !isValidStakeLadder(stakes)) return fail("The stake ladder must be increasing whole numbers of at least 1, like 1, 2, 3, 4, 5.");
   const enabled = formData.get("confidence_enabled") === "on";
+  const backedPicksEnabled = formData.get("confidence_backed_picks_enabled") === "on";
+  const copy: Record<string, string> = {};
+  for (const [key, label] of [["confidence_notify_correct", "correct"], ["confidence_notify_incorrect", "incorrect"], ["confidence_notify_void", "void"]] as const) {
+    const text = String(formData.get(key) ?? "").trim();
+    if (text.length < 1 || text.length > 200) return fail(`The ${label} result sentence must be 1 to 200 characters.`);
+    if (!text.includes("{{amount}}")) return fail(`The ${label} result sentence must include {{amount}} so it says how much.`);
+    copy[key] = text;
+  }
   const { error } = await createAdminClient().rpc("admin_set_confidence_config", {
     p_admin_id: admin.id,
-    p_config: { confidence_enabled: enabled, confidence_baseline: baseline, confidence_daily_claim_amount: amount, confidence_daily_claim_interval_hours: interval, confidence_allowed_stakes: stakes },
+    p_config: { confidence_enabled: enabled, confidence_backed_picks_enabled: backedPicksEnabled, ...copy, confidence_baseline: baseline, confidence_daily_claim_amount: amount, confidence_daily_claim_interval_hours: interval, confidence_allowed_stakes: stakes },
   });
   if (error) return fail("Couldn't save the Confidence settings.");
   revalidatePath("/admin/settings/brohda");
   revalidatePath("/admin/confidence");
   revalidatePath("/profile");
-  return { success: true, error: null, message: enabled ? "Confidence is on." : "Confidence is off." };
+  return { success: true, error: null, message: !enabled ? "Confidence is off." : backedPicksEnabled ? "Confidence is on, and Members can put it behind picks." : "Confidence is on." };
 }
 
 /** Super Admin: a signed correction to one Member's available Confidence, as a new ledger entry. A reason and a note are required; the result can never be negative; history is never overwritten. */
@@ -68,6 +76,7 @@ export async function reverseConfidenceEntryAction(entryId: string, note: string
   if (outcome === "already_reversed") return fail("That entry was already reversed.");
   if (outcome === "cannot_reverse_a_reversal") return fail("A reversal can't be reversed. Record a new adjustment instead.");
   if (outcome === "would_go_negative") return fail("Reversing that would take the Member below 0.");
+  if (outcome === "prediction_entry") return fail("Confidence behind a pick is settled by the pick's result and can't be reversed by hand.");
   if (outcome !== "reversed") return fail("That entry can't be reversed.");
   revalidatePath("/admin/confidence");
   return { success: true, error: null, message: "Entry reversed." };

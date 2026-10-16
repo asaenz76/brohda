@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { INT4_MAX, confidenceLabel, describeEntry, formatConfidence, formatSignedConfidence, formatWait, isValidStakeLadder, parseStakeLadder } from "@/lib/confidence/format";
+import { FLAME_ROW_MAX, INT4_MAX, confidenceLabel, describeEntry, describeEntryChange, flames, formatConfidence, ladderFlames, formatSignedConfidence, formatWait, isValidStakeLadder, parseStakeLadder } from "@/lib/confidence/format";
 
 describe("Confidence formatting", () => {
   it("writes the unit with the flame and the words for screen readers", () => {
@@ -52,5 +52,28 @@ describe("the future stake ladder", () => {
     expect(parseStakeLadder("1, 2, 3, 4, 5")).toEqual([1, 2, 3, 4, 5]);
     expect(parseStakeLadder(" 2,4 ")).toEqual([2, 4]);
     for (const bad of ["", "a,b", "1,,x", "1.5", "-1"]) expect(parseStakeLadder(bad), bad).toBeNull();
+  });
+});
+
+describe("Confidence behind a Pick", () => {
+  it("names the four prediction entries in plain words", () => {
+    expect(describeEntry("PREDICTION_RESERVE")).toBe("Prediction reserved");
+    expect(describeEntry("PREDICTION_RELEASE")).toBe("Prediction void");
+    expect(describeEntry("PREDICTION_WIN")).toBe("Prediction correct");
+    expect(describeEntry("PREDICTION_LOSS")).toBe("Prediction incorrect");
+  });
+
+  it("reads each entry's change from the Member's side: net +N on a win, −N on a loss, 0 on a void, a split on a reserve", () => {
+    expect(describeEntryChange("PREDICTION_RESERVE", -3, 3)).toEqual({ headline: "🔥3 reserved", detail: "−3 available · +3 reserved" });
+    expect(describeEntryChange("PREDICTION_WIN", 6, -3).headline).toBe("+3🔥");
+    expect(describeEntryChange("PREDICTION_LOSS", 0, -3).headline).toBe("−3🔥");
+    expect(describeEntryChange("PREDICTION_RELEASE", 3, -3).headline).toBe("🔥3 returned");
+    expect(describeEntryChange("DAILY_CLAIM", 1, 0)).toEqual({ headline: "+1🔥", detail: null });
+  });
+
+  it("draws the conviction as flames, bounded for layout only (the ladder itself is unbounded)", () => {
+    expect(flames(3)).toBe("🔥🔥🔥");
+    expect(ladderFlames(2)).toBe("🔥🔥");
+    expect(ladderFlames(FLAME_ROW_MAX + 20)).toBe(formatConfidence(FLAME_ROW_MAX + 20));
   });
 });

@@ -8,6 +8,8 @@ import { computeSportsMarketOutcome, inconsistentFinalReason } from "./sports-re
 import { getFixtureForGrading, type FixtureForGrading } from "@/lib/sports-data/fixture-lookup";
 import { getPostByFixtureId } from "@/lib/posts/repository";
 import { listPendingPredictions, markPredictionGraded } from "./repository";
+import { getConfidenceSettlementCopy, renderSettlementSentence } from "@/lib/confidence/config";
+import { getStakesForPredictions } from "@/lib/confidence/stakes";
 import type { Prediction, PredictionOutcome, PredictionResult } from "./types";
 
 /**
@@ -104,6 +106,17 @@ export function decideGradingForMarket(market: MarketRecord | null, fixture: Fix
 
   const result: PredictionResult = outcome === selectedOutcome ? "CORRECT" : "INCORRECT";
   return { decision: "graded", result, resolvedOutcomeSnapshot: outcome };
+}
+
+/** The configured sentence about a settled Confidence stake on this Pick, or null (an ordinary Pick, a stake not yet settled, or any read problem — the notification is never withheld because of it). */
+async function confidenceSentenceFor(predictionId: string): Promise<string | null> {
+  try {
+    const stake = (await getStakesForPredictions([predictionId])).get(predictionId);
+    if (!stake || !stake.result) return null;
+    return renderSettlementSentence(stake.result, stake.amount, await getConfidenceSettlementCopy());
+  } catch {
+    return null;
+  }
 }
 
 export interface GradingRunSummary {
@@ -211,6 +224,9 @@ export async function runGradingJob(
       // "still-pending" above, before this line is ever reached).
       const post = await getPostByFixtureId(market!.fixtureId);
 
+      // A Confidence-backed Pick settled in the SAME transaction as its grade (database trigger); read what happened so the one existing notification can say so. Never blocks grading or the notification.
+      const confidenceSentence = await confidenceSentenceFor(prediction.id);
+
       await maybeCreatePredictionGradedNotification({
         userId: prediction.userId,
         predictionId: prediction.id,
@@ -218,6 +234,7 @@ export async function runGradingJob(
         result: decision.result,
         postId: post?.id ?? null,
         marketId: market!.id,
+        confidenceSentence,
       });
     } catch (error) {
       // Milestone R13.5 (§22, §26): one bad Prediction must not abort the

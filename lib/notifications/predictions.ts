@@ -46,10 +46,14 @@ export async function createPredictionGradedNotification(input: {
   postId: string | null;
   /** Stage 4C remediation — the specific Market this grading was about. A Post can have more than one concurrently ACTIVE Market (e.g. MONEYLINE + TOTAL for the same NFL Game); resolveNotificationHref (lib/notifications/links.ts) prefers this over postId so the notification lands on the exact Market it's about, not just the Post's primary Market. Always non-null in practice — grading only reaches this call with a resolved Market in scope — typed nullable only to match postId's own defensive convention. */
   marketId: string | null;
+  /** When the Pick was backed by Confidence: the one configured sentence about what happened to it ("+5🔥 Confidence."), appended to the SAME notification — never a second one. Null/absent for an ordinary Pick. */
+  confidenceSentence?: string | null;
 }): Promise<void> {
   const admin = createAdminClient();
   const copyPolicy = await getPredictionNotificationCopyPolicy();
-  const { title, body } = renderNotificationCopy(input.result, input.marketSubject, copyPolicy);
+  const rendered = renderNotificationCopy(input.result, input.marketSubject, copyPolicy);
+  const title = rendered.title;
+  const body = input.confidenceSentence ? `${rendered.body} ${input.confidenceSentence}` : rendered.body;
 
   const { error } = await admin.from("notifications").insert({
     user_id: input.userId,
@@ -84,6 +88,7 @@ export async function maybeCreatePredictionGradedNotification(input: {
   result: PredictionResult;
   postId: string | null;
   marketId: string | null;
+  confidenceSentence?: string | null;
 }): Promise<void> {
   const policy = await getPredictionNotificationPolicy();
   if (!shouldNotifyForResult(input.result, policy)) return;

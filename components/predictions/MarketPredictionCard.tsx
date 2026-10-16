@@ -8,6 +8,8 @@ import { copyForIneligible } from "@/lib/predictions/copy";
 import { PredictionActions } from "@/components/predictions/PredictionActions";
 import { YourPredictionCard } from "@/components/predictions/YourPredictionCard";
 import { MarketParticipants } from "@/components/predictions/MarketParticipants";
+import { ConfidenceBacking } from "@/components/confidence/ConfidenceBacking";
+import { getStakeUiState } from "@/lib/confidence/stakes";
 
 /**
  * Milestone R3 (Post Foundation): extracted from
@@ -53,6 +55,9 @@ export async function MarketPredictionCard({
 
   const existingPrediction = await getLatestUserPredictionForMarket(userId, market.id);
   const isEditable = existingPrediction === null || (existingPrediction.lockedAt === null && existingPrediction.lifecycleState === "PENDING");
+
+  // Confidence behind the viewer's OWN Pick (optional): the card shows the committed amount, or — while the Pick is still open to it — the "How confident are you?" control. Nothing at all while Confidence is off.
+  const stakeState = existingPrediction ? await getStakeUiState(userId, existingPrediction.id) : ({ state: "none" } as const);
 
   let predictionDisabledReason: string | null = null;
   if (isEditable) {
@@ -124,7 +129,15 @@ export async function MarketPredictionCard({
           choices={market.choices}
         />
       ) : (
-        <YourPredictionCard prediction={existingPrediction!} choices={market.choices} />
+        <YourPredictionCard
+          prediction={existingPrediction!}
+          choices={market.choices}
+          stake={stakeState.state === "staked" ? { amount: stakeState.amount, result: stakeState.result } : null}
+        />
+      )}
+
+      {existingPrediction && stakeState.state === "open" && (
+        <ConfidenceBacking predictionId={existingPrediction.id} available={stakeState.available} allowedStakes={stakeState.allowedStakes} />
       )}
 
       {includeParticipants && (

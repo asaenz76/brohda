@@ -175,9 +175,17 @@ export default defineConfig({
     {
       name: "chromium-confidence",
       use: { ...devices["Desktop Chrome"] },
-      testMatch: /confidence/,
+      testMatch: /confidence\.spec/,
       fullyParallel: false,
       dependencies: ["chromium-messaging"],
+    },
+    // Confidence-backed Picks flips confidence_backed_picks_enabled — its own project, chained after the Confidence one so the two never overlap.
+    {
+      name: "chromium-confidence-backed-picks",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: /confidence-backed-picks/,
+      fullyParallel: false,
+      dependencies: ["chromium-confidence"],
     },
   ],
 });

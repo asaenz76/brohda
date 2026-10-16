@@ -6,6 +6,9 @@ import { listPostIdsForMarkets } from "@/lib/predictions/post-links";
 import { getChoicePresentation, getMarketSubject, type SelectionLabelSource } from "@/lib/prediction-markets/selection-labels";
 import { EmptyFeedState } from "@/components/EmptyFeedState";
 import { Card, CardContent } from "@/components/ui/card";
+import { getConfidenceConfig } from "@/lib/confidence/config";
+import { getStakesForPredictions, type PublicStake } from "@/lib/confidence/stakes";
+import { confidenceLabel, formatConfidence, formatSignedConfidence } from "@/lib/confidence/format";
 
 /**
  * Phase F (Brohda 2.0 redesign) — Profile's "Predictions" surface,
@@ -38,9 +41,12 @@ export async function PredictionsHistory({ userId, gradedOnly = false }: { userI
   }
 
   const marketIds = [...new Set(predictions.map((p) => p.marketId))];
-  const [sourcesByMarketId, postIdsByMarketId] = await Promise.all([
+  // Conviction beside a Pick that is ALREADY visible here (your own Picks, or someone's graded Picks on their public profile — `predictions` above is already filtered to exactly that). Hidden while Confidence is off.
+  const confidenceOn = (await getConfidenceConfig()) !== null;
+  const [sourcesByMarketId, postIdsByMarketId, stakesByPredictionId] = await Promise.all([
     listChoiceSourcesByMarketIds(marketIds),
     listPostIdsForMarkets(marketIds),
+    confidenceOn ? getStakesForPredictions(predictions.map((p) => p.id)) : Promise.resolve(new Map<string, PublicStake>()),
   ]);
 
   return (
@@ -51,6 +57,7 @@ export async function PredictionsHistory({ userId, gradedOnly = false }: { userI
           prediction={prediction}
           choiceSource={sourcesByMarketId.get(prediction.marketId) ?? null}
           postId={postIdsByMarketId.get(prediction.marketId) ?? null}
+          stake={stakesByPredictionId.get(prediction.id) ?? null}
         />
       ))}
     </div>
@@ -61,8 +68,11 @@ function PredictionHistoryRow({
   prediction,
   choiceSource,
   postId,
+  stake,
 }: {
   prediction: Awaited<ReturnType<typeof listUserPredictions>>[number];
+  /** Confidence committed behind this Pick, if any. */
+  stake: PublicStake | null;
   /** What the shared presentation needs to name this Pick (template, line, side, teams), or null if the Market's own row is no longer resolvable — it then falls back to the labels it can still find, never to a guess. */
   choiceSource: SelectionLabelSource | null;
   postId: string | null;
@@ -88,6 +98,16 @@ function PredictionHistoryRow({
           You picked {pickedLabel} · {predictedAt}
         </p>
         <ResultBadge prediction={prediction} />
+        {stake && (
+          <p className="text-xs font-medium text-text-primary" data-slot="pick-conviction" aria-label={confidenceLabel(stake.amount)}>
+            <span aria-hidden="true">
+              {formatConfidence(stake.amount)}
+              {prediction.lifecycleState === "GRADED" && stake.result
+                ? ` · ${stake.result === "CORRECT" ? formatSignedConfidence(stake.amount) : stake.result === "INCORRECT" ? formatSignedConfidence(-stake.amount) : "returned"}`
+                : ""}
+            </span>
+          </p>
+        )}
       </CardContent>
     </Card>
   );

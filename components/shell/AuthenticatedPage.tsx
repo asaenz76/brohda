@@ -5,6 +5,7 @@ import { getConsumerMonetaryAccess } from "@/lib/monetary/capability";
 import { isMessagingEnabled } from "@/lib/messaging/config";
 import { getUnreadSummary } from "@/lib/messaging/queries";
 import { AuthenticatedShell } from "@/components/shell/AuthenticatedShell";
+import { getShellConfidence } from "@/lib/confidence/service";
 import type { UserProfile } from "@/lib/auth/session";
 
 // Wraps a page in the signed-in shell, with the shell's own data (wallet
@@ -22,6 +23,9 @@ export async function AuthenticatedPage({ user, children }: { user: UserProfile;
   // account (platform revenue, an operator figure, not a personal wallet), so for a super admin the capability reads their personal balance instead.
   const money = await getConsumerMonetaryAccess(user, user.role === "super_admin" ? undefined : { totalCents: availableCents + heldCents, heldCents });
 
+  // Confidence: the always-visible balance. ONE read of the Member's own account through RLS (which itself returns nothing while Confidence is off); it is the Confidence domain only, never the wallet above.
+  const confidence = await getShellConfidence(user.id);
+
   // Messaging: the entry and its unread count exist only while the capability is ON (off = nothing is shown and no extra query is made).
   const showMessages = await isMessagingEnabled();
   const unreadMessages = showMessages ? await getUnreadSummary() : { unreadConversations: 0, pendingRequests: 0 };
@@ -35,6 +39,7 @@ export async function AuthenticatedPage({ user, children }: { user: UserProfile;
       showSocialNav={showSocialNav}
       showWallet={money.canSeeWallet}
       showMessages={showMessages}
+      confidence={confidence}
       unreadMessageCount={unreadMessages.unreadConversations + unreadMessages.pendingRequests}
     >
       {children}

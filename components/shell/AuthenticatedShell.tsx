@@ -6,6 +6,8 @@ import { RightRail } from "@/components/shell/RightRail";
 import { SiteFooter } from "@/components/shell/SiteFooter";
 import { InAppHistoryTracker } from "@/components/shell/InAppHistoryTracker";
 import { NotificationToast } from "@/components/NotificationToast";
+import { ConfidenceBalance } from "@/components/confidence/ConfidenceBalance";
+import type { ShellConfidence } from "@/lib/confidence/service";
 import { isAdminOrAbove } from "@/lib/auth/guards";
 import type { UserProfile } from "@/lib/auth/session";
 
@@ -29,6 +31,7 @@ export function AuthenticatedShell({
   showWallet,
   showMessages = false,
   unreadMessageCount = 0,
+  confidence = null,
   children,
 }: {
   user: UserProfile;
@@ -41,6 +44,8 @@ export function AuthenticatedShell({
   /** Messaging is ON: show the Messages entry, with the unread count. (A UX signal; each /messages page enforces its own access.) */
   showMessages?: boolean;
   unreadMessageCount?: number;
+  /** The Member's Confidence for the at-a-glance indicator; null while Confidence is off (nothing is shown). */
+  confidence?: ShellConfidence | null;
   children: React.ReactNode;
 }) {
   // The viewer's own profile segment: the same one ProfilePage uses for its follower links.
@@ -51,10 +56,12 @@ export function AuthenticatedShell({
   return (
     <div className="min-h-full bg-background">
       <header className="border-b border-border-subtle md:hidden">
-        <div className="mx-auto flex max-w-[1200px] items-center px-4 py-2.5">
+        <div className="mx-auto flex max-w-[1200px] items-center justify-between px-4 py-2.5">
           <Link href="/feed" className="font-logo text-lg font-extrabold italic text-text-primary">
             brohda.
           </Link>
+          {/* Phone: the Member's Confidence is always in view, top right — no tap to Profile needed. */}
+          {confidence && <ConfidenceBalance {...confidence} className="flex min-h-9 items-center rounded-full bg-surface-secondary px-3 text-sm font-semibold text-text-primary" />}
         </div>
       </header>
 
@@ -63,6 +70,8 @@ export function AuthenticatedShell({
           <Link href="/feed" className="block px-3 pt-1 font-logo text-[1.7rem] font-extrabold italic leading-none text-text-primary">
             brohda.
           </Link>
+          {/* Desktop/tablet: the same indicator, right under the logo and above the navigation, where the wallet balance used to be the first thing a Member saw. */}
+          {confidence && <ConfidenceBalance {...confidence} className="mx-3 flex min-h-9 w-fit items-center rounded-full bg-surface-secondary px-3 text-sm font-semibold text-text-primary hover:bg-surface-secondary/70" />}
           <LeftNav {...navProps} />
         </aside>
 

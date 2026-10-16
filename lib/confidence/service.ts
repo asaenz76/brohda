@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getConfidenceConfig } from "./config";
@@ -13,11 +14,11 @@ export interface MyConfidence {
   baseline: number;
   /** Is a Daily Claim possible right now? (below baseline AND the rolling interval has passed) */
   canClaim: boolean;
-  /** What the next claim would add (capped at the gap to the baseline), or 0 when the Member is at or above the baseline. */
+  /** What the next claim would add (capped at the gap between TOTAL Confidence and the baseline), or 0 when the Member's total is at or above the baseline. */
   claimAmount: number;
   /** When the next claim opens, computed from the last successful claim — null when one is not waiting on the clock. */
   nextClaimAt: string | null;
-  /** True when at or above the baseline, so there is nothing to claim and no CTA. */
+  /** True when TOTAL Confidence is at or above the baseline, so there is nothing to claim and no CTA. */
   atOrAboveBaseline: boolean;
 }
 
@@ -38,7 +39,9 @@ export async function getMyConfidence(memberId: string): Promise<MyConfidence | 
   const available = Number(account.available);
   const nextAt = account.last_daily_claim_at ? new Date(new Date(account.last_daily_claim_at).getTime() + config.dailyClaimIntervalHours * 3_600_000) : null;
   const waiting = nextAt !== null && nextAt.getTime() > Date.now();
-  const atOrAbove = available >= config.baseline;
+  // TOTAL Confidence decides: reserved Confidence is still the Member's, so putting some behind a Pick must not create claim eligibility. A claim credits AVAILABLE.
+  const total = Number(account.total);
+  const atOrAbove = total >= config.baseline;
   const canClaim = !atOrAbove && !waiting;
   return {
     available,
@@ -46,7 +49,7 @@ export async function getMyConfidence(memberId: string): Promise<MyConfidence | 
     total: Number(account.total),
     baseline: config.baseline,
     canClaim,
-    claimAmount: atOrAbove ? 0 : Math.min(config.dailyClaimAmount, config.baseline - available),
+    claimAmount: atOrAbove ? 0 : Math.min(config.dailyClaimAmount, config.baseline - total),
     nextClaimAt: !atOrAbove && waiting && nextAt ? nextAt.toISOString() : null,
     atOrAboveBaseline: atOrAbove,
   };
@@ -65,7 +68,10 @@ export async function getPublicConfidence(memberId: string): Promise<number | nu
 export interface ConfidenceHistoryRow {
   id: string;
   entryType: string;
+  /** The change in TOTAL Confidence (a reserve is 0: it only moves Confidence from available to reserved). */
   delta: number;
+  availableDelta: number;
+  reservedDelta: number;
   balanceAfter: number;
   createdAt: string;
 }
@@ -84,7 +90,29 @@ export async function getMyConfidenceHistory(limit = 50): Promise<ConfidenceHist
     id: r.id,
     entryType: r.entry_type,
     delta: Number(r.available_delta) + Number(r.reserved_delta),
+    availableDelta: Number(r.available_delta),
+    reservedDelta: Number(r.reserved_delta),
     balanceAfter: Number(r.available_after) + Number(r.reserved_after),
     createdAt: r.created_at,
   }));
 }
+
+export interface ShellConfidence {
+  total: number;
+  available: number;
+  reserved: number;
+}
+
+/**
+ * The signed-in Member's Confidence for the always-visible shell indicator. ONE indexed read of their own account through RLS — the policy itself returns nothing while Confidence is off, so no extra settings
+ * query is needed and the indicator can never show while the capability is off. Reads the Confidence domain only (no wallet, no money). Null when there is nothing to show.
+ */
+export const getShellConfidence = cache(async (memberId: string): Promise<ShellConfidence | null> => {
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase.from("confidence_accounts").select("available, reserved, total").eq("member_id", memberId).maybeSingle();
+    return data ? { total: Number(data.total), available: Number(data.available), reserved: Number(data.reserved) } : null;
+  } catch {
+    return null;
+  }
+});

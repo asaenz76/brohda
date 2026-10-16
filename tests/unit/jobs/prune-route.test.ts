@@ -4,10 +4,12 @@ let providerLogResult: () => Promise<unknown>;
 let backgroundJobsResult: () => Promise<unknown>;
 let messagingResult: () => Promise<unknown>;
 let confidenceResult: () => Promise<unknown>;
+let settlementResult: () => Promise<unknown>;
 const providerLogCalls = vi.fn();
 const backgroundJobsCalls = vi.fn();
 const messagingCalls = vi.fn();
 const confidenceCalls = vi.fn();
+const settlementCalls = vi.fn();
 
 vi.mock("@/lib/sports-data/provider-request-log-retention", () => ({
   runProviderRequestLogRetention: () => {
@@ -33,6 +35,12 @@ vi.mock("@/lib/confidence/bootstrap", () => ({
     return confidenceResult();
   },
 }));
+vi.mock("@/lib/confidence/settlement", () => ({
+  runConfidenceSettlementSweep: () => {
+    settlementCalls();
+    return settlementResult();
+  },
+}));
 // recordJobRun is exercised by its own tests; here it just runs the job and hands the result back.
 vi.mock("@/lib/jobs/record", () => ({ recordJobRun: async (_name: string, fn: () => Promise<unknown>) => fn() }));
 
@@ -48,6 +56,8 @@ beforeEach(() => {
   backgroundJobsCalls.mockClear();
   messagingCalls.mockClear();
   confidenceCalls.mockClear();
+  settlementCalls.mockClear();
+  settlementResult = async () => ({ settled: 0 });
   confidenceResult = async () => ({ enabled: false, rounds: 0, processed: 0, remaining: 0 });
   messagingResult = async () => ({ enabled: false, rounds: 0, removed: {} });
   providerLogResult = async () => ({ batchesRun: 1, rowsDeleted: 7 });
@@ -77,6 +87,7 @@ describe("prune-provider-request-log cron route", () => {
       backgroundJobs: { batchesRun: 2, rowsDeleted: 1500, retentionDays: 14 },
       messaging: { enabled: false, rounds: 0, removed: {} },
       confidence: { enabled: false, rounds: 0, processed: 0, remaining: 0 },
+      confidenceSettlement: { settled: 0 },
       failures: [],
     });
   });
@@ -147,5 +158,28 @@ describe("prune-provider-request-log cron route", () => {
     const body = await (await GET(request("Bearer test-secret"))).json();
     expect(confidenceCalls).toHaveBeenCalledTimes(1);
     expect(body.confidence).toEqual({ enabled: false, rounds: 0, processed: 0, remaining: 0 });
+  });
+
+  it("the Confidence settlement sweep runs in its own failure domain: its failure skips nothing else and is reported, and it never depends on the capability", async () => {
+    settlementResult = async () => {
+      throw new Error("settlement sweep failed");
+    };
+    const body = await (await GET(request("Bearer test-secret"))).json();
+    expect(providerLogCalls).toHaveBeenCalledTimes(1);
+    expect(backgroundJobsCalls).toHaveBeenCalledTimes(1);
+    expect(messagingCalls).toHaveBeenCalledTimes(1);
+    expect(confidenceCalls).toHaveBeenCalledTimes(1);
+    expect(body.confidenceSettlement).toBeNull();
+    expect(body.failures).toEqual([{ step: "confidence_settlement", error: "settlement sweep failed" }]);
+  });
+
+  it("an earlier failure never skips the settlement sweep, and it runs even when the bootstrap reports Confidence disabled", async () => {
+    confidenceResult = async () => {
+      throw new Error("confidence bootstrap failed");
+    };
+    settlementResult = async () => ({ settled: 3 });
+    const body = await (await GET(request("Bearer test-secret"))).json();
+    expect(settlementCalls).toHaveBeenCalledTimes(1);
+    expect(body.confidenceSettlement).toEqual({ settled: 3 });
   });
 });
