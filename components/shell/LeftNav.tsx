@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BookOpen, Settings, Shield, Wallet } from "lucide-react";
 import { LogoutRow } from "@/components/shell/LogoutRow";
+import { ConfidenceSummary, type ConfidenceFigures } from "@/components/confidence/ConfidenceBalance";
 import { cn } from "@/lib/utils";
 import { formatCents } from "@/lib/utils/money";
 import { activeNavKey, railNav, type ShellNavItem } from "@/components/shell/nav";
@@ -38,7 +39,7 @@ function NavRow({ item, active, unread }: { item: ShellNavItem; active: boolean;
 }
 
 // Desktop/tablet left rail: the primary destinations, then a quiet lower
-// section for utilities (Wallet, Admin, Log out). Wallet is deliberately a
+// section for utilities (Confidence, Wallet, Admin, Log out). Confidence leads that section: it is the Member's balance-like summary. Wallet is deliberately a
 // utility row, not a primary destination, and shows what's available to act
 // on; money on hold is named in the accessible label and tooltip.
 export function LeftNav({
@@ -51,6 +52,7 @@ export function LeftNav({
   availableCents,
   heldCents,
   isAdmin,
+  confidence = null,
 }: {
   profileSlug: string | null;
   showSocialNav: boolean;
@@ -61,6 +63,8 @@ export function LeftNav({
   availableCents: number;
   heldCents: number;
   isAdmin: boolean;
+  /** The Member's Confidence (null while Confidence is off): the primary balance-like summary, in the slot the Wallet row used to own. */
+  confidence?: ConfidenceFigures | null;
 }) {
   const pathname = usePathname();
   const active = activeNavKey(pathname, profileSlug);
@@ -74,6 +78,7 @@ export function LeftNav({
       ))}
 
       <div className="mt-3 flex flex-col gap-1 border-t border-border-subtle pt-3">
+        {confidence && <ConfidenceSummary {...confidence} stacked active={pathname.startsWith("/profile/confidence")} />}
         {showWallet && (
           <Link
             href="/wallet"

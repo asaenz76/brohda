@@ -106,7 +106,7 @@ test("a Super Admin enables backed Picks; a Member backs a Pick with explicit co
   // 1. Capability OFF (Confidence itself on): the balance is in the shell, but no one is asked "How confident are you?".
   await loginAs(page, alice.email);
   await page.goto(`/markets/${marketId}`);
-  await expect(balance(page)).toHaveAttribute("aria-label", /^50 Confidence/);
+  await expect(balance(page)).toHaveAttribute("aria-label", /^Confidence: 50 total, 50 available, 0 reserved behind your picks/);
   await page.waitForLoadState("networkidle"); // let the client component hydrate before pressing its button
   await page.getByRole("button", { name: "Pick Home Test FC to win" }).click();
   await expect.poll(async () => ((await admin.from("predictions").select("selected_outcome").eq("user_id", alice.id)).data ?? []).length).toBe(1);
@@ -147,8 +147,8 @@ test("a Super Admin enables backed Picks; a Member backs a Pick with explicit co
 
   // 4. The shell keeps ONE total; the split is in the accessible label, never as several numbers.
   await page.reload();
-  await expect(balance(page)).toHaveAttribute("aria-label", /^50 Confidence: 47 available, 3 reserved/);
-  await expect(balance(page)).toHaveText("🔥50");
+  await expect(balance(page)).toHaveAttribute("aria-label", /^Confidence: 50 total, 47 available, 3 reserved behind your picks/);
+  await expect(balance(page)).toContainText("50");
   await expect(page.locator('[data-slot="confidence-backing"]')).toHaveCount(0); // a backed Pick is not offered again
   await expect(page.getByRole("button", { name: /^Pick .* to win$/ })).toHaveCount(0); // the Pick can no longer be changed
   await expect(page.locator('[data-slot="pick-confidence"]')).toHaveAttribute("aria-label", "3 Confidence, locked");
@@ -158,7 +158,7 @@ test("a Super Admin enables backed Picks; a Member backs a Pick with explicit co
   await page.setViewportSize({ width: 390, height: 780 });
   await page.goto("/feed");
   await expect(balance(page)).toBeVisible();
-  await expect(balance(page)).toHaveAttribute("aria-label", /50 Confidence/);
+  await expect(balance(page)).toHaveAttribute("aria-label", /Confidence: 50 total/);
   await shot(page, "backed-picks-mobile-shell");
   await page.setViewportSize({ width: 1280, height: 720 });
 
@@ -168,7 +168,7 @@ test("a Super Admin enables backed Picks; a Member backs a Pick with explicit co
   expect(gradeError).toBeNull();
   await expect.poll(async () => (await admin.from("confidence_prediction_stakes").select("state").eq("member_id", alice.id).single()).data!.state).toBe("SETTLED_CORRECT");
   await page.goto(`/markets/${marketId}`);
-  await expect(balance(page)).toHaveAttribute("aria-label", /^53 Confidence/);
+  await expect(balance(page)).toHaveAttribute("aria-label", /^Confidence: 53 total, 53 available, 0 reserved behind your picks/);
   await expect(page.locator('[data-slot="pick-confidence-result"]')).toContainText(/\+3|3/);
   await shot(page, "backed-picks-result");
 
