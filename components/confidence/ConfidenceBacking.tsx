@@ -10,7 +10,7 @@ import { confidenceLabel, formatConfidence, ladderFlames } from "@/lib/confidenc
  * "How confident are you?" — the optional Confidence control on a Member's OWN Pick. Nothing is attached by merely choosing: the Member picks an amount from the configured ladder, sees exactly what will happen,
  * and confirms. Confirming reserves the Confidence and locks the Pick in one step. Choices above what the Member has available are disabled with the plain reason; there is no way to get more Confidence from here.
  */
-export function ConfidenceBacking({ predictionId, selectionLabel, available, allowedStakes }: { predictionId: string; selectionLabel?: string; available: number; allowedStakes: number[] }) {
+export function ConfidenceBacking({ predictionId, selectionLabel, contextLabel, available, allowedStakes }: { predictionId: string; selectionLabel?: string; contextLabel?: string; available: number; allowedStakes: number[] }) {
   const router = useRouter();
   const [chosen, setChosen] = useState<number | null>(null);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -50,7 +50,7 @@ export function ConfidenceBacking({ predictionId, selectionLabel, available, all
     <div className="space-y-2" data-slot="confidence-backing">
       <p className="text-sm font-semibold text-text-primary">How confident are you?</p>
       <p className="text-xs text-text-muted">Optional. You have {formatConfidence(available)} available.</p>
-      <div role="group" aria-label="How confident are you?" className="flex flex-wrap gap-2">
+      <div role="group" aria-label={contextLabel ? `How confident are you? ${contextLabel}` : "How confident are you?"} className="flex flex-wrap gap-2">
         {allowedStakes.map((n) => {
           const disabled = n > available || pending;
           return (

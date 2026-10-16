@@ -7,9 +7,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { LocalDateTime } from "@/components/LocalDateTime";
 import { MatchupHeading } from "@/components/posts/MatchupHeading";
 import { formatMatchupScores, formatMatchupSpoken } from "@/lib/sports-data/team-display-order";
-import { PredictionActions } from "@/components/predictions/PredictionActions";
-import { PublicPickChoices } from "@/components/posts/PublicPickChoices";
-import { CommittedConfidence, PickConfidence } from "@/components/confidence/PickConfidence";
+import { FeedMarketPick } from "@/components/posts/FeedMarketPick";
+import { MoreMarkets } from "@/components/posts/MoreMarkets";
 import { getCommunityTypeLabel } from "@/lib/communities/presentation";
 import type { FeedItem } from "@/lib/communities/feed";
 import { MONEYLINE_MARKET_LABEL } from "@/lib/prediction-markets/selection-labels";
@@ -40,24 +39,6 @@ function MarketContext({ market }: { market: NonNullable<FeedItem["primaryMarket
   return <p className="text-sm font-medium text-text-primary">{market.marketLabel ?? market.question}</p>;
 }
 
-/**
- * Brohda's crowd sentiment, Pick-first: percentages for both visible sides and the predicted count appear only AFTER the viewer has made
- * a Pick (and stay once it changes, locks or is graded). Logged-out visitors can't pick, so they never see them. This is social sentiment,
- * never a betting probability. Before a Pick, a single nudge says where it comes from.
- */
-function SentimentLine({ market, isPublic }: { market: NonNullable<FeedItem["primaryMarket"]>; isPublic: boolean }) {
-  if (!isPublic && market.sentimentRevealed) {
-    return (
-      <p className="text-xs text-text-muted">
-        {market.choices.map((c) => `${c.label} ${c.outcome === "YES" ? market.yesPercent : market.noPercent}%`).join(" · ")} · {market.totalPickCount} predicted
-      </p>
-    );
-  }
-  // Nothing to nudge toward when picking isn't possible right now (locked / closed game).
-  if (market.pickDisabledReason) return null;
-  return <p className="text-xs text-text-muted">Make your pick to see how everyone else picked.</p>;
-}
-
 function gameStatusLabel(sport: string, internalStatus: string, homeScore: number | null, awayScore: number | null): string | null {
   if (internalStatus === "COMPLETED" && homeScore != null && awayScore != null) return `Final ${formatMatchupScores(sport, homeScore, awayScore)}`;
   if (["LIVE", "HALFTIME", "EXTRA_TIME", "PENALTIES"].includes(internalStatus)) return "Live";
@@ -85,6 +66,8 @@ export function GamePostCard({ item, mode = "member" }: { item: FeedItem; mode?:
   const statusLabel = gameStatusLabel(item.sport, item.internalStatus, item.homeScore, item.awayScore);
   const market = item.primaryMarket;
   const moreMarkets = item.moreMarketsCount ?? 0;
+  const secondary = item.secondaryMarkets ?? [];
+  const spokenMatchup = formatMatchupSpoken(item.sport, item.homeTeamName, item.awayTeamName);
   const league = resolveLeagueIdentity({ competitionName: item.competitionName, competitionLogoUrl: item.competitionLogoUrl });
   // Restraint (spec §20): a Post can belong to several Communities at
   // once (home team, away team, league, sport) — show at most a couple,
@@ -125,53 +108,28 @@ export function GamePostCard({ item, mode = "member" }: { item: FeedItem; mode?:
 
         {market && (
           <div className="space-y-2 rounded-lg bg-secondary p-3">
-            {isPublic ? (
-              market.pickDisabledReason ? (
-                <p className="text-sm font-medium text-text-muted">{market.pickDisabledReason}</p>
+            <FeedMarketPick market={market} isPublic={isPublic} postId={item.post.id} />
+
+            {moreMarkets > 0 &&
+              (secondary.length > 0 && !isPublic ? (
+                // A signed-in viewer's other Markets open INLINE on this card (no navigation): the very same Pick component as the primary Market, each introduced by its heading.
+                <MoreMarkets count={secondary.length} label={spokenMatchup}>
+                  {secondary.map((m) => (
+                    <FeedMarketPick key={m.id} market={m} isPublic={false} postId={item.post.id} heading={m.heading ?? m.marketLabel ?? m.question} showTitle={false} />
+                  ))}
+                </MoreMarkets>
               ) : (
-                <PublicPickChoices choices={market.choices} postId={item.post.id} />
-              )
-            ) : market.isEditable ? (
-              <PredictionActions
-                marketId={market.id}
-                disabledReason={market.pickDisabledReason}
-                currentSelection={market.viewerSelection}
-                choices={market.choices}
-              />
-            ) : (
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-text-muted">
-                  You picked {market.choices.find((c) => c.outcome === market.viewerSelection)?.label} — {market.pickDisabledReason}
-                </p>
-                {market.confidence.state === "staked" && <CommittedConfidence amount={market.confidence.amount} pending={market.confidence.stakeState === "RESERVED"} />}
-              </div>
-            )}
-
-            {/* The optional Confidence control, inline on the card — the same shared component and the same database decision as the Post detail. Nothing renders unless the Pick is open to it. */}
-            {!isPublic && market.viewerPredictionId && market.viewerSelection && (
-              <PickConfidence
-                predictionId={market.viewerPredictionId}
-                selectedOutcome={market.viewerSelection}
-                selectionLabel={market.choices.find((c) => c.outcome === market.viewerSelection)?.label ?? ""}
-                stake={market.confidence}
-              />
-            )}
-
-            <SentimentLine market={market} isPublic={isPublic} />
-
-            {moreMarkets > 0 && (
-              // A visible, separate action: nobody has to discover that the card is clickable to reach the Game's other Markets. Same canonical Post as the
-              // card link (a sibling link, not nested), so there is one destination and Back returns exactly where the user came from.
-              <Link
-                href={`/post/${item.post.id}`}
-                data-slot="see-more-markets"
-                aria-label={`See more markets for ${formatMatchupSpoken(item.sport, item.homeTeamName, item.awayTeamName)}`}
-                className="-mx-1 inline-flex min-h-9 items-center gap-0.5 rounded-md px-1 text-xs font-semibold uppercase tracking-wide text-accent-primary outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
-              >
-                See more markets
-                <ChevronRight className="size-3.5" aria-hidden="true" />
-              </Link>
-            )}
+                // The logged-out front door (and any card without the Markets loaded) keeps a visible, separate link to the same canonical Post.
+                <Link
+                  href={`/post/${item.post.id}`}
+                  data-slot="see-more-markets"
+                  aria-label={`See more markets for ${spokenMatchup}`}
+                  className="-mx-1 inline-flex min-h-9 items-center gap-0.5 rounded-md px-1 text-xs font-semibold uppercase tracking-wide text-accent-primary outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+                >
+                  See more markets
+                  <ChevronRight className="size-3.5" aria-hidden="true" />
+                </Link>
+              ))}
           </div>
         )}
 

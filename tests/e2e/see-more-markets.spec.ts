@@ -1,6 +1,7 @@
 /**
- * SEE MORE MARKETS in a real browser: visible on the card (no hover, no tap, no expanding) exactly when the Game has other displayable Markets; its own link to the
- * canonical Game Post; Back unwinds Home → Post → Market → Post → Home; and at every width it is visible, inside the card, tappable and clear of the Pick buttons.
+ * SEE MORE MARKETS in a real browser: visible on the card (no hover, no tap, no expanding) exactly when the Game has other displayable Markets; for a signed-in Member it
+ * opens those Markets INLINE on the card (no navigation) and the Post stays reachable (comments link, then Back unwinds Home → Post → Market → Post → Home); and at every width
+ * it is visible, inside the card, tappable, clear of the Pick buttons and works from the keyboard.
  */
 import { test, expect, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
@@ -64,14 +65,14 @@ test("one Market → no action; two or three eligible Markets → the action is 
   try {
     await loginAs(page, user.email);
     await page.goto("/feed");
-    const action = (g: { home: string }) => card(page, g).getByRole("link", { name: /^See more markets/i });
+    const action = (g: { home: string }) => card(page, g).getByRole("button", { name: /^See more markets/i });
     await expect(card(page, one)).toBeVisible();
     await expect(action(one)).toHaveCount(0);
     await expect(action(hidden)).toHaveCount(0);
     for (const g of [two, three]) {
       await expect(action(g)).toBeVisible();
       await expect(action(g)).toHaveCSS("text-transform", "uppercase"); // reads SEE MORE MARKETS
-      await expect(action(g)).toHaveAttribute("href", `/post/${g.postId}`);
+      await expect(action(g)).toHaveAttribute("aria-expanded", "false"); // a button that expands the card in place, not a link away from it
     }
   } finally {
     for (const g of [one, two, three, hidden]) await cleanup(g);
@@ -79,14 +80,19 @@ test("one Market → no action; two or three eligible Markets → the action is 
   }
 });
 
-test("clicking it opens the canonical Game Post (listing the other Markets); Back unwinds Home → Post → Market → Post → Home", async ({ page }) => {
+test("clicking it expands the other Markets in place (no navigation); the canonical Post stays reachable from the card, and Back unwinds Home → Post → Market → Post → Home", async ({ page }) => {
   const s = randomUUID().slice(0, 6);
   const g = await seedGame(s, [{ template: "TOTAL", status: "ACTIVE" }, { template: "SPREAD", status: "ACTIVE" }]);
   const user = await createPlayer();
   try {
     await loginAs(page, user.email);
     await page.goto("/feed");
-    await card(page, g).getByRole("link", { name: /^See more markets/i }).click();
+    await page.waitForLoadState("networkidle"); // let the client component hydrate before pressing its button
+    await card(page, g).getByRole("button", { name: /^See more markets/i }).click();
+    await expect(page).toHaveURL(/\/feed$/); // nothing navigated
+    await expect(card(page, g).getByRole("heading", { name: "Game Total 6.5" })).toBeVisible();
+    await expect(card(page, g).getByRole("heading", { name: "Spread" })).toBeVisible();
+    await card(page, g).getByRole("link", { name: /comment/ }).first().click();
     await expect(page).toHaveURL(new RegExp(`/post/${g.postId}$`));
     await expect(page.getByText("More markets for this game")).toBeVisible();
     await page.getByRole("link", { name: /Total 6\.5/ }).click();
@@ -112,8 +118,8 @@ test("using a Pick control never navigates, and using the action never makes a P
     await c.getByRole("button", { name: new RegExp(`^Pick ${g.home}`) }).click();
     await expect(c.getByText("Change your prediction")).toBeVisible();
     await expect(page).toHaveURL(/\/feed$/); // the Pick stayed on the feed
-    await c.getByRole("link", { name: /^See more markets/i }).click();
-    await expect(page).toHaveURL(new RegExp(`/post/${g.postId}$`));
+    await c.getByRole("button", { name: /^See more markets/i }).click();
+    await expect(page).toHaveURL(/\/feed$/); // and expanding stayed on the feed too
     expect((await admin.from("predictions").select("id").eq("user_id", user.id)).data).toHaveLength(1); // exactly the one Pick made on purpose
   } finally {
     await admin.from("predictions").delete().eq("user_id", user.id);
@@ -133,7 +139,8 @@ for (const width of [320, 375, 768, 1280]) {
       await page.goto("/feed");
       const c = card(page, g);
       await c.scrollIntoViewIfNeeded();
-      const action = c.getByRole("link", { name: /^See more markets/i });
+      await page.waitForLoadState("networkidle"); // let the client component hydrate before using its button
+      const action = c.locator('button[data-slot="see-more-markets"]'); // its name flips to "Show fewer markets" once open
       await expect(action).toBeVisible();
       const [a, cardBox] = [(await action.boundingBox())!, (await c.boundingBox())!];
       expect(a.height).toBeGreaterThanOrEqual(32);
@@ -148,7 +155,9 @@ for (const width of [320, 375, 768, 1280]) {
       await action.focus();
       await expect(action).toBeFocused();
       await page.keyboard.press("Enter");
-      await expect(page).toHaveURL(new RegExp(`/post/${g.postId}$`));
+      await expect(action).toHaveAttribute("aria-expanded", "true"); // opens in place from the keyboard
+      await expect(page).toHaveURL(/\/feed$/);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width); // still no sideways scroll, expanded
     } finally {
       await cleanup(g);
       await admin.auth.admin.deleteUser(user.id);

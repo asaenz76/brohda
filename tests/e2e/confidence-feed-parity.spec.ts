@@ -316,3 +316,177 @@ test("Shell summary: the old pill under the logo is gone; a labelled Confidence 
   await page.goto("/");
   await expect(page.locator('[data-slot="shell-confidence"]')).toHaveCount(0);
 });
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+// Inline multi-market expansion: every Market of a Game is usable on the feed card itself.
+async function addMarket(fixtureId: string, template: "TOTAL" | "SPREAD", line: number, label: { yes: string; no: string }) {
+  const { data: first } = await admin.from("markets").select("provider").eq("fixture_id", fixtureId).limit(1).single();
+  const { data, error } = await admin
+    .from("markets")
+    .insert({
+      provider: first!.provider, provider_market_id: `sec_${randomUUID()}`, question: "E2E secondary", status: "ACTIVE", fixture_id: fixtureId, market_template: template, yes_side: template === "TOTAL" ? null : "HOME", line_value: line,
+      yes_price: 0.5, no_price: 0.5, price_outcome_labels: label, liquidity: 500, closes_at: new Date(Date.now() + 86_400_000).toISOString(), last_synced_at: new Date().toISOString(), ingestion_source: "e2e_test", provider_metadata: {},
+    })
+    .select("id")
+    .single();
+  if (error || !data) throw error ?? new Error("failed to add market");
+  return data.id as string;
+}
+async function fullGame(name: string, startsInMinutes = 180) {
+  const g = await seedGame(name, startsInMinutes);
+  const spreadId = await addMarket(g.fixtureId, "SPREAD", -2.5, { yes: "yes", no: "no" });
+  const totalId = await addMarket(g.fixtureId, "TOTAL", 224, { yes: "Over 224", no: "Under 224" });
+  return { ...g, spreadId, totalId };
+}
+const seeMore = (c: ReturnType<typeof card>) => c.locator('button[data-slot="see-more-markets"]');
+const section = (c: ReturnType<typeof card>, marketId: string) => c.locator(`[data-slot="feed-market"][data-market-id="${marketId}"]`);
+
+test("Inline markets A–I, O, P: collapsed by default; expands in place under one title; Total and Spread Picks save, reveal their own sentiment and take Confidence independently; collapse changes nothing; the market page agrees", async ({ page }) => {
+  test.setTimeout(300_000);
+  const m = await createMember("inline");
+  await admin.rpc("confidence_bootstrap_member", { p_member_id: m.id });
+  const single = await seedGame("single");
+  const g = await fullGame("full");
+  await loginAs(page, m.email);
+  await gotoFeedReady(page);
+
+  // A. One Market: no See more markets control.
+  await expect(card(page, single)).toBeVisible();
+  await expect(seeMore(card(page, single))).toHaveCount(0);
+
+  // B/D. Several Markets: collapsed by default, a See more markets button, no navigation or modal when it opens.
+  const c = card(page, g);
+  await expect(seeMore(c)).toHaveText(/see more markets/i);
+  await expect(seeMore(c)).toHaveAttribute("aria-expanded", "false");
+  await expect(c.locator('[data-slot="more-markets-panel"]')).toBeHidden();
+  const urlBefore = page.url();
+  await seeMore(c).click();
+  await expect(page).toHaveURL(urlBefore);
+  await expect(c.locator('[data-slot="more-markets-panel"]')).toBeVisible();
+  await expect(c.locator('[data-slot="more-markets-panel"]').getByText("Make your prediction")).toHaveCount(1);
+  await expect(c.locator('[data-slot="market-heading"]')).toHaveText(["Game Total 224", "Spread"]);
+  await expect(c.getByRole("dialog")).toHaveCount(0);
+  // No duplicate Moneyline: the primary's two team buttons + Over/Under + the two spread choices, nothing more.
+  await expect(c.getByRole("button", { name: /^Pick / })).toHaveCount(6);
+  await expect(c.getByRole("button", { name: "Pick Over 224 total points" })).toBeVisible();
+  await expect(c.getByRole("button", { name: "Pick Under 224 total points" })).toBeVisible();
+  await expect(c.getByRole("button", { name: new RegExp(`Pick ${g.home} minus 2\\.5`) })).toHaveText(new RegExp(`${g.home} -2\\.5`));
+  await expect(c.getByRole("button", { name: new RegExp(`Pick ${g.away} plus 2\\.5`) })).toHaveText(new RegExp(`${g.away} \\+2\\.5`));
+
+  // E. A Total Pick saves inline, reveals ITS sentiment only, and offers Confidence.
+  const total = section(c, g.totalId);
+  const spread = section(c, g.spreadId);
+  await expect(total).toContainText("Make your pick to see how everyone else picked.");
+  await total.getByRole("button", { name: "Pick Over 224 total points" }).click();
+  await expect(total.locator('[data-slot="market-sentiment"]')).toContainText("Over 224 100% · Under 224 0% · 1 predicted");
+  await expect(total.locator('[data-slot="confidence-backing"]')).toContainText("How confident are you?");
+  await expect(spread).toContainText("Make your pick to see how everyone else picked."); // the spread has its own, still hidden
+  await expect(spread.locator('[data-slot="confidence-backing"]')).toHaveCount(0);
+  expect((await admin.from("confidence_prediction_stakes").select("id").eq("member_id", m.id)).data).toEqual([]);
+  await expect(page).toHaveURL(urlBefore);
+
+  // G. Confidence on the Total: explicit confirmation, atomic reserve, locked, committed amount shown.
+  await total.locator('[data-slot="confidence-choice"][data-amount="2"]').click();
+  await expect(total.locator('[data-slot="confidence-confirm"]')).toContainText("Over 224");
+  await total.locator('[data-slot="confidence-confirm-button"]').click();
+  await expect(total.locator('[data-slot="pick-confidence"]')).toHaveAttribute("aria-label", "2 Confidence, locked");
+  await expect(total.getByRole("button", { name: /^Pick / })).toHaveCount(0);
+  await expect(total.locator('[data-slot="confidence-backing"]')).toHaveCount(0);
+
+  // F/H. A Spread Pick and its own Confidence, independent of the Total's. I. The reserve adds up.
+  await spread.getByRole("button", { name: new RegExp(`Pick ${g.away} plus 2\\.5`) }).click();
+  await expect(spread.locator('[data-slot="market-sentiment"]')).toContainText("1 predicted");
+  await expect(spread.locator('[data-slot="confidence-backing"]')).toContainText("How confident are you?");
+  await spread.locator('[data-slot="confidence-choice"][data-amount="1"]').click();
+  await spread.locator('[data-slot="confidence-confirm-button"]').click();
+  await expect(spread.locator('[data-slot="pick-confidence"]')).toHaveAttribute("aria-label", "1 Confidence, locked");
+  const stakes = ((await admin.from("confidence_prediction_stakes").select("amount, state").eq("member_id", m.id)).data ?? []).map((s) => s.amount).sort();
+  expect(stakes).toEqual([1, 2]);
+  await expect(balance(page)).toHaveAttribute("aria-label", /^Confidence: 50 total, 47 available, 3 reserved behind your picks/);
+  expect((await admin.rpc("confidence_reconcile")).data).toEqual([]);
+
+  // Collapse: nothing is removed, changed or unlocked; re-expanding shows the same state.
+  await seeMore(c).click();
+  await expect(seeMore(c)).toHaveText(/see more markets/i);
+  await expect(c.locator('[data-slot="more-markets-panel"]')).toBeHidden();
+  expect((await admin.from("confidence_prediction_stakes").select("amount").eq("member_id", m.id)).data).toHaveLength(2);
+  await seeMore(c).click();
+  await expect(total.locator('[data-slot="pick-confidence"]')).toHaveAttribute("aria-label", "2 Confidence, locked");
+  await expect(spread.locator('[data-slot="pick-confidence"]')).toHaveAttribute("aria-label", "1 Confidence, locked");
+
+  // The primary Market is still independent and usable: a Pick, with its own Confidence option.
+  await c.locator('[data-slot="feed-market"]').first().getByRole("button", { name: new RegExp(`Pick ${g.home} to win`) }).click();
+  await expect(c.locator('[data-slot="feed-market"]').first().locator('[data-slot="confidence-backing"]')).toBeVisible();
+
+  // P. Feed -> Market page: the very same state for the secondary Market.
+  await page.goto(`/markets/${g.totalId}`);
+  await expect(page.getByText("You picked: Over 224")).toBeVisible();
+  await expect(page.locator('[data-slot="pick-confidence"]')).toHaveAttribute("aria-label", "2 Confidence, locked");
+  await gotoFeedReady(page);
+  await card(page, g).locator('button[data-slot="see-more-markets"]').click();
+  await expect(section(card(page, g), g.totalId).locator('[data-slot="pick-confidence"]')).toHaveAttribute("aria-label", "2 Confidence, locked"); // and back
+});
+
+test("Inline markets J, K, M, N, O: an existing secondary Pick is shown on load; a Pick inside the lock window is refused; both capability switches fall back to plain Picks; phone widths hold", async ({ page }) => {
+  test.setTimeout(300_000);
+  const m = await createMember("inline2");
+  await admin.rpc("confidence_bootstrap_member", { p_member_id: m.id });
+  const existing = await fullGame("secondary");
+  const late = await fullGame("latewin", 60);
+  await pickViaDb(m.id, existing.spreadId, "YES");
+  await admin.from("fixtures").update({ scheduled_start_utc: new Date(Date.now() + 5 * 60_000).toISOString() }).eq("id", late.fixtureId); // inside the 10-minute window
+  await loginAs(page, m.email);
+  await gotoFeedReady(page);
+
+  // J. Existing Pick on a secondary Market: the canonical state when opened — selected side and the Confidence option, no re-pick.
+  const c = card(page, existing);
+  await seeMore(c).click();
+  const spread = section(c, existing.spreadId);
+  await expect(spread.getByRole("button", { name: new RegExp(`Pick ${existing.home} minus 2\\.5`) })).toHaveAttribute("aria-pressed", "true");
+  await expect(spread.locator('[data-slot="confidence-backing"]')).toBeVisible();
+  await expect(spread.locator('[data-slot="market-sentiment"]')).toBeVisible();
+
+  // K. Inside the lock window the server refuses a Pick on a secondary Market, and nothing is saved.
+  const cl = card(page, late);
+  await seeMore(cl).click();
+  await section(cl, late.totalId).getByRole("button", { name: "Pick Over 224 total points" }).click();
+  await expect(section(cl, late.totalId).getByRole("status").or(section(cl, late.totalId).getByRole("alert"))).toContainText(/lock/i);
+  expect((await admin.from("predictions").select("id").eq("user_id", m.id).eq("market_id", late.totalId)).data).toEqual([]);
+
+  // O. Phone width, expanded: no horizontal overflow, spread names readable inside the card, Confidence fits.
+  await page.setViewportSize({ width: 375, height: 800 });
+  await gotoFeedReady(page);
+  const cm = card(page, existing);
+  await expect(cm).toHaveCount(1); // one card per Game: every seeded Game in this file has its own name
+  await seeMore(cm).click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+  const cardBox = (await cm.boundingBox())!;
+  for (const b of await cm.locator('[data-slot="feed-market"] button:visible').all()) {
+    const bb = (await b.boundingBox())!;
+    expect(bb.x).toBeGreaterThanOrEqual(cardBox.x - 1);
+    expect(bb.x + bb.width).toBeLessThanOrEqual(cardBox.x + cardBox.width + 1);
+  }
+  await expect(section(cm, existing.spreadId).locator('[data-slot="confidence-choice"]').first()).toBeVisible();
+  await page.screenshot({ path: `${process.env.E2E_SHOTS ?? "test-results"}/inline-markets-mobile.png` });
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  // N. Backed Picks OFF: ordinary Picks on every Market, no selector.
+  await admin.from("platform_settings").update({ confidence_backed_picks_enabled: false }).eq("id", true);
+  await gotoFeedReady(page);
+  const cn = card(page, existing);
+  await seeMore(cn).click();
+  await expect(cn.locator('[data-slot="confidence-backing"]')).toHaveCount(0);
+  await section(cn, existing.totalId).getByRole("button", { name: "Pick Under 224 total points" }).click();
+  await expect(section(cn, existing.totalId).locator('[data-slot="market-sentiment"]')).toBeVisible();
+  await expect(cn.locator('[data-slot="confidence-backing"]')).toHaveCount(0);
+
+  // M. Confidence OFF: Picks still work, no Confidence UI anywhere on the card.
+  await admin.from("platform_settings").update({ confidence_backed_picks_enabled: true, confidence_enabled: false }).eq("id", true);
+  await gotoFeedReady(page);
+  const cf = card(page, existing);
+  await seeMore(cf).click();
+  await expect(cf).not.toContainText(/How confident|Confidence/);
+  await section(cf, existing.totalId).getByRole("button", { name: "Pick Over 224 total points" }).click();
+  await expect.poll(async () => ((await admin.from("predictions").select("selected_outcome").eq("user_id", m.id).eq("market_id", existing.totalId).single()).data as Row).selected_outcome).toBe("YES");
+  await admin.from("platform_settings").update({ confidence_enabled: true }).eq("id", true);
+});

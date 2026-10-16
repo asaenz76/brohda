@@ -7,10 +7,10 @@ import type { StakeUiState } from "@/lib/confidence/stakes";
  * nothing at all otherwise. Eligibility, the ladder, the available balance and the lock reason all come from `StakeUiState` (the same database function for every surface), so the surfaces cannot drift.
  * The control is keyed by Pick AND side, so changing an unbacked Pick starts a fresh, never-stale selector bound to the new side.
  */
-export function PickConfidence({ predictionId, selectedOutcome, selectionLabel, stake }: { predictionId: string; selectedOutcome: "YES" | "NO"; selectionLabel: string; stake: StakeUiState }) {
+export function PickConfidence({ predictionId, selectedOutcome, selectionLabel, contextLabel, stake }: { predictionId: string; selectedOutcome: "YES" | "NO"; selectionLabel: string; contextLabel?: string; stake: StakeUiState }) {
   if (stake.state !== "open") return null;
   return (
-    <ConfidenceBacking key={`${predictionId}:${selectedOutcome}`} predictionId={predictionId} selectionLabel={selectionLabel} available={stake.available} allowedStakes={stake.allowedStakes} />
+    <ConfidenceBacking key={`${predictionId}:${selectedOutcome}`} predictionId={predictionId} selectionLabel={selectionLabel} contextLabel={contextLabel} available={stake.available} allowedStakes={stake.allowedStakes} />
   );
 }
 

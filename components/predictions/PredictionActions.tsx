@@ -29,6 +29,8 @@ export function PredictionActions({
   disabledReason,
   currentSelection = null,
   choices,
+  hideTitle = false,
+  groupLabel,
 }: {
   marketId: string;
   disabledReason: string | null;
@@ -40,6 +42,10 @@ export function PredictionActions({
    * is read from the canonical outcome, never from a label.
    */
   choices: [Choice, Choice];
+  /** A Market shown among others is introduced by the group's single "Make your prediction" title, so it does not repeat its own. */
+  hideTitle?: boolean;
+  /** The Market's heading ("Game Total 224", "Spread"), naming the group of choices for assistive technology. */
+  groupLabel?: string;
 }) {
   const router = useRouter();
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
@@ -83,8 +89,8 @@ export function PredictionActions({
   const isDisabled = pending || disabledReason !== null;
 
   return (
-    <div className="space-y-2" data-testid="prediction-actions">
-      <p className="text-sm font-semibold text-text-primary">{selection ? "Change your prediction" : "Make your prediction"}</p>
+    <div className="space-y-2" data-testid="prediction-actions" role={groupLabel ? "group" : undefined} aria-label={groupLabel}>
+      {!hideTitle && <p className="text-sm font-semibold text-text-primary">{selection ? "Change your prediction" : "Make your prediction"}</p>}
       {/*
         Phase C (Brohda 2.0 redesign, spec §39) fix: at 375px, two buttons
         side by side with long semantic labels ("Home Test NFL do not
