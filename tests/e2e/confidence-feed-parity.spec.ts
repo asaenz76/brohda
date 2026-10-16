@@ -138,7 +138,7 @@ test("A–E: a Pick made on the feed exposes Confidence inline, the side can cha
   expect(await stakeOf(alice.id)).toMatchObject([{ amount: 1, state: "RESERVED" }]);
   const pick = (await admin.from("predictions").select("selected_outcome, lock_reason").eq("user_id", alice.id).eq("market_id", g1.marketId).single()).data!;
   expect(pick).toEqual({ selected_outcome: "NO", lock_reason: "CONFIDENCE_COMMITTED" });
-  await expect(balance(page)).toHaveAttribute("aria-label", /^50 Confidence: 49 available, 1 reserved/);
+  await expect(balance(page)).toHaveAttribute("aria-label", /^Confidence: 50 total, 49 available, 1 reserved behind your picks/);
 
   // E1. Feed → Post: exactly the same state on the Post.
   await page.goto(`/post/${g1.postId}`);
@@ -160,7 +160,7 @@ test("A–E: a Pick made on the feed exposes Confidence inline, the side can cha
   await expect(card(page, g2).locator('[data-slot="pick-confidence"]')).toHaveAttribute("aria-label", "2 Confidence, locked");
   await expect(card(page, g2)).toContainText(`You picked ${g2.home}`);
   expect((await stakeOf(alice.id)).map((s) => s.amount).sort()).toEqual([1, 2]);
-  await expect(balance(page)).toHaveAttribute("aria-label", /^50 Confidence: 47 available, 3 reserved/);
+  await expect(balance(page)).toHaveAttribute("aria-label", /^Confidence: 50 total, 47 available, 3 reserved behind your picks/);
 });
 
 test("B, I, H, G: an existing unbacked Pick shows the control on load; a Call BS-locked Pick still can; a Pick inside the lock window cannot; with the capability off nothing appears", async ({ page }) => {
@@ -231,7 +231,7 @@ test("F, K, L: a low balance disables only the unaffordable amounts; the control
   // Confirming from the phone commits and locks the card.
   await backing.getByRole("button", { name: /^Confirm/ }).click();
   await expect(c.locator('[data-slot="pick-confidence"]')).toHaveAttribute("aria-label", "2 Confidence, locked");
-  await expect(balance(page)).toHaveAttribute("aria-label", /^3 Confidence: 1 available, 2 reserved/);
+  await expect(balance(page)).toHaveAttribute("aria-label", /^Confidence: 3 total, 1 available, 2 reserved behind your picks/);
 });
 
 test("J: a Sponsor sees no Member Confidence UI", async ({ page }) => {
@@ -242,5 +242,77 @@ test("J: a Sponsor sees no Member Confidence UI", async ({ page }) => {
   await expect(page.locator('[data-slot="confidence-backing"]')).toHaveCount(0);
   await page.goto("/feed").catch(() => undefined);
   await expect(page.locator('[data-slot="confidence-backing"]')).toHaveCount(0);
+  await expect(page.locator('[data-slot="shell-confidence"]')).toHaveCount(0);
+});
+
+test("Shell summary: the old pill under the logo is gone; a labelled Confidence block (total, available, reserved) sits in the lower navigation where Wallet was, links to the Confidence page, works on a phone, and is absent for a Sponsor, a signed-out visitor and when Confidence is off", async ({ page }) => {
+  test.setTimeout(240_000);
+  const m = await createMember("shell");
+  await admin.rpc("confidence_bootstrap_member", { p_member_id: m.id });
+  // A meaningful state: 🔥50 total, 🔥32 available, 🔥18 reserved behind a pick.
+  await admin.from("platform_settings").update({ confidence_allowed_stakes: [18] }).eq("id", true);
+  const g = await seedGame("shell");
+  await pickViaDb(m.id, g.marketId, "YES");
+  const attached = await admin.rpc("confidence_attach_stake", { p_member_id: m.id, p_prediction_id: (await admin.from("predictions").select("id").eq("user_id", m.id).single()).data!.id, p_amount: 18, p_idempotency_key: randomUUID() });
+  expect((attached.data as Row).outcome).toBe("attached");
+
+  await loginAs(page, m.email);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await gotoFeedReady(page);
+  const rail = page.locator('aside[aria-label="Navigation"]');
+  // The old small pill directly under the logo is gone …
+  await expect(rail.locator(':scope > a[data-slot="shell-confidence"]')).toHaveCount(0);
+  // … and the Confidence block is in the lower navigation section (the one holding Settings, Rules and Log out), as a labelled, three-figure summary.
+  const block = rail.locator('nav[aria-label="Primary"] [data-slot="shell-confidence"]');
+  await expect(block).toHaveCount(1);
+  await expect(block).toContainText("Confidence");
+  await expect(block).toContainText("50 total");
+  await expect(block).toContainText("32 available");
+  await expect(block).toContainText("18 reserved behind your picks");
+  await expect(block).toHaveAttribute("aria-label", "Confidence: 50 total, 32 available, 18 reserved behind your picks. Open your Confidence history");
+  expect(await block.evaluate((el) => !!el.closest("div")?.querySelector('a[href="/profile/edit"]'))).toBe(true); // same section as Settings
+  // Where a Wallet row still exists (money capability on), Confidence leads the section and Wallet never sits above it.
+  if ((await rail.locator('a[href="/wallet"]').count()) > 0) {
+    expect(await block.evaluate((el) => !!(el.compareDocumentPosition(document.querySelector('aside[aria-label="Navigation"] a[href="/wallet"]')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+  }
+  await page.screenshot({ path: `${process.env.E2E_SHOTS ?? "test-results"}/shell-confidence-desktop.png` });
+
+  // It is a real link to the Confidence page, and the page speaks the same vocabulary.
+  await block.click();
+  await expect(page).toHaveURL(/\/profile\/confidence$/);
+  await expect(page.locator('[data-slot="confidence-history-total"]')).toContainText("50 total");
+  await expect(page.locator('[data-slot="confidence-split"]')).toContainText("32 available");
+  await expect(page.locator('[data-slot="confidence-split"]')).toContainText("18 reserved behind your picks");
+  await expect(rail.locator('nav[aria-label="Primary"] [data-slot="shell-confidence"]')).toHaveAttribute("aria-current", "page");
+
+  // Phone: the total chip is in the top bar; the full summary is in the Menu, in Wallet's old place. No overflow, nothing clipped.
+  await page.setViewportSize({ width: 375, height: 800 });
+  await gotoFeedReady(page);
+  const chip = page.locator('header [data-slot="shell-confidence"]:visible');
+  await expect(chip).toHaveAttribute("aria-label", /^Confidence: 50 total, 32 available, 18 reserved behind your picks/);
+  await expect(chip).toContainText("50");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+  await page.getByRole("button", { name: "Menu" }).click();
+  const menuBlock = page.locator('[data-testid="auth-mobile-menu"] [data-slot="shell-confidence"]');
+  await expect(menuBlock).toBeVisible();
+  await expect(menuBlock).toContainText("32 available");
+  await expect(menuBlock).toContainText("18 reserved behind your picks");
+  const box = (await menuBlock.boundingBox())!;
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(375);
+  await page.screenshot({ path: `${process.env.E2E_SHOTS ?? "test-results"}/shell-confidence-mobile-menu.png` });
+  await menuBlock.click();
+  await expect(page).toHaveURL(/\/profile\/confidence$/);
+
+  // Off: nothing — no misleading amounts.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await admin.from("platform_settings").update({ confidence_enabled: false }).eq("id", true);
+  await gotoFeedReady(page);
+  await expect(page.locator('[data-slot="shell-confidence"]')).toHaveCount(0);
+  await admin.from("platform_settings").update({ confidence_enabled: true, confidence_allowed_stakes: [1, 2, 3, 4, 5] }).eq("id", true);
+
+  // Signed out: nothing.
+  await page.context().clearCookies();
+  await page.goto("/");
   await expect(page.locator('[data-slot="shell-confidence"]')).toHaveCount(0);
 });

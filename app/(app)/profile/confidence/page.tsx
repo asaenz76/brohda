@@ -17,13 +17,11 @@ export default async function ConfidenceHistoryPage() {
     <div className="space-y-3">
       <ColumnHeader title="Confidence" backHref="/profile" backLabel="Profile" />
       <p className="text-sm text-text-secondary" data-slot="confidence-history-total">
-        You have <span className="font-semibold text-text-primary">{formatConfidence(mine.total)}</span>.
-        {mine.reserved > 0 && (
-          <span data-slot="confidence-split">
-            {" "}
-            {formatConfidence(mine.available)} available · {formatConfidence(mine.reserved)} reserved behind your picks.
-          </span>
-        )}
+        You have <span className="font-semibold text-text-primary">{formatConfidence(mine.total)}</span> total ·{" "}
+        <span data-slot="confidence-split">
+          {formatConfidence(mine.available)} available · {formatConfidence(mine.reserved)} reserved behind your picks
+        </span>
+        .
       </p>
       {history.length === 0 ? (
         <p className="text-sm text-text-muted">Nothing here yet.</p>

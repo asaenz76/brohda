@@ -51,7 +51,7 @@ export function AuthenticatedShell({
   // The viewer's own profile segment: the same one ProfilePage uses for its follower links.
   const profileSlug = user.username ?? user.id;
   const isAdmin = isAdminOrAbove(user);
-  const navProps = { profileSlug, showSocialNav, showWallet, unreadNotificationCount, showMessages, unreadMessageCount, availableCents, heldCents, isAdmin };
+  const navProps = { profileSlug, showSocialNav, showWallet, unreadNotificationCount, showMessages, unreadMessageCount, availableCents, heldCents, isAdmin, confidence };
 
   return (
     <div className="min-h-full bg-background">
@@ -60,7 +60,7 @@ export function AuthenticatedShell({
           <Link href="/feed" className="font-logo text-lg font-extrabold italic text-text-primary">
             brohda.
           </Link>
-          {/* Phone: the Member's Confidence is always in view, top right — no tap to Profile needed. */}
+          {/* Phone: the total is always in view, top right — the full summary sits in the Menu where the Wallet row used to be. On larger screens it lives in the navigation rail instead. */}
           {confidence && <ConfidenceBalance {...confidence} className="flex min-h-9 items-center rounded-full bg-surface-secondary px-3 text-sm font-semibold text-text-primary" />}
         </div>
       </header>
@@ -70,8 +70,6 @@ export function AuthenticatedShell({
           <Link href="/feed" className="block px-3 pt-1 font-logo text-[1.7rem] font-extrabold italic leading-none text-text-primary">
             brohda.
           </Link>
-          {/* Desktop/tablet: the same indicator, right under the logo and above the navigation, where the wallet balance used to be the first thing a Member saw. */}
-          {confidence && <ConfidenceBalance {...confidence} className="mx-3 flex min-h-9 w-fit items-center rounded-full bg-surface-secondary px-3 text-sm font-semibold text-text-primary hover:bg-surface-secondary/70" />}
           <LeftNav {...navProps} />
         </aside>
 

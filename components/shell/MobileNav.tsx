@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { BookOpen, Menu, MessageSquare, Search, Settings, Shield, Wallet } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 import { LogoutRow } from "@/components/shell/LogoutRow";
+import { ConfidenceSummary, type ConfidenceFigures } from "@/components/confidence/ConfidenceBalance";
 import { MenuSheet, menuItemClass } from "@/components/shell/MenuSheet";
 import { MESSAGES_NAV, MOBILE_NAV, activeNavKey, visibleNav, type ShellNavItem } from "@/components/shell/nav";
 import { cn } from "@/lib/utils";
@@ -52,6 +53,7 @@ export function MobileNav({
   availableCents,
   heldCents,
   isAdmin,
+  confidence = null,
 }: {
   profile: { displayName: string; avatarUrl: string | null };
   profileSlug: string | null;
@@ -63,6 +65,8 @@ export function MobileNav({
   availableCents: number;
   heldCents: number;
   isAdmin: boolean;
+  /** The Member's Confidence (null while Confidence is off): the full summary sits in the Menu, in the slot the Wallet row used to own. */
+  confidence?: ConfidenceFigures | null;
 }) {
   const pathname = usePathname();
   const active = activeNavKey(pathname, profileSlug);
@@ -119,6 +123,7 @@ export function MobileNav({
                   <Search className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
                   Search
                 </Link>
+                {confidence && <ConfidenceSummary {...confidence} onNavigate={close} active={pathname.startsWith("/profile/confidence")} />}
                 {showWallet && (
                   <Link href="/wallet" onClick={close} title={description} aria-label={`Wallet: ${description}`} className={menuItemClass}>
                     <Wallet className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />

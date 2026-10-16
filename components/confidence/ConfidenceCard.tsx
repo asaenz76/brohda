@@ -15,11 +15,9 @@ export async function ConfidenceCard({ memberId }: { memberId: string }) {
           History
         </Link>
       </div>
-      {mine.reserved > 0 && (
-        <p className="text-xs text-text-secondary" data-slot="confidence-card-split">
-          {formatConfidence(mine.available)} available · {formatConfidence(mine.reserved)} reserved behind your picks
-        </p>
-      )}
+      <p className="text-xs text-text-secondary" data-slot="confidence-card-split">
+        {formatConfidence(mine.total)} total · {formatConfidence(mine.available)} available · {formatConfidence(mine.reserved)} reserved behind your picks
+      </p>
       <ClaimPanel initialTotal={mine.total} canClaim={mine.canClaim} claimAmount={mine.claimAmount} nextClaimAt={mine.nextClaimAt} atOrAboveBaseline={mine.atOrAboveBaseline} />
     </section>
   );
