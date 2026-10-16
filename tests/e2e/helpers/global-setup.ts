@@ -37,7 +37,7 @@ export default async function globalSetup() {
   // registration_enabled gets the same once-per-run treatment: the logged-out front door at "/"
   // only renders while self-service registration is open (it redirects to /login otherwise — the
   // invite-only behavior it replaced), and production has registration open. Restored afterwards.
-  const { data: before, error: readError } = await admin.from("platform_settings").select("call_bs_enabled, registration_enabled, monetary_p2p_enabled").eq("id", true).single();
+  const { data: before, error: readError } = await admin.from("platform_settings").select("call_bs_enabled, registration_enabled, monetary_p2p_enabled, confidence_enabled, confidence_backed_picks_enabled").eq("id", true).single();
   if (readError) throw readError;
   const previousCallBsEnabled = before?.call_bs_enabled ?? false;
   const previousRegistrationEnabled = before?.registration_enabled ?? false;
@@ -45,11 +45,15 @@ export default async function globalSetup() {
   // the Rules Money section), so the specs that exercise those need it on as their ambient state — production has it on. The one spec that
   // switches it off (monetary-capability-gating) runs in its own serial project after everything else and restores it.
   const previousMonetaryEnabled = before?.monetary_p2p_enabled ?? false;
+  // A prediction is a side AND the Confidence behind it, so while Confidence (or predictions) is off nobody can make one: almost every spec that makes a prediction through the UI needs both ON as its ambient state,
+  // exactly as production has them. The Confidence specs flip them in their own serial projects (chained last) and restore them. Restored here afterwards.
+  const previousConfidenceEnabled = before?.confidence_enabled ?? false;
+  const previousBackedEnabled = before?.confidence_backed_picks_enabled ?? false;
 
-  const { error } = await admin.from("platform_settings").update({ social_prediction_enabled: true, call_bs_enabled: true, registration_enabled: true, monetary_p2p_enabled: true }).eq("id", true);
+  const { error } = await admin.from("platform_settings").update({ social_prediction_enabled: true, call_bs_enabled: true, registration_enabled: true, monetary_p2p_enabled: true, confidence_enabled: true, confidence_backed_picks_enabled: true }).eq("id", true);
   if (error) throw error;
 
   return async function globalTeardown() {
-    await admin.from("platform_settings").update({ call_bs_enabled: previousCallBsEnabled, registration_enabled: previousRegistrationEnabled, monetary_p2p_enabled: previousMonetaryEnabled }).eq("id", true);
+    await admin.from("platform_settings").update({ call_bs_enabled: previousCallBsEnabled, registration_enabled: previousRegistrationEnabled, monetary_p2p_enabled: previousMonetaryEnabled, confidence_enabled: previousConfidenceEnabled, confidence_backed_picks_enabled: previousBackedEnabled }).eq("id", true);
   };
 }

@@ -18,8 +18,17 @@ export function ConfidenceSettingsForm({ settings }: { settings: ConfidenceSetti
       <label className="flex items-start gap-2 text-sm font-medium text-text-primary">
         <input type="checkbox" name="confidence_backed_picks_enabled" defaultChecked={settings.backedPicksEnabled} className="mt-0.5 size-4" />
         <span>
-          Members can put Confidence behind their picks
-          <span className="block text-xs font-normal text-text-muted">Off by default. Turning it off never strands Confidence already behind a pick: those still settle from the result.</span>
+          Members can make predictions
+          <span className="block text-xs font-normal text-text-muted">Every prediction is a side and the Confidence behind it, made in one step. Turning this off pauses new predictions; Confidence already behind a prediction still settles from the result.</span>
+        </span>
+      </label>
+      <label className="flex items-start gap-2 text-sm font-medium text-text-primary">
+        <input type="checkbox" name="confidence_mandatory" defaultChecked={settings.mandatorySince !== null} className="mt-0.5 size-4" data-slot="confidence-mandatory" />
+        <span>
+          No Pick can exist without Confidence (enforced in the database)
+          <span className="block text-xs font-normal text-text-muted" data-slot="confidence-mandatory-since">
+            {settings.mandatorySince ? `Enforced since ${new Date(settings.mandatorySince).toUTCString()}.` : "Not enforced yet."} Once on, a new Pick that has no Confidence behind it cannot be saved by anything. Earlier picks are never changed. Needs predictions on.
+          </span>
         </span>
       </label>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -45,10 +54,10 @@ export function ConfidenceSettingsForm({ settings }: { settings: ConfidenceSetti
           </span>
         </label>
         <label className="space-y-1 text-xs font-medium text-text-secondary">
-          Future pick sizes
+          Confidence choices on a prediction
           <input type="text" name="confidence_allowed_stakes" defaultValue={settings.allowedStakes.join(", ")} className={input} aria-describedby="conf-stakes-help" />
           <span id="conf-stakes-help" className="block font-normal text-text-muted">
-            Increasing whole numbers, like 1, 2, 3, 4, 5. Nothing uses this until Confidence-backed Picks exist.
+            Increasing whole numbers, like 1, 2, 3, 4, 5. The smallest is the least a Member must put behind a prediction.
           </span>
         </label>
       </div>

@@ -218,8 +218,11 @@ test.describe("Pick-first sentiment", () => {
     await expect(main.getByText("Make your pick to see how everyone else picked.")).toBeVisible();
     expect(await main.innerText()).not.toMatch(/\d+%|\d+ predicted/);
 
+    // A prediction is a side AND Confidence: the side is local, a level makes it, and only then does the crowd appear.
     await page.getByRole("button", { name: `Pick ${nfl.home} to win` }).first().click();
-    await expect(main.getByText(/\d+%/).first()).toBeVisible();
+    expect(await main.innerText()).not.toMatch(/\d+%|\d+ predicted/);
+    await page.locator('[data-slot="confidence-choice"][data-amount="1"]').first().click();
+    await expect(main.getByText(/\d+%/).first()).toBeVisible({ timeout: 30_000 });
     await expect(main.getByText(/\d+ predicted/).first()).toBeVisible();
   });
 

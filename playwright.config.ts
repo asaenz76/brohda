@@ -179,19 +179,11 @@ export default defineConfig({
       fullyParallel: false,
       dependencies: ["chromium-messaging"],
     },
-    // Confidence from the Home feed (parity with the Post detail) flips the same capability — its own project, chained after the backed-Picks one.
+    // Confidence is part of every prediction: this spec flips the Confidence / predictions switches and the enforcement switch, so it has its own project, chained after the Confidence one so the two never overlap.
     {
-      name: "chromium-confidence-feed",
+      name: "chromium-confidence-predictions",
       use: { ...devices["Desktop Chrome"] },
-      testMatch: /confidence-feed-parity/,
-      fullyParallel: false,
-      dependencies: ["chromium-confidence-backed-picks"],
-    },
-    // Confidence-backed Picks flips confidence_backed_picks_enabled — its own project, chained after the Confidence one so the two never overlap.
-    {
-      name: "chromium-confidence-backed-picks",
-      use: { ...devices["Desktop Chrome"] },
-      testMatch: /confidence-backed-picks/,
+      testMatch: /confidence-predictions/,
       fullyParallel: false,
       dependencies: ["chromium-confidence"],
     },

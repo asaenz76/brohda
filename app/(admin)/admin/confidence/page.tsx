@@ -40,6 +40,14 @@ interface Overview {
   reconciliationMismatches: number;
 }
 
+interface Capacity {
+  mandatorySince: string | null;
+  minimumStake: number;
+  unableToPredict: number;
+  legacyPicks: { total: number; graded: number; open: number; openAndEditable: number };
+  backedPicks: number;
+}
+
 const fmt = (n: number | null | undefined) => (n === null || n === undefined ? "—" : Number(n).toLocaleString("en-US", { maximumFractionDigits: 2 }));
 
 export default async function AdminConfidencePage({ searchParams }: { searchParams: Promise<{ member?: string }> }) {
@@ -48,6 +56,8 @@ export default async function AdminConfidencePage({ searchParams }: { searchPara
   const admin = createAdminClient();
   const { data } = await admin.rpc("confidence_economy_overview");
   const o = data as Overview | null;
+  const { data: capacityData } = await admin.rpc("confidence_prediction_capacity");
+  const capacity = capacityData as Capacity | null;
 
   let lookup: { id: string; displayName: string; username: string | null; available: number | null; reserved: number; entries: Array<Record<string, any>> } | null = null; // eslint-disable-line @typescript-eslint/no-explicit-any
   let lookupMissing = false;
@@ -116,6 +126,26 @@ export default async function AdminConfidencePage({ searchParams }: { searchPara
               </div>
             ))}
           </dl>
+          {capacity && (
+            <>
+              <h3 className="pt-1 text-xs font-semibold uppercase tracking-wide text-text-muted">Predictions need Confidence</h3>
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3" data-slot="prediction-capacity">
+                {[
+                  ["Enforced in the database", capacity.mandatorySince ? `since ${new Date(capacity.mandatorySince).toUTCString()}` : "not yet"],
+                  ["Predictions (backed picks)", fmt(capacity.backedPicks)],
+                  ["Members who can't predict now", `${fmt(capacity.unableToPredict)} (less than ${formatConfidence(capacity.minimumStake)} available)`],
+                  ["Earlier picks without Confidence", fmt(capacity.legacyPicks.total)],
+                  ["…graded", fmt(capacity.legacyPicks.graded)],
+                  ["…still open", `${fmt(capacity.legacyPicks.open)} (${fmt(capacity.legacyPicks.openAndEditable)} can still be completed)`],
+                ].map(([k, v]) => (
+                  <div key={k}>
+                    <dt className="text-xs text-text-muted">{k}</dt>
+                    <dd className="font-medium text-text-primary">{v}</dd>
+                  </div>
+                ))}
+              </dl>
+            </>
+          )}
           <p className="text-xs text-text-muted">
             Distribution: min {fmt(o.distribution.min)} · 10th {fmt(o.distribution.p10)} · 25th {fmt(o.distribution.p25)} · median {fmt(o.distribution.p50)} · 75th {fmt(o.distribution.p75)} · 90th {fmt(o.distribution.p90)} · max {fmt(o.distribution.max)}
           </p>

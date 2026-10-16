@@ -5,6 +5,7 @@
  * a count) appears only after a Pick; the Game locks at T-10; and a graded Game reads in the visible choice's words. Seeded through the app's own
  * tables with controlled fixtures; no real money, test accounts only.
  */
+import { predict } from "./helpers/predict";
 import { test, expect, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { getTestAdminClient } from "./helpers/test-env";
@@ -198,6 +199,7 @@ for (const sport of [NBA, NHL]) {
   for (const template of sport.templates) {
     test.describe(`${sport.league} ${template.marketLabel} Game Post`, () => {
       test("renders in the sport's matchup order and language, hides sentiment until a Pick, then runs the whole Pick -> Call BS -> graded loop on the shared architecture", async ({ page }) => {
+      test.setTimeout(120_000); // a prediction is two taps and one atomic save, on a dev server
         const suffix = randomUUID().slice(0, 6);
         const home = `${sport.home} ${suffix}`;
         const away = `${sport.away} ${suffix}`;
@@ -216,7 +218,7 @@ for (const sport of [NBA, NHL]) {
           await expect(card.getByText(`${away} @ ${home}`)).toBeVisible();
           await expect(card.locator('[data-slot="league-identity"]')).toHaveText(sport.league);
           const picker = card.getByTestId("prediction-actions");
-          await expect(picker.getByRole("button")).toHaveText([first.label, second.label]);
+          await expect(picker.getByRole("button", { name: /^Pick / })).toHaveText([first.label, second.label]);
           await expect(picker.getByRole("button", { name: first.name, exact: true })).toBeVisible();
           await expect(picker.getByRole("button", { name: second.name, exact: true })).toBeVisible();
           await expect(picker).not.toContainText(/\bYes\b|\bNo\b/);
@@ -227,20 +229,22 @@ for (const sport of [NBA, NHL]) {
           await expect(card.getByText("Make your pick to see how everyone else picked.")).toBeVisible();
           expect(await card.innerText()).not.toMatch(/\d+%|\d+ predicted/);
 
-          // Pick -> stored canonical selection, reload preserves, change before T-10 moves both.
+          // A prediction is a side AND Confidence: the side is local (nothing stored, switch freely), a Confidence level makes it; the stored canonical selection is the one the choice stands for, and it is final.
           await card.getByRole("button", { name: yes.name, exact: true }).click();
-          await expect.poll(() => storedSelection(one.id, game.marketId)).toBe("YES");
-          await page.reload();
-          await expect(card.getByRole("button", { name: yes.name, exact: true })).toHaveAttribute("aria-pressed", "true");
           await card.getByRole("button", { name: no.name, exact: true }).click();
           await expect(card.getByRole("button", { name: no.name, exact: true })).toHaveAttribute("aria-pressed", "true");
+          expect(await storedSelection(one.id, game.marketId)).toBeUndefined();
+          await card.locator('[data-slot="confidence-choice"][data-amount="1"]').click();
           await expect.poll(() => storedSelection(one.id, game.marketId)).toBe("NO");
+          await page.reload();
+          await expect(card.getByText(`You picked ${no.label}`)).toBeVisible();
+          await expect(card.getByRole("button", { name: /^Pick / })).toHaveCount(0);
 
           // An opposing participant picks the other visible side; sentiment now reveals for them (percentages + count), in display order.
           await loginAs(page, two.email);
           await page.goto("/feed");
           await expect(card.getByText("Make your pick to see how everyone else picked.")).toBeVisible();
-          await card.getByRole("button", { name: yes.name, exact: true }).click();
+          await predict(card, yes.name, 1);
           await expect.poll(() => storedSelection(two.id, game.marketId)).toBe("YES");
           await page.reload();
           await expect(card.getByText(`${first.label} 50% · ${second.label} 50% · 2 predicted`)).toBeVisible();
@@ -291,6 +295,7 @@ for (const sport of [NBA, NHL]) {
 
       for (const width of [320, 375, 768, 1280]) {
         test(`${width}px: long team names wrap, choices stay inside the card and tappable, nothing scrolls sideways (feed, Post, Profile)`, async ({ page }) => {
+      test.setTimeout(120_000); // a prediction is two taps and one atomic save, on a dev server
           const suffix = randomUUID().slice(0, 6);
           const home = `The Extraordinarily Long Named ${sport.league} Franchise of Greater Metropolis ${suffix}`;
           const away = `Another Remarkably Lengthy ${sport.league} Club of the Northern Territories ${suffix}`;
@@ -312,7 +317,7 @@ for (const sport of [NBA, NHL]) {
               expect(box.x + box.width).toBeLessThanOrEqual(cardBox.x + cardBox.width + 1);
               expect(box.height).toBeGreaterThanOrEqual(36);
             }
-            await card.getByRole("button", { name: first.name, exact: true }).click(); // after a Pick the sentiment line (long labels) is on screen too
+            await predict(card, first.name, 1); // after a prediction the sentiment line (long labels) is on screen too
             await expect(card.getByText(/\d+% .* predicted/)).toBeVisible();
             for (const path of ["/feed", `/post/${game.postId}`, "/profile"]) {
               await page.goto(path);
@@ -342,7 +347,8 @@ for (const sport of [NBA, NHL]) {
         await expect(card).toBeVisible();
         // The server is authoritative: tapping a Pick inside T-10 is refused with the shared copy, and nothing is stored.
         await card.getByRole("button", { name: `Pick ${home} to win` }).click();
-        await expect(card.getByText("Picks are locked for this game.")).toBeVisible(); // the card swaps the Pick buttons for the lock notice
+        await card.locator('[data-slot="confidence-choice"][data-amount="1"]').click();
+        await expect(card.getByText("Picks are locked for this game.")).toBeVisible(); // the card swaps the composer for the lock notice
         expect(await storedSelection(user.id, locked.marketId)).toBeUndefined();
         const { data } = await admin.rpc("set_pick", { p_user_id: user.id, p_market_id: locked.marketId, p_selected_outcome: "YES", p_yes_probability: 0.6, p_no_probability: 0.4, p_market_question: "q", p_market_close_at: null, p_market_status: "ACTIVE", p_idempotency_key: randomUUID() }).single();
         expect((data as { outcome: string }).outcome).toBe("rejected_cutoff");
@@ -365,6 +371,7 @@ for (const sport of [NBA, NHL]) {
         await loginAs(page, user.email);
         await page.goto(`/post/${game.postId}`);
         await page.getByRole("button", { name: `Pick ${home} to win` }).click();
+        await page.locator('[data-slot="confidence-choice"][data-amount="1"]').click();
         await expect(page.getByText(/locked/i).first()).toBeVisible(); // refused on server state alone, days before the scheduled start
         expect(await storedSelection(user.id, game.marketId)).toBeUndefined();
       } finally {

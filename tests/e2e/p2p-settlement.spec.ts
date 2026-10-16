@@ -10,6 +10,7 @@
  * test:e2e` handles the rest.
  */
 import { test, expect, type Page } from "@playwright/test";
+import { predict } from "./helpers/predict";
 import { randomUUID } from "node:crypto";
 import { getTestAdminClient } from "./helpers/test-env";
 
@@ -124,6 +125,7 @@ async function cleanup(fixtureId: string, marketId: string, userIds: string[]) {
 
 test.describe("P2P Settlement", () => {
   test("a committed Position settles from a local authoritative result, crediting the winner and updating both wallets", async ({ page }) => {
+      test.setTimeout(120_000); // a prediction is two taps and one atomic save, on a dev server
     await admin.from("platform_settings").update({ monetary_p2p_enabled: true, p2p_fee_bps: 0 }).eq("id", true);
     const suffix = randomUUID();
     const emailWinner = `e2e-p2p-winner-${suffix}@test.local`;
@@ -143,13 +145,13 @@ test.describe("P2P Settlement", () => {
 
       await loginAs(page, emailWinner);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Pick Home Test FC to win" }).click();
+      await predict(page, "Pick Home Test FC to win", 1);
       await expect(page.getByText(/You picked Home Test FC/)).toBeVisible();
 
       await page.context().clearCookies();
       await loginAs(page, emailLoser);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Pick Away Test FC to win" }).click();
+      await predict(page, "Pick Away Test FC to win", 1);
       await expect(page.getByText(/You picked Away Test FC/)).toBeVisible();
       await page.reload();
       await page.getByRole("button", { name: "Put money on it" }).click();

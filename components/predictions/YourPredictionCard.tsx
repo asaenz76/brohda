@@ -1,7 +1,7 @@
 import type { Prediction } from "@/lib/predictions/types";
 import type { Choice } from "@/lib/prediction-markets/selection-labels";
 import { formatConfidence, formatSignedConfidence } from "@/lib/confidence/format";
-import { CommittedConfidence } from "@/components/confidence/PickConfidence";
+import { CommittedConfidence } from "@/components/confidence/CommittedConfidence";
 
 /** The Confidence committed behind this Pick, if any (shown only on the viewer's own Pick). */
 export interface PickStake {

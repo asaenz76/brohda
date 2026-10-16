@@ -7,6 +7,7 @@
  *
  * Each template gets its own American-football Game (so the matchup order is Away @ Home) with one Market and one published Post.
  */
+import { predict } from "./helpers/predict";
 import { test, expect, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { getTestAdminClient } from "./helpers/test-env";
@@ -163,7 +164,7 @@ for (const template of TEMPLATES) {
         const card = article(page, home, away);
         await expect(card).toBeVisible();
         const picker = card.getByTestId("prediction-actions");
-        await expect(picker.getByRole("button")).toHaveText([first.label, second.label]); // display order
+        await expect(picker.getByRole("button", { name: /^Pick / })).toHaveText([first.label, second.label]); // display order
         await expect(picker.getByRole("button", { name: first.name, exact: true })).toBeVisible();
         await expect(picker.getByRole("button", { name: second.name, exact: true })).toBeVisible();
         await expect(card).not.toContainText(/do not win|Will the|Old-style question/i);
@@ -171,25 +172,24 @@ for (const template of TEMPLATES) {
         if (template.key === "moneyline") await expect(card.getByText("Moneyline")).toHaveCount(0); // the teams are the Market
         else await expect(card.getByText(template.marketLabel, { exact: true })).toBeVisible();
 
-        // --- Pick one side: the canonical selection stored is the one that choice stands for.
+        // --- Choosing a side is local (nothing is stored); it can be switched freely. Then a Confidence level makes the prediction, and the canonical selection stored is the one that choice stands for.
         await card.getByRole("button", { name: yes.name, exact: true }).click();
-        await expect(card.getByText("Change your prediction")).toBeVisible();
-        await expect.poll(() => storedSelection(one.id, game.marketId)).toBe("YES");
-
-        // --- Reload: the selected state is still on the same visible choice.
-        await page.reload();
-        await expect(card.getByRole("button", { name: yes.name, exact: true })).toHaveAttribute("aria-pressed", "true");
-        await expect(card.getByRole("button", { name: no.name, exact: true })).toHaveAttribute("aria-pressed", "false");
-
-        // --- Change before the cutoff: the selection and the stored value move together.
         await card.getByRole("button", { name: no.name, exact: true }).click();
         await expect(card.getByRole("button", { name: no.name, exact: true })).toHaveAttribute("aria-pressed", "true");
+        expect(await storedSelection(one.id, game.marketId)).toBeUndefined();
+        await card.locator('[data-slot="confidence-choice"][data-amount="1"]').click();
         await expect.poll(() => storedSelection(one.id, game.marketId)).toBe("NO");
+
+        // --- Reload: the prediction is final — the visible choice is shown as made, locked, with its Confidence; nothing can be changed.
+        await page.reload();
+        await expect(card.getByText(`You picked ${no.label}`)).toBeVisible();
+        await expect(card.locator('[data-slot="pick-confidence"]')).toHaveAttribute("aria-label", "1 Confidence, locked");
+        await expect(card.getByRole("button", { name: /^Pick / })).toHaveCount(0);
 
         // --- An opposing participant: they pick the other visible side (stored YES).
         await loginAs(page, two.email);
         await page.goto("/feed");
-        await card.getByRole("button", { name: yes.name, exact: true }).click();
+        await predict(card, yes.name, 1);
         await expect.poll(() => storedSelection(two.id, game.marketId)).toBe("YES");
         await page.reload();
         // Sentiment sits against the visible sides, in the same order: the canonical 50/50 relabelled.
@@ -311,11 +311,11 @@ test.describe("A tied Moneyline", () => {
     try {
       await loginAs(page, one.email);
       await page.goto("/feed");
-      await article(page, home, away).getByRole("button", { name: `Pick ${home} to win`, exact: true }).click();
+      await predict(article(page, home, away), `Pick ${home} to win`, 1);
       await expect.poll(() => storedSelection(one.id, game.marketId)).toBe("YES");
       await loginAs(page, two.email);
       await page.goto("/feed");
-      await article(page, home, away).getByRole("button", { name: `Pick ${away} to win`, exact: true }).click();
+      await predict(article(page, home, away), `Pick ${away} to win`, 1);
       await expect.poll(() => storedSelection(two.id, game.marketId)).toBe("NO");
 
       // 14–14: both stored sides grade VOID, with no resolved side.

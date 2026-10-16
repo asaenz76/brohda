@@ -24,9 +24,16 @@ export interface MyConfidence {
 
 /** The signed-in Member's own Confidence, or null while the capability is OFF (or they are not eligible). Creates the account on first look (idempotent, race-safe), so nobody waits for the backfill. */
 export async function getMyConfidence(memberId: string): Promise<MyConfidence | null> {
+  return readMemberConfidence(memberId, await createClient());
+}
+
+/**
+ * The same read with a caller-supplied client, for code that runs outside a request (no cookies) but already knows WHICH Member it is acting for (a feed building a page for the signed-in Member). `memberId` must come from the authenticated
+ * session, never from a client.
+ */
+export async function readMemberConfidence(memberId: string, supabase: Pick<ReturnType<typeof createAdminClient>, "from">): Promise<MyConfidence | null> {
   const config = await getConfidenceConfig();
   if (!config) return null;
-  const supabase = await createClient();
   let { data: account } = await supabase.from("confidence_accounts").select("available, reserved, total, last_daily_claim_at").eq("member_id", memberId).maybeSingle();
   if (!account) {
     const admin = createAdminClient();

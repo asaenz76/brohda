@@ -4,6 +4,7 @@
  * it is visible, inside the card, tappable, clear of the Pick buttons and works from the keyboard.
  */
 import { test, expect, type Page } from "@playwright/test";
+import { predict } from "./helpers/predict";
 import { randomUUID } from "node:crypto";
 import { getTestAdminClient } from "./helpers/test-env";
 
@@ -115,9 +116,9 @@ test("using a Pick control never navigates, and using the action never makes a P
     await loginAs(page, user.email);
     await page.goto("/feed");
     const c = card(page, g);
-    await c.getByRole("button", { name: new RegExp(`^Pick ${g.home}`) }).click();
-    await expect(c.getByText("Change your prediction")).toBeVisible();
-    await expect(page).toHaveURL(/\/feed$/); // the Pick stayed on the feed
+    await predict(c, new RegExp(`^Pick ${g.home}`), 1);
+    await expect(c.getByText(`You picked ${g.home}`)).toBeVisible();
+    await expect(page).toHaveURL(/\/feed$/); // the prediction stayed on the feed
     await c.getByRole("button", { name: /^See more markets/i }).click();
     await expect(page).toHaveURL(/\/feed$/); // and expanding stayed on the feed too
     expect((await admin.from("predictions").select("id").eq("user_id", user.id)).data).toHaveLength(1); // exactly the one Pick made on purpose

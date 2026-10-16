@@ -17,7 +17,7 @@ export interface ConfidenceConfig {
 }
 
 const COLUMNS =
-  "confidence_enabled, confidence_backed_picks_enabled, confidence_baseline, confidence_daily_claim_amount, confidence_daily_claim_interval_hours, confidence_allowed_stakes, confidence_notify_correct, confidence_notify_incorrect, confidence_notify_void";
+  "confidence_enabled, confidence_backed_picks_enabled, confidence_mandatory_since, confidence_baseline, confidence_daily_claim_amount, confidence_daily_claim_interval_hours, confidence_allowed_stakes, confidence_notify_correct, confidence_notify_incorrect, confidence_notify_void";
 const isPositiveInt = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n) && n >= 1;
 
 /** The validated policy, or null when the capability is OFF or any value is unreadable/malformed — callers treat null as OFF. */
@@ -53,6 +53,8 @@ export const isConfidenceEnabled = cache(async (): Promise<boolean> => {
 export interface ConfidenceSettingsForAdmin {
   enabled: boolean;
   backedPicksEnabled: boolean;
+  /** When "every Pick needs Confidence" was enforced in the database (ISO), or null while it is not. */
+  mandatorySince: string | null;
   notifyCorrect: string;
   notifyIncorrect: string;
   notifyVoid: string;
@@ -69,6 +71,7 @@ export async function getConfidenceSettingsForAdmin(): Promise<ConfidenceSetting
   return {
     enabled: data.confidence_enabled === true,
     backedPicksEnabled: data.confidence_backed_picks_enabled === true,
+    mandatorySince: data.confidence_mandatory_since ?? null,
     notifyCorrect: data.confidence_notify_correct,
     notifyIncorrect: data.confidence_notify_incorrect,
     notifyVoid: data.confidence_notify_void,

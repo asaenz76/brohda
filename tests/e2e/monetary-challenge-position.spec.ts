@@ -9,6 +9,7 @@
  * stack (`pnpm supabase:start`) — `pnpm test:e2e` handles the rest.
  */
 import { test, expect, type Page } from "@playwright/test";
+import { predict } from "./helpers/predict";
 import { randomUUID } from "node:crypto";
 import { getTestAdminClient } from "./helpers/test-env";
 
@@ -127,14 +128,14 @@ test.describe("Monetary Challenge + Position", () => {
       // A picks YES.
       await loginAs(page, emailA);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Pick Home Test FC to win" }).click();
+      await predict(page, "Pick Home Test FC to win", 1);
       await expect(page.getByText(/You picked Home Test FC/)).toBeVisible();
 
       // B picks NO, sees A's opposing pick, and proposes $10.
       await page.context().clearCookies();
       await loginAs(page, emailB);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Pick Away Test FC to win" }).click();
+      await predict(page, "Pick Away Test FC to win", 1);
       await expect(page.getByText(/You picked Away Test FC/)).toBeVisible();
       await page.reload();
       await expect(page.getByText("Other picks")).toBeVisible();

@@ -2,13 +2,15 @@ import { z } from "zod";
 
 // Prediction submission input validation — mirrors this codebase's existing
 // convention (lib/validations/discovery.ts, lib/validations/pools.ts).
+//
+// A prediction is a side AND the Confidence behind it: there is no way to submit a side alone. The amount is only checked to be a positive whole
+// number here; whether it is one of the configured choices (platform_settings.confidence_allowed_stakes) is the database's decision.
 
-export const submitPredictionSchema = z.object({
+export const commitPredictionSchema = z.object({
   marketId: z.string().uuid(),
   selectedOutcome: z.enum(["YES", "NO"]),
-  // Client-generated, carried across retries — see
-  // lib/predictions/repository.ts's createPrediction and
-  // docs/architecture/prediction-layer.md's mutation-safety section.
+  amount: z.number().int().min(1),
+  // Client-generated per composer, carried across retries of the SAME attempt: the database makes it exactly-once.
   idempotencyKey: z.string().uuid(),
 });
-export type SubmitPredictionInput = z.infer<typeof submitPredictionSchema>;
+export type CommitPredictionInput = z.infer<typeof commitPredictionSchema>;

@@ -65,6 +65,9 @@ async function member(label = "sec") {
 const itemFor = async (viewer: string | null, fixtureId: string) => (await getSocialFeed(viewer, 300)).find((i) => i.post.fixtureId === fixtureId);
 const pickOn = (userId: string, marketId: string, outcome: "YES" | "NO") =>
   setPick({ userId, marketId, selectedOutcome: outcome, yesProbability: 0.5, noProbability: 0.5, marketQuestionSnapshot: "q", marketCloseAtSnapshot: null, marketStatusSnapshot: "ACTIVE", idempotencyKey: randomUUID() });
+/** The viewer's prediction the way a Member makes one now: side + Confidence, one transaction (the crowd's Picks around it are just rows). */
+const commit = async (memberId: string, marketId: string, side: "YES" | "NO", amount = 1) =>
+  (await admin.rpc("create_confidence_prediction", { p_user_id: memberId, p_market_id: marketId, p_selected_outcome: side, p_amount: amount, p_yes_probability: 0.5, p_no_probability: 0.5, p_market_question: "q", p_market_close_at: null, p_market_status: "ACTIVE", p_idempotency_key: randomUUID() })).data as Row;
 const attach = async (memberId: string, predictionId: string, amount: number) => (await admin.rpc("confidence_attach_stake", { p_member_id: memberId, p_prediction_id: predictionId, p_amount: amount, p_idempotency_key: randomUUID() })).data as Row;
 
 describe("which Markets a card carries, and in what order", () => {
@@ -128,13 +131,33 @@ describe("each secondary Market carries its OWN state, exactly like the primary"
     const g = await fullGame();
     for (const o of others) await pickOn(o, g.totalId, "YES"); // 3 Over
     await pickOn(others[0], g.spreadId, "NO");
-    await pickOn(v, g.totalId, "NO"); // the viewer picks Under → total now 3 Over / 1 Under
+    expect((await commit(v, g.totalId, "NO")).outcome).toBe("created"); // the viewer commits to Under → total now 3 Over / 1 Under
     const item = await itemFor(v, g.fixtureId);
     const total = item!.secondaryMarkets!.find((m) => m.id === g.totalId)!;
     const spread = item!.secondaryMarkets!.find((m) => m.id === g.spreadId)!;
     expect(total).toMatchObject({ sentimentRevealed: true, totalPickCount: 4, yesPercent: 75, noPercent: 25, viewerSelection: "NO" });
     expect(spread).toMatchObject({ sentimentRevealed: false, totalPickCount: 0, yesPercent: null, viewerSelection: null }); // the others' spread Pick is not shown to someone who hasn't picked it
     expect(item!.primaryMarket).toMatchObject({ sentimentRevealed: false, viewerSelection: null });
+  });
+
+  it("commit before the crowd: an old open Pick that has not been completed with Confidence does NOT reveal sentiment; completing it does", async () => {
+    const v = await member("legacy-viewer");
+    const other = await member("legacy-other");
+    const g = await fullGame();
+    await pickOn(other, g.totalId, "YES");
+    await pickOn(v, g.totalId, "NO"); // an unbacked, still-open Pick from before Confidence was part of every prediction
+    let total = (await itemFor(v, g.fixtureId))!.secondaryMarkets!.find((m) => m.id === g.totalId)!;
+    expect(total).toMatchObject({ sentimentRevealed: false, yesPercent: null, totalPickCount: 0, isEditable: true });
+    expect((await commit(v, g.totalId, "NO", 2)).outcome).toBe("created");
+    total = (await itemFor(v, g.fixtureId))!.secondaryMarkets!.find((m) => m.id === g.totalId)!;
+    expect(total).toMatchObject({ sentimentRevealed: true, totalPickCount: 2, yesPercent: 50, noPercent: 50, isEditable: false });
+  });
+
+  it("a Member with no Pick, or who has only been looking at the Market, sees no sentiment", async () => {
+    const v = await member("looker");
+    const g = await fullGame();
+    const item = await itemFor(v, g.fixtureId);
+    for (const m of [item!.primaryMarket!, ...item!.secondaryMarkets!]) expect(m).toMatchObject({ sentimentRevealed: false, totalPickCount: 0, viewerPredictionId: null });
   });
 
   it("sentiment counts Picks, never Confidence: a heavily backed Pick weighs the same as an unbacked one", async () => {
@@ -145,7 +168,7 @@ describe("each secondary Market carries its OWN state, exactly like the primary"
     const heavyPick = (await pickOn(heavy, g.totalId, "YES")).prediction!.id;
     await pickOn(light, g.totalId, "NO");
     expect((await attach(heavy, heavyPick, 5)).outcome).toBe("attached");
-    await pickOn(v, g.totalId, "YES");
+    expect((await commit(v, g.totalId, "YES", 5)).outcome).toBe("created");
     const total = (await itemFor(v, g.fixtureId))!.secondaryMarkets!.find((m) => m.id === g.totalId)!;
     expect(total).toMatchObject({ totalPickCount: 3, yesPercent: 67, noPercent: 33 });
   });

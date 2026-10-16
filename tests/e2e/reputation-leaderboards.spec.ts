@@ -9,6 +9,7 @@
  * supabase:start`) — `pnpm test:e2e` handles the rest.
  */
 import { test, expect, type Page } from "@playwright/test";
+import { predict } from "./helpers/predict";
 import { randomUUID } from "node:crypto";
 import { getTestAdminClient } from "./helpers/test-env";
 
@@ -132,7 +133,7 @@ test.describe("Reputation", () => {
       await loginAs(page, emailChamp);
       for (const { marketId } of champMarkets) {
         await page.goto(`/markets/${marketId}`);
-        await page.getByRole("button", { name: "Pick Home Test FC to win" }).click();
+        await predict(page, "Pick Home Test FC to win", 1);
         await expect(page.getByText(/You picked Home Test FC/)).toBeVisible();
       }
       await page.context().clearCookies();
@@ -151,7 +152,7 @@ test.describe("Reputation", () => {
       await loginAs(page, emailBelowMin);
       for (const { marketId } of belowMinMarkets) {
         await page.goto(`/markets/${marketId}`);
-        await page.getByRole("button", { name: "Pick Home Test FC to win" }).click();
+        await predict(page, "Pick Home Test FC to win", 1);
         await expect(page.getByText(/You picked Home Test FC/)).toBeVisible();
       }
       await page.context().clearCookies();
@@ -166,13 +167,13 @@ test.describe("Reputation", () => {
       marketIds.push(cbsMarketId);
       await loginAs(page, emailChamp);
       await page.goto(`/markets/${cbsMarketId}`);
-      await page.getByRole("button", { name: "Pick Home Test FC to win" }).click();
+      await predict(page, "Pick Home Test FC to win", 1);
       await expect(page.getByText(/You picked Home Test FC/)).toBeVisible();
 
       await page.context().clearCookies();
       await loginAs(page, emailBelowMin);
       await page.goto(`/markets/${cbsMarketId}`);
-      await page.getByRole("button", { name: "Pick Away Test FC to win" }).click();
+      await predict(page, "Pick Away Test FC to win", 1);
       await expect(page.getByText(/You picked Away Test FC/)).toBeVisible();
       await page.reload();
       await page.getByRole("button", { name: "Call BS" }).click();

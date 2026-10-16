@@ -1,5 +1,7 @@
 import "server-only";
 import { getStakeUiStates, type StakeUiState } from "@/lib/confidence/stakes";
+import { getConfidenceOffer } from "@/lib/confidence/offer";
+import type { ConfidenceOffer } from "@/lib/confidence/format";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Post } from "@/lib/posts/types";
 import type { Community } from "./types";
@@ -155,6 +157,8 @@ export interface FeedMarketSummary {
    * `open` shows the "How confident are you?" control, `staked` shows the committed amount, anything else shows nothing.
    */
   confidence: StakeUiState;
+  /** What the composer needs to know about the viewer's Confidence — the configured ladder, their available balance, and whether a Daily Claim is open — read once per page; null when predictions are unavailable (Confidence off, or no account). Presentation only. */
+  confidenceOffer: ConfidenceOffer | null;
 }
 
 export interface FeedCommunityRef {
@@ -311,9 +315,10 @@ export async function getSocialFeed(userId: string | null, limit: number = FEED_
 
   const followedPostIds = await listPostIdsInCommunities(postIds, followedCommunityIds);
 
-  const items = await enrichFeedRows(rows, userId, followedPostIds, publicationPolicy, predictionPolicy, freshnessPolicy);
+  const confidenceOffer = userId ? await getConfidenceOffer(userId) : null;
+  const items = await enrichFeedRows(rows, userId, followedPostIds, publicationPolicy, predictionPolicy, freshnessPolicy, confidenceOffer);
   items.sort(compareFeedItems);
-  return withSponsorships(await withSecondaryMarkets(items.slice(0, limit), userId, publicationPolicy, predictionPolicy, freshnessPolicy));
+  return withSponsorships(await withSecondaryMarkets(items.slice(0, limit), userId, publicationPolicy, predictionPolicy, freshnessPolicy, confidenceOffer));
 }
 
 interface SummarizeMarketInput {
@@ -324,6 +329,7 @@ interface SummarizeMarketInput {
   viewerPrediction: Prediction | undefined;
   aggregate: Parameters<typeof computePickSentiment>[0];
   stakeStates: Map<string, StakeUiState>;
+  confidenceOffer: ConfidenceOffer | null;
   now: Date;
   predictionPolicy: Awaited<ReturnType<typeof getPredictionPolicy>>;
   freshnessPolicy: Awaited<ReturnType<typeof getFreshnessPolicy>>;
@@ -333,16 +339,15 @@ interface SummarizeMarketInput {
  * ONE Market on a feed card, for the primary Market and every secondary Market alike — the same eligibility decision, the same Pick-first sentiment reveal, the same choice presentation, the same Confidence state.
  * Nothing about a Market's treatment depends on whether it is the primary one.
  */
-function summarizeMarket({ market, sport, homeTeamName, awayTeamName, viewerPrediction, aggregate, stakeStates, now, predictionPolicy, freshnessPolicy }: SummarizeMarketInput): FeedMarketSummary {
-  // Pick-first reveal: Brohda's crowd sentiment is shown only to someone who has made a Pick on this Market. A logged-out visitor or a
-  // member who hasn't picked gets no percentages and no count — withheld here, so no surface can show them by accident.
-  const sentimentRevealed = viewerPrediction !== undefined;
-  const sentiment = sentimentRevealed ? computePickSentiment(aggregate) : { yesPercent: null, noPercent: null, totalPickCount: 0 };
-
+function summarizeMarket({ market, sport, homeTeamName, awayTeamName, viewerPrediction, aggregate, stakeStates, confidenceOffer, now, predictionPolicy, freshnessPolicy }: SummarizeMarketInput): FeedMarketSummary {
   // Same eligibility decision MarketPredictionCard makes for a single Market (lib/predictions/policy.ts's checkMarketEligibility), computed in-memory:
   // every input is already in scope, so no extra query per Market.
   let pickDisabledReason: string | null = null;
   const isEditable = !viewerPrediction || (viewerPrediction.lockedAt === null && viewerPrediction.lifecycleState === "PENDING");
+  // Commit-before-crowd: Brohda's crowd sentiment is shown only to someone whose prediction on THIS Market is final. Choosing a side in the composer shows nothing, and neither does an old open Pick that has not been completed with
+  // Confidence yet. A logged-out visitor or a member with no prediction gets no percentages and no count — withheld here, so no surface can show them by accident. One Pick is one vote: Confidence never weights it.
+  const sentimentRevealed = viewerPrediction !== undefined && !isEditable;
+  const sentiment = sentimentRevealed ? computePickSentiment(aggregate) : { yesPercent: null, noPercent: null, totalPickCount: 0 };
   if (isEditable) {
     const consumerStatus = deriveConsumerStatus(market.status, market.resolvedOutcome);
     const freshness = classifyFreshness(market.lastSyncedAt, market.yesPrice != null || market.noPrice != null, freshnessPolicy);
@@ -372,6 +377,7 @@ function summarizeMarket({ market, sport, homeTeamName, awayTeamName, viewerPred
     pickDisabledReason,
     viewerPredictionId: viewerPrediction?.id ?? null,
     confidence: (viewerPrediction && stakeStates.get(viewerPrediction.id)) || { state: "none" },
+    confidenceOffer,
   };
 }
 
@@ -386,6 +392,7 @@ async function withSecondaryMarkets(
   publicationPolicy: Awaited<ReturnType<typeof getPostPublicationPolicy>>,
   predictionPolicy: Awaited<ReturnType<typeof getPredictionPolicy>>,
   freshnessPolicy: Awaited<ReturnType<typeof getFreshnessPolicy>>,
+  confidenceOffer: ConfidenceOffer | null,
 ): Promise<FeedItem[]> {
   // The logged-out front door cannot Pick: it keeps the link to the Post.
   if (!userId || items.length === 0) return items;
@@ -428,6 +435,7 @@ async function withSecondaryMarkets(
           viewerPrediction: viewerPredictions.get(market.id),
           aggregate: aggregates.get(market.id),
           stakeStates,
+          confidenceOffer,
           now,
           predictionPolicy,
           freshnessPolicy,
@@ -455,6 +463,7 @@ async function enrichFeedRows(
   publicationPolicy: Awaited<ReturnType<typeof getPostPublicationPolicy>>,
   predictionPolicy: Awaited<ReturnType<typeof getPredictionPolicy>>,
   freshnessPolicy: Awaited<ReturnType<typeof getFreshnessPolicy>>,
+  confidenceOffer: ConfidenceOffer | null,
 ): Promise<FeedItem[]> {
   const postIds = rows.map((r) => r.id);
   const fixtureIds = [...new Set(rows.map((r) => r.fixture_id))];
@@ -505,6 +514,7 @@ async function enrichFeedRows(
         viewerPrediction: viewerPredictions.get(primary.id),
         aggregate: pickAggregates.get(primary.id),
         stakeStates,
+        confidenceOffer,
         now,
         predictionPolicy,
         freshnessPolicy,
@@ -592,7 +602,8 @@ export async function getCommunityTimeline(communityId: string, userId: string |
     isCommunityTimelineEligible({ internalStatus: row.fixtures!.internal_status, updatedAt: row.fixtures!.updated_at }, now, feedPolicy.completedGameRetentionHours),
   );
 
-  const items = await enrichFeedRows(rows, userId, new Set(), publicationPolicy, predictionPolicy, freshnessPolicy);
+  const confidenceOffer = userId ? await getConfidenceOffer(userId) : null;
+  const items = await enrichFeedRows(rows, userId, new Set(), publicationPolicy, predictionPolicy, freshnessPolicy, confidenceOffer);
 
   const deNoised = items.map((item) => ({
     ...item,
@@ -600,7 +611,7 @@ export async function getCommunityTimeline(communityId: string, userId: string |
   }));
 
   deNoised.sort(compareCommunityTimelineItems);
-  return withSponsorships(await withSecondaryMarkets(deNoised.slice(0, limit), userId, publicationPolicy, predictionPolicy, freshnessPolicy));
+  return withSponsorships(await withSecondaryMarkets(deNoised.slice(0, limit), userId, publicationPolicy, predictionPolicy, freshnessPolicy, confidenceOffer));
 }
 
 /** Presentation only: attaches the active sponsorship (if any) to each returned item. Never changes which Posts appear, their order, or any sports content. */

@@ -9,6 +9,7 @@
  * through the browser.
  */
 import { test, expect, type Page } from "@playwright/test";
+import { seedPrediction } from "./helpers/predict";
 import { randomUUID } from "node:crypto";
 import { getTestAdminClient } from "./helpers/test-env";
 
@@ -94,9 +95,7 @@ test.beforeAll(async () => {
   seeded.marketId = game.marketId;
   await seedGame(LONG_HOME, LONG_AWAY, 21);
   // The commenter also picked the other side, so the Post shows a participant row (Call BS) beneath the conversation.
-  await admin
-    .rpc("set_pick", { p_user_id: commenter.id, p_market_id: game.marketId, p_selected_outcome: "NO", p_yes_probability: 0.6, p_no_probability: 0.4, p_market_question: "q", p_market_close_at: null, p_market_status: "ACTIVE", p_idempotency_key: randomUUID() })
-    .single();
+  await seedPrediction(commenter.id, game.marketId, "NO");
   await admin.from("post_comments").insert({ post_id: game.postId, user_id: commenter.id, body: LONG_COMMENT });
   await admin.from("notifications").insert([
     { user_id: viewer.id, type: "POST_COMMENT_REPLY", title: "New reply", body: `${commenter.id.slice(0, 4)} replied: ${LONG_COMMENT}` },
@@ -182,7 +181,7 @@ test.describe("Authenticated shell — desktop (1280)", () => {
     // Order: the five primary links, then Wallet, positioned lower on the page (a utility, not a destination).
     await page.goto("/feed");
     const hrefs = await rail(page).getByRole("link").evaluateAll((els) => els.map((e) => e.getAttribute("href")));
-    expect(hrefs).toEqual(["/feed", "/discovery", "/notifications", "/search", "/profile", "/wallet", "/profile/edit", "/rules"]);
+    expect(hrefs).toEqual(["/feed", "/discovery", "/notifications", "/search", "/profile", "/profile/confidence", "/wallet", "/profile/edit", "/rules"]);
     const profileBox = (await rail(page).getByRole("link", { name: "Profile" }).boundingBox())!;
     const walletBox = (await rail(page).getByRole("link", { name: /^Wallet:/ }).boundingBox())!;
     expect(walletBox.y).toBeGreaterThan(profileBox.y + profileBox.height);
@@ -211,16 +210,14 @@ test.describe("Authenticated shell — desktop (1280)", () => {
     // Participants (Call BS / money) only show to someone who has a Pick, so this test uses its own viewer who already picked
     // the other side from the seeded commenter — independent of what the Pick test does to the main viewer.
     const picker = await createUser("order", "Order Viewer", `shellorder${suffix}`);
-    await admin
-      .rpc("set_pick", { p_user_id: picker.id, p_market_id: seeded.marketId, p_selected_outcome: "YES", p_yes_probability: 0.6, p_no_probability: 0.4, p_market_question: "q", p_market_close_at: null, p_market_status: "ACTIVE", p_idempotency_key: randomUUID() })
-      .single();
+    await seedPrediction(picker.id, seeded.marketId, "YES");
     await login(page, picker.email);
     await page.goto(`/post/${seeded.postId}`);
     const y = async (loc: import("@playwright/test").Locator) => (await loc.first().boundingBox())!.y;
     const main = page.getByRole("main");
     const game = await y(main.getByText(`${AWAY} @`));
     const sentiment = await y(main.getByText(/\d+% *$/).first());
-    const pick = await y(main.getByRole("button", { name: /^Pick .* to win$/ }));
+    const pick = await y(main.getByText(/^You picked:/)); // the prediction, final (there is no Pick control left once it is made)
     const comments = await y(main.getByText("Comments", { exact: true }));
     const comment = await y(main.getByText("A very long comment"));
     const others = await y(main.getByText("Other picks", { exact: true }));
@@ -269,14 +266,15 @@ test.describe("Authenticated shell — desktop (1280)", () => {
     expect(await game.innerText()).not.toMatch(/posted by|authored by|created by/i);
   });
 
-  test("the Pick control still works from the shell: choose a side, see it saved, change it", async ({ page }) => {
+  test("the prediction composer works from the shell: choose a side (local), tap a Confidence level, see it made and final", async ({ page }) => {
     await login(page);
     const game = gameArticle(page);
     await game.getByRole("button", { name: `Pick ${HOME} to win` }).click();
-    await expect(game.getByText("Change your prediction")).toBeVisible();
-    const { count } = await admin.from("predictions").select("id", { count: "exact", head: true }).eq("market_id", seeded.marketId).eq("user_id", seeded.users[0]);
-    expect(count).toBe(1);
-    await game.getByRole("button", { name: `Pick ${AWAY} to win` }).click();
+    await game.getByRole("button", { name: `Pick ${AWAY} to win` }).click(); // still local: switch freely
+    const none = await admin.from("predictions").select("id", { count: "exact", head: true }).eq("market_id", seeded.marketId).eq("user_id", seeded.users[0]);
+    expect(none.count).toBe(0);
+    await game.locator('[data-slot="confidence-choice"][data-amount="1"]').click();
+    await expect(game.locator('[data-slot="pick-confidence"]')).toHaveAttribute("aria-label", "1 Confidence, locked", { timeout: 30_000 });
     await expect.poll(async () => (await admin.from("predictions").select("selected_outcome").eq("market_id", seeded.marketId).eq("user_id", seeded.users[0]).single()).data?.selected_outcome).toBe("NO");
   });
 
