@@ -8,7 +8,7 @@ import { copyForIneligible } from "@/lib/predictions/copy";
 import { PredictionActions } from "@/components/predictions/PredictionActions";
 import { YourPredictionCard } from "@/components/predictions/YourPredictionCard";
 import { MarketParticipants } from "@/components/predictions/MarketParticipants";
-import { ConfidenceBacking } from "@/components/confidence/ConfidenceBacking";
+import { PickConfidence } from "@/components/confidence/PickConfidence";
 import { getStakeUiState } from "@/lib/confidence/stakes";
 
 /**
@@ -136,8 +136,13 @@ export async function MarketPredictionCard({
         />
       )}
 
-      {existingPrediction && stakeState.state === "open" && (
-        <ConfidenceBacking predictionId={existingPrediction.id} available={stakeState.available} allowedStakes={stakeState.allowedStakes} />
+      {existingPrediction && (
+        <PickConfidence
+          predictionId={existingPrediction.id}
+          selectedOutcome={existingPrediction.selectedOutcome}
+          selectionLabel={market.choices.find((c) => c.outcome === existingPrediction.selectedOutcome)?.label ?? ""}
+          stake={stakeState}
+        />
       )}
 
       {includeParticipants && (

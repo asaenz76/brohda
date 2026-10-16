@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { submitPredictionAction } from "@/lib/actions/predictions";
 import type { Choice } from "@/lib/prediction-markets/selection-labels";
@@ -40,6 +41,7 @@ export function PredictionActions({
    */
   choices: [Choice, Choice];
 }) {
+  const router = useRouter();
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [selection, setSelection] = useState<"YES" | "NO" | null>(currentSelection);
   const [pending, setPending] = useState(false);
@@ -60,6 +62,8 @@ export function PredictionActions({
       // consumed, and idempotency keys must never be reused across two
       // genuinely different requests.
       setIdempotencyKey(crypto.randomUUID());
+      // Re-read what the server decides about this Pick (e.g. whether Confidence can now be put behind it) so the card — on the feed and on the Post alike — updates without a page reload.
+      router.refresh();
     } else if (result.locked) {
       setLocked(true);
       setError(result.error);

@@ -1,3 +1,4 @@
+import { getStakeUiStates, type StakeUiState } from "@/lib/confidence/stakes";
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Post } from "@/lib/posts/types";
@@ -145,6 +146,13 @@ export interface FeedMarketSummary {
   isEditable: boolean;
   /** Null when the viewer may submit/change a Pick right now; otherwise the consumer-facing reason a feed card's Pick control should show instead of live buttons — either why a NEW pick can't be made (copyForIneligible) or that an existing one is locked. */
   pickDisabledReason: string | null;
+  /** The viewer's own Pick id, so the card can put Confidence behind it. Null when the viewer has no Pick here (or no viewer). */
+  viewerPredictionId: string | null;
+  /**
+   * What the card shows about Confidence for the viewer's own Pick — the SAME database decision the Post detail uses (confidence_stake_status), fetched for every Pick on the page in one batched call:
+   * `open` shows the "How confident are you?" control, `staked` shows the committed amount, anything else shows nothing.
+   */
+  confidence: StakeUiState;
 }
 
 export interface FeedCommunityRef {
@@ -351,6 +359,9 @@ async function enrichFeedRows(
     userId ? listLatestUserPredictionsForMarkets(userId, primaryMarketIds) : Promise.resolve(new Map()),
   ]);
 
+  // Confidence behind the viewer's OWN Picks, for the whole page in ONE call (never a query per card) — the same decision the Post detail makes.
+  const stakeStates = userId && viewerPredictions.size > 0 ? await getStakeUiStates(userId, [...viewerPredictions.values()].map((p) => p.id)) : new Map<string, StakeUiState>();
+
   const now = new Date();
 
   return rows.map((row) => {
@@ -401,6 +412,8 @@ async function enrichFeedRows(
         viewerSelection: viewerPrediction?.selectedOutcome ?? null,
         isEditable,
         pickDisabledReason,
+        viewerPredictionId: viewerPrediction?.id ?? null,
+        confidence: (viewerPrediction && stakeStates.get(viewerPrediction.id)) || { state: "none" },
       };
     }
 

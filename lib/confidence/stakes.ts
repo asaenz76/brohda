@@ -17,14 +17,30 @@ export type StakeUiState =
  * while Confidence is off or for anything that is not the caller's Pick. An existing commitment is always shown, whatever the capability says.
  */
 export async function getStakeUiState(memberId: string, predictionId: string): Promise<StakeUiState> {
-  const admin = createAdminClient();
-  // Existing commitments are shown even if the capability was later switched off (they still settle).
-  const { data, error } = await admin.rpc("confidence_stake_status", { p_member_id: memberId, p_prediction_id: predictionId });
+  const { data, error } = await createAdminClient().rpc("confidence_stake_status", { p_member_id: memberId, p_prediction_id: predictionId });
   if (error || !data) return { state: "none" };
-  const row = data as Record<string, unknown>;
+  return interpretStakeStatus(data as Record<string, unknown>, await getConfidenceConfig());
+}
+
+/**
+ * The same answer for many of the Member's Picks in ONE round trip (the Home timeline), decided by the very same database function per Pick — so a feed card and the Post detail can never disagree.
+ * Keyed by Pick id; a Pick the database does not recognise as the Member's own is simply `none`.
+ */
+export async function getStakeUiStates(memberId: string, predictionIds: string[]): Promise<Map<string, StakeUiState>> {
+  const map = new Map<string, StakeUiState>();
+  if (predictionIds.length === 0) return map;
+  const { data, error } = await createAdminClient().rpc("confidence_stake_status_many", { p_member_id: memberId, p_prediction_ids: predictionIds });
+  if (error || !data) return map;
+  const config = await getConfidenceConfig();
+  for (const [id, row] of Object.entries(data as Record<string, Record<string, unknown>>)) map.set(id, interpretStakeStatus(row, config));
+  return map;
+}
+
+function interpretStakeStatus(row: Record<string, unknown>, config: Awaited<ReturnType<typeof getConfidenceConfig>>): StakeUiState {
+  // Existing commitments are shown even if the capability was later switched off (they still settle).
   if (row.state === "staked") return { state: "staked", amount: Number(row.amount), stakeState: row.stakeState as never, result: (row.result as never) ?? null };
   // Without Confidence on, nothing new is offered or shown.
-  if (!(await getConfidenceConfig())) return { state: "none" };
+  if (!config) return { state: "none" };
   if (row.state === "open") return { state: "open", available: Number(row.available), allowedStakes: (row.allowedStakes as number[]) ?? [], locksAt: String(row.locksAt) };
   if (row.state === "closed") return { state: "closed", reason: row.reason as never };
   if (row.state === "unavailable") return { state: "unavailable", reason: row.reason as never };

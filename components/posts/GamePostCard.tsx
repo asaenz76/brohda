@@ -9,6 +9,7 @@ import { MatchupHeading } from "@/components/posts/MatchupHeading";
 import { formatMatchupScores, formatMatchupSpoken } from "@/lib/sports-data/team-display-order";
 import { PredictionActions } from "@/components/predictions/PredictionActions";
 import { PublicPickChoices } from "@/components/posts/PublicPickChoices";
+import { CommittedConfidence, PickConfidence } from "@/components/confidence/PickConfidence";
 import { getCommunityTypeLabel } from "@/lib/communities/presentation";
 import type { FeedItem } from "@/lib/communities/feed";
 import { MONEYLINE_MARKET_LABEL } from "@/lib/prediction-markets/selection-labels";
@@ -138,9 +139,22 @@ export function GamePostCard({ item, mode = "member" }: { item: FeedItem; mode?:
                 choices={market.choices}
               />
             ) : (
-              <p className="text-sm font-medium text-text-muted">
-                You picked {market.choices.find((c) => c.outcome === market.viewerSelection)?.label} — {market.pickDisabledReason}
-              </p>
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-text-muted">
+                  You picked {market.choices.find((c) => c.outcome === market.viewerSelection)?.label} — {market.pickDisabledReason}
+                </p>
+                {market.confidence.state === "staked" && <CommittedConfidence amount={market.confidence.amount} pending={market.confidence.stakeState === "RESERVED"} />}
+              </div>
+            )}
+
+            {/* The optional Confidence control, inline on the card — the same shared component and the same database decision as the Post detail. Nothing renders unless the Pick is open to it. */}
+            {!isPublic && market.viewerPredictionId && market.viewerSelection && (
+              <PickConfidence
+                predictionId={market.viewerPredictionId}
+                selectedOutcome={market.viewerSelection}
+                selectionLabel={market.choices.find((c) => c.outcome === market.viewerSelection)?.label ?? ""}
+                stake={market.confidence}
+              />
             )}
 
             <SentimentLine market={market} isPublic={isPublic} />
