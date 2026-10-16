@@ -457,7 +457,10 @@ test("Inline markets J, K, M, N, O: an existing secondary Pick is shown on load;
   await page.setViewportSize({ width: 375, height: 800 });
   await gotoFeedReady(page);
   const cm = card(page, existing);
-  await expect(cm).toHaveCount(1); // exactly one card for the Game (waits out a streaming transition rather than measuring a doubled tree)
+  // Exactly one card for the Game. If it is ever doubled, say WHAT was found (the Post ids and the cards' text) instead of only "2 != 1".
+  await expect
+    .poll(async () => (await cm.count()) === 1 || JSON.stringify(await page.evaluate((needle) => [...document.querySelectorAll("article")].filter((a) => a.textContent?.includes(needle)).map((a) => ({ label: a.getAttribute("aria-label"), href: a.querySelector('a[href^="/post/"]')?.getAttribute("href"), parent: a.parentElement?.tagName + "." + a.parentElement?.className.slice(0, 60), text: (a.textContent ?? "").slice(0, 120) })), existing.home)), { timeout: 20_000 })
+    .toBe(true);
   await seeMore(cm).click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   const cardBox = (await cm.boundingBox())!;
