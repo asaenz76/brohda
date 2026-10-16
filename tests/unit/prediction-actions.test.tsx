@@ -6,11 +6,16 @@ import { getChoicePresentation } from "@/lib/prediction-markets/selection-labels
 import { submitPredictionAction } from "@/lib/actions/predictions";
 
 afterEach(() => cleanup());
-beforeEach(() => vi.mocked(submitPredictionAction).mockReset());
+beforeEach(() => {
+  vi.mocked(submitPredictionAction).mockReset();
+  refresh.mockReset();
+});
 
 vi.mock("@/lib/actions/predictions", () => ({
   submitPredictionAction: vi.fn(),
 }));
+const refresh = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 
 const teams = { homeTeamName: "Indianapolis Colts", awayTeamName: "Washington Commanders", sport: "american_football" };
 const moneyline = getChoicePresentation({ marketTemplate: "MONEYLINE", yesSide: "HOME", lineValue: null, ...teams }).choices;
@@ -72,6 +77,21 @@ describe("PredictionActions — what is shown versus what is stored", () => {
     expect(screen.getByRole("button", { name: "Pick Indianapolis Colts to win" })).toHaveAttribute("aria-pressed", "false");
     // No probability of any kind is shown with the confirmation.
     expect(screen.getByRole("status").textContent).not.toMatch(/%|odds|chance|probabilit/i);
+  });
+
+  it("after a successful Pick it re-reads the server view once (so the Confidence control appears without a reload), and not after a refused one", async () => {
+    vi.mocked(submitPredictionAction).mockResolvedValue({ success: true, confirmation: { selectedOutcome: "NO" } } as never);
+    render(<PredictionActions marketId="m1" disabledReason={null} choices={moneyline} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pick Washington Commanders to win" }));
+    await screen.findByRole("status");
+    expect(refresh).toHaveBeenCalledTimes(1);
+    cleanup();
+    refresh.mockReset();
+    vi.mocked(submitPredictionAction).mockResolvedValue({ success: false, error: "No." } as never);
+    render(<PredictionActions marketId="m1" disabledReason={null} choices={moneyline} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pick Washington Commanders to win" }));
+    await screen.findByRole("alert");
+    expect(refresh).not.toHaveBeenCalled();
   });
 
   it("falls back to generic labels for a Market the presentation can't describe, without crashing", () => {

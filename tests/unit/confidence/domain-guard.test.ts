@@ -26,7 +26,7 @@ function copy(path: string): string {
   return readFileSync(join(ROOT, path), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 }
 
-const SQL = ["supabase/migrations/20260101000201_confidence_foundation.sql", "supabase/migrations/20260101000203_confidence_backed_picks.sql"];
+const SQL = ["supabase/migrations/20260101000201_confidence_foundation.sql", "supabase/migrations/20260101000203_confidence_backed_picks.sql", "supabase/migrations/20260101000204_confidence_stake_status_many.sql"];
 const TS = [...walk("lib/confidence"), "lib/actions/confidence.ts", "lib/actions/confidence-admin.ts", "lib/actions/confidence-stakes.ts", ...walk("components/confidence"), "app/(app)/profile/confidence/page.tsx", "app/(admin)/admin/confidence/page.tsx"];
 
 describe("the Confidence domain is not money", () => {

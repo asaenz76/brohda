@@ -10,7 +10,7 @@ import { confidenceLabel, formatConfidence, ladderFlames } from "@/lib/confidenc
  * "How confident are you?" — the optional Confidence control on a Member's OWN Pick. Nothing is attached by merely choosing: the Member picks an amount from the configured ladder, sees exactly what will happen,
  * and confirms. Confirming reserves the Confidence and locks the Pick in one step. Choices above what the Member has available are disabled with the plain reason; there is no way to get more Confidence from here.
  */
-export function ConfidenceBacking({ predictionId, available, allowedStakes }: { predictionId: string; available: number; allowedStakes: number[] }) {
+export function ConfidenceBacking({ predictionId, selectionLabel, available, allowedStakes }: { predictionId: string; selectionLabel?: string; available: number; allowedStakes: number[] }) {
   const router = useRouter();
   const [chosen, setChosen] = useState<number | null>(null);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -57,7 +57,8 @@ export function ConfidenceBacking({ predictionId, available, allowedStakes }: { 
             <Button
               key={n}
               type="button"
-              size="sm"
+              size="lg"
+              className="min-h-10 min-w-11"
               variant={chosen === n ? "default" : "outline"}
               disabled={disabled}
               aria-pressed={chosen === n}
@@ -81,12 +82,12 @@ export function ConfidenceBacking({ predictionId, available, allowedStakes }: { 
       )}
       {chosen !== null && (
         <div role="alertdialog" aria-label="Confirm Confidence" className="space-y-2 rounded-md border border-border-subtle p-3" data-slot="confidence-confirm">
-          <p className="text-sm text-text-primary">You&apos;re putting {formatConfidence(chosen)} behind this pick. Once confirmed, you can&apos;t change it.</p>
+          <p className="text-sm text-text-primary">You&apos;re putting {formatConfidence(chosen)} behind {selectionLabel ? <>your pick: <span className="font-semibold">{selectionLabel}</span></> : "this pick"}. Once confirmed, you can&apos;t change it.</p>
           <div className="flex gap-2">
-            <Button type="button" size="sm" disabled={pending} onClick={confirm} data-slot="confidence-confirm-button">
+            <Button type="button" size="lg" disabled={pending} onClick={confirm} data-slot="confidence-confirm-button">
               Confirm {formatConfidence(chosen)}
             </Button>
-            <Button type="button" variant="outline" size="sm" disabled={pending} onClick={() => setChosen(null)}>
+            <Button type="button" variant="outline" size="lg" disabled={pending} onClick={() => setChosen(null)}>
               Cancel
             </Button>
           </div>

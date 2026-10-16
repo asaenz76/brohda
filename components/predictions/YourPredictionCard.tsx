@@ -1,6 +1,7 @@
 import type { Prediction } from "@/lib/predictions/types";
 import type { Choice } from "@/lib/prediction-markets/selection-labels";
-import { confidenceLabel, formatConfidence, formatSignedConfidence } from "@/lib/confidence/format";
+import { formatConfidence, formatSignedConfidence } from "@/lib/confidence/format";
+import { CommittedConfidence } from "@/components/confidence/PickConfidence";
 
 /** The Confidence committed behind this Pick, if any (shown only on the viewer's own Pick). */
 export interface PickStake {
@@ -22,13 +23,7 @@ export function YourPredictionCard({ prediction, choices, stake = null }: { pred
   return (
     <div className="space-y-1 rounded-lg border-2 border-text-primary bg-secondary p-4">
       <p className="text-sm font-semibold text-text-primary">You picked: {pickedLabel}</p>
-      {stake && (
-        <p className="text-sm font-medium text-text-primary" data-slot="pick-confidence" aria-label={`${confidenceLabel(stake.amount)}${prediction.lifecycleState === "PENDING" ? ", locked" : ""}`}>
-          <span aria-hidden="true">
-            {formatConfidence(stake.amount)} Confidence{prediction.lifecycleState === "PENDING" ? " · Locked" : ""}
-          </span>
-        </p>
-      )}
+      {stake && <CommittedConfidence amount={stake.amount} pending={prediction.lifecycleState === "PENDING"} />}
       <ResultLine prediction={prediction} />
       {stake && prediction.lifecycleState === "GRADED" && stake.result && (
         <p className="text-xs font-medium text-text-primary" data-slot="pick-confidence-result">
