@@ -212,19 +212,25 @@ test.describe("Game headers follow the sport", () => {
 });
 
 test.describe("Pick-first sentiment", () => {
-  test("a member who has not picked sees no percentages and no count — just the nudge; after picking they appear", async ({ page }) => {
+  test("a member who has not picked sees no percentages and no count — just the nudge, on the Post too; after predicting in the feed they appear on both", async ({ page }) => {
     await logIn(page, member.email);
     await expect(page).toHaveURL(/\/feed$/);
     await page.goto(`/post/${nfl.postId}`);
     const main = page.getByRole("main");
-    await expect(main.getByText("Make your pick to see how everyone else picked.")).toBeVisible();
+    // The Post is not a prediction surface: it says where the numbers come from and withholds them.
+    await expect(main.getByText("Make your pick in the feed to see how everyone else picked.").first()).toBeVisible();
     expect(await main.innerText()).not.toMatch(/\d+%|\d+ predicted/);
+    await expect(main.getByRole("button", { name: `Pick ${nfl.home} to win` })).toHaveCount(0);
 
-    // A prediction is a side AND Confidence: the side is local, a level makes it, and only then does the crowd appear.
-    await page.getByRole("button", { name: `Pick ${nfl.home} to win` }).first().click();
-    expect(await main.innerText()).not.toMatch(/\d+%|\d+ predicted/);
-    await page.locator('[data-slot="confidence-choice"][data-amount="1"]').first().click();
-    await expect(main.getByText(/\d+%/).first()).toBeVisible({ timeout: 30_000 });
+    // A prediction is a side AND Confidence, made in the feed: the side is local, a level makes it, and only then does the crowd appear.
+    await page.goto("/feed");
+    const feedCard = page.locator("article", { hasText: nfl.home }).first();
+    await feedCard.getByRole("button", { name: `Pick ${nfl.home} to win` }).first().click();
+    expect(await feedCard.innerText()).not.toMatch(/\d+%|\d+ predicted/);
+    await feedCard.locator('[data-slot="confidence-choice"][data-amount="1"]').first().click();
+    await expect(feedCard.getByText(/\d+%/).first()).toBeVisible({ timeout: 30_000 });
+    await page.goto(`/post/${nfl.postId}`);
+    await expect(main.getByText(/\d+%/).first()).toBeVisible();
     await expect(main.getByText(/\d+ predicted/).first()).toBeVisible();
   });
 

@@ -526,3 +526,36 @@ describe("GamePostCard", () => {
     });
   });
 });
+
+// FEED = PREDICT, POST = GAME PREVIEW + CONVERSATION. The card advertises the Post with an explicit, always-visible text link — not only a clickable title (no hover on a phone).
+describe("GamePostCard — the Game Preview link", () => {
+  it.each(["member", "public"] as const)("%s: shows a visible 'Game Preview' text link to the canonical Post, with a descriptive accessible name", (mode) => {
+    render(<GamePostCard item={makeItem()} mode={mode} />);
+    const link = screen.getByRole("link", { name: "Open game preview for Away Test NFL at Home Test NFL" });
+    expect(link).toHaveAttribute("href", "/post/post-1");
+    expect(link).toHaveTextContent("Game Preview");
+    expect(link.getAttribute("data-slot")).toBe("game-preview-link");
+  });
+
+  it("is text, never icon-only or hover-only, and does not use implementation or generic wording", () => {
+    render(<GamePostCard item={makeItem()} />);
+    const link = screen.getByRole("link", { name: /Open game preview/ });
+    expect(link.textContent?.trim()).toBe("Game Preview");
+    expect(link.className).not.toMatch(/\b(opacity-0|invisible|hidden|group-hover)\b/);
+    expect(screen.queryByText(/read more|open post/i)).toBeNull();
+  });
+
+  it("is present even when the card has no Market at all, and the matchup title still links to the Post", () => {
+    render(<GamePostCard item={makeItem({ primaryMarket: null })} />);
+    expect(screen.getByRole("link", { name: /Open game preview/ })).toHaveAttribute("href", "/post/post-1");
+    const titleLink = screen.getAllByRole("link").find((a) => a.getAttribute("href") === "/post/post-1" && /Away Test NFL/.test(a.textContent ?? "") && !/Game Preview/.test(a.textContent ?? ""));
+    expect(titleLink).toBeTruthy();
+  });
+
+  it("does not wrap the prediction controls in a link: choosing a side, a level and See more markets are not part of the Game Preview link", () => {
+    render(<GamePostCard item={makeItem()} />);
+    const preview = screen.getByRole("link", { name: /Open game preview/ });
+    expect(within(preview).queryAllByRole("button")).toHaveLength(0);
+    expect(screen.getAllByRole("button").some((b) => preview.contains(b))).toBe(false);
+  });
+});

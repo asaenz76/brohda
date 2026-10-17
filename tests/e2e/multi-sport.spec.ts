@@ -263,7 +263,7 @@ for (const sport of [NBA, NHL]) {
           await admin.from("predictions").update({ lifecycle_state: "GRADED", result: "CORRECT", resolved_outcome_snapshot: "YES", graded_at: gradedAt }).eq("user_id", two.id).eq("market_id", game.marketId);
           await admin.from("predictions").update({ lifecycle_state: "GRADED", result: "INCORRECT", resolved_outcome_snapshot: "YES", graded_at: gradedAt }).eq("user_id", one.id).eq("market_id", game.marketId);
           await page.goto(`/post/${game.postId}`);
-          await expect(page.getByText(`You picked: ${yes.label}`)).toBeVisible();
+          await expect(page.getByText(`Your prediction: ${yes.label}`)).toBeVisible();
           await expect(page.getByText("Result: Correct")).toBeVisible();
           await page.goto("/profile");
           await expect(page.getByRole("link", { name: `${away} @ ${home} · ${template.marketLabel}` })).toBeVisible();
@@ -369,7 +369,7 @@ for (const sport of [NBA, NHL]) {
         const { data } = await admin.rpc("set_pick", { p_user_id: user.id, p_market_id: game.marketId, p_selected_outcome: "YES", p_yes_probability: 0.6, p_no_probability: 0.4, p_market_question: "q", p_market_close_at: null, p_market_status: "ACTIVE", p_idempotency_key: randomUUID() }).single();
         expect(["rejected_game_closed", "rejected_cutoff"]).toContain((data as { outcome: string }).outcome);
         await loginAs(page, user.email);
-        await page.goto(`/post/${game.postId}`);
+        await page.goto(`/markets/${game.marketId}`); // the Market page keeps the full prediction card; the Post is the Game Preview
         await page.getByRole("button", { name: `Pick ${home} to win` }).click();
         await page.locator('[data-slot="confidence-choice"][data-amount="1"]').click();
         await expect(page.getByText(/locked/i).first()).toBeVisible(); // refused on server state alone, days before the scheduled start

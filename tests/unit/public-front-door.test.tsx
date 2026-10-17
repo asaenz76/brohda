@@ -77,7 +77,7 @@ describe("PublicFrontDoor", () => {
     renderDoor({ feed: [item({}, "post-9")] });
     const article = screen.getByRole("article", { name: "Game: New England Patriots at Buffalo Bills" });
     const hrefs = within(article).getAllByRole("link").map((a) => a.getAttribute("href"));
-    expect(hrefs.filter((h) => h === "/post/post-9").length).toBe(2); // the matchup block and the comments link
+    expect(hrefs.filter((h) => h === "/post/post-9").length).toBe(3); // the matchup block, the explicit Game Preview link and the comments link
   });
 
   it("states that the Game is published by Brohda, never by a person", () => {

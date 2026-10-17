@@ -88,23 +88,35 @@ export function GamePostCard({ item, mode = "member" }: { item: FeedItem; mode?:
           )}
         </div>
         {item.sponsorship && <SponsoredLabel sponsorship={item.sponsorship} trackImpression={!isPublic} />}
-        <Link href={`/post/${item.post.id}`} className="block space-y-3">
-          <p className="flex flex-wrap items-center gap-1.5 text-base font-semibold text-text-primary">
-            <MatchupHeading
-              sport={item.sport}
-              homeTeamName={item.homeTeamName}
-              awayTeamName={item.awayTeamName}
-              homeTeamLogoUrl={item.homeTeamLogoUrl}
-              awayTeamLogoUrl={item.awayTeamLogoUrl}
-            />
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+          {/* The matchup stays a link to the Post (a secondary path); the explicit, always-visible "Game Preview" action beside it is what tells a Member there is something worth opening. */}
+          <Link href={`/post/${item.post.id}`} className="block min-w-0 grow basis-[13rem] space-y-3">
+            <p className="flex flex-wrap items-center gap-1.5 text-base font-semibold text-text-primary">
+              <MatchupHeading
+                sport={item.sport}
+                homeTeamName={item.homeTeamName}
+                awayTeamName={item.awayTeamName}
+                homeTeamLogoUrl={item.homeTeamLogoUrl}
+                awayTeamLogoUrl={item.awayTeamLogoUrl}
+              />
+            </p>
 
-          <p className="text-sm text-text-secondary">
-            {statusLabel ?? <LocalDateTime iso={item.scheduledStartUtc} options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />}
-          </p>
+            <p className="text-sm text-text-secondary">
+              {statusLabel ?? <LocalDateTime iso={item.scheduledStartUtc} options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />}
+            </p>
 
-          {market && <MarketContext market={market} />}
-        </Link>
+            {market && <MarketContext market={market} />}
+          </Link>
+          <Link
+            href={`/post/${item.post.id}`}
+            data-slot="game-preview-link"
+            aria-label={`Open game preview for ${spokenMatchup}`}
+            className="-ml-1 inline-flex min-h-9 shrink-0 items-center gap-0.5 sm:-mr-1 sm:ml-0 rounded-md px-1 text-sm font-medium text-accent-primary outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+          >
+            Game Preview
+            <ChevronRight className="size-4" aria-hidden="true" />
+          </Link>
+        </div>
 
         {market && (
           <div className="space-y-2 rounded-lg bg-secondary p-3">

@@ -81,7 +81,7 @@ test("one Market → no action; two or three eligible Markets → the action is 
   }
 });
 
-test("clicking it expands the other Markets in place (no navigation); the canonical Post stays reachable from the card, and Back unwinds Home → Post → Market → Post → Home", async ({ page }) => {
+test("clicking it expands the other Markets in place (no navigation); the canonical Post stays reachable from the card, and it is the Game Preview — no 'more markets' links, no second prediction surface", async ({ page }) => {
   const s = randomUUID().slice(0, 6);
   const g = await seedGame(s, [{ template: "TOTAL", status: "ACTIVE" }, { template: "SPREAD", status: "ACTIVE" }]);
   const user = await createPlayer();
@@ -95,11 +95,13 @@ test("clicking it expands the other Markets in place (no navigation); the canoni
     await expect(card(page, g).getByRole("heading", { name: "Spread" })).toBeVisible();
     await card(page, g).getByRole("link", { name: /comment/ }).first().click();
     await expect(page).toHaveURL(new RegExp(`/post/${g.postId}$`));
-    await expect(page.getByText("More markets for this game")).toBeVisible();
-    await page.getByRole("link", { name: /Total 6\.5/ }).click();
-    await expect(page).toHaveURL(new RegExp(`/markets/${g.totalId}$`));
-    await page.getByRole("link", { name: "Back", exact: true }).click();
-    await expect(page).toHaveURL(new RegExp(`/post/${g.postId}$`));
+    // The Post carries no second way to predict: no composer, no Pick buttons, and no "more markets" links (the feed is where a prediction is made).
+    await expect(page.getByText("More markets for this game")).toHaveCount(0);
+    await expect(page.locator('[data-testid="prediction-actions"]')).toHaveCount(0);
+    await expect(page.locator('[data-slot="confidence-choice"]')).toHaveCount(0);
+    await expect(page.getByRole("main").locator('a[href^="/markets/"]')).toHaveCount(0);
+    // Its Markets appear as sentiment blocks, in the configured order.
+    await expect(page.locator('[data-slot="market-sentiment-block"] h2')).toHaveText(["Moneyline", "Total 6.5", "Spread"]);
     await page.getByRole("link", { name: "Back", exact: true }).click();
     await expect(page).toHaveURL(/\/feed$/);
   } finally {

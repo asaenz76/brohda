@@ -206,7 +206,7 @@ test.describe("Authenticated shell — desktop (1280)", () => {
     await expect(main).toContainText("A very long comment");
   });
 
-  test("Post detail reads Game -> Pick and sentiment -> conversation -> Call BS / money, one expanded Game Post", async ({ page }) => {
+  test("Post detail reads Game -> Market sentiment -> conversation -> Other picks / Call BS, one expanded Game Post — and is not a prediction surface", async ({ page }) => {
     // Participants (Call BS / money) only show to someone who has a Pick, so this test uses its own viewer who already picked
     // the other side from the seeded commenter — independent of what the Pick test does to the main viewer.
     const picker = await createUser("order", "Order Viewer", `shellorder${suffix}`);
@@ -215,19 +215,23 @@ test.describe("Authenticated shell — desktop (1280)", () => {
     await page.goto(`/post/${seeded.postId}`);
     const y = async (loc: import("@playwright/test").Locator) => (await loc.first().boundingBox())!.y;
     const main = page.getByRole("main");
+    await expect(main.getByText(/^Your prediction:/)).toBeVisible(); // measure only once the Post has rendered
+    await expect(main.getByText("Other picks", { exact: true })).toBeVisible();
     const game = await y(main.getByText(`${AWAY} @`));
     const sentiment = await y(main.getByText(/\d+% *$/).first());
-    const pick = await y(main.getByText(/^You picked:/)); // the prediction, final (there is no Pick control left once it is made)
+    const yours = await y(main.getByText(/^Your prediction:/)); // the viewer's own prediction as context, inside its Market's sentiment block — never a prediction card
     const comments = await y(main.getByText("Comments", { exact: true }));
     const comment = await y(main.getByText("A very long comment"));
     const others = await y(main.getByText("Other picks", { exact: true }));
     expect(game).toBeLessThan(sentiment);
-    expect(sentiment).toBeLessThan(pick);
-    expect(pick).toBeLessThan(comments);
+    expect(sentiment).toBeLessThan(comments);
+    expect(Math.abs(yours - sentiment)).toBeLessThan(200); // it sits with the Market's numbers
     expect(comments).toBeLessThan(comment);
     expect(comment).toBeLessThan(others); // the participants (Call BS, optional money) come after the conversation
-    // One Post, one card.
+    // One Post, one card, and no second prediction surface on it.
     await expect(main.locator('[data-slot="card"]')).toHaveCount(1);
+    await expect(main.locator('[data-testid="prediction-actions"], [data-slot="confidence-choice"]')).toHaveCount(0);
+    await expect(main.getByText(/You picked|More markets for this game/)).toHaveCount(0);
   });
 
   test("the right rail is contextual: the viewer's own identity and what they follow — real data, no composer", async ({ page }) => {
