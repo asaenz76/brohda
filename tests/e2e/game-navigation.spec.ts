@@ -90,7 +90,7 @@ async function cleanupGame(game: { fixtureId: string; marketIds: string[] }) {
 const card = (page: Page, game: { home: string; away: string }) => page.locator("article").filter({ hasText: game.home }).first();
 
 test.describe("Back means where I came from", () => {
-  test("Feed → Post → Back = Feed; Feed → Post → Market → Back = Post → Back = Feed (real browser history)", async ({ page }) => {
+  test("Feed → Post → Back = Feed, every time (real browser history); the Post offers no hop into a Market", async ({ page }) => {
     const suffix = randomUUID().slice(0, 6);
     const game = await seedGame(LEAGUES[2], suffix);
     const user = await createPlayer();
@@ -104,10 +104,7 @@ test.describe("Back means where I came from", () => {
 
       await card(page, game).getByRole("link", { name: new RegExp(game.home) }).first().click();
       await expect(page).toHaveURL(new RegExp(`/post/${game.postId}$`));
-      await page.getByRole("link", { name: /Total 6\.5/ }).click();
-      await expect(page).toHaveURL(new RegExp(`/markets/${game.totalId}$`));
-      await page.getByRole("link", { name: "Back", exact: true }).click();
-      await expect(page).toHaveURL(new RegExp(`/post/${game.postId}$`));
+      await expect(page.getByRole("main").locator('a[href^="/markets/"]')).toHaveCount(0); // the Post is the Game Preview, not a doorway to prediction
       await page.getByRole("link", { name: "Back", exact: true }).click();
       await expect(page).toHaveURL(/\/feed$/);
     } finally {
@@ -116,7 +113,7 @@ test.describe("Back means where I came from", () => {
     }
   });
 
-  test("Community → Post → Market → Back = Post → Back = Community", async ({ page }) => {
+  test("Community → Post → Back = Community", async ({ page }) => {
     const suffix = randomUUID().slice(0, 6);
     const game = await seedGame(LEAGUES[0], suffix);
     const user = await createPlayer();
@@ -127,10 +124,6 @@ test.describe("Back means where I came from", () => {
       await loginAs(page, user.email);
       await page.goto(`/community/${community!.slug}`);
       await card(page, game).getByRole("link", { name: new RegExp(game.home) }).first().click();
-      await expect(page).toHaveURL(new RegExp(`/post/${game.postId}$`));
-      await page.getByRole("link", { name: /Moneyline|Total|Spread/ }).first().click();
-      await expect(page).toHaveURL(/\/markets\//);
-      await page.getByRole("link", { name: "Back", exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`/post/${game.postId}$`));
       await page.getByRole("link", { name: "Back", exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`/community/${community!.slug}$`));
@@ -168,16 +161,13 @@ test.describe("Back means where I came from", () => {
     }
   });
 
-  test("refresh on a Market reached from a Post: Back stays safe (lands on the Post) and the app is never left", async ({ page }) => {
+  test("refresh on a Market opened directly: Back stays safe (lands on its Game Post) and the app is never left", async ({ page }) => {
     const suffix = randomUUID().slice(0, 6);
     const game = await seedGame(LEAGUES[2], suffix);
     const user = await createPlayer();
     try {
       await loginAs(page, user.email);
-      await page.goto("/feed");
-      await card(page, game).getByRole("link", { name: new RegExp(game.home) }).first().click();
-      await page.getByRole("link", { name: /Total 6\.5/ }).click();
-      await expect(page).toHaveURL(new RegExp(`/markets/${game.totalId}$`));
+      await page.goto(`/markets/${game.totalId}`);
       await page.reload();
       await page.getByRole("link", { name: "Back", exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`/post/${game.postId}$`));
@@ -224,10 +214,7 @@ test.describe("Back means where I came from", () => {
       try {
         await page.setViewportSize({ width, height: 800 });
         await loginAs(page, user.email);
-        await page.goto("/feed");
-        await card(page, game).getByRole("link", { name: new RegExp(game.home) }).first().click();
-        await page.getByRole("link", { name: /Total 228\.5/ }).click();
-        await expect(page).toHaveURL(new RegExp(`/markets/${game.totalId}$`));
+        await page.goto(`/markets/${game.totalId}`);
         const back = page.getByRole("link", { name: "Back", exact: true });
         await expect(back).toBeVisible();
         await expect(back).toContainText("Back"); // visible text, not just an arrow
