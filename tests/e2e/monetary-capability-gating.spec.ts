@@ -7,6 +7,7 @@
  * restored afterwards.
  */
 import { test, expect, type Page } from "@playwright/test";
+import { predict } from "./helpers/predict";
 import { randomUUID } from "node:crypto";
 import { getTestAdminClient } from "./helpers/test-env";
 
@@ -98,7 +99,7 @@ const TEAM_FOR_SIDE = { Yes: "Home Test FC", No: "Away Test FC" } as const;
 async function pickOn(page: Page, marketId: string, side: "Yes" | "No") {
   const team = TEAM_FOR_SIDE[side];
   await page.goto(`/markets/${marketId}`);
-  await page.getByRole("button", { name: `Pick ${team} to win` }).click();
+  await predict(page, `Pick ${team} to win`, 1);
   await expect(page.getByText(new RegExp(`You picked ${team}`))).toBeVisible();
 }
 

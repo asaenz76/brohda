@@ -10,10 +10,7 @@ const nflMoneylineFor = (sport: string) => choiceFields({ marketTemplate: "MONEY
 afterEach(() => cleanup());
 
 vi.mock("@/lib/actions/predictions", () => ({
-  submitPredictionAction: vi.fn(),
-}));
-vi.mock("@/lib/actions/confidence-stakes", () => ({
-  attachConfidenceAction: vi.fn(),
+  commitPredictionAction: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), replace: vi.fn() }),
@@ -47,6 +44,7 @@ function makeItem(overrides: Partial<FeedItem> = {}): FeedItem {
       pickDisabledReason: null,
       viewerPredictionId: null,
       confidence: { state: "none" },
+      confidenceOffer: null,
     },
     communities: [
       { id: "c1", slug: "home-test-nfl", type: "TEAM", displayName: "Home Test NFL" },
@@ -175,6 +173,7 @@ describe("GamePostCard", () => {
             pickDisabledReason: "Picks are locked for this game.",
             viewerPredictionId: "pick-1",
             confidence: { state: "none" },
+            confidenceOffer: null,
           },
         })}
       />,
@@ -352,46 +351,66 @@ describe("GamePostCard", () => {
     });
   });
 
-  describe("Confidence on the card (the same control as the Post detail)", () => {
-    const withPick = (confidence: NonNullable<FeedItem["primaryMarket"]>["confidence"], overrides: Partial<NonNullable<FeedItem["primaryMarket"]>> = {}) =>
-      makeItem({ primaryMarket: { ...makeItem().primaryMarket!, viewerSelection: "YES", viewerPredictionId: "pick-1", sentimentRevealed: true, yesPercent: 100, noPercent: 0, totalPickCount: 1, confidence, ...overrides } });
+  describe("the prediction composer on the card (side + Confidence, one step)", () => {
+    const offer = (available = 47, canClaim = false) => ({ available, allowedStakes: [1, 2, 3, 4, 5], canClaim });
+    const withViewer = (overrides: Partial<NonNullable<FeedItem["primaryMarket"]>> = {}) => makeItem({ primaryMarket: { ...makeItem().primaryMarket!, ...overrides } });
 
-    it("offers 'How confident are you?' inline on the card right under an editable Pick, with the available balance and a labelled flame per allowed amount", () => {
-      render(<GamePostCard item={withPick({ state: "open", available: 47, allowedStakes: [1, 2, 3, 4, 5], locksAt: new Date().toISOString() })} />);
+    it("shows the sides and 'How confident are you?' together, with a labelled flame per configured amount and the available balance — nothing to confirm separately", () => {
+      render(<GamePostCard item={withViewer({ confidenceOffer: offer() })} />);
       expect(screen.getByText("How confident are you?", { selector: "p" })).toBeInTheDocument();
       expect(screen.getByText(/You have 🔥47 available/)).toBeInTheDocument();
       expect(screen.getAllByRole("button", { name: /^\d Confidence$/ }).map((b) => b.getAttribute("aria-label"))).toEqual(["1 Confidence", "2 Confidence", "3 Confidence", "4 Confidence", "5 Confidence"]);
-      // Pick buttons are still there: Confidence is optional and the Pick can still change.
-      expect(screen.getAllByRole("button", { name: /Pick/ }).length).toBeGreaterThan(0);
+      expect(screen.queryByRole("button", { name: /^Confirm/ })).toBeNull();
     });
 
-    it("disables only the amounts the Member cannot afford", () => {
-      render(<GamePostCard item={withPick({ state: "open", available: 3, allowedStakes: [1, 2, 3, 4, 5], locksAt: new Date().toISOString() })} />);
-      const disabled = screen.getAllByRole("button", { name: /^\d Confidence$/ }).filter((b) => (b as HTMLButtonElement).disabled).map((b) => b.getAttribute("aria-label"));
-      expect(disabled).toEqual(["4 Confidence", "5 Confidence"]);
+    it("the levels wait for a side (choosing a side is local); then only the amounts above the available balance stay disabled", () => {
+      render(<GamePostCard item={withViewer({ confidenceOffer: offer(3) })} />);
+      const levels = () => screen.getAllByRole("button", { name: /^\d Confidence$/ }) as HTMLButtonElement[];
+      expect(levels().every((b) => b.disabled)).toBe(true);
+      fireEvent.click(screen.getByRole("button", { name: "Pick Home Test NFL to win" }));
+      expect(levels().filter((b) => b.disabled).map((b) => b.getAttribute("aria-label"))).toEqual(["4 Confidence", "5 Confidence"]);
     });
 
-    it("still offers Confidence on a Pick that cannot change (e.g. locked by an accepted Call BS) when the server says it is open", () => {
-      render(<GamePostCard item={withPick({ state: "open", available: 10, allowedStakes: [1, 2], locksAt: new Date().toISOString() }, { isEditable: false, pickDisabledReason: "Picks are locked for this game." })} />);
-      expect(screen.getByText("You picked Home Test NFL — Picks are locked for this game.")).toBeInTheDocument();
-      expect(screen.getByText("How confident are you?", { selector: "p" })).toBeInTheDocument();
+    it("says 'You need Confidence to make a prediction' at zero — with the Daily Claim path only when one is open — and offers no way to spend a level", () => {
+      const { unmount } = render(<GamePostCard item={withViewer({ confidenceOffer: offer(0, true) })} />);
+      expect(screen.getByText(/You need Confidence to make a prediction/)).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Claim your Daily Confidence" })).toHaveAttribute("href", "/profile");
+      expect((screen.getAllByRole("button", { name: /^\d Confidence$/ }) as HTMLButtonElement[]).every((b) => b.disabled)).toBe(true);
+      unmount();
+      render(<GamePostCard item={withViewer({ confidenceOffer: offer(0, false) })} />);
+      expect(screen.queryByRole("link", { name: /Claim/ })).toBeNull();
     });
 
-    it("shows the committed amount and no selector once Confidence is behind the Pick", () => {
-      render(<GamePostCard item={withPick({ state: "staked", amount: 3, stakeState: "RESERVED", result: null }, { isEditable: false, pickDisabledReason: "Picks are locked for this game." })} />);
+    it("says predictions are paused (and offers no levels) when Confidence is unavailable", () => {
+      render(<GamePostCard item={withViewer({ confidenceOffer: null })} />);
+      expect(screen.getByText("Predictions are paused right now.")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^\d Confidence$/ })).toBeNull();
+    });
+
+    it("an open pick from before Confidence was part of every prediction comes in with its side chosen, to be completed", () => {
+      render(<GamePostCard item={withViewer({ viewerSelection: "YES", viewerPredictionId: "legacy-1", confidenceOffer: offer() })} />);
+      expect(screen.getByText(/isn.t final yet/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Pick Home Test NFL to win" })).toHaveAttribute("aria-pressed", "true");
+      expect((screen.getAllByRole("button", { name: /^\d Confidence$/ }) as HTMLButtonElement[]).every((b) => !b.disabled)).toBe(true);
+    });
+
+    it("a made prediction shows the side and the committed amount, locked — no composer, no 'Change your prediction'", () => {
+      render(<GamePostCard item={withViewer({ viewerSelection: "NO", viewerPredictionId: "p1", isEditable: false, pickDisabledReason: "Picks are locked for this game.", confidence: { state: "staked", amount: 3, stakeState: "RESERVED", result: null }, confidenceOffer: offer() })} />);
+      expect(screen.getByText("You picked Away Test NFL")).toBeInTheDocument();
       expect(screen.getByLabelText("3 Confidence, locked")).toBeInTheDocument();
-      expect(screen.queryByText("How confident are you?")).toBeNull();
+      expect(screen.queryByText(/How confident/)).toBeNull();
+      expect(screen.queryByText(/Change your prediction/)).toBeNull();
     });
 
-    it("renders nothing about Confidence when it is unavailable, closed, off — or for a visitor", () => {
-      for (const confidence of [{ state: "none" }, { state: "unavailable", reason: "disabled" }, { state: "closed", reason: "deadline" }] as const) {
-        const { container, unmount } = render(<GamePostCard item={withPick(confidence)} />);
-        expect(container.querySelector('[data-slot="confidence-backing"]')).toBeNull();
-        expect(container.textContent).not.toMatch(/How confident|Confidence/);
-        unmount();
-      }
-      const { container } = render(<GamePostCard mode="public" item={withPick({ state: "open", available: 5, allowedStakes: [1], locksAt: new Date().toISOString() })} />);
-      expect(container.textContent).not.toMatch(/How confident/);
+    it("an old pick that is already locked is kept as the record it is (no composer, no invented Confidence)", () => {
+      render(<GamePostCard item={withViewer({ viewerSelection: "YES", viewerPredictionId: "legacy-2", isEditable: false, pickDisabledReason: "Picks are locked for this game.", confidenceOffer: offer() })} />);
+      expect(screen.getByText("You picked Home Test NFL — Picks are locked for this game.")).toBeInTheDocument();
+      expect(screen.queryByText(/How confident/)).toBeNull();
+    });
+
+    it("shows nothing about Confidence to a logged-out visitor", () => {
+      const { container } = render(<GamePostCard mode="public" item={withViewer({ confidenceOffer: offer() })} />);
+      expect(container.textContent).not.toMatch(/How confident|Confidence/);
     });
   });
 
@@ -474,11 +493,11 @@ describe("GamePostCard", () => {
       expect(spreadSection).toHaveTextContent("Make your pick to see how everyone else picked.");
     });
 
-    it("offers Confidence on a secondary Market exactly as on the primary one, and shows a commitment as locked", () => {
+    it("composes a secondary Market exactly like the primary one: side + Confidence in one step, and a made prediction shows locked", () => {
       render(
         <GamePostCard
           item={withMarkets([
-            total({ viewerSelection: "NO", viewerPredictionId: "p-total", confidence: { state: "open", available: 47, allowedStakes: [1, 2, 3, 4, 5], locksAt: new Date().toISOString() } }),
+            total({ confidenceOffer: { available: 47, allowedStakes: [1, 2, 3, 4, 5], canClaim: false } }),
             spread({ viewerSelection: "YES", viewerPredictionId: "p-spread", isEditable: false, pickDisabledReason: "Picks are locked for this game.", confidence: { state: "staked", amount: 2, stakeState: "RESERVED", result: null } }),
           ])}
         />,
@@ -486,7 +505,6 @@ describe("GamePostCard", () => {
       fireEvent.click(toggle());
       const totalSection = document.querySelector('[data-market-id="m-total"]') as HTMLElement;
       expect(within(totalSection).getByText("How confident are you?", { selector: "p" })).toBeInTheDocument();
-      expect(within(totalSection).getByText(/You have 🔥47 available/)).toBeInTheDocument();
       expect(within(totalSection).getByRole("group", { name: "How confident are you? Game Total 224" })).toBeInTheDocument();
       const spreadSection = document.querySelector('[data-market-id="m-spread"]') as HTMLElement;
       expect(within(spreadSection).getByLabelText("2 Confidence, locked")).toBeInTheDocument();

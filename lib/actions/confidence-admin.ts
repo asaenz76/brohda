@@ -29,6 +29,8 @@ export async function setConfidenceConfigAction(_prev: ConfidenceAdminResult | n
   if (!stakes || !isValidStakeLadder(stakes)) return fail("The stake ladder must be increasing whole numbers of at least 1, like 1, 2, 3, 4, 5.");
   const enabled = formData.get("confidence_enabled") === "on";
   const backedPicksEnabled = formData.get("confidence_backed_picks_enabled") === "on";
+  const mandatory = formData.get("confidence_mandatory") === "on";
+  if (mandatory && (!enabled || !backedPicksEnabled)) return fail("Turn on Confidence and predictions before enforcing Confidence on every Pick.");
   const copy: Record<string, string> = {};
   for (const [key, label] of [["confidence_notify_correct", "correct"], ["confidence_notify_incorrect", "incorrect"], ["confidence_notify_void", "void"]] as const) {
     const text = String(formData.get(key) ?? "").trim();
@@ -38,13 +40,13 @@ export async function setConfidenceConfigAction(_prev: ConfidenceAdminResult | n
   }
   const { error } = await createAdminClient().rpc("admin_set_confidence_config", {
     p_admin_id: admin.id,
-    p_config: { confidence_enabled: enabled, confidence_backed_picks_enabled: backedPicksEnabled, ...copy, confidence_baseline: baseline, confidence_daily_claim_amount: amount, confidence_daily_claim_interval_hours: interval, confidence_allowed_stakes: stakes },
+    p_config: { confidence_enabled: enabled, confidence_backed_picks_enabled: backedPicksEnabled, confidence_mandatory: mandatory, ...copy, confidence_baseline: baseline, confidence_daily_claim_amount: amount, confidence_daily_claim_interval_hours: interval, confidence_allowed_stakes: stakes },
   });
   if (error) return fail("Couldn't save the Confidence settings.");
   revalidatePath("/admin/settings/brohda");
   revalidatePath("/admin/confidence");
   revalidatePath("/profile");
-  return { success: true, error: null, message: !enabled ? "Confidence is off." : backedPicksEnabled ? "Confidence is on, and Members can put it behind picks." : "Confidence is on." };
+  return { success: true, error: null, message: !enabled ? "Confidence is off." : backedPicksEnabled ? "Confidence is on, and Members can make predictions." : "Confidence is on." };
 }
 
 /** Super Admin: a signed correction to one Member's available Confidence, as a new ledger entry. A reason and a note are required; the result can never be negative; history is never overwritten. */

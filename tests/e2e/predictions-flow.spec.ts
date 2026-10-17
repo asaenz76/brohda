@@ -116,36 +116,26 @@ test.describe("Brohda Prediction layer", () => {
       // equal, non-monetary belief, never a stake.
       await expect(page.locator('input[type="number"]')).toHaveCount(0);
 
+      // A prediction is a side AND Confidence: choosing the side is local, tapping a level makes it. Stage 4A remediation (Stage 4 audit §16): semantic
+      // confirmation language, never the raw YES/NO enum.
       await page.getByRole("button", { name: "Pick Home Test FC to win" }).click();
-      // Stage 4A remediation (Stage 4 audit §16): semantic Pick confirmation
-      // language, never the raw YES/NO enum.
+      await page.locator('[data-slot="confidence-choice"][data-amount="1"]').click();
       await expect(page.getByText(/You picked Home Test FC\./)).toBeVisible();
 
       const bodyTextAfter = await page.getByRole("main").innerText();
       for (const pattern of FORBIDDEN_TERMS) expect(bodyTextAfter).not.toMatch(pattern);
 
-      // Revisit: the server now considers this Game's Pick cutoff still
-      // far away (Milestone R5: the fixture here is scheduled well in the
-      // future), so reloading must show the EDITABLE control pre-filled
-      // with the current selection, never the old always-readonly
-      // "You picked: ..." state and never a bare re-offer of a first
-      // pick — both selection buttons remain, now labeled as a change.
+      // Revisit: the prediction is final the moment it is made, so reloading shows the locked, committed state — the side and the Confidence behind it —
+      // never an editable control and never "Change your prediction".
       await page.reload();
-      await expect(page.getByText("Change your prediction")).toBeVisible();
-      await expect(page.getByRole("button", { name: "Pick Home Test FC to win" })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Pick Home Test FC to win" })).toHaveAttribute("aria-pressed", "true");
+      await expect(page.getByText("You picked: Home Test FC")).toBeVisible();
+      await expect(page.locator('[data-slot="pick-confidence"]')).toHaveAttribute("aria-label", "1 Confidence, locked");
+      await expect(page.getByText("Change your prediction")).toHaveCount(0);
+      await expect(page.getByRole("button", { name: /^Pick / })).toHaveCount(0);
 
-      // Milestone R5: change the Pick from YES to NO while still eligible.
-      await page.getByRole("button", { name: "Pick Away Test FC to win" }).click();
-      await expect(page.getByText(/You picked Away Test FC\./)).toBeVisible();
-      await page.reload();
-      await expect(page.getByRole("button", { name: "Pick Away Test FC to win" })).toHaveAttribute("aria-pressed", "true");
-
-      // Profile's Predictions tab shows the latest (NO) selection — not
-      // the original YES — matching "the final selection is the permanent
-      // record" (§7).
+      // Profile's Predictions tab shows the prediction that was made.
       await page.goto("/profile?tab=predictions");
-      await expect(page.getByText("You picked Away Test FC", { exact: false })).toBeVisible();
+      await expect(page.getByText("You picked Home Test FC", { exact: false })).toBeVisible();
     } finally {
       await cleanup(provider, userIds);
     }

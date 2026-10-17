@@ -95,3 +95,13 @@ export const FLAME_ROW_MAX = 5;
 export function ladderFlames(points: number): string {
   return points <= FLAME_ROW_MAX ? flames(points) : formatConfidence(points);
 }
+
+/**
+ * What a prediction card needs to know about the viewer's Confidence to compose a prediction: the configured ladder, their AVAILABLE balance, and whether a Daily Claim is open to them (for the "you need Confidence" state).
+ * Null when predictions are unavailable (Confidence or backed predictions are off, or the viewer has no account). It is presentation only: the database decides every prediction.
+ */
+export interface ConfidenceOffer {
+  available: number;
+  allowedStakes: number[];
+  canClaim: boolean;
+}

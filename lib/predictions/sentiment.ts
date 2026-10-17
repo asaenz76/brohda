@@ -9,7 +9,8 @@
 // down the rule" instruction) — derived from inspecting the Prediction
 // lifecycle (lib/predictions/types.ts, lib/predictions/grading.ts):
 //
-//   Every `predictions` row for the Market counts, regardless of:
+//   Every `predictions` row for the Market counts (one Pick = one vote; the Confidence behind it never weights it), regardless of:
+//   (WHO SEES it is a separate, product rule: only someone whose own prediction on that Market is final — commit before the crowd.)
 //     - lifecycle_state (PENDING or GRADED) — a Pick is a real, deliberate
 //       choice the instant it's made; it doesn't retroactively stop having
 //       been picked once the game finishes and it gets graded.

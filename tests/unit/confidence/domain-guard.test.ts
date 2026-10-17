@@ -26,8 +26,8 @@ function copy(path: string): string {
   return readFileSync(join(ROOT, path), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 }
 
-const SQL = ["supabase/migrations/20260101000201_confidence_foundation.sql", "supabase/migrations/20260101000203_confidence_backed_picks.sql", "supabase/migrations/20260101000204_confidence_stake_status_many.sql"];
-const TS = [...walk("lib/confidence"), "lib/actions/confidence.ts", "lib/actions/confidence-admin.ts", "lib/actions/confidence-stakes.ts", ...walk("components/confidence"), "app/(app)/profile/confidence/page.tsx", "app/(admin)/admin/confidence/page.tsx"];
+const SQL = ["supabase/migrations/20260101000201_confidence_foundation.sql", "supabase/migrations/20260101000203_confidence_backed_picks.sql", "supabase/migrations/20260101000204_confidence_stake_status_many.sql", "supabase/migrations/20260101000205_mandatory_confidence_predictions.sql"];
+const TS = [...walk("lib/confidence"), "lib/actions/confidence.ts", "lib/actions/confidence-admin.ts", "lib/actions/predictions.ts", "components/predictions/PredictionComposer.tsx", ...walk("components/confidence"), "app/(app)/profile/confidence/page.tsx", "app/(admin)/admin/confidence/page.tsx"];
 
 describe("the Confidence domain is not money", () => {
   it("imports nothing from the wallet, monetary, payment or sponsorship code", () => {
@@ -92,7 +92,7 @@ describe("the Confidence domain is not money", () => {
   });
 
   it("the shell balance indicator reads the Confidence domain only: no wallet, currency or payment coupling", () => {
-    for (const file of ["components/confidence/ConfidenceBalance.tsx", "components/confidence/ConfidenceBacking.tsx", "lib/confidence/stakes.ts"]) {
+    for (const file of ["components/confidence/ConfidenceBalance.tsx", "components/predictions/PredictionComposer.tsx", "lib/confidence/stakes.ts", "lib/confidence/offer.ts"]) {
       const raw = readFileSync(join(ROOT, file), "utf8");
       expect(code(file), file).not.toMatch(/wallet|currency|payment|\$\{?\s*amount|sponsor/i);
       for (const i of raw.match(/from\s+["']([^"']+)["']/g) ?? []) expect(i, `${file}: ${i}`).not.toMatch(/wallet|monetary|payments|onvo|lemon|sponsorship/i);
@@ -100,7 +100,7 @@ describe("the Confidence domain is not money", () => {
   });
 
   it("an amount behind a Pick is a whole number from the configured ladder: no odds, fee, payout or stake multiplier exists in code or schema", () => {
-    for (const file of [SQL[1], "lib/confidence/stakes.ts", "lib/actions/confidence-stakes.ts", "components/confidence/ConfidenceBacking.tsx"]) {
+    for (const file of [SQL[1], SQL[3], "lib/confidence/stakes.ts", "lib/confidence/predictions.ts", "lib/actions/predictions.ts", "components/predictions/PredictionComposer.tsx"]) {
       expect(code(file), file).not.toMatch(/\b(odds|multiplier|payout|fee|fees|rake|commission|leverage|boost)\b/i);
     }
   });

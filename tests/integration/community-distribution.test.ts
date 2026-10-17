@@ -643,8 +643,16 @@ describe("Home feed sentiment/comments/Pick state (Phase C)", () => {
     expect(before?.primaryMarket?.yesPercent).toBeNull();
     expect(before?.primaryMarket?.noPercent).toBeNull();
 
-    // Once the viewer picks (YES), the real Pick-share appears: 3 YES / 1 NO = 75/25 — neither the provider's 60/40 nor anything else.
+    // An open, unbacked Pick (made before Confidence was part of every prediction) is not a final prediction: still no crowd.
     await createPrediction(viewerId, marketId, "YES");
+    const open = (await getSocialFeed(viewerId)).find((i) => i.post.id === postId);
+    expect(open?.primaryMarket?.sentimentRevealed).toBe(false);
+
+    // Once the viewer's prediction is FINAL (side + Confidence, one step), the real Pick-share appears: 3 YES / 1 NO = 75/25 — neither the provider's 60/40 nor anything else.
+    await admin.from("platform_settings").update({ confidence_enabled: true, confidence_backed_picks_enabled: true }).eq("id", true);
+    await admin.rpc("confidence_bootstrap_member", { p_member_id: viewerId });
+    const committed = await admin.rpc("create_confidence_prediction", { p_user_id: viewerId, p_market_id: marketId, p_selected_outcome: "YES", p_amount: 1, p_yes_probability: 0.6, p_no_probability: 0.4, p_market_question: "q", p_market_close_at: null, p_market_status: "ACTIVE", p_idempotency_key: crypto.randomUUID() });
+    expect((committed.data as { outcome: string }).outcome).toBe("created");
     const after = (await getSocialFeed(viewerId)).find((i) => i.post.id === postId);
     expect(after?.primaryMarket?.sentimentRevealed).toBe(true);
     expect(after?.primaryMarket?.totalPickCount).toBe(4);

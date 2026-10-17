@@ -11,6 +11,7 @@
  * restore would switch the flag off under whichever test is still running.
  */
 import { test, expect, type Page } from "@playwright/test";
+import { predict } from "./helpers/predict";
 import { randomUUID } from "node:crypto";
 import { getTestAdminClient } from "./helpers/test-env";
 
@@ -101,14 +102,14 @@ test.describe("Call BS Challenges", () => {
       // A picks YES.
       await loginAs(page, emailA);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Pick Home Test FC to win" }).click();
+      await predict(page, "Pick Home Test FC to win", 1);
       await expect(page.getByText(/You picked Home Test FC/)).toBeVisible();
 
       // B picks NO, then sees A's opposing pick with a Call BS button.
       await page.context().clearCookies();
       await loginAs(page, emailB);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Pick Away Test FC to win" }).click();
+      await predict(page, "Pick Away Test FC to win", 1);
       await expect(page.getByText(/You picked Away Test FC/)).toBeVisible();
 
       await page.reload();
@@ -152,13 +153,13 @@ test.describe("Call BS Challenges", () => {
 
       await loginAs(page, emailA);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Pick Home Test FC to win" }).click();
+      await predict(page, "Pick Home Test FC to win", 1);
       await expect(page.getByText(/You picked Home Test FC/)).toBeVisible();
 
       await page.context().clearCookies();
       await loginAs(page, emailB);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Pick Away Test FC to win" }).click();
+      await predict(page, "Pick Away Test FC to win", 1);
       await expect(page.getByText(/You picked Away Test FC/)).toBeVisible();
       await page.reload();
       await page.getByRole("button", { name: "Call BS" }).click();
@@ -173,8 +174,8 @@ test.describe("Call BS Challenges", () => {
       const { data: challenge } = await admin.from("challenges").select("status").eq("market_id", marketId).single();
       expect(challenge?.status).toBe("DECLINED");
 
-      const { data: predictions } = await admin.from("predictions").select("locked_at").eq("market_id", marketId);
-      expect(predictions?.every((p) => p.locked_at === null)).toBe(true);
+      const { data: predictions } = await admin.from("predictions").select("lock_reason").eq("market_id", marketId);
+      expect(predictions?.every((p) => p.lock_reason !== "CHALLENGE_ACCEPTED")).toBe(true); // every prediction is already final (locked by its Confidence); a pending Call BS never locks anything
     } finally {
       await cleanup(fixtureId, marketId, userIds);
     }
@@ -204,7 +205,7 @@ test.describe("Call BS Challenges", () => {
 
       await loginAs(page, emailAndre);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Pick Home Test FC to win" }).click();
+      await predict(page, "Pick Home Test FC to win", 1);
       await expect(page.getByText(/You picked Home Test FC/)).toBeVisible();
 
       // Carlos and Marco both pick the opposing side and both send Andre
@@ -213,7 +214,7 @@ test.describe("Call BS Challenges", () => {
       await page.context().clearCookies();
       await loginAs(page, emailCarlos);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Pick Away Test FC to win" }).click();
+      await predict(page, "Pick Away Test FC to win", 1);
       await expect(page.getByText(/You picked Away Test FC/)).toBeVisible();
       await page.reload();
       await page.getByRole("button", { name: "Call BS" }).click();
@@ -222,7 +223,7 @@ test.describe("Call BS Challenges", () => {
       await page.context().clearCookies();
       await loginAs(page, emailMarco);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Pick Away Test FC to win" }).click();
+      await predict(page, "Pick Away Test FC to win", 1);
       await expect(page.getByText(/You picked Away Test FC/)).toBeVisible();
       await page.reload();
       await page.getByRole("button", { name: "Call BS" }).click();
@@ -233,7 +234,7 @@ test.describe("Call BS Challenges", () => {
       await page.context().clearCookies();
       await loginAs(page, emailPriya);
       await page.goto(`/markets/${marketId}`);
-      await page.getByRole("button", { name: "Pick Away Test FC to win" }).click();
+      await predict(page, "Pick Away Test FC to win", 1);
       await expect(page.getByText(/You picked Away Test FC/)).toBeVisible();
 
       // Andre sees both Carlos's and Marco's incoming Call BS, each with
@@ -266,9 +267,7 @@ test.describe("Call BS Challenges", () => {
       const priyaRow = page.locator("li", { hasText: "e2e-excl-priya" });
       await expect(priyaRow.getByRole("button", { name: "Call BS" })).not.toBeVisible();
 
-      // From Marco's own side: no longer available too, and his Pick is
-      // still ordinarily editable (never locked — he was displaced, not
-      // paired).
+      // From Marco's own side: no longer available too (displaced, not paired).
       await page.context().clearCookies();
       await loginAs(page, emailMarco);
       await page.goto(`/markets/${marketId}`);
@@ -279,9 +278,10 @@ test.describe("Call BS Challenges", () => {
       const andreId = userIds[0];
       const carlosId = userIds[1];
       const marcoId = userIds[2];
-      expect(byUser.get(andreId)?.lock_reason).toBe("CHALLENGE_ACCEPTED");
-      expect(byUser.get(carlosId)?.lock_reason).toBe("CHALLENGE_ACCEPTED");
-      expect(byUser.get(marcoId)?.locked_at).toBeNull();
+      // Every prediction is already final from the moment it was made (locked by its Confidence): Call BS is no longer what locks a Pick, so all three keep that lock and the pairing is carried by the challenges.
+      for (const id of [andreId, carlosId, marcoId]) expect(byUser.get(id)?.lock_reason).toBe("CONFIDENCE_COMMITTED");
+      const { data: carlosChallenge } = await admin.from("challenges").select("status").eq("market_id", marketId).eq("challenger_user_id", carlosId).single();
+      expect(carlosChallenge?.status).toBe("ACCEPTED");
 
       const { data: marcoChallenge } = await admin
         .from("challenges")

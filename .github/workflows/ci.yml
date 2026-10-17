@@ -170,13 +170,16 @@ jobs:
       # and safe placeholders for Resend/cron/Sentry) onto the vars the
       # spawned `next dev` actually reads, via webServer.env. Nothing in
       # this job writes .env.local.
+      # TEST_DATABASE_URL (the loopback-only local database, guarded like every other raw connection) is for tests/e2e/purge.setup.ts: a prediction's Confidence stake can never be deleted through the API, so that one
+      # housekeeping step clears the Games earlier specs left behind with a direct connection to this disposable database.
       - name: Write .env.test.local from the local Supabase stack
         run: |
-          eval "$(pnpm supabase status -o env | grep -E '^(API_URL|ANON_KEY|SERVICE_ROLE_KEY)=')"
+          eval "$(pnpm supabase status -o env | grep -E '^(API_URL|ANON_KEY|SERVICE_ROLE_KEY|DB_URL)=')"
           cat > .env.test.local <<EOF
           TEST_SUPABASE_URL=$API_URL
           TEST_SUPABASE_ANON_KEY=$ANON_KEY
           TEST_SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY
+          TEST_DATABASE_URL=$DB_URL
           EOF
 
       # playwright.config.ts's webServer starts `pnpm dev` itself and waits

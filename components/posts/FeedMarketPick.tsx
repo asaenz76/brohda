@@ -1,6 +1,6 @@
-import { PredictionActions } from "@/components/predictions/PredictionActions";
+import { PredictionComposer } from "@/components/predictions/PredictionComposer";
 import { PublicPickChoices } from "@/components/posts/PublicPickChoices";
-import { CommittedConfidence, PickConfidence } from "@/components/confidence/PickConfidence";
+import { CommittedConfidence } from "@/components/confidence/CommittedConfidence";
 import type { FeedMarketSummary } from "@/lib/communities/feed";
 
 /**
@@ -42,19 +42,28 @@ export function FeedMarketPick({ market, isPublic, postId, heading = null, showT
           <PublicPickChoices choices={market.choices} postId={postId} />
         )
       ) : market.isEditable ? (
-        <PredictionActions marketId={market.id} disabledReason={market.pickDisabledReason} currentSelection={market.viewerSelection} choices={market.choices} hideTitle={!showTitle} groupLabel={heading ?? undefined} />
-      ) : (
+        // The prediction composer: side (local) + Confidence (the commitment). An open Pick from before Confidence was part of every prediction comes in with its side pre-selected, to be completed.
+        <PredictionComposer
+          marketId={market.id}
+          choices={market.choices}
+          offer={market.confidenceOffer}
+          disabledReason={market.pickDisabledReason}
+          initialSelection={market.viewerSelection}
+          legacyOpenPick={market.viewerPredictionId !== null}
+          hideTitle={!showTitle}
+          groupLabel={heading ?? undefined}
+        />
+      ) : market.confidence.state === "staked" ? (
+        // A prediction: the side and the Confidence behind it, final.
         <div className="space-y-1">
-          <p className="text-sm font-medium text-text-muted">
-            You picked {selectionLabel} — {market.pickDisabledReason}
-          </p>
-          {market.confidence.state === "staked" && <CommittedConfidence amount={market.confidence.amount} pending={market.confidence.stakeState === "RESERVED"} />}
+          <p className="text-sm font-semibold text-text-primary">You picked {selectionLabel}</p>
+          <CommittedConfidence amount={market.confidence.amount} pending={market.confidence.stakeState === "RESERVED"} />
         </div>
-      )}
-
-      {/* The optional Confidence control, inline on the card — the same shared component and the same database decision as the Post detail. Nothing renders unless the Pick is open to it. */}
-      {!isPublic && market.viewerPredictionId && market.viewerSelection && (
-        <PickConfidence predictionId={market.viewerPredictionId} selectedOutcome={market.viewerSelection} selectionLabel={selectionLabel} contextLabel={heading ?? undefined} stake={market.confidence} />
+      ) : (
+        // A pick from before Confidence was part of every prediction that is already locked: kept as the record it is.
+        <p className="text-sm font-medium text-text-muted">
+          You picked {selectionLabel} — {market.pickDisabledReason}
+        </p>
       )}
 
       <SentimentLine market={market} isPublic={isPublic} />

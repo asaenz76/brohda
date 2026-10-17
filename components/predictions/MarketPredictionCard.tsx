@@ -5,11 +5,11 @@ import { DiscoveryStatusPill } from "@/components/discovery/DiscoveryStatusPill"
 import { getLatestUserPredictionForMarket } from "@/lib/predictions/repository";
 import { checkMarketEligibility, getPredictionPolicy } from "@/lib/predictions/policy";
 import { copyForIneligible } from "@/lib/predictions/copy";
-import { PredictionActions } from "@/components/predictions/PredictionActions";
+import { PredictionComposer } from "@/components/predictions/PredictionComposer";
 import { YourPredictionCard } from "@/components/predictions/YourPredictionCard";
 import { MarketParticipants } from "@/components/predictions/MarketParticipants";
-import { PickConfidence } from "@/components/confidence/PickConfidence";
 import { getStakeUiState } from "@/lib/confidence/stakes";
+import { getConfidenceOffer } from "@/lib/confidence/offer";
 
 /**
  * Milestone R3 (Post Foundation): extracted from
@@ -57,7 +57,7 @@ export async function MarketPredictionCard({
   const isEditable = existingPrediction === null || (existingPrediction.lockedAt === null && existingPrediction.lifecycleState === "PENDING");
 
   // Confidence behind the viewer's OWN Pick (optional): the card shows the committed amount, or — while the Pick is still open to it — the "How confident are you?" control. Nothing at all while Confidence is off.
-  const stakeState = existingPrediction ? await getStakeUiState(userId, existingPrediction.id) : ({ state: "none" } as const);
+  const [stakeState, confidenceOffer] = await Promise.all([existingPrediction ? getStakeUiState(userId, existingPrediction.id) : Promise.resolve({ state: "none" } as const), getConfidenceOffer(userId)]);
 
   let predictionDisabledReason: string | null = null;
   if (isEditable) {
@@ -98,7 +98,7 @@ export async function MarketPredictionCard({
         <p className="text-sm font-medium text-text-primary">{market.resolvedOutcome === "YES" ? market.yesLabel : market.noLabel}</p>
       )}
 
-      {existingPrediction === null ? (
+      {existingPrediction === null || isEditable ? (
         <p className="text-xs text-text-muted">Make your pick to see how everyone else picked.</p>
       ) : hasPicks ? (
         <div className="space-y-1">
@@ -122,26 +122,19 @@ export async function MarketPredictionCard({
       {closesLabel && <p className="text-sm text-text-secondary">Closes {closesLabel}</p>}
 
       {isEditable ? (
-        <PredictionActions
+        <PredictionComposer
           marketId={market.id}
-          disabledReason={predictionDisabledReason}
-          currentSelection={existingPrediction?.selectedOutcome ?? null}
           choices={market.choices}
+          offer={confidenceOffer}
+          disabledReason={predictionDisabledReason}
+          initialSelection={existingPrediction?.selectedOutcome ?? null}
+          legacyOpenPick={existingPrediction !== null}
         />
       ) : (
         <YourPredictionCard
           prediction={existingPrediction!}
           choices={market.choices}
           stake={stakeState.state === "staked" ? { amount: stakeState.amount, result: stakeState.result } : null}
-        />
-      )}
-
-      {existingPrediction && (
-        <PickConfidence
-          predictionId={existingPrediction.id}
-          selectedOutcome={existingPrediction.selectedOutcome}
-          selectionLabel={market.choices.find((c) => c.outcome === existingPrediction.selectedOutcome)?.label ?? ""}
-          stake={stakeState}
         />
       )}
 

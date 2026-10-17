@@ -66,7 +66,7 @@ describe("a Sponsor session cannot use any Member action", () => {
 
     state.client = await signedIn(sponsor.email);
     const attempts: Record<string, () => Promise<unknown>> = {
-      pick: () => predictions.submitPredictionAction({ marketId, selectedOutcome: "NO", idempotencyKey: randomUUID() }),
+      pick: () => predictions.commitPredictionAction({ marketId, selectedOutcome: "NO", amount: 1, idempotencyKey: randomUUID() }),
       comment: () => comments.addPostCommentAction(post!.id, "hello from a sponsor"),
       removeComment: () => comments.removePostCommentAction(randomUUID(), post!.id),
       callBs: () => challenges.callBSAction(targetPick, marketId),
@@ -96,8 +96,11 @@ describe("a Sponsor session cannot use any Member action", () => {
     const { data } = await admin.auth.admin.getUserById(memberId);
     const { marketId } = await seedGame({});
     state.client = await signedIn(data.user!.email!);
-    expect(await redirects(() => predictions.submitPredictionAction({ marketId, selectedOutcome: "YES", idempotencyKey: randomUUID() }))).toBeNull();
+    // A prediction is a side AND Confidence: the Member's action works only while predictions are on.
+    await admin.from("platform_settings").update({ confidence_enabled: true, confidence_backed_picks_enabled: true }).eq("id", true);
+    expect(await redirects(() => predictions.commitPredictionAction({ marketId, selectedOutcome: "YES", amount: 1, idempotencyKey: randomUUID() }))).toBeNull();
     expect((await admin.from("predictions").select("id").eq("user_id", memberId)).data?.length).toBe(1);
+    expect((await admin.from("confidence_prediction_stakes").select("amount").eq("member_id", memberId)).data).toEqual([{ amount: 1 }]);
   });
 
   it("a signed-out caller is sent to the Member login, not the Sponsor area", async () => {

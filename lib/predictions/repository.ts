@@ -202,7 +202,7 @@ export interface SetPickInput {
   idempotencyKey: string;
 }
 
-export type SetPickOutcome = "created" | "updated" | "unchanged" | "replayed" | "rejected_cutoff" | "rejected_game_closed" | "rejected_locked";
+export type SetPickOutcome = "created" | "updated" | "unchanged" | "replayed" | "rejected_cutoff" | "rejected_game_closed" | "rejected_locked" | "rejected_backing_required";
 
 export interface SetPickResult {
   prediction: Prediction | null;
