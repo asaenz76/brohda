@@ -6,7 +6,30 @@
 
 alter table public.platform_settings add column confidence_mandatory_since timestamptz;
 comment on column public.platform_settings.confidence_mandatory_since is
-  'Cutover instant for "every new Pick needs Confidence behind it". NULL = not enforced by the database yet. When set, a Pick created at or after this instant must have a Confidence stake or its transaction fails to commit; set_pick and the separate stake attach refuse to run outside create_confidence_prediction. Pre-cutover Picks are legacy records and are never given a stake.';
+  'Cutover instant for "every new Pick needs Confidence behind it". NULL = not enforced by the database yet. When set, a Pick created at or after this instant must have a Confidence stake or its transaction fails to commit; set_pick and the separate stake attach refuse to run outside create_confidence_prediction. Pre-cutover Picks are legacy records and are never given a stake. ONE-WAY: it moves only NULL -> the server timestamp of that moment (see confidence_mandatory_one_way); it is a permanent product boundary, not an operational switch.';
+
+-- The cutover is a permanent boundary, not a setting. The only allowed change is NULL -> now() (the server's transaction timestamp, never a value a caller supplies). Unsetting it, moving it earlier or later, or setting it to a future
+-- or arbitrary time is refused for EVERYONE who goes through the normal data path — the Settings screen, the service role, any API. Changing the boundary after activation would be an explicit engineering remediation (a superuser
+-- disabling this trigger on purpose), never a routine action. The operational controls (confidence_enabled, confidence_backed_picks_enabled) are separate and can still pause NEW predictions without touching it.
+create or replace function public.confidence_mandatory_one_way()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if old.confidence_mandatory_since is not null and new.confidence_mandatory_since is distinct from old.confidence_mandatory_since then
+    raise exception 'cutover_is_permanent';
+  end if;
+  if old.confidence_mandatory_since is null and new.confidence_mandatory_since is not null and new.confidence_mandatory_since is distinct from now() then
+    raise exception 'cutover_must_be_now';
+  end if;
+  return new;
+end;
+$$;
+create trigger platform_settings_confidence_mandatory_one_way before update of confidence_mandatory_since on public.platform_settings
+  for each row execute function public.confidence_mandatory_one_way();
+revoke all on function public.confidence_mandatory_one_way() from public, anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------------------------------------------------------------------------------------
 -- set_pick: after the cutover it is no longer a Member action. Only the composer (which sets a transaction-local switch) may call it; a direct call is refused with a plain outcome.
@@ -360,7 +383,7 @@ revoke all on function public.confidence_prediction_capacity() from public, anon
 grant execute on function public.confidence_prediction_capacity() to service_role;
 
 -- ---------------------------------------------------------------------------------------------------------------------------------------------
--- The audited settings function: the cutover switch (true sets it to now() once; false clears it)
+-- The audited settings function: the one-way cutover (true sets it to now() once and keeps it; false after that is refused)
 -- ---------------------------------------------------------------------------------------------------------------------------------------------
 create or replace function public.admin_set_confidence_config(p_admin_id uuid, p_config jsonb)
 returns public.platform_settings
@@ -394,9 +417,11 @@ begin
   if p_config ? 'confidence_mandatory' then
     if jsonb_typeof(p_config -> 'confidence_mandatory') <> 'boolean' then raise exception 'invalid_mandatory'; end if;
     if (p_config ->> 'confidence_mandatory')::boolean then
+      -- Activation is NULL -> now() and nothing else; asking again once it is set changes nothing (the instant is kept).
       v_mandatory_since := coalesce(v_before.confidence_mandatory_since, now());
-    else
-      v_mandatory_since := null;
+    elsif v_before.confidence_mandatory_since is not null then
+      -- The cutover is permanent: it can never be switched back off from here.
+      raise exception 'cutover_is_permanent';
     end if;
   end if;
   update public.platform_settings set
@@ -412,8 +437,9 @@ begin
     confidence_mandatory_since = v_mandatory_since,
     updated_at = now(), updated_by = p_admin_id
     where id = true returning * into v_after;
-  -- A cutover with predictions switched off would leave nobody able to predict: refuse that combination outright.
-  if v_after.confidence_mandatory_since is not null and (v_after.confidence_enabled is not true or v_after.confidence_backed_picks_enabled is not true) then
+  -- Activating the cutover with predictions switched off would leave nobody able to predict, so activation needs both on. AFTER activation they are ordinary operational switches: backed predictions can be paused (new commitments stop,
+  -- existing stakes still settle) without touching the cutover, and pausing never allows an unbacked Pick — set_pick keeps refusing.
+  if v_before.confidence_mandatory_since is null and v_after.confidence_mandatory_since is not null and (v_after.confidence_enabled is not true or v_after.confidence_backed_picks_enabled is not true) then
     raise exception 'mandatory_requires_predictions_on';
   end if;
   v_b := (select jsonb_object_agg(key, value) from jsonb_each(to_jsonb(v_before)) where key like 'confidence\_%');

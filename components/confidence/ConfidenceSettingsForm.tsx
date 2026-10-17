@@ -22,15 +22,28 @@ export function ConfidenceSettingsForm({ settings }: { settings: ConfidenceSetti
           <span className="block text-xs font-normal text-text-muted">Every prediction is a side and the Confidence behind it, made in one step. Turning this off pauses new predictions; Confidence already behind a prediction still settles from the result.</span>
         </span>
       </label>
-      <label className="flex items-start gap-2 text-sm font-medium text-text-primary">
-        <input type="checkbox" name="confidence_mandatory" defaultChecked={settings.mandatorySince !== null} className="mt-0.5 size-4" data-slot="confidence-mandatory" />
-        <span>
-          No Pick can exist without Confidence (enforced in the database)
-          <span className="block text-xs font-normal text-text-muted" data-slot="confidence-mandatory-since">
-            {settings.mandatorySince ? `Enforced since ${new Date(settings.mandatorySince).toUTCString()}.` : "Not enforced yet."} Once on, a new Pick that has no Confidence behind it cannot be saved by anything. Earlier picks are never changed. Needs predictions on.
+      {settings.mandatorySince ? (
+        // Permanent once set: shown, not editable. (A disabled field is not submitted, and the action only ever sends "on", so nothing here can unset it.)
+        <div className="flex items-start gap-2 text-sm font-medium text-text-primary" data-slot="confidence-mandatory-locked">
+          <input type="checkbox" checked disabled readOnly className="mt-0.5 size-4" aria-label="No Pick can exist without Confidence — permanent" />
+          <span>
+            No Pick can exist without Confidence — permanent
+            <span className="block text-xs font-normal text-text-muted" data-slot="confidence-mandatory-since">
+              Enforced in the database since {new Date(settings.mandatorySince).toUTCString()}. This is a permanent boundary, not a setting: it can&apos;t be turned off here. To pause predictions use &ldquo;Members can make predictions&rdquo; above.
+            </span>
           </span>
-        </span>
-      </label>
+        </div>
+      ) : (
+        <label className="flex items-start gap-2 text-sm font-medium text-text-primary">
+          <input type="checkbox" name="confidence_mandatory" className="mt-0.5 size-4" data-slot="confidence-mandatory" />
+          <span>
+            Make it permanent: no Pick can exist without Confidence
+            <span className="block text-xs font-normal text-text-muted" data-slot="confidence-mandatory-since">
+              Not enforced yet. Once saved, the database refuses any new Pick that has no Confidence behind it, from that moment on — and <strong>this can&apos;t be undone from Settings</strong>. Earlier picks are never changed. Needs predictions on.
+            </span>
+          </span>
+        </label>
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="space-y-1 text-xs font-medium text-text-secondary">
           Baseline (Confidence)

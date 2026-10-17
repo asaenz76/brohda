@@ -77,6 +77,8 @@ export async function resetIntegrationWorld(): Promise<void> {
       // A table that doesn't exist in this schema would be a typo here, not something to skip silently.
       await client.query(`delete from public.${table}`);
     }
+    // The Confidence cutover is one-way and has no column default, so the generic reset below would leave it set: clear it here (this connection has triggers off, which is the explicit remediation path the one-way trigger leaves open).
+    await client.query("update public.platform_settings set confidence_mandatory_since = null where id = true");
     await client.query(`
       do $$
       declare cols text;

@@ -40,8 +40,10 @@ export async function setConfidenceConfigAction(_prev: ConfidenceAdminResult | n
   }
   const { error } = await createAdminClient().rpc("admin_set_confidence_config", {
     p_admin_id: admin.id,
-    p_config: { confidence_enabled: enabled, confidence_backed_picks_enabled: backedPicksEnabled, confidence_mandatory: mandatory, ...copy, confidence_baseline: baseline, confidence_daily_claim_amount: amount, confidence_daily_claim_interval_hours: interval, confidence_allowed_stakes: stakes },
+    p_config: { confidence_enabled: enabled, confidence_backed_picks_enabled: backedPicksEnabled, ...(mandatory ? { confidence_mandatory: true } : {}), ...copy, confidence_baseline: baseline, confidence_daily_claim_amount: amount, confidence_daily_claim_interval_hours: interval, confidence_allowed_stakes: stakes },
   });
+  if (error?.message.includes("cutover_is_permanent")) return fail("The rule that no Pick can exist without Confidence is permanent. It can't be turned off from Settings.");
+  if (error?.message.includes("mandatory_requires_predictions_on")) return fail("Turn on Confidence and predictions before making the rule permanent.");
   if (error) return fail("Couldn't save the Confidence settings.");
   revalidatePath("/admin/settings/brohda");
   revalidatePath("/admin/confidence");
