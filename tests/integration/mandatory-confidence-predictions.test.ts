@@ -29,8 +29,22 @@ async function sql<T = Row>(text: string, params: unknown[] = []): Promise<T[]> 
     await client.end();
   }
 }
+/** The cutover is one-way for everyone on the normal data path; a test that needs the pre-cutover world back uses the explicit remediation path (a connection with triggers off), exactly what the isolation helper does. */
+async function clearCutover() {
+  const client = new Client({ connectionString: getTestDatabaseUrl() });
+  await client.connect();
+  try {
+    await client.query("begin");
+    await client.query("set local session_replication_role = replica");
+    await client.query("update public.platform_settings set confidence_mandatory_since = null where id = true");
+    await client.query("commit");
+  } finally {
+    await client.end();
+  }
+}
 beforeEach(async () => {
-  await setSettings({ confidence_enabled: true, confidence_backed_picks_enabled: true, confidence_mandatory_since: null, confidence_baseline: 50, confidence_allowed_stakes: [1, 2, 3, 4, 5], pick_lock_minutes_before_kickoff: 10, call_bs_enabled: true });
+  await clearCutover();
+  await setSettings({ confidence_enabled: true, confidence_backed_picks_enabled: true, confidence_baseline: 50, confidence_allowed_stakes: [1, 2, 3, 4, 5], pick_lock_minutes_before_kickoff: 10, call_bs_enabled: true });
 });
 let staffId: string | null = null;
 afterEach(async () => {
@@ -73,6 +87,7 @@ async function nothingCreated(memberId: string, marketId: string, before: Row) {
 async function game(startsInMinutes = 24 * 60, template: Parameters<typeof seedGame>[0] = {}) {
   return seedGame({ startsInMinutes, ...template });
 }
+const cutover = async () => ((await admin.from("platform_settings").select("confidence_mandatory_since").eq("id", true).single()).data as Row).confidence_mandatory_since as string | null;
 async function activateCutover() {
   await ok_("admin_set_confidence_config", { p_admin_id: await superAdmin(), p_config: { confidence_mandatory: true } });
 }
@@ -333,21 +348,74 @@ describe("the cutover: no other way to create a Pick", () => {
     expect(await stakesOf(m)).toEqual([]);
   });
 
-  it("only a Super Admin can set it, it needs predictions on, it is audited, and turning it off clears it", async () => {
+  it("only a Super Admin can activate it, activation needs predictions on, it is audited, and asking again keeps the very same instant", async () => {
     const regular = await seedUser("mc-regular");
     expect((await admin.rpc("admin_set_confidence_config", { p_admin_id: regular, p_config: { confidence_mandatory: true } })).error).not.toBeNull();
     await setSettings({ confidence_backed_picks_enabled: false });
     expect((await admin.rpc("admin_set_confidence_config", { p_admin_id: await superAdmin(), p_config: { confidence_mandatory: true } })).error?.message).toMatch(/mandatory_requires_predictions_on/);
+    expect(await cutover()).toBeNull();
     await setSettings({ confidence_backed_picks_enabled: true });
     await activateCutover();
-    const since = (await admin.from("platform_settings").select("confidence_mandatory_since").eq("id", true).single()).data!.confidence_mandatory_since;
+    const since = await cutover();
     expect(since).not.toBeNull();
     await activateCutover(); // idempotent: the instant is kept
-    expect((await admin.from("platform_settings").select("confidence_mandatory_since").eq("id", true).single()).data!.confidence_mandatory_since).toBe(since);
-    const audits = await admin.from("audit_logs").select("after").eq("action", "settings.confidence_updated").order("created_at", { ascending: false }).limit(1);
-    expect((audits.data![0].after as Row).confidence_mandatory_since).toBe(since);
-    await ok_("admin_set_confidence_config", { p_admin_id: await superAdmin(), p_config: { confidence_mandatory: false } });
-    expect((await admin.from("platform_settings").select("confidence_mandatory_since").eq("id", true).single()).data!.confidence_mandatory_since).toBeNull();
+    expect(await cutover()).toBe(since);
+    const audits = await admin.from("audit_logs").select("before, after").eq("action", "settings.confidence_updated").order("created_at", { ascending: false }).limit(5);
+    const activation = audits.data!.find((a) => (a.after as Row).confidence_mandatory_since === since && (a.before as Row).confidence_mandatory_since === null);
+    expect(activation, "the activation is audited, NULL -> the instant").toBeTruthy();
+    // The instant is the SERVER's, never a value a caller supplies: it is within a moment of now.
+    expect(Math.abs(Date.now() - new Date(since!).getTime())).toBeLessThan(60_000);
+  });
+
+  it("ONE-WAY: once set it cannot be turned off, moved earlier or later, or set to the future — not by the Settings function, not by the service role, not by any direct update", async () => {
+    await activateCutover();
+    const since = (await cutover())!;
+    // The Settings function: asking for "off" is refused outright and nothing changes.
+    const off = await admin.rpc("admin_set_confidence_config", { p_admin_id: await superAdmin(), p_config: { confidence_mandatory: false } });
+    expect(off.error?.message).toMatch(/cutover_is_permanent/);
+    expect(await cutover()).toBe(since);
+    // Direct writes through the data API (the service role): unset, a different instant, the future, the past.
+    const attempts: Array<string | null> = [null, new Date(Date.now() + 3_600_000).toISOString(), new Date(Date.now() - 3_600_000).toISOString(), new Date(new Date(since).getTime() + 1).toISOString()];
+    for (const value of attempts) {
+      const r = await admin.from("platform_settings").update({ confidence_mandatory_since: value }).eq("id", true);
+      expect(r.error?.message, String(value)).toMatch(/cutover_is_permanent/);
+    }
+    expect(await cutover()).toBe(since);
+    // The generic settings reads/other columns still work (the trigger only guards this column).
+    expect((await admin.from("platform_settings").update({ confidence_baseline: 50 }).eq("id", true)).error).toBeNull();
+    // Activation also cannot be backdated or scheduled: from NULL, only "now" is accepted.
+    await clearCutover();
+    for (const value of [new Date(Date.now() + 3_600_000).toISOString(), new Date(Date.now() - 3_600_000).toISOString()]) {
+      const r = await admin.from("platform_settings").update({ confidence_mandatory_since: value }).eq("id", true);
+      expect(r.error?.message, value).toMatch(/cutover_must_be_now/);
+    }
+    expect(await cutover()).toBeNull();
+  });
+
+  it("the operational kill switch is separate: after the cutover, pausing predictions stops NEW ones, never reopens unbacked Picks, never touches the cutover, and existing stakes still settle", async () => {
+    const m = await member("kill");
+    const open = await game(60);
+    await compose(m, open.marketId, "YES", 3);
+    await activateCutover();
+    const since = await cutover();
+    // Pause backed predictions, then Confidence entirely.
+    await setSettings({ confidence_backed_picks_enabled: false });
+    const g = await game();
+    expect((await compose(m, g.marketId, "YES", 1)).data?.outcome).toBe("disabled");
+    expect((await admin.rpc("set_pick", { p_user_id: m, p_market_id: g.marketId, p_selected_outcome: "YES", p_yes_probability: 0.5, p_no_probability: 0.5, p_market_question: "q", p_market_close_at: null, p_market_status: "ACTIVE", p_idempotency_key: randomUUID() }).single()).data).toMatchObject({ outcome: "rejected_backing_required" });
+    expect((await admin.from("predictions").insert({ user_id: m, market_id: g.marketId, selected_outcome: "YES", yes_probability_snapshot: 0.5, no_probability_snapshot: 0.5, market_question_snapshot: "q", market_status_snapshot: "ACTIVE", idempotency_key: randomUUID() })).error?.message).toMatch(/cannot exist without Confidence/);
+    expect(await picksOf(m, g.marketId)).toEqual([]);
+    await setSettings({ confidence_enabled: false });
+    expect(await cutover()).toBe(since); // the cutover never moved
+    // The existing reserved stake still settles from the result.
+    await setFixture(open.fixtureId, { internal_status: "COMPLETED", home_score: 3, away_score: 1 });
+    await runGradingJob(recordGradedPredictionResult);
+    const a = await account(m);
+    expect([Number(a.available), Number(a.reserved)]).toEqual([53, 0]); // 47 + 3 returned + 3 won
+    expect((await stakesOf(m))[0].state).toBe("SETTLED_CORRECT");
+    // And turning predictions back on does not touch the cutover either.
+    await setSettings({ confidence_enabled: true, confidence_backed_picks_enabled: true });
+    expect(await cutover()).toBe(since);
   });
 
   it("after the switch set_pick refuses to persist a Pick (so no unbacked Pick can be saved), and the composer still creates backed ones", async () => {

@@ -6,7 +6,8 @@
  */
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { getTestAdminClient } from "./helpers/test-env";
+import { Client } from "pg";
+import { getTestAdminClient, getTestDatabaseUrl } from "./helpers/test-env";
 import { predict } from "./helpers/predict";
 
 const admin = getTestAdminClient();
@@ -125,19 +126,39 @@ async function holdServerActions(page: Page, ms: number, mode: "delay" | "abort"
   });
 }
 
+/** The cutover is one-way on every normal path (even the service role), so a spec that enforced it puts the disposable local database back through the same explicit remediation connection the isolation helper uses. */
+async function resetCutover() {
+  const client = new Client({ connectionString: getTestDatabaseUrl() });
+  await client.connect();
+  try {
+    await client.query("begin");
+    await client.query("set local session_replication_role = replica");
+    await client.query("update public.platform_settings set confidence_mandatory_since = null where id = true");
+    await client.query("commit");
+  } finally {
+    await client.end();
+  }
+}
+
 let saved: Row | null = null;
 let alice: { id: string; email: string };
 let owner: { id: string; email: string };
 test.beforeAll(async () => {
   const { data } = await admin.from("platform_settings").select("confidence_enabled, confidence_backed_picks_enabled, confidence_mandatory_since, confidence_allowed_stakes, confidence_baseline, confidence_daily_claim_amount, confidence_daily_claim_interval_hours, pick_lock_minutes_before_kickoff, confidence_notify_correct").eq("id", true).single();
   saved = data;
-  await admin.from("platform_settings").update({ confidence_enabled: true, confidence_backed_picks_enabled: true, confidence_mandatory_since: null, confidence_baseline: 50, confidence_daily_claim_amount: 1, confidence_daily_claim_interval_hours: 24, confidence_allowed_stakes: [1, 2, 3, 4, 5], pick_lock_minutes_before_kickoff: 10 }).eq("id", true);
+  await resetCutover();
+  await admin.from("platform_settings").update({ confidence_enabled: true, confidence_backed_picks_enabled: true, confidence_baseline: 50, confidence_daily_claim_amount: 1, confidence_daily_claim_interval_hours: 24, confidence_allowed_stakes: [1, 2, 3, 4, 5], pick_lock_minutes_before_kickoff: 10 }).eq("id", true);
   alice = await createMember("alice");
   owner = await createMember("owner", "super_admin");
   await admin.rpc("confidence_bootstrap_member", { p_member_id: alice.id });
 });
 test.afterAll(async () => {
-  if (saved) await admin.from("platform_settings").update(saved).eq("id", true);
+  await resetCutover();
+  if (saved) {
+    const rest = { ...saved };
+    delete rest.confidence_mandatory_since; // never restored through the API: the cutover is one-way, and resetCutover() above already put it back
+    await admin.from("platform_settings").update(rest).eq("id", true);
+  }
 });
 
 test("the composer on the feed: a side alone creates nothing, a level alone creates nothing, tapping a level with a side IS the prediction — one atomic step; it locks, shows the committed amount, and reveals sentiment only now", async ({ page }) => {
@@ -445,7 +466,7 @@ test("with predictions switched off (or Confidence off) the composer says so and
   }
 });
 
-test("the Super Admin switches: predictions on/off and 'No Pick can exist without Confidence' are audited and take effect; wording needs {{amount}}", async ({ page }) => {
+test("the Super Admin switches: predictions on/off and the permanent 'No Pick can exist without Confidence' cutover are audited and take effect; once set it cannot be undone; wording needs {{amount}}", async ({ page }) => {
   test.setTimeout(240_000);
   await loginAs(page, owner.email);
   await page.goto("/admin/settings/brohda");
@@ -453,14 +474,22 @@ test("the Super Admin switches: predictions on/off and 'No Pick can exist withou
   await expect(card_).toBeVisible();
   await expect(card_.getByLabel(/Members can make predictions/i)).toBeChecked();
   await expect(card_.locator('[data-slot="confidence-mandatory-since"]')).toContainText("Not enforced yet");
+  await expect(card_.locator('[data-slot="confidence-mandatory-locked"]')).toHaveCount(0);
   await card_.getByLabel(/No Pick can exist without Confidence/i).check();
   await card_.getByLabel("When the pick was correct").fill("You won {{amount}} Confidence!");
   await card_.getByRole("button", { name: "Save" }).click();
   await expect(card_.getByRole("status")).toContainText("Members can make predictions");
   await expect.poll(async () => (await admin.from("platform_settings").select("confidence_mandatory_since, confidence_notify_correct").eq("id", true).single()).data!.confidence_notify_correct).toBe("You won {{amount}} Confidence!");
-  expect((await admin.from("platform_settings").select("confidence_mandatory_since").eq("id", true).single()).data!.confidence_mandatory_since).not.toBeNull();
+  const since = (await admin.from("platform_settings").select("confidence_mandatory_since").eq("id", true).single()).data!.confidence_mandatory_since;
+  expect(since).not.toBeNull();
   await page.reload();
-  await expect(card_.locator('[data-slot="confidence-mandatory-since"]')).toContainText("Enforced since");
+  await expect(card_.locator('[data-slot="confidence-mandatory-since"]')).toContainText("Enforced in the database since");
+  // Permanent: the control is a locked, checked block — there is nothing left to uncheck.
+  const locked = card_.locator('[data-slot="confidence-mandatory-locked"]');
+  await expect(locked).toBeVisible();
+  await expect(locked).toContainText("permanent");
+  await expect(locked.getByRole("checkbox")).toBeChecked();
+  await expect(locked.getByRole("checkbox")).toBeDisabled();
   // Wording without {{amount}} is refused as a whole.
   await card_.getByLabel("When the pick was incorrect").fill("Better luck next time.");
   await card_.getByRole("button", { name: "Save" }).click();
@@ -478,12 +507,15 @@ test("the Super Admin switches: predictions on/off and 'No Pick can exist withou
   await page.goto("/admin/confidence");
   await expect(page.locator('[data-slot="prediction-capacity"]')).toContainText("since");
   await expect(page.locator('[data-slot="prediction-capacity"]')).toContainText("Earlier picks without Confidence");
-  // Turn the enforcement back off (and leave the wording as the default for the other specs).
+  // Saving settings again (wording back to the default for the other specs) never moves or clears the cutover.
   await page.goto("/admin/settings/brohda");
-  await card_.getByLabel(/No Pick can exist without Confidence/i).uncheck();
   await card_.getByLabel("When the pick was correct").fill("+{{amount}}🔥 Confidence.");
+  await card_.getByLabel("When the pick was incorrect").fill("−{{amount}}🔥 Confidence.");
   await card_.getByRole("button", { name: "Save" }).click();
-  await expect.poll(async () => (await admin.from("platform_settings").select("confidence_mandatory_since").eq("id", true).single()).data!.confidence_mandatory_since).toBeNull();
+  await expect(card_.getByRole("status")).toContainText("Members can make predictions");
+  expect((await admin.from("platform_settings").select("confidence_mandatory_since").eq("id", true).single()).data!.confidence_mandatory_since).toBe(since);
+  // The suite returns the disposable database to the pre-cutover world so the specs that seed earlier picks keep working.
+  await resetCutover();
 });
 
 test("the shell summary shows total, available and reserved behind your picks; phone width holds the composer; a Sponsor sees none of it", async ({ page }) => {
