@@ -536,7 +536,7 @@ test("the shell summary shows total, available and reserved behind your picks; p
   await expect(block).toContainText("50 total");
   await expect(block).toContainText("32 available");
   await expect(block).toContainText("18 reserved behind your picks");
-  await expect(block).toHaveAttribute("aria-label", "Confidence: 50 total, 32 available, 18 reserved behind your picks. Open your Confidence history");
+  await expect(block).toHaveAttribute("aria-label", "Confidence: 50 total, 32 available, 18 reserved behind your picks. Open Confidence history");
   await admin.from("platform_settings").update({ confidence_allowed_stakes: [1, 2, 3, 4, 5] }).eq("id", true);
 
   // Phone: no overflow, comfortable tap targets, the composer fits inside the card, and a prediction commits.
@@ -555,7 +555,8 @@ test("the shell summary shows total, available and reserved behind your picks; p
   }
   await level(c, 2).click();
   await expect(c.locator('[data-slot="pick-confidence"]')).toHaveAttribute("aria-label", "2 Confidence, locked", { timeout: 30_000 });
-  await expect(page.locator('header [data-slot="shell-confidence"]:visible')).toHaveAttribute("aria-label", /^Confidence: 50 total, 30 available, 20 reserved behind your picks/, { timeout: 30_000 });
+  // Phone: the full summary banner (title, total, available, reserved) — no longer a bare chip in the top bar — updates in place after the commit, with no reload.
+  await expect(page.locator('[data-slot="shell-confidence"][data-variant="banner"]:visible')).toHaveAttribute("aria-label", /^Confidence: 50 total, 30 available, 20 reserved behind your picks/, { timeout: 30_000 });
   await page.setViewportSize({ width: 1280, height: 800 });
 
   // A Sponsor sees no Member Confidence UI.
@@ -565,4 +566,97 @@ test("the shell summary shows total, available and reserved behind your picks; p
   await page.goto("/feed").catch(() => undefined);
   await expect(page.locator('[data-slot="confidence-choice"]')).toHaveCount(0);
   await expect(page.locator('[data-slot="shell-confidence"]')).toHaveCount(0);
+});
+
+test("the shell's Confidence summary: titled, total / available / reserved on desktop and phone, in the old Wallet slot, one tap to the Confidence page, no old chip, live after a commit, gone when Confidence is off", async ({ page }) => {
+  test.setTimeout(240_000);
+  const m = await createMember("shellclean");
+  await admin.rpc("confidence_bootstrap_member", { p_member_id: m.id });
+  const g = await seedGame("shellclean");
+  const g2 = await seedGame("shellclean2");
+  await loginAs(page, m.email);
+
+  // ---- Desktop: the rail
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await gotoFeedReady(page);
+  const rail = page.locator('aside[aria-label="Navigation"]');
+  const summary = rail.locator('nav[aria-label="Primary"] [data-slot="shell-confidence"]');
+  await expect(page.locator('[data-slot="shell-confidence"]:visible'), "exactly one summary is visible").toHaveCount(1);
+  await expect(summary).toHaveAttribute("data-variant", "rail");
+  await expect(summary).toContainText("Confidence");
+  await expect(summary).toContainText("50 total");
+  await expect(summary).toContainText("50 available");
+  await expect(summary).toContainText("0 reserved behind your picks");
+  await expect(summary).toHaveAttribute("aria-label", "Confidence: 50 total, 50 available, 0 reserved behind your picks. Open Confidence history");
+  expect((await summary.innerText()).replace(/\s+/g, " ")).not.toMatch(/\$|wallet|usdt|cash|funds|bankroll|payout|deposit|withdraw|escrow|wager|\bbet\b/i);
+  // It is not under the logo: the first thing after the logo is the primary navigation, and the summary sits after Profile and before Settings.
+  await expect(rail.locator(':scope > a[data-slot="shell-confidence"]')).toHaveCount(0);
+  const hrefs = await rail.getByRole("link").evaluateAll((els) => els.map((e) => e.getAttribute("href")));
+  expect(hrefs.indexOf("/profile/confidence")).toBe(hrefs.indexOf("/profile") + 1);
+  expect(hrefs.indexOf("/profile/confidence")).toBeLessThan(hrefs.indexOf("/profile/edit"));
+  // The labels are fully readable: nothing is clipped or ellipsised inside the rail.
+  const clipped = await summary.evaluate((el) => [...el.querySelectorAll("*")].some((n) => n.scrollWidth > n.clientWidth + 1 && getComputedStyle(n).overflow !== "visible"));
+  expect(clipped).toBe(false);
+  const railBox = (await rail.boundingBox())!;
+  const sumBox = (await summary.boundingBox())!;
+  expect(sumBox.x + sumBox.width).toBeLessThanOrEqual(railBox.x + railBox.width + 1);
+
+  // ---- The composer agrees with the shell, and a commit updates the shell live (no reload): total unchanged, available down, reserved up.
+  await expect(card(page, g).locator('[data-slot="confidence-offer"], [data-testid="prediction-actions"]').first()).toContainText("50 available");
+  await predict(card(page, g), new RegExp(`Pick ${g.home} to win`), 3);
+  await expect(summary).toContainText("50 total", { timeout: 30_000 });
+  await expect(summary).toContainText("47 available", { timeout: 30_000 });
+  await expect(summary).toContainText("3 reserved behind your picks", { timeout: 30_000 });
+  await expect(card(page, g2).locator('[data-testid="prediction-actions"]').first()).toContainText("47 available");
+
+  // ---- One tap opens the Confidence page, which uses the same words and numbers.
+  await summary.click();
+  await expect(page).toHaveURL(/\/profile\/confidence$/);
+  await expect(page.locator('[data-slot="confidence-history-total"]')).toContainText("50 total");
+  await expect(page.locator('[data-slot="confidence-split"]')).toContainText("47 available · 🔥3 reserved behind your picks");
+  await expect(rail.locator('[data-slot="shell-confidence"]')).toHaveAttribute("aria-current", "page");
+
+  // ---- Phone: a full-width summary at the top of the page — the old top-bar chip is gone, nothing is squeezed.
+  for (const width of [375, 320]) {
+    await page.setViewportSize({ width, height: 812 });
+    await gotoFeedReady(page);
+    const banner = page.locator('[data-slot="shell-confidence"]:visible');
+    await expect(banner, `${width}: exactly one visible`).toHaveCount(1);
+    await expect(banner).toHaveAttribute("data-variant", "banner");
+    await expect(banner).toContainText("Confidence");
+    await expect(banner).toContainText("50 total");
+    await expect(banner).toContainText("47 available");
+    await expect(banner).toContainText("3 reserved behind your picks");
+    await expect(page.locator('header [data-slot="shell-confidence"]'), `${width}: no chip in the top bar`).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), `${width}: no horizontal overflow`).toBeLessThanOrEqual(0);
+    const b = (await banner.boundingBox())!;
+    expect(b.height, `${width}: tap target`).toBeGreaterThanOrEqual(44);
+    expect(b.x).toBeGreaterThanOrEqual(0);
+    expect(b.x + b.width).toBeLessThanOrEqual(width);
+    const bannerClipped = await banner.evaluate((el) => [...el.querySelectorAll("*")].some((n) => n.scrollWidth > n.clientWidth + 1 && getComputedStyle(n).overflow !== "visible"));
+    expect(bannerClipped, `${width}: nothing clipped`).toBe(false);
+    const fontPx = await banner.evaluate((el) => Math.min(...[...el.querySelectorAll("span")].filter((n) => n.childElementCount === 0 || n.textContent).map((n) => parseFloat(getComputedStyle(n).fontSize))));
+    expect(fontPx, `${width}: readable text`).toBeGreaterThanOrEqual(12);
+  }
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.getByRole("button", { name: "Menu" }).click();
+  await expect(page.getByRole("dialog").locator('[data-slot="shell-confidence"]'), "the Menu holds no second summary").toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page.locator('[data-slot="shell-confidence"]:visible').click();
+  await expect(page).toHaveURL(/\/profile\/confidence$/);
+
+  // ---- Confidence off: nothing is shown and no space is left behind.
+  try {
+    await admin.from("platform_settings").update({ confidence_enabled: false }).eq("id", true);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await gotoFeedReady(page);
+    await expect(page.locator('[data-slot="shell-confidence"]')).toHaveCount(0);
+    const offHrefs = await rail.getByRole("link").evaluateAll((els) => els.map((e) => e.getAttribute("href")));
+    expect(offHrefs.indexOf("/profile/edit")).toBe(offHrefs.indexOf("/profile") + 1);
+    await page.setViewportSize({ width: 375, height: 812 });
+    await gotoFeedReady(page);
+    await expect(page.locator('[data-slot="shell-confidence"]')).toHaveCount(0);
+  } finally {
+    await admin.from("platform_settings").update({ confidence_enabled: true }).eq("id", true);
+  }
 });

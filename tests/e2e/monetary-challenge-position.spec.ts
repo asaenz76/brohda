@@ -171,13 +171,11 @@ test.describe("Monetary Challenge + Position", () => {
       expect(proposal?.status).toBe("ACCEPTED");
       expect(proposal?.position_id).not.toBeNull();
 
-      // Both participants' wallet pages show their hold. Exact match on the
-      // wallet card's label: the header pill also says "$X on hold", so a
-      // substring match would hit both.
+      // Both participants' wallet pages show their hold. (The shell carries only a plain Wallet link now, with no amount.)
       await page.goto("/wallet");
       await expect(page.getByText("On hold", { exact: true })).toBeVisible();
       await expect(page.getByText("$10.00").first()).toBeVisible();
-      await expect(page.getByRole("link", { name: /^Wallet: .* on hold$/ })).toBeVisible();
+      await expect(page.getByRole("complementary", { name: "Navigation" }).getByRole("link", { name: "Wallet", exact: true })).toBeVisible();
 
       await page.context().clearCookies();
       await loginAs(page, emailB);

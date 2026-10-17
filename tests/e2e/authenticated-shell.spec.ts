@@ -178,13 +178,15 @@ test.describe("Authenticated shell — desktop (1280)", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Upcoming games" })).toBeVisible();
     await expect(rail(page).locator('a[aria-current="page"]')).toContainText("Home");
 
-    // Order: the five primary links, then Wallet, positioned lower on the page (a utility, not a destination).
+    // Order: the five primary links, then the Confidence summary, Settings and Rules, and a plain Wallet link last (a quiet utility for a Member who still has money in the system — never a figure, never a destination).
     await page.goto("/feed");
     const hrefs = await rail(page).getByRole("link").evaluateAll((els) => els.map((e) => e.getAttribute("href")));
-    expect(hrefs).toEqual(["/feed", "/discovery", "/notifications", "/search", "/profile", "/profile/confidence", "/wallet", "/profile/edit", "/rules"]);
+    expect(hrefs).toEqual(["/feed", "/discovery", "/notifications", "/search", "/profile", "/profile/confidence", "/profile/edit", "/rules", "/wallet"]);
     const profileBox = (await rail(page).getByRole("link", { name: "Profile" }).boundingBox())!;
-    const walletBox = (await rail(page).getByRole("link", { name: /^Wallet:/ }).boundingBox())!;
+    const walletLink = rail(page).getByRole("link", { name: "Wallet", exact: true });
+    const walletBox = (await walletLink.boundingBox())!;
     expect(walletBox.y).toBeGreaterThan(profileBox.y + profileBox.height);
+    expect(await walletLink.innerText(), "the Wallet link carries no figure").toBe("Wallet");
 
     // Own profile highlights Profile; someone else's profile highlights nothing.
     await page.goto(`/profile/${USERNAME}`);
@@ -444,7 +446,7 @@ test.describe("Authenticated shell — breakpoints", () => {
     await expect(sheet).toBeVisible();
     await expect(sheet.getByRole("heading", { name: "Menu" })).toBeVisible();
     await expect(sheet.getByRole("link", { name: "Search" })).toHaveAttribute("href", "/search");
-    await expect(sheet.getByRole("link", { name: /^Wallet:/ })).toHaveAttribute("href", "/wallet");
+    await expect(sheet.getByRole("link", { name: "Wallet", exact: true })).toHaveAttribute("href", "/wallet");
     await expect(sheet.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/profile/edit");
     await expect(sheet.getByRole("button", { name: "Log out" })).toBeVisible();
     expect(await sheet.innerText()).not.toMatch(/create|new post|publish/i);
@@ -465,7 +467,7 @@ test.describe("Authenticated shell — breakpoints", () => {
     await expect(page).toHaveURL(/\/search$/);
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await menuButton.click();
-    await page.getByRole("dialog").getByRole("link", { name: /^Wallet:/ }).click();
+    await page.getByRole("dialog").getByRole("link", { name: "Wallet", exact: true }).click();
     await expect(page).toHaveURL(/\/wallet$/);
     await expect(page.getByTestId("auth-bottom-nav").getByRole("button", { name: "Menu" })).toBeVisible();
 

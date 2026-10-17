@@ -5,11 +5,9 @@ import { usePathname } from "next/navigation";
 import { BookOpen, Menu, MessageSquare, Search, Settings, Shield, Wallet } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 import { LogoutRow } from "@/components/shell/LogoutRow";
-import { ConfidenceSummary, type ConfidenceFigures } from "@/components/confidence/ConfidenceBalance";
 import { MenuSheet, menuItemClass } from "@/components/shell/MenuSheet";
 import { MESSAGES_NAV, MOBILE_NAV, activeNavKey, visibleNav, type ShellNavItem } from "@/components/shell/nav";
 import { cn } from "@/lib/utils";
-import { formatCents } from "@/lib/utils/money";
 
 const itemClass = "relative flex min-h-12 min-w-0 flex-col items-center justify-center gap-0.5 px-0.5 py-1.5 text-[11px] font-medium max-[360px]:text-[10px] outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50";
 
@@ -39,7 +37,7 @@ function BarLink({ item, active, unread, avatar }: { item: ShellNavItem; active:
 
 // Phone navigation: the feed owns the viewport and these five controls stay
 // at the bottom — Home, Discovery, Notifications, Profile, and a Menu for
-// everything secondary (Search, Wallet, Log out). No account actions and
+// everything secondary (Search, Settings, Rules, Log out). No account actions and
 // nothing that creates content. Safe-area padding keeps it off the home
 // indicator.
 export function MobileNav({
@@ -50,10 +48,7 @@ export function MobileNav({
   unreadNotificationCount,
   showMessages = false,
   unreadMessageCount = 0,
-  availableCents,
-  heldCents,
   isAdmin,
-  confidence = null,
 }: {
   profile: { displayName: string; avatarUrl: string | null };
   profileSlug: string | null;
@@ -62,16 +57,10 @@ export function MobileNav({
   unreadNotificationCount: number;
   showMessages?: boolean;
   unreadMessageCount?: number;
-  availableCents: number;
-  heldCents: number;
   isAdmin: boolean;
-  /** The Member's Confidence (null while Confidence is off): the full summary sits in the Menu, in the slot the Wallet row used to own. */
-  confidence?: ConfidenceFigures | null;
 }) {
   const pathname = usePathname();
   const active = activeNavKey(pathname, profileSlug);
-  const available = formatCents(availableCents);
-  const description = heldCents > 0 ? `${available} available, ${formatCents(heldCents)} on hold` : `${available} available`;
 
   return (
     <nav aria-label="Primary" data-testid="auth-bottom-nav" className="fixed inset-x-0 bottom-0 z-40 border-t border-border-subtle bg-background pb-[env(safe-area-inset-bottom)] md:hidden">
@@ -123,16 +112,6 @@ export function MobileNav({
                   <Search className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
                   Search
                 </Link>
-                {confidence && <ConfidenceSummary {...confidence} onNavigate={close} active={pathname.startsWith("/profile/confidence")} />}
-                {showWallet && (
-                  <Link href="/wallet" onClick={close} title={description} aria-label={`Wallet: ${description}`} className={menuItemClass}>
-                    <Wallet className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
-                    <span>Wallet</span>
-                    <span className="ml-auto text-xs font-normal text-text-muted" aria-hidden="true">
-                      {available}
-                    </span>
-                  </Link>
-                )}
                 <Link href="/profile/edit" onClick={close} className={menuItemClass}>
                   <Settings className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
                   Settings
@@ -141,6 +120,12 @@ export function MobileNav({
                   <BookOpen className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
                   Rules
                 </Link>
+                {showWallet && (
+                  <Link href="/wallet" onClick={close} className={menuItemClass}>
+                    <Wallet className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
+                    <span>Wallet</span>
+                  </Link>
+                )}
                 {isAdmin && (
                   <Link href="/admin/users" onClick={close} className={menuItemClass}>
                     <Shield className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
