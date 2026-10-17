@@ -6,7 +6,7 @@ import { RightRail } from "@/components/shell/RightRail";
 import { SiteFooter } from "@/components/shell/SiteFooter";
 import { InAppHistoryTracker } from "@/components/shell/InAppHistoryTracker";
 import { NotificationToast } from "@/components/NotificationToast";
-import { ConfidenceBalance } from "@/components/confidence/ConfidenceBalance";
+import { ConfidenceSummary } from "@/components/confidence/ConfidenceBalance";
 import type { ShellConfidence } from "@/lib/confidence/service";
 import { isAdminOrAbove } from "@/lib/auth/guards";
 import type { UserProfile } from "@/lib/auth/session";
@@ -15,7 +15,7 @@ import type { UserProfile } from "@/lib/auth/session";
 // your identity, navigation and participation available (no acquisition
 // chrome, no change of visual identity):
 //
-//   < md   one column. A logo-only top bar, the page, and a fixed bottom
+//   < md   one column. A logo-only top bar, the Confidence summary, the page, and a fixed bottom
 //          bar (Home, Discovery, Notifications, Profile, Menu).
 //   md–xl  left navigation rail + the page.
 //   xl+    left rail + the page + a contextual right rail.
@@ -24,8 +24,6 @@ import type { UserProfile } from "@/lib/auth/session";
 // never knows which page it is hosting. The admin section keeps AppShell.
 export function AuthenticatedShell({
   user,
-  availableCents,
-  heldCents,
   unreadNotificationCount,
   showSocialNav,
   showWallet,
@@ -35,23 +33,21 @@ export function AuthenticatedShell({
   children,
 }: {
   user: UserProfile;
-  availableCents: number;
-  heldCents: number;
   unreadNotificationCount: number;
   showSocialNav: boolean;
-  /** The Wallet entry (and its balance) is shown only when the consumer money capability allows it. */
+  /** A plain Wallet link (no balance) is shown only for a Member who still has money in the system — the consumer money capability's wind-down case. */
   showWallet: boolean;
   /** Messaging is ON: show the Messages entry, with the unread count. (A UX signal; each /messages page enforces its own access.) */
   showMessages?: boolean;
   unreadMessageCount?: number;
-  /** The Member's Confidence for the at-a-glance indicator; null while Confidence is off (nothing is shown). */
+  /** The Member's Confidence for the shell summary; null while Confidence is off or for anyone without an account (nothing is shown, no space is left). */
   confidence?: ShellConfidence | null;
   children: React.ReactNode;
 }) {
   // The viewer's own profile segment: the same one ProfilePage uses for its follower links.
   const profileSlug = user.username ?? user.id;
   const isAdmin = isAdminOrAbove(user);
-  const navProps = { profileSlug, showSocialNav, showWallet, unreadNotificationCount, showMessages, unreadMessageCount, availableCents, heldCents, isAdmin, confidence };
+  const navProps = { profileSlug, showSocialNav, showWallet, unreadNotificationCount, showMessages, unreadMessageCount, isAdmin, confidence };
 
   return (
     <div className="min-h-full bg-background">
@@ -60,10 +56,15 @@ export function AuthenticatedShell({
           <Link href="/feed" className="font-logo text-lg font-extrabold italic text-text-primary">
             brohda.
           </Link>
-          {/* Phone: the total is always in view, top right — the full summary sits in the Menu where the Wallet row used to be. On larger screens it lives in the navigation rail instead. */}
-          {confidence && <ConfidenceBalance {...confidence} className="flex min-h-9 items-center rounded-full bg-surface-secondary px-3 text-sm font-semibold text-text-primary" />}
         </div>
       </header>
+
+      {/* Phone: the whole Confidence summary (title, total, available, reserved) is the first thing on every page, readable without opening the Menu. On larger screens it lives in the navigation rail instead. */}
+      {confidence && (
+        <div className="mx-auto max-w-[1200px] px-4 pt-3 md:hidden">
+          <ConfidenceSummary {...confidence} variant="banner" />
+        </div>
+      )}
 
       <div className="mx-auto grid w-full max-w-[1200px] gap-6 px-4 pt-3 md:grid-cols-[200px_minmax(0,1fr)] md:pt-4 lg:grid-cols-[250px_minmax(0,600px)] lg:justify-center lg:pt-6 xl:grid-cols-[250px_minmax(0,600px)_280px]">
         <aside aria-label="Navigation" className="hidden space-y-6 md:sticky md:top-4 md:block md:self-start lg:top-6">

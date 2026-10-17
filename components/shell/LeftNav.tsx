@@ -6,7 +6,6 @@ import { BookOpen, Settings, Shield, Wallet } from "lucide-react";
 import { LogoutRow } from "@/components/shell/LogoutRow";
 import { ConfidenceSummary, type ConfidenceFigures } from "@/components/confidence/ConfidenceBalance";
 import { cn } from "@/lib/utils";
-import { formatCents } from "@/lib/utils/money";
 import { activeNavKey, railNav, type ShellNavItem } from "@/components/shell/nav";
 
 const rowClass =
@@ -39,9 +38,9 @@ function NavRow({ item, active, unread }: { item: ShellNavItem; active: boolean;
 }
 
 // Desktop/tablet left rail: the primary destinations, then a quiet lower
-// section for utilities (Confidence, Wallet, Admin, Log out). Confidence leads that section: it is the Member's balance-like summary. Wallet is deliberately a
-// utility row, not a primary destination, and shows what's available to act
-// on; money on hold is named in the accessible label and tooltip.
+// section: the Confidence summary (the Member's in-game balance, where the Wallet balance used to sit), then Settings, Rules and Log out. A plain "Wallet"
+// link, with no figure, appears below Rules only for a Member who still has money in the system (the capability's wind-down case) so they can always reach
+// their funds; it never competes with Confidence.
 export function LeftNav({
   profileSlug,
   showSocialNav,
@@ -49,8 +48,6 @@ export function LeftNav({
   unreadNotificationCount,
   showMessages = false,
   unreadMessageCount = 0,
-  availableCents,
-  heldCents,
   isAdmin,
   confidence = null,
 }: {
@@ -60,16 +57,12 @@ export function LeftNav({
   unreadNotificationCount: number;
   showMessages?: boolean;
   unreadMessageCount?: number;
-  availableCents: number;
-  heldCents: number;
   isAdmin: boolean;
   /** The Member's Confidence (null while Confidence is off): the primary balance-like summary, in the slot the Wallet row used to own. */
   confidence?: ConfidenceFigures | null;
 }) {
   const pathname = usePathname();
   const active = activeNavKey(pathname, profileSlug);
-  const available = formatCents(availableCents);
-  const description = heldCents > 0 ? `${available} available, ${formatCents(heldCents)} on hold` : `${available} available`;
 
   return (
     <nav aria-label="Primary" className="flex flex-col gap-1">
@@ -78,22 +71,7 @@ export function LeftNav({
       ))}
 
       <div className="mt-3 flex flex-col gap-1 border-t border-border-subtle pt-3">
-        {confidence && <ConfidenceSummary {...confidence} stacked active={pathname.startsWith("/profile/confidence")} />}
-        {showWallet && (
-          <Link
-            href="/wallet"
-            title={description}
-            aria-label={`Wallet: ${description}`}
-            aria-current={active === "wallet" ? "page" : undefined}
-            className={cn(rowClass, active === "wallet" ? "bg-surface-secondary font-semibold text-text-primary" : "font-medium text-text-secondary hover:bg-surface-secondary hover:text-text-primary")}
-          >
-            <Wallet className={cn("size-5 shrink-0", active === "wallet" && "text-accent-primary")} aria-hidden="true" />
-            <span className="truncate">Wallet</span>
-            <span className="ml-auto text-xs font-normal text-text-muted" aria-hidden="true">
-              {available}
-            </span>
-          </Link>
-        )}
+        {confidence && <ConfidenceSummary {...confidence} active={pathname.startsWith("/profile/confidence")} />}
         <Link
           href="/profile/edit"
           aria-current={active === "settings" ? "page" : undefined}
@@ -110,6 +88,16 @@ export function LeftNav({
           <BookOpen className={cn("size-5 shrink-0", active === "rules" && "text-accent-primary")} aria-hidden="true" />
           <span className="truncate">Rules</span>
         </Link>
+        {showWallet && (
+          <Link
+            href="/wallet"
+            aria-current={active === "wallet" ? "page" : undefined}
+            className={cn(rowClass, active === "wallet" ? "bg-surface-secondary font-semibold text-text-primary" : "font-medium text-text-secondary hover:bg-surface-secondary hover:text-text-primary")}
+          >
+            <Wallet className={cn("size-5 shrink-0", active === "wallet" && "text-accent-primary")} aria-hidden="true" />
+            <span className="truncate">Wallet</span>
+          </Link>
+        )}
         {isAdmin && (
           <Link href="/admin/users" className={cn(rowClass, "font-medium text-text-secondary hover:bg-surface-secondary hover:text-text-primary")}>
             <Shield className="size-5 shrink-0" aria-hidden="true" />
