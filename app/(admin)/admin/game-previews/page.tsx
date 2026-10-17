@@ -1,9 +1,11 @@
 import { requireSuperAdmin } from "@/lib/auth/session";
 import { LocalDateTime } from "@/components/LocalDateTime";
-import { GamePreviewConfigForm, WithdrawPreviewForm } from "@/components/game-previews/AdminGamePreviewTools";
-import { getGamePreviewConfig, listGamePreviewCandidates, listGamePreviewsForAdmin, listUpcomingGamesForAdmin } from "@/lib/game-previews/repository";
+import { EditPreviewForm, GamePreviewConfigForm, GeneratePreviewForm, WithdrawPreviewForm } from "@/components/game-previews/AdminGamePreviewTools";
+import { getGamePreviewConfig, getGenerationUsageSummary, listGamePreviewCandidates, listGamePreviewsForAdmin, listRecentGenerationRuns, listUpcomingGamesForAdmin } from "@/lib/game-previews/repository";
 
 export const dynamic = "force-dynamic";
+// Generating a Preview researches the web and writes with a model, which can take minutes: the explicit Generate action runs inside this page's route.
+export const maxDuration = 300;
 
 // Super Admin only. The editorial side of the Game Post: which upcoming Games have a Game Preview, which still need one (missing or stale), what each Preview says and exactly which sources it rests on, and the limits and timings
 // (stored configuration, nothing is a constant in code). Previews are researched and written ahead of time and saved; nothing here — or on the Post — researches or generates anything when a page is opened.
@@ -11,7 +13,9 @@ const SHOW_DAYS = 14;
 
 export default async function AdminGamePreviewsPage() {
   await requireSuperAdmin();
-  const [config, candidates] = await Promise.all([getGamePreviewConfig(), listGamePreviewCandidates()]);
+  const [config, candidates, usage, runs] = await Promise.all([getGamePreviewConfig(), listGamePreviewCandidates(), getGenerationUsageSummary(), listRecentGenerationRuns(8)]);
+  // Presence only — the key itself is never read into the page.
+  const credentialsConfigured = config.provider === "openai" && Boolean(process.env.OPENAI_API_KEY);
   const games = await listUpcomingGamesForAdmin(SHOW_DAYS);
   const previews = await listGamePreviewsForAdmin(games.map((g) => g.fixtureId));
   const needs = new Map(candidates.map((c) => [c.fixtureId, c.reason]));
@@ -32,9 +36,28 @@ export default async function AdminGamePreviewsPage() {
         </p>
       </section>
 
+      <section className="space-y-2" aria-label="Generation usage" data-slot="generation-usage">
+        <h2 className="text-sm font-semibold text-text-primary">Generation usage</h2>
+        <p className="text-sm text-text-secondary">
+          {usage.gamesResearched} Games researched · {usage.succeeded} Previews written · {usage.failed + usage.rejected} not saved ({usage.rejected} rejected by the checks) · {usage.regenerations} regenerations · {usage.searchCalls} web searches · {usage.modelCalls} model calls
+          {usage.avgCallsPerSuccessfulPreview !== null && <> · {usage.avgCallsPerSuccessfulPreview} calls per Preview</>} · {usage.inputTokens.toLocaleString("en-US")} tokens in, {usage.outputTokens.toLocaleString("en-US")} out
+          {usage.byProviderModel.length > 0 && <> · {usage.byProviderModel.map((m) => `${m.provider} ${m.model} ×${m.runs}`).join(", ")}</>}
+        </p>
+        {runs.length > 0 && (
+          <ul className="text-xs text-text-muted" data-slot="generation-runs">
+            {runs.map((r) => (
+              <li key={r.id}>
+                {new Date(r.startedAt).toUTCString()} · {r.trigger.toLowerCase()} · {r.reason} · <strong className="text-text-secondary">{r.status}</strong>
+                {r.error && <> — {r.error}</>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
       <section className="space-y-3" aria-label="Settings">
         <h2 className="text-sm font-semibold text-text-primary">Limits and timings</h2>
-        <GamePreviewConfigForm config={config} />
+        <GamePreviewConfigForm config={config} credentialsConfigured={credentialsConfigured} />
       </section>
 
       <section className="space-y-3" aria-label="Upcoming Games">
@@ -61,6 +84,7 @@ export default async function AdminGamePreviewsPage() {
                   <p className="text-xs font-medium uppercase tracking-wide text-text-muted" data-slot="preview-status">
                     {live ? (need === "STALE" ? "Preview saved · stale" : "Preview saved") : p?.status === "WITHDRAWN" ? `Withdrawn — ${p.withdrawnReason}` : need === "MISSING" ? "Needs a Preview" : "No Preview yet (not within the lead time)"}
                   </p>
+                  <GeneratePreviewForm fixtureId={g.fixtureId} hasPreview={Boolean(live)} />
                   {p && live && (
                     <div className="space-y-2">
                       <p className="font-semibold text-text-primary">{p.hook}</p>
@@ -86,6 +110,19 @@ export default async function AdminGamePreviewsPage() {
                           ))}
                         </ul>
                       </details>
+                      {p.claims.length > 0 && (
+                        <details className="text-xs">
+                          <summary className="cursor-pointer font-medium text-text-secondary">Claims and what supports them ({p.claims.length})</summary>
+                          <ul className="mt-1 space-y-1" data-slot="preview-claims">
+                            {p.claims.map((c, i) => (
+                              <li key={i}>
+                                {c.text} <span className="text-text-muted">— {(((c as { source_urls?: string[] }).source_urls) ?? c.fact_ids).join(", ")}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      )}
+                      <EditPreviewForm fixtureId={g.fixtureId} hook={p.hook} body={p.body} maxHook={config.hookMaxChars} maxBody={config.maxChars} />
                       <WithdrawPreviewForm fixtureId={g.fixtureId} />
                     </div>
                   )}

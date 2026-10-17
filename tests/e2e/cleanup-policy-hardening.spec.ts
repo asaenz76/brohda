@@ -218,7 +218,7 @@ test.describe("Pick-first sentiment", () => {
     await page.goto(`/post/${nfl.postId}`);
     const main = page.getByRole("main");
     // The Post is not a prediction surface: it says where the numbers come from and withholds them.
-    await expect(main.getByText("Make your pick in the feed to see how everyone else picked.").first()).toBeVisible();
+    await expect(main.getByText("Make your prediction in the feed to see how everyone else picked.").first()).toBeVisible();
     expect(await main.innerText()).not.toMatch(/\d+%|\d+ predicted/);
     await expect(main.getByRole("button", { name: `Pick ${nfl.home} to win` })).toHaveCount(0);
 

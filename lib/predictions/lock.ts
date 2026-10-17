@@ -15,6 +15,14 @@ export function computeEffectiveLockAt(scheduledStartUtc: string, lockMinutesBef
   return new Date(new Date(scheduledStartUtc).getTime() - lockMinutesBeforeKickoff * 60_000);
 }
 
+/**
+ * Whether new predictions on a Game are closed as of `now`: the same two conditions the database enforces — the Game is no longer NOT_STARTED, or the effective lock (kickoff minus the configured lock minutes) has passed.
+ * Used only to decide what may be SHOWN (aggregate sentiment can no longer influence a new prediction once this is true); the write path decides on its own, inside the database.
+ */
+export function arePredictionsClosed(game: { internalStatus: string; scheduledStartUtc: string }, lockMinutesBeforeKickoff: number, now: Date): boolean {
+  return game.internalStatus !== "NOT_STARTED" || isPastEffectiveLock(game.scheduledStartUtc, lockMinutesBeforeKickoff, now);
+}
+
 /** Whether, as of `now`, ordinary Pick creation/editing has stopped for a Game with the given canonical kickoff. */
 export function isPastEffectiveLock(scheduledStartUtc: string, lockMinutesBeforeKickoff: number, now: Date): boolean {
   return now.getTime() >= computeEffectiveLockAt(scheduledStartUtc, lockMinutesBeforeKickoff).getTime();

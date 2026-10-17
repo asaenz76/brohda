@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { requireSuperAdmin } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isUuid } from "@/lib/messaging/share";
+import { runGamePreviewGenerationFor } from "@/lib/game-previews/automation";
+import { getGamePreviewForFixture } from "@/lib/game-previews/repository";
 
 export interface GamePreviewAdminResult {
   success: boolean;
@@ -13,27 +15,90 @@ export interface GamePreviewAdminResult {
 
 const fail = (error: string): GamePreviewAdminResult => ({ success: false, error });
 
-const FIELDS = [
+const NUMBER_FIELDS = [
   ["max_chars", "Preview length (characters)", 100, 2000],
   ["hook_max_chars", "Hook length (characters)", 20, 300],
   ["lead_hours", "Prepare a Game this many hours before kickoff", 1, 720],
-  ["stale_after_hours", "A Preview is stale after this many hours without a check", 1, 720],
-  ["min_refresh_interval_hours", "Minimum hours between refreshes for a new story", 0, 720],
+  ["stale_after_hours", "Stale after (hours)", 1, 720],
+  ["min_refresh_interval_hours", "Minimum hours between refreshes", 0, 720],
+  ["max_attempts", "Writing attempts per Game", 1, 5],
+  ["max_games_per_run", "Games per scheduled run", 1, 50],
+  ["max_search_calls_per_game", "Web searches per Game", 1, 50],
+  ["current_fact_max_age_hours", "How recent a 'current' source must be (hours)", 1, 8760],
 ] as const;
 
-/** Super Admin: the Game Preview limits and timings in one audited call. Validated as a whole; nothing is partially applied. */
+const domains = (raw: FormDataEntryValue | null) =>
+  String(raw ?? "")
+    .split(/[\s,]+/)
+    .map((d) => d.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, ""))
+    .filter(Boolean);
+
+/** Super Admin: the Game Preview limits, timings and generation settings in one audited call. Validated as a whole; nothing is partially applied. The API key is never a setting: it comes from the environment. */
 export async function setGamePreviewConfigAction(_prev: GamePreviewAdminResult | null, formData: FormData): Promise<GamePreviewAdminResult> {
   const admin = await requireSuperAdmin();
-  const config: Record<string, number> = {};
-  for (const [key, label, min, max] of FIELDS) {
+  const config: Record<string, unknown> = {};
+  for (const [key, label, min, max] of NUMBER_FIELDS) {
     const raw = String(formData.get(key) ?? "").trim();
     const value = raw === "" ? NaN : Number(raw);
     if (!Number.isInteger(value) || value < min || value > max) return fail(`${label} must be a whole number from ${min} to ${max}.`);
     config[key] = value;
   }
+  const provider = String(formData.get("provider") ?? "openai");
+  if (provider !== "openai") return fail("That provider isn't available.");
+  const model = String(formData.get("model") ?? "").trim();
+  if (model.length > 100) return fail("The model name is too long.");
+  config.provider = provider;
+  config.model = model;
+  config.generation_enabled = formData.get("generation_enabled") === "on";
+  config.web_search_enabled = formData.get("web_search_enabled") === "on";
+  config.verify_with_model = formData.get("verify_with_model") === "on";
+  if (config.generation_enabled && !model) return fail("Set a model before turning automatic generation on.");
+  config.preferred_domains = domains(formData.get("preferred_domains"));
+  config.blocked_domains = domains(formData.get("blocked_domains"));
   const { error } = await createAdminClient().rpc("admin_set_game_preview_config", { p_admin_id: admin.id, p_config: config });
   if (error) return fail("Couldn't save the Game Preview settings.");
   revalidatePath("/admin/game-previews");
+  return { success: true, error: null, message: "Saved." };
+}
+
+/**
+ * Super Admin: research and write a Preview for one Game now (the first one, or a regeneration). Allowed whether or not automatic generation is on. It runs the same pipeline the scheduled job would — web research,
+ * validation, verification, provenance — and never touches a Game that has started. The result says plainly what happened.
+ */
+export async function generateGamePreviewAction(_prev: GamePreviewAdminResult | null, formData: FormData): Promise<GamePreviewAdminResult> {
+  await requireSuperAdmin();
+  const fixtureId = String(formData.get("fixture_id") ?? "");
+  if (!isUuid(fixtureId)) return fail("That Game wasn't found.");
+  const existing = await getGamePreviewForFixture(fixtureId);
+  const result = await runGamePreviewGenerationFor(fixtureId, existing ? "MANUAL_ADMIN_REQUEST" : "MISSING", "ADMIN");
+  revalidatePath("/admin/game-previews");
+  revalidatePath("/feed");
+  if (!result.configured) return fail(result.error);
+  const o = result.outcome;
+  if (o.status === "SUCCEEDED") return { success: true, error: null, message: `Saved: “${o.hook}” (${o.usage.searchCalls} searches, ${o.usage.modelCalls} model calls).` };
+  const detail = o.problems.length ? ` ${o.problems.slice(0, 3).join(" ")}` : "";
+  return fail(`${o.status === "REJECTED" ? "The draft was rejected and nothing was saved." : "It didn't complete and nothing was saved."} (${o.error})${detail}`);
+}
+
+/** Super Admin: edit a Preview's hook and story by hand (the sources stay as they are). Needs a note; audited; refused once the Game has started. */
+export async function editGamePreviewAction(_prev: GamePreviewAdminResult | null, formData: FormData): Promise<GamePreviewAdminResult> {
+  const admin = await requireSuperAdmin();
+  const fixtureId = String(formData.get("fixture_id") ?? "");
+  const hook = String(formData.get("hook") ?? "").trim();
+  const body = String(formData.get("body") ?? "").trim();
+  const note = String(formData.get("note") ?? "").trim();
+  if (!isUuid(fixtureId)) return fail("That Game wasn't found.");
+  if (!hook || !body) return fail("The hook and the story can't be empty.");
+  if (note.length < 3 || note.length > 500) return fail("Say what you changed and why (3 to 500 characters).");
+  const { data, error } = await createAdminClient().rpc("admin_edit_game_preview", { p_admin_id: admin.id, p_fixture_id: fixtureId, p_hook: hook, p_body: body, p_note: note });
+  if (error) return fail("Couldn't save the edit.");
+  const outcome = (data as { outcome?: string; max?: number } | null)?.outcome;
+  if (outcome === "hook_too_long") return fail("The hook is longer than the configured limit.");
+  if (outcome === "body_too_long") return fail("The story is longer than the configured limit.");
+  if (outcome === "game_started") return fail("This Game has started, so its Preview is frozen.");
+  if (outcome !== "edited") return fail("That Game has no Preview to edit.");
+  revalidatePath("/admin/game-previews");
+  revalidatePath("/feed");
   return { success: true, error: null, message: "Saved." };
 }
 

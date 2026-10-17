@@ -28,6 +28,7 @@ const TABLES = [
   "predictions",
   "post_comments",
   "post_communities",
+  "game_preview_runs",
   "game_preview_revisions",
   "game_preview_sources",
   "game_previews",

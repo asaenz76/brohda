@@ -45,7 +45,7 @@ describe("Market sentiment on the Post", () => {
   it("withholds a Market the viewer has not predicted on: no percentages, no count, just where the numbers come from", () => {
     render(<GameMarketSentimentSection markets={[spreadHidden]} />);
     const block = screen.getByRole("heading", { name: "Spread" }).closest("div")!;
-    expect(block).toHaveTextContent("Make your pick in the feed to see how everyone else picked.");
+    expect(block).toHaveTextContent("Make your prediction in the feed to see how everyone else picked.");
     expect(block.textContent).not.toMatch(/%|predicted/);
   });
 

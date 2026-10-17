@@ -6,12 +6,14 @@ let messagingResult: () => Promise<unknown>;
 let confidenceResult: () => Promise<unknown>;
 let settlementResult: () => Promise<unknown>;
 let previewsResult: () => Promise<unknown>;
+let generationResult: () => Promise<unknown>;
 const providerLogCalls = vi.fn();
 const backgroundJobsCalls = vi.fn();
 const messagingCalls = vi.fn();
 const confidenceCalls = vi.fn();
 const settlementCalls = vi.fn();
 const previewsCalls = vi.fn();
+const generationCalls = vi.fn();
 
 vi.mock("@/lib/sports-data/provider-request-log-retention", () => ({
   runProviderRequestLogRetention: () => {
@@ -49,6 +51,12 @@ vi.mock("@/lib/game-previews/housekeeping", () => ({
     return previewsResult();
   },
 }));
+vi.mock("@/lib/game-previews/automation", () => ({
+  runGamePreviewAutomation: () => {
+    generationCalls();
+    return generationResult();
+  },
+}));
 // recordJobRun is exercised by its own tests; here it just runs the job and hands the result back.
 vi.mock("@/lib/jobs/record", () => ({ recordJobRun: async (_name: string, fn: () => Promise<unknown>) => fn() }));
 
@@ -66,6 +74,8 @@ beforeEach(() => {
   confidenceCalls.mockClear();
   settlementCalls.mockClear();
   previewsCalls.mockClear();
+  generationCalls.mockClear();
+  generationResult = async () => ({ enabled: false, configured: false, attempted: 0, succeeded: 0, failed: 0 });
   previewsResult = async () => ({ frozen: 0, missing: 0, stale: 0 });
   settlementResult = async () => ({ settled: 0 });
   confidenceResult = async () => ({ enabled: false, rounds: 0, processed: 0, remaining: 0 });
@@ -99,6 +109,7 @@ describe("prune-provider-request-log cron route", () => {
       confidence: { enabled: false, rounds: 0, processed: 0, remaining: 0 },
       confidenceSettlement: { settled: 0 },
       gamePreviews: { frozen: 0, missing: 0, stale: 0 },
+      gamePreviewGeneration: { enabled: false, configured: false, attempted: 0, succeeded: 0, failed: 0 },
       failures: [],
     });
   });
@@ -208,5 +219,20 @@ describe("Game Preview housekeeping on the same path", () => {
     expect(body.failures).toEqual([{ step: "game_previews", error: "previews failed" }]);
     expect(settlementCalls).toHaveBeenCalled();
     expect(body.rowsDeleted).toBe(7);
+  });
+});
+
+describe("Game Preview generation on the same path", () => {
+  it("reports what the automation did (off by default), and its failure skips nothing else", async () => {
+    generationResult = async () => ({ enabled: true, configured: true, attempted: 2, succeeded: 1, failed: 1 });
+    expect((await (await GET(request("Bearer test-secret"))).json()).gamePreviewGeneration).toEqual({ enabled: true, configured: true, attempted: 2, succeeded: 1, failed: 1 });
+    generationResult = async () => {
+      throw new Error("provider down");
+    };
+    const body = await (await GET(request("Bearer test-secret"))).json();
+    expect(body.gamePreviewGeneration).toBeNull();
+    expect(body.failures).toEqual([{ step: "game_preview_generation", error: "provider down" }]);
+    expect(settlementCalls).toHaveBeenCalled();
+    expect(previewsCalls).toHaveBeenCalled();
   });
 });

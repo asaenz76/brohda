@@ -61,7 +61,7 @@ beforeEach(async () => {
 
 describe("configuration, not constants", () => {
   it("ships the documented defaults and reads them from the stored row", async () => {
-    expect(await getGamePreviewConfig()).toEqual({ maxChars: 700, hookMaxChars: 120, leadHours: 48, staleAfterHours: 36, minRefreshIntervalHours: 6 });
+    expect(await getGamePreviewConfig()).toMatchObject({ maxChars: 700, hookMaxChars: 120, leadHours: 48, staleAfterHours: 36, minRefreshIntervalHours: 6 });
     await setConfig({ max_chars: 300 });
     expect((await getGamePreviewConfig()).maxChars).toBe(300);
   });
@@ -142,20 +142,20 @@ describe("writing a Preview", () => {
 });
 
 describe("refreshing: only with a reason, never continuously", () => {
-  it("MISSING cannot overwrite an existing Preview; STALE needs real staleness; NEW_STORY respects the minimum interval; CORRECTION is always allowed before kickoff", async () => {
+  it("MISSING cannot overwrite an existing Preview; STALE needs real staleness; MATERIAL_NEW_INFORMATION respects the minimum interval; MANUAL_ADMIN_REQUEST is always allowed before kickoff", async () => {
     const g = await game();
     expect((await saveGamePreview(input(g.fixtureId, { reason: "STALE" }))).outcome).toBe("no_existing_preview");
     expect((await saveGamePreview(input(g.fixtureId))).outcome).toBe("created");
     expect((await saveGamePreview(input(g.fixtureId))).outcome).toBe("already_exists");
     expect((await saveGamePreview(input(g.fixtureId, { reason: "STALE", hook: "Fresh hook" }))).outcome).toBe("not_stale");
-    expect((await saveGamePreview(input(g.fixtureId, { reason: "NEW_STORY", hook: "Newer hook" }))).outcome).toBe("too_soon");
-    expect((await saveGamePreview(input(g.fixtureId, { reason: "CORRECTION", hook: "Corrected hook" }))).outcome).toBe("refreshed");
+    expect((await saveGamePreview(input(g.fixtureId, { reason: "MATERIAL_NEW_INFORMATION", hook: "Newer hook" }))).outcome).toBe("too_soon");
+    expect((await saveGamePreview(input(g.fixtureId, { reason: "MANUAL_ADMIN_REQUEST", hook: "Corrected hook" }))).outcome).toBe("refreshed");
     expect((await getGamePreviewForFixture(g.fixtureId))!.hook).toBe("Corrected hook");
 
     await stale(g.fixtureId);
     expect((await saveGamePreview(input(g.fixtureId, { reason: "STALE", hook: "Stale refresh" }))).outcome).toBe("refreshed");
     await admin.from("game_previews").update({ generated_at: new Date(Date.now() - 24 * 3_600_000).toISOString() }).eq("fixture_id", g.fixtureId);
-    expect((await saveGamePreview(input(g.fixtureId, { reason: "NEW_STORY", hook: "A genuinely new story" }))).outcome).toBe("refreshed");
+    expect((await saveGamePreview(input(g.fixtureId, { reason: "MATERIAL_NEW_INFORMATION", hook: "A genuinely new story" }))).outcome).toBe("refreshed");
     const [row] = [...(await listGamePreviewsForAdmin([g.fixtureId])).values()];
     expect(row.refreshCount).toBe(3);
   });
@@ -163,11 +163,11 @@ describe("refreshing: only with a reason, never continuously", () => {
   it("keeps every replaced Preview — text, sources and why — so the history is auditable", async () => {
     const g = await game();
     await saveGamePreview(input(g.fixtureId, { hook: "First hook", sources: [source({ title: "First source" })] }));
-    await saveGamePreview(input(g.fixtureId, { reason: "CORRECTION", hook: "Second hook", sources: [source({ title: "Second source" })] }));
+    await saveGamePreview(input(g.fixtureId, { reason: "MANUAL_ADMIN_REQUEST", hook: "Second hook", sources: [source({ title: "Second source" })] }));
     const preview = (await admin.from("game_previews").select("id").eq("fixture_id", g.fixtureId).single()).data!;
     const revisions = (await admin.from("game_preview_revisions").select("*").eq("preview_id", preview.id)).data as Row[];
     expect(revisions).toHaveLength(1);
-    expect(revisions[0]).toMatchObject({ hook: "First hook", replaced_reason: "CORRECTION" });
+    expect(revisions[0]).toMatchObject({ hook: "First hook", replaced_reason: "MANUAL_ADMIN_REQUEST" });
     expect((revisions[0].sources as Row[])[0]).toMatchObject({ title: "First source", provider: "NHL.com" });
     const current = (await listGamePreviewsForAdmin([g.fixtureId])).get(g.fixtureId)!;
     expect(current.sources.map((s) => s.title)).toEqual(["Second source"]); // the old sources are replaced, not accumulated
@@ -185,7 +185,7 @@ describe("freezing at kickoff", () => {
     const read = await getGamePreviewForFixture(g.fixtureId);
     expect(read?.frozenAt).not.toBeNull();
     expect(read?.hook).toBe("Seven goals. Your move, Washington.");
-    expect((await saveGamePreview(input(g.fixtureId, { reason: "CORRECTION", hook: "Rewrite attempt" }))).outcome).toBe("game_started");
+    expect((await saveGamePreview(input(g.fixtureId, { reason: "MANUAL_ADMIN_REQUEST", hook: "Rewrite attempt" }))).outcome).toBe("game_started");
     expect((await getGamePreviewForFixture(g.fixtureId))!.hook).toBe("Seven goals. Your move, Washington.");
   });
 });
@@ -249,7 +249,7 @@ describe("who can touch it", () => {
     const member = getTestAnonClient();
     expect((await member.auth.signInWithPassword({ email: data.user!.email!, password: PASSWORD })).error).toBeNull();
     for (const client of [member, getTestAnonClient()]) {
-      for (const table of ["game_previews", "game_preview_sources", "game_preview_revisions", "game_preview_config"]) {
+      for (const table of ["game_previews", "game_preview_sources", "game_preview_revisions", "game_preview_config", "game_preview_runs"]) {
         const r = await client.from(table).select("*");
         expect((r.data ?? []).length, table).toBe(0); // RLS with no policy: nothing readable
         const w = await client.from(table).insert({}).select();
@@ -257,6 +257,8 @@ describe("who can touch it", () => {
       }
       for (const [fn, args] of [
         ["upsert_game_preview", { p_fixture_id: g.fixtureId, p_hook: "h", p_body: "b", p_generated_by: "x", p_reason: "MISSING", p_sources: [] }],
+        ["admin_edit_game_preview", { p_admin_id: memberId, p_fixture_id: g.fixtureId, p_hook: "h", p_body: "b", p_note: "x" }],
+        ["game_preview_usage_summary", {}],
         ["freeze_started_game_previews", {}],
         ["game_preview_candidates", {}],
         ["admin_set_game_preview_config", { p_admin_id: memberId, p_config: { max_chars: 100 } }],
@@ -306,7 +308,7 @@ describe("the Post's Market sentiment", () => {
     await compose(c, g.marketId, "NO", 1);
     await compose(a, totalId, "NO", 1);
     const markets = await listDisplayableMarketsForFixture(g.fixtureId);
-    const sentiment = await getGameMarketSentiment({ userId: a, sport: "ice_hockey", homeTeamName: "Washington Capitals", awayTeamName: "New Jersey Devils", markets, templatePriority: ["MONEYLINE", "TOTAL", "SPREAD"] });
+    const sentiment = await getGameMarketSentiment({ userId: a, sport: "ice_hockey", homeTeamName: "Washington Capitals", awayTeamName: "New Jersey Devils", markets, templatePriority: ["MONEYLINE", "TOTAL", "SPREAD"], predictionsClosed: false });
     expect(sentiment.map((s) => s.marketId)).toEqual([g.marketId, totalId, spreadId]);
     const [ml, tot, spr] = sentiment;
     expect(ml).toMatchObject({ revealed: true, totalPickCount: 3, viewerConfidence: 5, hasViewerPick: true });
@@ -317,12 +319,35 @@ describe("the Post's Market sentiment", () => {
     expect(spr).toMatchObject({ revealed: false, totalPickCount: 0, hasViewerPick: false, viewerChoiceLabel: null, viewerConfidence: null });
     expect(spr.choices.every((x) => x.percent === null)).toBe(true); // withheld, not zero
     // The configured order is honoured (a different priority reorders them).
-    const reordered = await getGameMarketSentiment({ userId: a, sport: "ice_hockey", homeTeamName: "Washington Capitals", awayTeamName: "New Jersey Devils", markets, templatePriority: ["SPREAD", "TOTAL", "MONEYLINE"] });
+    const reordered = await getGameMarketSentiment({ userId: a, sport: "ice_hockey", homeTeamName: "Washington Capitals", awayTeamName: "New Jersey Devils", markets, templatePriority: ["SPREAD", "TOTAL", "MONEYLINE"], predictionsClosed: false });
     expect(reordered.map((s) => s.marketId)).toEqual([spreadId, totalId, g.marketId]);
     // Someone who has predicted on nothing sees nothing revealed, anywhere.
     const nobody = await member("sent-none");
-    const hidden = await getGameMarketSentiment({ userId: nobody, sport: "ice_hockey", homeTeamName: "Washington Capitals", awayTeamName: "New Jersey Devils", markets, templatePriority: ["MONEYLINE", "TOTAL", "SPREAD"] });
+    const hidden = await getGameMarketSentiment({ userId: nobody, sport: "ice_hockey", homeTeamName: "Washington Capitals", awayTeamName: "New Jersey Devils", markets, templatePriority: ["MONEYLINE", "TOTAL", "SPREAD"], predictionsClosed: false });
     expect(hidden.every((s) => !s.revealed && s.totalPickCount === 0 && s.choices.every((x) => x.percent === null))).toBe(true);
+  });
+
+  it("after the canonical deadline every Market's aggregate is shown even to someone who predicted nowhere — and the viewer's own line appears only where they actually predicted", async () => {
+    await admin.from("platform_settings").update({ confidence_enabled: true, confidence_backed_picks_enabled: true, confidence_baseline: 50, confidence_allowed_stakes: [1, 2, 3, 4, 5] }).eq("id", true);
+    const g = await game();
+    const totalId = await addMarket(g.fixtureId, "TOTAL", 6);
+    const a = await member("closed-a");
+    const b = await member("closed-b");
+    await compose(a, g.marketId, "YES", 5);
+    await compose(b, g.marketId, "NO", 1);
+    await compose(a, totalId, "NO", 1);
+    const markets = await listDisplayableMarketsForFixture(g.fixtureId);
+    const args = { sport: "ice_hockey", homeTeamName: "Washington Capitals", awayTeamName: "New Jersey Devils", markets, templatePriority: ["MONEYLINE", "TOTAL", "SPREAD"] };
+    const stranger = await seedUser("closed-stranger");
+    const before = await getGameMarketSentiment({ userId: stranger, ...args, predictionsClosed: false });
+    expect(before.every((s) => !s.revealed)).toBe(true);
+    const after = await getGameMarketSentiment({ userId: stranger, ...args, predictionsClosed: true });
+    expect(after.map((s) => [s.label, s.revealed, s.totalPickCount])).toEqual([["Moneyline", true, 2], ["Total 6", true, 1]]);
+    expect(after[0].choices.map((c) => c.percent).sort()).toEqual([50, 50]);
+    expect(after.every((s) => s.viewerChoiceLabel === null && s.viewerConfidence === null && !s.hasViewerPick)).toBe(true);
+    // A viewer who did predict keeps their own context line after the deadline too; a Market nobody picked says so (never 0/0).
+    const mine = await getGameMarketSentiment({ userId: a, ...args, predictionsClosed: true });
+    expect(mine[0]).toMatchObject({ revealed: true, hasViewerPick: true, viewerConfidence: 5 });
   });
 
   it("uses team-native labels on the Spread and a compact label on the Total", async () => {
@@ -331,7 +356,7 @@ describe("the Post's Market sentiment", () => {
     await addMarket(g.fixtureId, "SPREAD", -1.5);
     const markets = await listDisplayableMarketsForFixture(g.fixtureId);
     const viewer = await seedUser("sent-label");
-    const sentiment = await getGameMarketSentiment({ userId: viewer, sport: "ice_hockey", homeTeamName: "Washington Capitals", awayTeamName: "New Jersey Devils", markets, templatePriority: ["MONEYLINE", "TOTAL", "SPREAD"] });
+    const sentiment = await getGameMarketSentiment({ userId: viewer, sport: "ice_hockey", homeTeamName: "Washington Capitals", awayTeamName: "New Jersey Devils", markets, templatePriority: ["MONEYLINE", "TOTAL", "SPREAD"], predictionsClosed: false });
     const labels = Object.fromEntries(sentiment.map((s) => [s.label, s.choices.map((c) => c.label)]));
     expect(Object.keys(labels)).toEqual(["Moneyline", "Total 6", "Spread"]);
     expect(labels["Total 6"]).toEqual(["Over 6", "Under 6"]);

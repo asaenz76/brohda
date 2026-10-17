@@ -13,7 +13,7 @@ export function GameMarketSentimentSection({ markets }: { markets: Sentiment[] }
         <div key={m.marketId} data-slot="market-sentiment-block" data-market-id={m.marketId} className="space-y-1.5">
           <h2 className="text-xs font-medium uppercase tracking-wide text-text-muted">{m.label}</h2>
           {!m.revealed ? (
-            <p className="text-sm text-text-muted">Make your pick in the feed to see how everyone else picked.</p>
+            <p className="text-sm text-text-muted">Make your prediction in the feed to see how everyone else picked.</p>
           ) : m.totalPickCount === 0 ? (
             <p className="text-sm text-text-muted">No one has predicted yet.</p>
           ) : (

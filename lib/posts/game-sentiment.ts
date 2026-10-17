@@ -8,6 +8,7 @@ import { getStakeUiStates } from "@/lib/confidence/stakes";
 /**
  * What the opened Post says about each Market of the Game: how the crowd picked, for the Markets the viewer has made a FINAL prediction on. The Post is not a prediction surface (the feed is), so there are no Pick buttons here;
  * but the product's commit-before-crowd rule is the same everywhere: crowd percentages and counts are withheld until the viewer's own prediction on THAT Market is final, so no surface can show them by accident.
+ * Once predictions on the Game are CLOSED (the canonical deadline has passed) every Market's aggregate may be shown whether or not the viewer predicted there, because it can no longer influence a new prediction.
  * One Pick is one vote (Confidence never weights it), the numbers are the canonical aggregate (never provider odds, never fabricated), and a Market nobody has picked is "no one yet", never 0% / 0%.
  * A constant number of batched reads however many Markets the Game has.
  */
@@ -36,6 +37,7 @@ export async function getGameMarketSentiment({
   awayTeamName,
   markets,
   templatePriority,
+  predictionsClosed,
 }: {
   userId: string;
   sport: string;
@@ -44,6 +46,8 @@ export async function getGameMarketSentiment({
   markets: MarketRecord[];
   /** The configured template order (the same setting that chooses the primary Market): Moneyline, Total, Spread by default. */
   templatePriority: string[];
+  /** True once the canonical prediction deadline has passed for the Game (see arePredictionsClosed): all sentiment may then be shown. */
+  predictionsClosed: boolean;
 }): Promise<GameMarketSentiment[]> {
   if (markets.length === 0) return [];
   const rank = (template: string) => {
@@ -59,7 +63,8 @@ export async function getGameMarketSentiment({
     const p = predictions.get(marketId);
     return p !== undefined && (p.lockedAt !== null || p.lifecycleState !== "PENDING");
   };
-  const revealedIds = ordered.filter((m) => isFinal(m.id)).map((m) => m.id);
+  const isRevealed = (marketId: string) => predictionsClosed || isFinal(marketId);
+  const revealedIds = ordered.filter((m) => isRevealed(m.id)).map((m) => m.id);
   const [aggregates, stakes] = await Promise.all([
     revealedIds.length ? getPickAggregatesForMarkets(revealedIds) : Promise.resolve(new Map()),
     getStakeUiStates(userId, [...predictions.values()].map((p) => p.id)),
@@ -67,7 +72,7 @@ export async function getGameMarketSentiment({
 
   return ordered.map((market) => {
     const presentation = getChoicePresentation({ ...market, homeTeamName, awayTeamName, sport });
-    const revealed = isFinal(market.id);
+    const revealed = isRevealed(market.id);
     const sentiment = revealed ? computePickSentiment(aggregates.get(market.id)) : { yesPercent: null, noPercent: null, totalPickCount: 0 };
     const prediction = predictions.get(market.id);
     const stake = prediction ? stakes.get(prediction.id) : undefined;
@@ -78,9 +83,9 @@ export async function getGameMarketSentiment({
       revealed,
       hasViewerPick: prediction !== undefined,
       totalPickCount: sentiment.totalPickCount,
-      viewerChoiceLabel: revealed && prediction ? (presentation.choices.find((c) => c.outcome === prediction.selectedOutcome)?.label ?? null) : null,
-      viewerConfidence: revealed && stake && stake.state === "staked" ? stake.amount : null,
-      viewerResult: revealed && prediction ? ((prediction.result as "CORRECT" | "INCORRECT" | "VOID" | null) ?? null) : null,
+      viewerChoiceLabel: prediction && isFinal(market.id) ? (presentation.choices.find((c) => c.outcome === prediction.selectedOutcome)?.label ?? null) : null,
+      viewerConfidence: prediction && isFinal(market.id) && stake && stake.state === "staked" ? stake.amount : null,
+      viewerResult: prediction && isFinal(market.id) ? ((prediction.result as "CORRECT" | "INCORRECT" | "VOID" | null) ?? null) : null,
     };
   });
 }
