@@ -5,11 +5,13 @@ let backgroundJobsResult: () => Promise<unknown>;
 let messagingResult: () => Promise<unknown>;
 let confidenceResult: () => Promise<unknown>;
 let settlementResult: () => Promise<unknown>;
+let previewsResult: () => Promise<unknown>;
 const providerLogCalls = vi.fn();
 const backgroundJobsCalls = vi.fn();
 const messagingCalls = vi.fn();
 const confidenceCalls = vi.fn();
 const settlementCalls = vi.fn();
+const previewsCalls = vi.fn();
 
 vi.mock("@/lib/sports-data/provider-request-log-retention", () => ({
   runProviderRequestLogRetention: () => {
@@ -41,6 +43,12 @@ vi.mock("@/lib/confidence/settlement", () => ({
     return settlementResult();
   },
 }));
+vi.mock("@/lib/game-previews/housekeeping", () => ({
+  runGamePreviewHousekeeping: () => {
+    previewsCalls();
+    return previewsResult();
+  },
+}));
 // recordJobRun is exercised by its own tests; here it just runs the job and hands the result back.
 vi.mock("@/lib/jobs/record", () => ({ recordJobRun: async (_name: string, fn: () => Promise<unknown>) => fn() }));
 
@@ -57,6 +65,8 @@ beforeEach(() => {
   messagingCalls.mockClear();
   confidenceCalls.mockClear();
   settlementCalls.mockClear();
+  previewsCalls.mockClear();
+  previewsResult = async () => ({ frozen: 0, missing: 0, stale: 0 });
   settlementResult = async () => ({ settled: 0 });
   confidenceResult = async () => ({ enabled: false, rounds: 0, processed: 0, remaining: 0 });
   messagingResult = async () => ({ enabled: false, rounds: 0, removed: {} });
@@ -88,6 +98,7 @@ describe("prune-provider-request-log cron route", () => {
       messaging: { enabled: false, rounds: 0, removed: {} },
       confidence: { enabled: false, rounds: 0, processed: 0, remaining: 0 },
       confidenceSettlement: { settled: 0 },
+      gamePreviews: { frozen: 0, missing: 0, stale: 0 },
       failures: [],
     });
   });
@@ -181,5 +192,21 @@ describe("prune-provider-request-log cron route", () => {
     const body = await (await GET(request("Bearer test-secret"))).json();
     expect(settlementCalls).toHaveBeenCalledTimes(1);
     expect(body.confidenceSettlement).toEqual({ settled: 3 });
+  });
+});
+
+describe("Game Preview housekeeping on the same path", () => {
+  it("freezes started Games' Previews and reports what still needs one, in its own failure domain: its failure skips nothing else and is reported", async () => {
+    previewsResult = async () => ({ frozen: 2, missing: 3, stale: 1 });
+    const ok = await (await GET(request("Bearer test-secret"))).json();
+    expect(ok.gamePreviews).toEqual({ frozen: 2, missing: 3, stale: 1 });
+    previewsResult = async () => {
+      throw new Error("previews failed");
+    };
+    const body = await (await GET(request("Bearer test-secret"))).json();
+    expect(body.gamePreviews).toBeNull();
+    expect(body.failures).toEqual([{ step: "game_previews", error: "previews failed" }]);
+    expect(settlementCalls).toHaveBeenCalled();
+    expect(body.rowsDeleted).toBe(7);
   });
 });

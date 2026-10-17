@@ -6,22 +6,21 @@ import { getPostPublicationPolicy } from "@/lib/posts/policy";
 import { selectPrimaryMarket } from "@/lib/posts/primary-market";
 import { getFixtureForPostPresentation } from "@/lib/sports-data/fixture-lookup";
 import { listDisplayableMarketsForFixture } from "@/lib/prediction-markets/repository";
-import { getChoicePresentation } from "@/lib/prediction-markets/selection-labels";
-import { getMarketDetail } from "@/lib/prediction-markets/discovery/repository";
 import { getPostConversation } from "@/lib/post-comments/repository";
 import { getCommunityRefsForPost } from "@/lib/communities/feed";
 import { getUserPredictionRecords } from "@/lib/reputation/repository";
 import type { UserIdentityReputation } from "@/components/identity/UserIdentity";
-import { MarketPredictionCard } from "@/components/predictions/MarketPredictionCard";
+import { GameMarketSentimentSection } from "@/components/posts/GameMarketSentiment";
+import { GamePreviewSection } from "@/components/posts/GamePreviewSection";
 import { MarketParticipants } from "@/components/predictions/MarketParticipants";
-import { getLatestUserPredictionForMarket } from "@/lib/predictions/repository";
+import { getGameMarketSentiment } from "@/lib/posts/game-sentiment";
+import { getGamePreviewForFixture } from "@/lib/game-previews/repository";
 import { PostConversation } from "@/components/posts/PostConversation";
 import { PostCommunityBadges } from "@/components/communities/PostCommunityBadges";
 import { Card, CardContent } from "@/components/ui/card";
 import { LocalDateTime } from "@/components/LocalDateTime";
 import { MatchupHeading } from "@/components/posts/MatchupHeading";
 import { orderTeamsForDisplay } from "@/lib/sports-data/team-display-order";
-import Link from "next/link";
 import { LeagueCrest } from "@/components/LeagueCrest";
 import { SponsoredLabel } from "@/components/sponsorship/SponsoredLabel";
 import { SponsorPromotion } from "@/components/sponsorship/SponsorPromotion";
@@ -30,29 +29,11 @@ import { resolveLeagueIdentity } from "@/lib/sports-data/league-crest";
 import { ColumnHeader } from "@/components/shell/ColumnHeader";
 
 /**
- * Post detail (Milestone R3, docs/BROHDA_2_0_MILESTONE_MAP.md, Post
- * Foundation) — the canonical social destination for a Game. Presents the
- * Game itself (never duplicated sports truth — read live from `fixtures`
- * on every request), the Game's current primary Market with full Pick
- * interaction (reusing MarketPredictionCard unchanged from the Market
- * detail page — Picks remain Market-scoped, not Post-scoped), and links to
- * any other currently-active Markets for the same Game. An unpublished or
- * nonexistent Post renders the same honest not-found state, matching the
- * Market detail page's own convention.
- *
- * Comments (Milestone R6, Post Conversation) render below the Markets —
- * the one canonical, shared conversation for this Post, independent of
- * Market state and Pick locking. Community badges were added in Stage 4A
- * (R13.10 remediation of the Stage 4 audit's §11 finding) — no Challenge
- * controls, no monetary controls, still deferred to later milestones
- * (R7/R9).
- *
- * Product feedback: a single Post used to render as four separately-
- * bordered Cards (Game header, primary Market, other Markets, comments) —
- * visually reading as unrelated boxes rather than one Post. All of that
- * content is now one Card, with a plain `border-t` between sections
- * (the same divider convention CardFooter already uses) instead of a
- * second outer border per section.
+ * Post detail — the canonical social destination for a Game, and its Game Preview. The split is deliberate: the FEED is where a prediction is made (every Market, Confidence, the committed state); the POST is the Game
+ * Preview and the conversation. So this page carries information the feed does not: the Game (read live from `fixtures`, never duplicated sports truth), how the crowd picked on each Market (commit-before-crowd, one
+ * labelled block per Market), the saved Game Preview (a hook and a short factual story, written ahead of time — nothing is researched or generated when a Member opens the Post), the one shared conversation, and the
+ * Other Picks / Call BS context. It does not repeat the prediction interface: no Pick buttons, no Confidence control, no "more markets" links.
+ * An unpublished or nonexistent Post renders the honest not-found state, matching the Market detail page's own convention.
  */
 export default async function PostDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireSocialPredictionAccess();
@@ -65,19 +46,26 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
   if (!fixture) notFound();
   const league = resolveLeagueIdentity({ competitionName: fixture.competitionName, competitionLogoUrl: fixture.competitionLogoUrl });
 
-  const [activeMarkets, policy, conversation, communities, sponsorship] = await Promise.all([
+  const [activeMarkets, policy, conversation, communities, sponsorship, preview] = await Promise.all([
     listDisplayableMarketsForFixture(post.fixtureId),
     getPostPublicationPolicy(),
     getPostConversation(post.id, undefined, user.id),
     getCommunityRefsForPost(post.id),
     loadPublicSponsorshipForPost(post.id),
+    getGamePreviewForFixture(post.fixtureId),
   ]);
   const primaryMarket = selectPrimaryMarket(activeMarkets, policy.primaryMarketTemplatePriority);
-  const primaryMarketDetail = primaryMarket ? await getMarketDetail(primaryMarket.id) : null;
-  const otherMarkets = activeMarkets.filter((m) => m.id !== primaryMarket?.id);
-  // Call BS and the optional money action sit under the conversation (the Post reads Game -> Pick -> conversation -> challenges),
-  // so the participants block is rendered here rather than inside MarketPredictionCard; it needs to know whether the viewer has a Pick.
-  const viewerPrediction = primaryMarketDetail ? await getLatestUserPredictionForMarket(user.id, primaryMarketDetail.id) : null;
+  // One batched read for every Market of the Game (the viewer's predictions, the aggregates of those they have finished, their Confidence): the sentiment blocks, in the configured template order.
+  const sentiment = await getGameMarketSentiment({
+    userId: user.id,
+    sport: fixture.sport,
+    homeTeamName: fixture.homeTeamName,
+    awayTeamName: fixture.awayTeamName,
+    markets: activeMarkets,
+    templatePriority: policy.primaryMarketTemplatePriority,
+  });
+  // Other Picks / Call BS ride on the primary Market and need to know whether the viewer has a Pick on it (unchanged from before).
+  const viewerHasPick = primaryMarket ? sentiment.find((m) => m.marketId === primaryMarket.id)?.hasViewerPick === true : false;
 
   // Phase G — every commenter's canonical reputation, batched in one query
   // regardless of thread size (lib/reputation/repository.ts's
@@ -123,37 +111,21 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
             <PostCommunityBadges communities={communities} />
           </div>
 
-          <div className="border-t border-border-subtle pt-4">
-            {primaryMarketDetail ? (
-              <MarketPredictionCard market={primaryMarketDetail} userId={user.id} includeParticipants={false} />
-            ) : (
-              <p className="text-sm text-text-secondary">No markets are available for this game yet.</p>
-            )}
-          </div>
+          {sentiment.length > 0 && (
+            <div className="border-t border-border-subtle pt-4">
+              <GameMarketSentimentSection markets={sentiment} />
+            </div>
+          )}
+
+          {preview && (
+            <div className="border-t border-border-subtle pt-4">
+              <GamePreviewSection preview={preview} />
+            </div>
+          )}
 
           {sponsorship?.promotion && (
             <div className="border-t border-border-subtle pt-4">
               <SponsorPromotion promotion={sponsorship.promotion} />
-            </div>
-          )}
-
-          {otherMarkets.length > 0 && (
-            <div className="space-y-2 border-t border-border-subtle pt-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-text-muted">More markets for this game</p>
-              <ul className="space-y-1">
-                {otherMarkets.map((m) => {
-                  // Same shared presentation as everywhere else: "Total 47.5 — Over 47.5 or Under 47.5", not the old question text.
-                  const presentation = getChoicePresentation({ ...m, homeTeamName: fixture.homeTeamName, awayTeamName: fixture.awayTeamName });
-                  return (
-                    <li key={m.id}>
-                      <Link href={`/markets/${m.id}`} className="text-sm text-text-primary underline">
-                        {presentation.marketLabel ?? m.question}
-                      </Link>
-                      {presentation.templateAware && <span className="text-sm text-text-muted"> — {presentation.choices.map((c) => c.label).join(" or ")}</span>}
-                    </li>
-                  );
-                })}
-              </ul>
             </div>
           )}
 
@@ -166,13 +138,9 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
             />
           </div>
 
-          {primaryMarketDetail && (
+          {primaryMarket && (
             <div className="border-t border-border-subtle pt-4">
-              <MarketParticipants
-                marketId={primaryMarketDetail.id}
-                viewerId={user.id}
-                viewerHasPick={Boolean(viewerPrediction)}
-              />
+              <MarketParticipants marketId={primaryMarket.id} viewerId={user.id} viewerHasPick={viewerHasPick} />
             </div>
           )}
         </CardContent>

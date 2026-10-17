@@ -210,7 +210,7 @@ for (const template of TEMPLATES) {
         await admin.from("predictions").update({ lifecycle_state: "GRADED", result: "INCORRECT", resolved_outcome_snapshot: "YES", graded_at: gradedAt }).eq("user_id", one.id).eq("market_id", game.marketId);
 
         await page.goto(`/post/${game.postId}`);
-        await expect(page.getByText(`You picked: ${yes.label}`)).toBeVisible();
+        await expect(page.getByText(`Your prediction: ${yes.label}`)).toBeVisible();
         await expect(page.getByText("Result: Correct")).toBeVisible();
 
         // Profile history names the Game + Market and the visible Pick, with the same result.
@@ -223,7 +223,7 @@ for (const template of TEMPLATES) {
         // The other side reads its own visible choice and an incorrect result.
         await loginAs(page, one.email);
         await page.goto(`/post/${game.postId}`);
-        await expect(page.getByText(`You picked: ${no.label}`)).toBeVisible();
+        await expect(page.getByText(`Your prediction: ${no.label}`)).toBeVisible();
         await expect(page.getByText("Result: Incorrect")).toBeVisible();
 
         // The stored Picks and results are exactly what grading wrote: canonical, untouched by presentation.
@@ -323,8 +323,8 @@ test.describe("A tied Moneyline", () => {
       await admin.from("predictions").update({ lifecycle_state: "GRADED", result: "VOID", resolved_outcome_snapshot: null, graded_at: new Date().toISOString() }).eq("market_id", game.marketId);
 
       await page.goto(`/post/${game.postId}`);
-      await expect(page.getByText(`You picked: ${away}`)).toBeVisible(); // the visible Pick is unchanged
-      await expect(page.getByText(/^Result: Void/)).toBeVisible();
+      await expect(page.getByText(`Your prediction: ${away}`)).toBeVisible(); // the visible Pick is unchanged
+      await expect(page.getByText(/Result: Void/)).toBeVisible();
       await expect(page.getByRole("main")).not.toContainText(/Result: (Correct|Incorrect)/);
 
       await page.goto("/profile");
@@ -335,8 +335,8 @@ test.describe("A tied Moneyline", () => {
       // The other side of the same tied game reads the same way.
       await loginAs(page, one.email);
       await page.goto(`/post/${game.postId}`);
-      await expect(page.getByText(`You picked: ${home}`)).toBeVisible();
-      await expect(page.getByText(/^Result: Void/)).toBeVisible();
+      await expect(page.getByText(`Your prediction: ${home}`)).toBeVisible();
+      await expect(page.getByText(/Result: Void/)).toBeVisible();
     } finally {
       await cleanup(game, [one.id, two.id]);
     }
