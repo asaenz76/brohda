@@ -65,17 +65,17 @@ async function cleanup(userId: string) {
 }
 
 test.describe("Wallet balance", () => {
-  test("the header leads with available funds and the wallet page breaks out what's on hold", async ({ page }) => {
+  test("the shell has only a plain Wallet link (no figure) and the wallet page breaks out what's on hold", async ({ page }) => {
     const email = `e2e-wallet-hold-${randomUUID()}@test.local`;
     const userId = await createFundedPlayerWithHold(email, 100_000, 20_000);
     try {
       await loginAs(page, email);
 
-      const pill = page.getByRole("link", { name: /^Wallet:/ });
-      await expect(pill).toHaveAttribute("href", "/wallet");
-      await expect(pill).toContainText("$800.00");
-      await expect(pill).toHaveAttribute("title", "$800.00 available, $200.00 on hold");
-      await expect(pill).not.toContainText("$1,000.00");
+      // The shell no longer shows a Wallet balance (Confidence owns that slot): just a quiet link to the page, with no amount.
+      const link = page.getByRole("complementary", { name: "Navigation" }).getByRole("link", { name: "Wallet", exact: true });
+      await expect(link).toHaveAttribute("href", "/wallet");
+      await expect(link).not.toContainText("$");
+      await expect(page.getByRole("complementary", { name: "Navigation" })).not.toContainText("$");
 
       await page.goto("/wallet");
       const card = page.locator("main").first();
@@ -90,12 +90,12 @@ test.describe("Wallet balance", () => {
     }
   });
 
-  test("with nothing on hold, the wallet stays simple: just the available amount", async ({ page }) => {
+  test("with nothing on hold, the wallet page stays simple: just the available amount", async ({ page }) => {
     const email = `e2e-wallet-free-${randomUUID()}@test.local`;
     const userId = await createFundedPlayerWithHold(email, 50_000, 0);
     try {
       await loginAs(page, email);
-      await expect(page.getByRole("link", { name: "Wallet: $500.00 available" })).toBeVisible();
+      await expect(page.getByRole("complementary", { name: "Navigation" }).getByRole("link", { name: "Wallet", exact: true })).toBeVisible();
 
       await page.goto("/wallet");
       await expect(page.getByText("Available", { exact: true })).toBeVisible();

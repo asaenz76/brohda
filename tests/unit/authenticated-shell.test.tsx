@@ -19,8 +19,6 @@ const navProps = {
   showSocialNav: true,
   showWallet: true,
   unreadNotificationCount: 0,
-  availableCents: 80_000,
-  heldCents: 20_000,
   isAdmin: false,
 };
 const profile = { displayName: "André", avatarUrl: null };
@@ -60,12 +58,12 @@ describe("activeNavKey", () => {
 });
 
 describe("LeftNav (desktop rail)", () => {
-  it("lists Home, Discovery, Notifications, Search, Profile in order — with Wallet below as a utility, never among them", () => {
+  it("lists Home, Discovery, Notifications, Search, Profile in order — with Wallet below as a quiet utility (no figure), never among them", () => {
     render(<LeftNav {...navProps} />);
     expect(PRIMARY_NAV.map((i) => i.label)).toEqual(["Home", "Discovery", "Notifications", "Search", "Profile"]);
     const links = screen.getAllByRole("link");
-    expect(links.map((l) => l.getAttribute("href"))).toEqual(["/feed", "/discovery", "/notifications", "/search", "/profile", "/wallet", "/profile/edit", "/rules"]);
-    expect(links.find((l) => l.getAttribute("href") === "/wallet")).toHaveAttribute("aria-label", "Wallet: $800.00 available, $200.00 on hold");
+    expect(links.map((l) => l.getAttribute("href"))).toEqual(["/feed", "/discovery", "/notifications", "/search", "/profile", "/profile/edit", "/rules", "/wallet"]);
+    expect(links.find((l) => l.getAttribute("href") === "/wallet")).toHaveTextContent(/^Wallet$/);
     expect(screen.getByRole("button", { name: "Log out" })).toBeInTheDocument();
   });
 
@@ -75,7 +73,7 @@ describe("LeftNav (desktop rail)", () => {
     ["/notifications", "Notifications"],
     ["/search", "Search"],
     ["/profile", "Profile"],
-    ["/wallet", "Wallet$800.00"],
+    ["/wallet", "Wallet"],
     ["/profile/edit", "Settings"],
   ])("marks exactly one entry as the current page on %s", (path, label) => {
     currentPathname = path;
@@ -116,12 +114,11 @@ describe("LeftNav (desktop rail)", () => {
     expect(container.textContent).not.toMatch(/create|new (post|game)|compose|publish/i);
   });
 
-  it("wallet shows the available amount, not the total", () => {
+  it("the Wallet link carries no balance, no $ and no hold amount — it never competes with Confidence", () => {
     render(<LeftNav {...navProps} />);
-    const wallet = screen.getByRole("link", { name: /^Wallet:/ });
-    expect(wallet).toHaveTextContent("$800.00");
-    expect(wallet).not.toHaveTextContent("$1,000.00");
-    expect(wallet).toHaveAttribute("title", "$800.00 available, $200.00 on hold");
+    const wallet = screen.getByRole("link", { name: "Wallet" });
+    expect(wallet.textContent).toBe("Wallet");
+    expect(wallet).not.toHaveAttribute("title");
   });
 });
 
@@ -172,7 +169,7 @@ describe("MobileNav (bottom bar)", () => {
     fireEvent.click(menuButton);
     const sheet = await screen.findByTestId("auth-mobile-menu");
     expect(within(sheet).getByRole("link", { name: "Search" })).toHaveAttribute("href", "/search");
-    expect(within(sheet).getByRole("link", { name: /^Wallet:/ })).toHaveAttribute("href", "/wallet");
+    expect(within(sheet).getByRole("link", { name: "Wallet" })).toHaveAttribute("href", "/wallet");
     expect(within(sheet).getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/profile/edit");
     expect(within(sheet).getByRole("link", { name: "Rules" })).toHaveAttribute("href", "/rules");
     expect(within(sheet).getByRole("button", { name: "Log out" })).toBeInTheDocument();
