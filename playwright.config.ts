@@ -113,12 +113,20 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
       testIgnore: /admin-brohda-settings|monetary-capability-gating|legal-reconsent|legal-money-gating|sponsorship-flow|sponsor-intelligence|messaging|confidence/,
     },
+    // A prediction carries a Confidence stake that can never be deleted through the API, so specs can no longer clean up the Games they predicted on; this clears them between the big project and the serial ones (see the file).
+    {
+      name: "chromium-purge",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: /purge\.setup\.ts/,
+      fullyParallel: false,
+      dependencies: ["chromium"],
+    },
     {
       name: "chromium-admin-settings",
       use: { ...devices["Desktop Chrome"] },
       testMatch: /admin-brohda-settings/,
       fullyParallel: false,
-      dependencies: ["chromium"],
+      dependencies: ["chromium-purge"],
     },
     // Also mutates the platform_settings singleton (flips monetary_p2p_enabled), so it must not overlap the settings project either:
     // files within one project run on separate workers, projects chained by `dependencies` never overlap.
