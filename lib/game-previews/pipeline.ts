@@ -174,7 +174,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     usage = addUsage(usage, draft.usage);
 
     const provenance = validateDraft({ draft: { hook: draft.hook, preview: draft.preview, claims: draft.claims }, facts, game, config, now: deps.now() });
-    const editorial = validateEditorial({ draft, angle: chosen, config, facts });
+    const editorial = validateEditorial({ draft, angle: chosen, config, facts, kickoffUtc: game.kickoffUtc });
     let verifierProblems: string[] = [];
     if (provenance.ok && editorial.length === 0 && providers.verifier) {
       try {
