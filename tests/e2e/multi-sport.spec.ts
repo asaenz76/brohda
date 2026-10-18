@@ -333,27 +333,40 @@ for (const sport of [NBA, NHL]) {
   }
 
   test.describe(`${sport.league} — T-10 and started-game safety`, () => {
-    test("inside T-10 the Game is locked in the UI and the server refuses a Pick; a LIVE Game is closed regardless of the clock", async ({ page }) => {
+    test("inside T-10 the Game is locked in the UI AND the server refuses a Pick; a page left open past the lock is still refused by the server", async ({ page }) => {
       const suffix = randomUUID().slice(0, 6);
       const moneyline = sport.templates[0];
       const home = `${sport.home} ${suffix}`;
       const away = `${sport.away} ${suffix}`;
+      const staleHome = `${sport.home} stale ${suffix}`;
+      const staleAway = `${sport.away} stale ${suffix}`;
       const locked = await seedGame(sport, moneyline, home, away, 5); // five minutes out: inside the 10-minute cutoff
+      const stale = await seedGame(sport, moneyline, staleHome, staleAway, 15); // still open when the page loads
       const user = await createPlayer("lock");
       try {
         await loginAs(page, user.email);
         await page.goto("/feed");
         const card = article(page, home, away);
         await expect(card).toBeVisible();
-        // The server is authoritative: tapping a Pick inside T-10 is refused with the shared copy, and nothing is stored.
-        await card.getByRole("button", { name: `Pick ${home} to win` }).click();
-        await card.locator('[data-slot="confidence-choice"][data-amount="1"]').click();
-        await expect(card.getByText("Picks are locked for this game.")).toBeVisible(); // the card swaps the composer for the lock notice
+        // The market stays ACTIVE until the provider reports the Game live (after kickoff), so the card itself applies the pick lock: closed on load, nothing to tap.
+        await expect(card.getByText("Picks are locked for this game.")).toBeVisible();
+        await expect(card.getByRole("button", { name: `Pick ${home} to win` })).toBeDisabled();
         expect(await storedSelection(user.id, locked.marketId)).toBeUndefined();
+        // The server is authoritative regardless of what any page shows.
         const { data } = await admin.rpc("set_pick", { p_user_id: user.id, p_market_id: locked.marketId, p_selected_outcome: "YES", p_yes_probability: 0.6, p_no_probability: 0.4, p_market_question: "q", p_market_close_at: null, p_market_status: "ACTIVE", p_idempotency_key: randomUUID() }).single();
         expect((data as { outcome: string }).outcome).toBe("rejected_cutoff");
         expect(await storedSelection(user.id, locked.marketId)).toBeUndefined();
+
+        // A page loaded while the Game was still open, then the lock passes (the kickoff is brought forward to stand in for the clock): a tap is refused with the shared copy and nothing is stored.
+        const staleCard = article(page, staleHome, staleAway);
+        await expect(staleCard.getByRole("button", { name: `Pick ${staleHome} to win` })).toBeEnabled();
+        await admin.from("fixtures").update({ scheduled_start_utc: new Date(Date.now() + 5 * 60_000).toISOString() }).eq("id", stale.fixtureId);
+        await staleCard.getByRole("button", { name: `Pick ${staleHome} to win` }).click();
+        await staleCard.locator('[data-slot="confidence-choice"][data-amount="1"]').click();
+        await expect(staleCard.getByText("Picks are locked for this game.")).toBeVisible();
+        expect(await storedSelection(user.id, stale.marketId)).toBeUndefined();
       } finally {
+        await cleanup(stale, []);
         await cleanup(locked, [user.id]);
       }
     });
@@ -370,9 +383,8 @@ for (const sport of [NBA, NHL]) {
         expect(["rejected_game_closed", "rejected_cutoff"]).toContain((data as { outcome: string }).outcome);
         await loginAs(page, user.email);
         await page.goto(`/markets/${game.marketId}`); // the Market page keeps the full prediction card; the Post is the Game Preview
-        await page.getByRole("button", { name: `Pick ${home} to win` }).click();
-        await page.locator('[data-slot="confidence-choice"][data-amount="1"]').click();
-        await expect(page.getByText(/locked/i).first()).toBeVisible(); // refused on server state alone, days before the scheduled start
+        await expect(page.getByText("Picks are locked for this game.")).toBeVisible(); // closed on the Game's status alone, days before the scheduled start
+        await expect(page.getByRole("button", { name: `Pick ${home} to win` })).toBeDisabled();
         expect(await storedSelection(user.id, game.marketId)).toBeUndefined();
       } finally {
         await cleanup(game, [user.id]);
