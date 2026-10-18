@@ -18,6 +18,7 @@ const NUMBERS: Array<{ name: string; key: keyof GamePreviewConfig; label: string
   { name: "max_games_per_run", key: "maxGamesPerRun", label: "Games per scheduled run", help: "The most Games the scheduled job prepares in one tick (only when automatic generation is on).", min: 1, max: 50 },
   { name: "max_search_calls_per_game", key: "maxSearchCallsPerGame", label: "Web searches per Game", help: "A hard ceiling on research effort (and cost) for one Game.", min: 1, max: 50 },
   { name: "current_fact_max_age_hours", key: "currentFactMaxAgeHours", label: "How recent a “current” source must be (hours)", help: "A claim about the present state (form, injury, lineup) needs a source published within this window; history can use older sources.", min: 1, max: 8760 },
+  { name: "max_cited_facts", key: "maxCitedFacts", label: "Most facts one Preview may cite", help: "One Game, one story: a draft citing more is sent back to be cut down.", min: 1, max: 10 },
 ];
 
 function Status({ state }: { state: GamePreviewAdminResult | null }) {
@@ -54,13 +55,40 @@ export function GamePreviewConfigForm({ config, credentialsConfigured }: { confi
           <label className="space-y-1 text-xs font-medium text-text-secondary">
             Provider
             <select name="provider" defaultValue={config.provider} className={input}>
-              <option value="openai">OpenAI (Responses API with web search)</option>
+              <option value="anthropic">Anthropic (Claude, with server-side web search)</option>
             </select>
           </label>
           <label className="space-y-1 text-xs font-medium text-text-secondary">
             Model
             <input name="model" defaultValue={config.model} placeholder="Set a model id" className={input} maxLength={100} />
-            <span className="block font-normal text-text-muted">Used for research, writing and checking. Nothing generates until this is set.</span>
+            <span className="block font-normal text-text-muted">Used for research, choosing the story, writing and checking. Nothing generates until this is set; there is no fallback to another model.</span>
+          </label>
+          <label className="space-y-1 text-xs font-medium text-text-secondary">
+            Effort
+            <select name="effort" defaultValue={config.effort} className={input}>
+              {["low", "medium", "high", "xhigh", "max"].map((e) => (
+                <option key={e} value={e}>
+                  {e}
+                </option>
+              ))}
+            </select>
+            <span className="block font-normal text-text-muted">How hard the model works. Start at medium; raise it only if real testing shows a need.</span>
+          </label>
+          <label className="space-y-1 text-xs font-medium text-text-secondary">
+            Web search version
+            <select name="web_search_tool_version" defaultValue={config.webSearchToolVersion} className={input}>
+              {["web_search_20250305", "web_search_20260209", "web_search_20260318"].map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </select>
+            <span className="block font-normal text-text-muted">The provider versions its search tool. If a model rejects one, pick another here — no deploy needed.</span>
+          </label>
+          <label className="space-y-1 text-xs font-medium text-text-secondary">
+            Minimum story score (1–5)
+            <input type="number" name="min_story_score" min={1} max={5} step={0.5} defaultValue={config.minStoryScore} className={input} />
+            <span className="block font-normal text-text-muted">A candidate story must average at least this to be chosen over a records-only fallback.</span>
           </label>
         </div>
         <p className="text-xs text-text-muted" data-slot="credentials-status">

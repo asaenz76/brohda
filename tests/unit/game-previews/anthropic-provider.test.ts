@@ -1,0 +1,185 @@
+// @vitest-environment node
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("server-only", () => ({}));
+import { AnthropicGamePreviewProvider, PREVIEW_PROMPT_VERSION, extractJson } from "@/lib/game-previews/providers/anthropic";
+import { createGamePreviewProviders } from "@/lib/game-previews/providers";
+import { angles, config, facts, game, goodDraft } from "./fixtures";
+
+const ESPN = "https://www.espn.com/nfl/game/_/gameId/401872984";
+const ctx = { model: "configured-model", effort: "medium", maxSearchCalls: 3, webSearchToolVersion: "web_search_20250305", preferredDomains: ["espn.com"], blockedDomains: ["reddit.com"] };
+
+type Msg = { content: unknown[]; stop_reason: string; usage: { input_tokens: number; output_tokens: number; server_tool_use?: { web_search_requests: number } } };
+const text = (t: unknown, citations: unknown[] = []) => ({ type: "text", text: typeof t === "string" ? t : JSON.stringify(t), citations });
+const searchUse = () => ({ type: "server_tool_use", id: "s1", name: "web_search", input: { query: "x" } });
+const searchResult = (urls: string[]) => ({ type: "web_search_tool_result", tool_use_id: "s1", content: urls.map((url) => ({ type: "web_search_result", url, title: `T ${url}`, page_age: null, encrypted_content: "x" })) });
+const msg = (content: unknown[], over: Partial<Msg> = {}): Msg => ({ content, stop_reason: "end_turn", usage: { input_tokens: 800, output_tokens: 200, server_tool_use: { web_search_requests: 2 } }, ...over });
+function client(...responses: Msg[]) {
+  const create = vi.fn<(params: Record<string, unknown>) => Promise<Msg>>(async () => responses.shift() ?? msg([text({})]));
+  return { messages: { create } } as unknown as ConstructorParameters<typeof AnthropicGamePreviewProvider>[0] & { messages: { create: typeof create } };
+}
+const calls = (c: ReturnType<typeof client>) => (c.messages.create as unknown as { mock: { calls: Array<[Record<string, unknown>]> } }).mock.calls.map((x) => x[0]);
+const rawFact = (over: Record<string, unknown> = {}) => ({ kind: "historical", category: "result", claim: "Tennessee lost 26-3 to Houston.", excerpt: "Texans 26, Titans 3", source_url: ESPN, source_provider: "ESPN", source_title: "Texans 26, Titans 3", published_at: "2026-10-11T22:00:00Z", relevance: 0.9, game_association: "Titans' last game", ...over });
+
+describe("Anthropic provider — research", () => {
+  it("calls the Messages API with the CONFIGURED model and effort, the configured web-search tool version and ceiling, blocked domains, and no sampling or thinking overrides", async () => {
+    const c = client(msg([searchUse(), searchResult([ESPN]), text({ facts: [rawFact()] })]));
+    await new AnthropicGamePreviewProvider(c).research(game, ctx);
+    const body = calls(c)[0];
+    expect(body.model).toBe("configured-model");
+    expect(body.output_config).toEqual({ effort: "medium" });
+    expect(body.tools).toEqual([{ type: "web_search_20250305", name: "web_search", max_uses: 3, blocked_domains: ["reddit.com"] }]);
+    for (const k of ["temperature", "top_p", "top_k", "thinking"]) expect(body, k).not.toHaveProperty(k);
+    expect(String(body.system)).toMatch(/must use web search/i);
+    expect(String(body.system)).toContain("Preferred domains: espn.com");
+    expect(String(body.system)).toContain("Never use these domains: reddit.com");
+    expect(String(body.system)).toMatch(/most interesting TRUE story/);
+    expect(JSON.stringify(body.messages)).toContain("Tennessee Titans at Indianapolis Colts");
+  });
+
+  it("the tool version, effort and ceiling follow the stored settings (nothing is a constant)", async () => {
+    const c = client(msg([searchUse(), searchResult([ESPN]), text({ facts: [rawFact()] })]));
+    await new AnthropicGamePreviewProvider(c).research(game, { ...ctx, webSearchToolVersion: "web_search_20260318", effort: "high", maxSearchCalls: 7, blockedDomains: [] });
+    const body = calls(c)[0];
+    expect(body.tools).toEqual([{ type: "web_search_20260318", name: "web_search", max_uses: 7 }]);
+    expect(body.output_config).toEqual({ effort: "high" });
+  });
+
+  it("returns structured facts with category and kind, counts searches and tokens from the API's own usage, stamps the retrieval time, and reports which sources were reached, used and not used", async () => {
+    const other = "https://www.nfl.com/news/x";
+    const c = client(msg([searchUse(), searchResult([ESPN, other]), text({ facts: [rawFact(), rawFact({ claim: "Indianapolis is 2-3.", category: "record" })] }, [{ type: "web_search_result_location", url: ESPN, title: "x", cited_text: "y" }])]));
+    const out = await new AnthropicGamePreviewProvider(c).research(game, ctx);
+    expect(out.usage).toEqual({ searchCalls: 2, modelCalls: 1, inputTokens: 800, outputTokens: 200 });
+    expect(out.facts.map((f) => [f.id, f.category, f.kind])).toEqual([["f1", "result", "historical"], ["f2", "record", "historical"]]);
+    expect(out.facts[0]).toMatchObject({ sourceProvider: "ESPN", retrievedAt: game.asOf, publishedAt: "2026-10-11T22:00:00.000Z", relevance: 0.9 });
+    expect(out.sources).toEqual([
+      { url: ESPN, title: `T ${ESPN}`, status: "accepted" },
+      { url: other, title: `T ${other}`, status: "rejected", reason: "no usable fact taken from it" },
+    ]);
+  });
+
+  it("keeps only facts from sources the search ACTUALLY reached: a fabricated citation or a blocked domain is dropped and recorded", async () => {
+    const c = client(msg([searchUse(), searchResult([ESPN, "https://www.reddit.com/r/nfl/x"]), text({ facts: [rawFact(), rawFact({ claim: "Invented.", source_url: "https://www.espn.com/never-fetched" }), rawFact({ claim: "Rumor.", source_url: "https://www.reddit.com/r/nfl/x" })] })]));
+    const out = await new AnthropicGamePreviewProvider(c).research(game, ctx);
+    expect(out.facts.map((f) => f.claim)).toEqual(["Tennessee lost 26-3 to Houston."]);
+    const reasons = Object.fromEntries(out.sources.map((s) => [s.url, s.reason ?? s.status]));
+    expect(reasons["https://www.reddit.com/r/nfl/x"]).toBe("blocked domain");
+    expect(reasons["https://www.espn.com/never-fetched"]).toMatch(/never reached/);
+  });
+
+  it("resumes a paused server-tool turn (without an extra user message) and adds up the usage of every request", async () => {
+    const paused = msg([searchUse()], { stop_reason: "pause_turn", usage: { input_tokens: 100, output_tokens: 10, server_tool_use: { web_search_requests: 1 } } });
+    const done = msg([searchResult([ESPN]), text({ facts: [rawFact()] })], { usage: { input_tokens: 200, output_tokens: 20, server_tool_use: { web_search_requests: 1 } } });
+    const c = client(paused, done);
+    const out = await new AnthropicGamePreviewProvider(c).research(game, ctx);
+    expect(calls(c)).toHaveLength(2);
+    const second = calls(c)[1].messages as Array<{ role: string }>;
+    expect(second.map((m) => m.role)).toEqual(["user", "assistant"]); // the paused turn is re-sent as-is
+    expect(out.usage).toEqual({ searchCalls: 2, modelCalls: 2, inputTokens: 300, outputTokens: 30 });
+    expect(out.facts).toHaveLength(1);
+  });
+
+  it("fails — rather than inventing anything — on a search error, a refusal, a cut-off answer, or an answer that is not JSON", async () => {
+    const run = (m: Msg) => new AnthropicGamePreviewProvider(client(m)).research(game, ctx);
+    await expect(run(msg([searchUse(), { type: "web_search_tool_result", tool_use_id: "s1", content: { type: "web_search_tool_result_error", error_code: "unavailable" } }, text({ facts: [] })]))).rejects.toThrow(/web_search_error: unavailable/);
+    await expect(run(msg([text("no")], { stop_reason: "refusal" }))).rejects.toThrow(/anthropic_refusal/);
+    await expect(run(msg([text("{")], { stop_reason: "max_tokens" }))).rejects.toThrow(/anthropic_max_tokens/);
+    await expect(run(msg([searchUse(), searchResult([ESPN]), text("I could not find anything.")]))).rejects.toThrow(/no JSON/);
+  });
+
+  it("an unavailable model fails with the API's own error and NO fallback to another model", async () => {
+    const { default: Anthropic } = await import("@anthropic-ai/sdk");
+    const create = vi.fn(async () => {
+      throw new Anthropic.NotFoundError(404, { type: "error", error: { type: "not_found_error", message: "model: claude-nope" } }, "model: claude-nope", new Headers());
+    });
+    const c = { messages: { create } } as unknown as ConstructorParameters<typeof AnthropicGamePreviewProvider>[0];
+    await expect(new AnthropicGamePreviewProvider(c).research(game, ctx)).rejects.toThrow(/anthropic_api_404/);
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("never puts the API key anywhere an error or a request body could carry it", async () => {
+    const { default: Anthropic } = await import("@anthropic-ai/sdk");
+    const create = vi.fn(async () => {
+      throw new Anthropic.AuthenticationError(401, { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } }, "invalid x-api-key", new Headers({ "x-api-key": "sk-ant-secret" }));
+    });
+    const c = { messages: { create } } as unknown as ConstructorParameters<typeof AnthropicGamePreviewProvider>[0];
+    const error = await new AnthropicGamePreviewProvider(c).research(game, ctx).catch((e: Error) => e);
+    expect(String((error as Error).message)).not.toMatch(/sk-ant/);
+    expect(JSON.stringify((create.mock.calls[0] as unknown[])[0])).not.toMatch(/sk-ant/);
+  });
+});
+
+describe("Anthropic provider — angles, writing, verification", () => {
+  const selectionJson = {
+    angles: angles.map((a) => ({ id: a.id, type: a.type, summary: a.summary, fact_ids: a.factIds, scores: a.scores, note: a.note })),
+    selected_id: "a1",
+    selection_reason: "Streak against dominance.",
+    rejected: [{ id: "a2", reason: "Records only." }],
+  };
+
+  it("the angle stage gets only verified facts, the editorial rubric and the angle vocabulary, uses no tools, and returns scored angles", async () => {
+    const c = client(msg([text(selectionJson)]));
+    const sel = await new AnthropicGamePreviewProvider(c).selectAngle(game, facts, { model: "configured-model", effort: "medium" });
+    const body = calls(c)[0];
+    expect(body.tools).toBeUndefined();
+    expect(body.output_config).toEqual({ effort: "medium" });
+    expect(String(body.system)).toContain("3 to 5 candidate editorial angles");
+    expect(String(body.system)).toContain("HOT_VS_COLD");
+    expect(String(body.system)).toMatch(/tension[\s\S]*surprise[\s\S]*specificity[\s\S]*humanInterest[\s\S]*conversation[\s\S]*recency/);
+    expect(String(body.system)).toMatch(/FALLBACK material/);
+    expect(JSON.stringify(body.messages)).toContain("Tennessee lost 26-3");
+    expect(sel.selectedId).toBe("a1");
+    expect(sel.angles[0]).toMatchObject({ id: "a1", type: "CONTRAST", factIds: ["f1", "f2", "f3"], scores: { tension: 4, humanInterest: 4 } });
+    expect(sel.rejected).toEqual([{ id: "a2", reason: "Records only." }]);
+  });
+
+  it("the writer is given the CHOSEN story and only that story's facts, the configured limits and any rejection feedback, plus the editorial tests", async () => {
+    const c = client(msg([text({ hook: goodDraft.hook, preview: goodDraft.preview, claims: goodDraft.claims.map((x) => ({ text: x.text, fact_ids: x.factIds })) })]));
+    const draft = await new AnthropicGamePreviewProvider(c).write(game, { ...angles[2] }, facts, { model: "configured-model", effort: "medium", maxChars: 650, hookMaxChars: 90, maxCitedFacts: 3, feedback: ['The figure "27" is not in the facts.'] });
+    const body = calls(c)[0];
+    expect(body.tools).toBeUndefined(); // writing never searches
+    const system = String(body.system);
+    expect(system).toContain("at most 650 characters");
+    expect(system).toContain("at most 90 characters");
+    expect(system).toContain("at most 3 may be cited");
+    expect(system).toMatch(/stop scrolling/);
+    expect(system).toMatch(/swapping team names|changing the team names/);
+    expect(system).toMatch(/Do NOT force a question/);
+    expect(system).toMatch(/Do not put a record or score in the hook/);
+    expect(system).toMatch(/never reuse their facts/i);
+    const user = JSON.stringify(body.messages);
+    expect(user).toContain(angles[2].summary);
+    expect(user).toContain("beat Tennessee 41-20"); // f2, the angle's own fact
+    expect(user).not.toContain("26-3 loss to Houston"); // f1 is not part of this story, so the writer never sees it
+    expect(user).toContain("previous draft was rejected");
+    expect(draft).toMatchObject({ hook: goodDraft.hook, promptVersion: PREVIEW_PROMPT_VERSION });
+    expect(draft.claims[0]).toEqual({ text: goodDraft.claims[0].text, factIds: ["f1"] });
+  });
+
+  it("the verifier judges both support and editorial quality, and is told the chosen story", async () => {
+    const c = client(msg([text({ supported: true, editorial_passes: false, problems: ["It reads like game notes."] })]));
+    const out = await new AnthropicGamePreviewProvider(c).verify(game, angles[0], goodDraft, facts, { model: "configured-model", effort: "medium" });
+    expect(out).toMatchObject({ supported: true, editorialPasses: false, problems: ["It reads like game notes."] });
+    const system = String(calls(c)[0].system);
+    expect(system).toMatch(/strict fact-checker AND a sports editor/);
+    expect(system).toContain(angles[0].summary);
+    expect(calls(c)[0].tools).toBeUndefined();
+  });
+
+  it("extractJson tolerates prose and code fences around the object", () => {
+    expect(extractJson<{ a: number }>('Here you go:\n```json\n{"a":1}\n```', "x")).toEqual({ a: 1 });
+    expect(() => extractJson("nothing", "x")).toThrow(/no JSON/);
+  });
+});
+
+describe("provider selection", () => {
+  it("is built from the stored provider, with credentials ONLY from the environment; no key means 'not configured'", () => {
+    expect(createGamePreviewProviders(config, {})).toBeNull();
+    const p = createGamePreviewProviders(config, { ANTHROPIC_API_KEY: "sk-ant-test" })!;
+    expect(p.research.name).toBe("anthropic");
+    expect(p.angles.name).toBe("anthropic");
+    expect(p.verifier).not.toBeNull();
+    expect(createGamePreviewProviders({ ...config, verifyWithModel: false }, { ANTHROPIC_API_KEY: "sk-ant-test" })!.verifier).toBeNull();
+    expect(createGamePreviewProviders({ ...config, provider: "someone-else" }, { ANTHROPIC_API_KEY: "sk-ant-test" })).toBeNull();
+  });
+});

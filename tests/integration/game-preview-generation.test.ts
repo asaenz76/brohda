@@ -13,7 +13,7 @@ const admin = getTestAdminClient();
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 const source = (over: Row = {}) => ({ url: "https://www.espn.com/nfl/game/_/gameId/1", provider: "ESPN", title: "Texans 26, Titans 3", publishedAt: new Date(Date.now() - 3_600_000).toISOString(), retrievedAt: new Date().toISOString(), supports: "Tennessee is 0-5", excerpt: "Texans 26, Titans 3. Tennessee falls to 0-5.", ...over });
-const input = (fixtureId: string, over: Row = {}) => ({ fixtureId, hook: "Zero wins in five.", body: "Tennessee is 0-5 after a 26-3 loss to Houston. Does it end in Indianapolis?", generatedBy: "openai:test-model", reason: "MISSING" as const, sources: [source()], claims: [{ text: "Tennessee is 0-5 after a 26-3 loss to Houston.", fact_ids: ["f1"], source_urls: ["https://www.espn.com/nfl/game/_/gameId/1"] }], meta: { provider: "openai", model: "test-model", promptVersion: "v1", attempts: 1 }, ...over });
+const input = (fixtureId: string, over: Row = {}) => ({ fixtureId, hook: "Zero wins in five.", body: "Tennessee is 0-5 after a 26-3 loss to Houston. Does it end in Indianapolis?", generatedBy: "anthropic:test-model", reason: "MISSING" as const, sources: [source()], claims: [{ text: "Tennessee is 0-5 after a 26-3 loss to Houston.", fact_ids: ["f1"], source_urls: ["https://www.espn.com/nfl/game/_/gameId/1"] }], meta: { provider: "anthropic", model: "test-model", promptVersion: "v1", attempts: 1 }, ...over });
 let staffId: string | null = null;
 const superAdmin = async () => {
   if (!staffId) {
@@ -26,7 +26,7 @@ const setConfig = async (values: Row) => {
   const { error } = await admin.from("game_preview_config").update(values).eq("id", true);
   if (error) throw error;
 };
-const resetConfig = () => setConfig({ max_chars: 700, hook_max_chars: 120, lead_hours: 48, stale_after_hours: 36, min_refresh_interval_hours: 6, generation_enabled: false, provider: "openai", model: "", web_search_enabled: true, verify_with_model: true, max_attempts: 2, max_games_per_run: 3, max_search_calls_per_game: 8, current_fact_max_age_hours: 72 });
+const resetConfig = () => setConfig({ max_chars: 700, hook_max_chars: 120, lead_hours: 48, stale_after_hours: 36, min_refresh_interval_hours: 6, generation_enabled: false, provider: "anthropic", model: "", web_search_enabled: true, verify_with_model: true, max_attempts: 2, max_games_per_run: 3, max_search_calls_per_game: 3, current_fact_max_age_hours: 72, effort: "medium", web_search_tool_version: "web_search_20250305", max_cited_facts: 4, min_story_score: 3 });
 beforeEach(resetConfig);
 afterEach(async () => {
   if (staffId) await admin.from("user_profiles").update({ role: "player" }).eq("id", staffId);
@@ -40,9 +40,9 @@ const game = async (startsInMinutes = 24 * 60, withPost = true) => {
 };
 
 describe("generation settings are stored, with safe defaults", () => {
-  it("ships with automatic generation OFF, NO model id, web search on, and a source policy — and nothing in code decides any of it", async () => {
+  it("ships with automatic generation OFF, Anthropic as the provider, NO model id, effort medium, 3 searches per Game, web search on, and a source policy — and nothing in code decides any of it", async () => {
     const c = await getGamePreviewConfig();
-    expect(c).toMatchObject({ generationEnabled: false, provider: "openai", model: "", webSearchEnabled: true, verifyWithModel: true, maxAttempts: 2, maxGamesPerRun: 3, maxSearchCallsPerGame: 8, currentFactMaxAgeHours: 72 });
+    expect(c).toMatchObject({ generationEnabled: false, provider: "anthropic", model: "", webSearchEnabled: true, verifyWithModel: true, maxAttempts: 2, maxGamesPerRun: 3, maxSearchCallsPerGame: 3, currentFactMaxAgeHours: 72, effort: "medium", webSearchToolVersion: "web_search_20250305", maxCitedFacts: 4, minStoryScore: 3 });
     expect(c.preferredDomains).toEqual(expect.arrayContaining(["nfl.com", "espn.com"]));
     expect(c.blockedDomains).toEqual(expect.arrayContaining(["reddit.com", "x.com"]));
   });
@@ -51,16 +51,21 @@ describe("generation settings are stored, with safe defaults", () => {
     const regular = await seedUser("gg-regular");
     expect((await admin.rpc("admin_set_game_preview_config", { p_admin_id: regular, p_config: { model: "x" } })).error).not.toBeNull();
     const id = await superAdmin();
-    const ok = await admin.rpc("admin_set_game_preview_config", { p_admin_id: id, p_config: { model: " configured-model ", generation_enabled: true, preferred_domains: [" NFL.com ", "", "ESPN.com"], blocked_domains: ["Reddit.com"], max_attempts: 3, current_fact_max_age_hours: 48 } });
+    const ok = await admin.rpc("admin_set_game_preview_config", { p_admin_id: id, p_config: { model: " claude-test ", effort: "high", web_search_tool_version: "web_search_20260209", max_cited_facts: 3, min_story_score: 3.5, max_search_calls_per_game: 5, generation_enabled: true, preferred_domains: [" NFL.com ", "", "ESPN.com"], blocked_domains: ["Reddit.com"], max_attempts: 3, current_fact_max_age_hours: 48 } });
     expect(ok.error).toBeNull();
-    expect(await getGamePreviewConfig()).toMatchObject({ model: "configured-model", generationEnabled: true, preferredDomains: ["nfl.com", "espn.com"], blockedDomains: ["reddit.com"], maxAttempts: 3, currentFactMaxAgeHours: 48 });
+    expect(await getGamePreviewConfig()).toMatchObject({ model: "claude-test", effort: "high", webSearchToolVersion: "web_search_20260209", maxCitedFacts: 3, minStoryScore: 3.5, maxSearchCallsPerGame: 5, generationEnabled: true, preferredDomains: ["nfl.com", "espn.com"], blockedDomains: ["reddit.com"], maxAttempts: 3, currentFactMaxAgeHours: 48 });
     expect((await admin.rpc("admin_set_game_preview_config", { p_admin_id: id, p_config: { provider: "nope" } })).error).not.toBeNull();
+    expect((await admin.rpc("admin_set_game_preview_config", { p_admin_id: id, p_config: { provider: "openai" } })).error).not.toBeNull(); // only implemented providers are selectable
+    expect((await admin.rpc("admin_set_game_preview_config", { p_admin_id: id, p_config: { effort: "turbo" } })).error).not.toBeNull();
+    expect((await admin.rpc("admin_set_game_preview_config", { p_admin_id: id, p_config: { web_search_tool_version: "web_search_1999" } })).error).not.toBeNull();
+    expect((await admin.rpc("admin_set_game_preview_config", { p_admin_id: id, p_config: { min_story_score: 9 } })).error).not.toBeNull();
+    expect((await admin.rpc("admin_set_game_preview_config", { p_admin_id: id, p_config: { max_cited_facts: 0 } })).error).not.toBeNull();
     expect((await admin.rpc("admin_set_game_preview_config", { p_admin_id: id, p_config: { max_attempts: 99 } })).error).not.toBeNull();
     expect((await admin.rpc("admin_set_game_preview_config", { p_admin_id: id, p_config: { preferred_domains: "not-an-array" } })).error?.message).toMatch(/invalid_domains/);
     expect((await admin.rpc("admin_set_game_preview_config", { p_admin_id: id, p_config: { api_key: "sk-secret" } })).error?.message).toMatch(/unknown_setting_api_key/); // credentials are never a setting
     const audit = await admin.from("audit_logs").select("before, after").eq("action", "settings.game_preview_updated").order("created_at", { ascending: false }).limit(1).single();
     expect((audit.data!.before as Row).model).toBe("");
-    expect((audit.data!.after as Row).model).toBe("configured-model");
+    expect((audit.data!.after as Row).model).toBe("claude-test");
   });
 });
 
@@ -70,9 +75,9 @@ describe("claim-level provenance", () => {
     expect((await saveGamePreview(input(g.fixtureId))).outcome).toBe("created");
     const row = (await listGamePreviewsForAdmin([g.fixtureId])).get(g.fixtureId)!;
     expect(row.claims).toEqual([{ text: "Tennessee is 0-5 after a 26-3 loss to Houston.", fact_ids: ["f1"], source_urls: ["https://www.espn.com/nfl/game/_/gameId/1"] }]);
-    expect(row.generationMeta).toMatchObject({ provider: "openai", model: "test-model", promptVersion: "v1" });
+    expect(row.generationMeta).toMatchObject({ provider: "anthropic", model: "test-model", promptVersion: "v1" });
     expect(row.sources[0]).toMatchObject({ excerpt: "Texans 26, Titans 3. Tennessee falls to 0-5.", supports: "Tennessee is 0-5" });
-    expect(row.generatedBy).toBe("openai:test-model");
+    expect(row.generatedBy).toBe("anthropic:test-model");
   });
 
   it("uses the owner's refresh vocabulary and refuses the old names, malformed claims and metadata", async () => {
@@ -124,7 +129,7 @@ describe("manual edit by a Super Admin", () => {
 });
 
 describe("usage observability", () => {
-  const run = (over: Row = {}) => ({ fixtureId: "", trigger: "ADMIN" as const, reason: "MISSING", status: "SUCCEEDED" as const, provider: "openai", model: "test-model", attempts: 1, searchCalls: 5, modelCalls: 3, inputTokens: 1000, outputTokens: 400, factsFound: 6, error: null, previewId: null, startedAt: new Date().toISOString(), ...over });
+  const run = (over: Row = {}) => ({ fixtureId: "", trigger: "ADMIN" as const, effort: "medium", toolVersion: "web_search_20250305", details: { chosenAngleId: "a1" }, reason: "MISSING", status: "SUCCEEDED" as const, provider: "anthropic", model: "test-model", attempts: 1, searchCalls: 5, modelCalls: 3, inputTokens: 1000, outputTokens: 400, factsFound: 6, error: null, previewId: null, startedAt: new Date().toISOString(), ...over });
 
   it("records every run and summarises games researched, searches, model calls, successes, failures, regenerations and calls per Preview", async () => {
     const a = await game();
@@ -138,8 +143,9 @@ describe("usage observability", () => {
     const s = await getGenerationUsageSummary(new Date(Date.now() - 60_000));
     expect(s).toMatchObject({ gamesResearched: 2, runs: 4, succeeded: 2, failed: 1, rejected: 1, regenerations: 1, searchCalls: 14, modelCalls: 12, inputTokens: 3100, outputTokens: 1200 });
     expect(s.avgCallsPerSuccessfulPreview).toBe(7); // (5+3 + 3+3) / 2
-    expect(s.byProviderModel).toEqual([{ provider: "openai", model: "test-model", runs: 4 }]);
+    expect(s.byProviderModel).toEqual([{ provider: "anthropic", model: "test-model", runs: 4 }]);
     const recent = await listRecentGenerationRuns(10);
+    expect(recent[0]).toMatchObject({ effort: "medium", toolVersion: "web_search_20250305", details: { chosenAngleId: "a1" } }); // what the run decided is kept with it
     expect(recent.find((r) => r.error === "research_failed: boom")).toMatchObject({ status: "FAILED", searchCalls: 2 });
   });
 
@@ -166,17 +172,17 @@ describe("automatic generation is OFF unless explicitly on and configured", () =
 
   it("switched on without credentials or without a model it still does nothing, and says why", async () => {
     await game(6 * 60);
-    const saved = process.env.OPENAI_API_KEY;
+    const saved = process.env.ANTHROPIC_API_KEY;
     try {
-      delete process.env.OPENAI_API_KEY;
-      await setConfig({ generation_enabled: true, model: "configured-model" });
+      delete process.env.ANTHROPIC_API_KEY;
+      await setConfig({ generation_enabled: true, model: "claude-test" });
       expect(await runGamePreviewAutomation()).toMatchObject({ enabled: true, configured: false, attempted: 0 });
-      process.env.OPENAI_API_KEY = "sk-test-not-used";
+      process.env.ANTHROPIC_API_KEY = "sk-ant-test-not-used";
       await setConfig({ generation_enabled: true, model: "" });
       expect(await runGamePreviewAutomation()).toMatchObject({ enabled: true, configured: false, attempted: 0 });
     } finally {
-      if (saved === undefined) delete process.env.OPENAI_API_KEY;
-      else process.env.OPENAI_API_KEY = saved;
+      if (saved === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = saved;
     }
     expect(randomUUID()).toBeTruthy();
   });

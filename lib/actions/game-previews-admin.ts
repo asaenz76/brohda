@@ -25,7 +25,11 @@ const NUMBER_FIELDS = [
   ["max_games_per_run", "Games per scheduled run", 1, 50],
   ["max_search_calls_per_game", "Web searches per Game", 1, 50],
   ["current_fact_max_age_hours", "How recent a 'current' source must be (hours)", 1, 8760],
+  ["max_cited_facts", "Most facts one Preview may cite", 1, 10],
 ] as const;
+
+const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+const TOOL_VERSIONS = ["web_search_20250305", "web_search_20260209", "web_search_20260318"];
 
 const domains = (raw: FormDataEntryValue | null) =>
   String(raw ?? "")
@@ -43,12 +47,21 @@ export async function setGamePreviewConfigAction(_prev: GamePreviewAdminResult |
     if (!Number.isInteger(value) || value < min || value > max) return fail(`${label} must be a whole number from ${min} to ${max}.`);
     config[key] = value;
   }
-  const provider = String(formData.get("provider") ?? "openai");
-  if (provider !== "openai") return fail("That provider isn't available.");
+  const provider = String(formData.get("provider") ?? "anthropic");
+  if (provider !== "anthropic") return fail("That provider isn't available.");
+  const effort = String(formData.get("effort") ?? "medium");
+  if (!EFFORTS.includes(effort)) return fail("Choose an effort level from the list.");
+  const toolVersion = String(formData.get("web_search_tool_version") ?? "");
+  if (!TOOL_VERSIONS.includes(toolVersion)) return fail("Choose a web search version from the list.");
+  const minStory = Number(String(formData.get("min_story_score") ?? "").trim());
+  if (!Number.isFinite(minStory) || minStory < 1 || minStory > 5) return fail("The minimum story score must be a number from 1 to 5.");
   const model = String(formData.get("model") ?? "").trim();
   if (model.length > 100) return fail("The model name is too long.");
   config.provider = provider;
   config.model = model;
+  config.effort = effort;
+  config.web_search_tool_version = toolVersion;
+  config.min_story_score = minStory;
   config.generation_enabled = formData.get("generation_enabled") === "on";
   config.web_search_enabled = formData.get("web_search_enabled") === "on";
   config.verify_with_model = formData.get("verify_with_model") === "on";

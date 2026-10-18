@@ -15,7 +15,7 @@ export default async function AdminGamePreviewsPage() {
   await requireSuperAdmin();
   const [config, candidates, usage, runs] = await Promise.all([getGamePreviewConfig(), listGamePreviewCandidates(), getGenerationUsageSummary(), listRecentGenerationRuns(8)]);
   // Presence only — the key itself is never read into the page.
-  const credentialsConfigured = config.provider === "openai" && Boolean(process.env.OPENAI_API_KEY);
+  const credentialsConfigured = config.provider === "anthropic" && Boolean(process.env.ANTHROPIC_API_KEY);
   const games = await listUpcomingGamesForAdmin(SHOW_DAYS);
   const previews = await listGamePreviewsForAdmin(games.map((g) => g.fixtureId));
   const needs = new Map(candidates.map((c) => [c.fixtureId, c.reason]));
@@ -44,13 +44,44 @@ export default async function AdminGamePreviewsPage() {
           {usage.byProviderModel.length > 0 && <> · {usage.byProviderModel.map((m) => `${m.provider} ${m.model} ×${m.runs}`).join(", ")}</>}
         </p>
         {runs.length > 0 && (
-          <ul className="text-xs text-text-muted" data-slot="generation-runs">
-            {runs.map((r) => (
-              <li key={r.id}>
-                {new Date(r.startedAt).toUTCString()} · {r.trigger.toLowerCase()} · {r.reason} · <strong className="text-text-secondary">{r.status}</strong>
-                {r.error && <> — {r.error}</>}
-              </li>
-            ))}
+          <ul className="space-y-1.5 text-xs text-text-muted" data-slot="generation-runs">
+            {runs.map((r) => {
+              const d = r.details as { sources?: { reached: number; accepted: number; rejected: number }; facts?: unknown[]; angles?: Array<{ id: string; type: string; summary: string; scores: Record<string, number> }>; chosenAngleId?: string | null; selectedAngleId?: string | null; angleOverridden?: boolean; selectionReason?: string; rejectedAngles?: Array<{ id: string; reason: string }>; attemptsLog?: Array<{ attempt: number; hook: string; provenanceProblems: string[]; editorialProblems: string[]; verifierProblems: string[] }>; rewrites?: number };
+              return (
+                <li key={r.id}>
+                  {new Date(r.startedAt).toUTCString()} · {r.trigger.toLowerCase()} · {r.reason} · <strong className="text-text-secondary">{r.status}</strong> · {r.model || "no model"}
+                  {r.effort && <> · effort {r.effort}</>} · {r.searchCalls} searches · {r.modelCalls} model calls
+                  {r.error && <> — {r.error}</>}
+                  {d.angles && d.angles.length > 0 && (
+                    <details className="mt-1" data-slot="run-details">
+                      <summary className="cursor-pointer font-medium text-text-secondary">What it found and decided</summary>
+                      <div className="mt-1 space-y-1">
+                        <p>
+                          Sources: {d.sources?.reached ?? 0} reached, {d.sources?.accepted ?? 0} used, {d.sources?.rejected ?? 0} not used · {d.facts?.length ?? 0} facts · {d.rewrites ?? 0} rewrite(s) · tool {r.toolVersion}
+                        </p>
+                        <p>
+                          Chosen story: <strong className="text-text-secondary">{d.angles.find((a) => a.id === d.chosenAngleId)?.summary}</strong> ({d.angles.find((a) => a.id === d.chosenAngleId)?.type})
+                          {d.angleOverridden && <> — a records-only choice was overridden. {d.selectionReason}</>}
+                        </p>
+                        <ul>
+                          {d.angles.map((a) => (
+                            <li key={a.id}>
+                              {a.id === d.chosenAngleId ? "✓ " : "· "}
+                              {a.type}: {a.summary} — T{a.scores.tension} S{a.scores.surprise} Sp{a.scores.specificity} H{a.scores.humanInterest} C{a.scores.conversation} R{a.scores.recency}
+                            </li>
+                          ))}
+                        </ul>
+                        {(d.attemptsLog ?? []).map((a) => (
+                          <p key={a.attempt}>
+                            Attempt {a.attempt}: “{a.hook}” — {[...a.provenanceProblems, ...a.editorialProblems, ...a.verifierProblems].length === 0 ? "accepted" : [...a.provenanceProblems, ...a.editorialProblems, ...a.verifierProblems].join(" · ")}
+                          </p>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>

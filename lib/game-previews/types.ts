@@ -41,6 +41,14 @@ export interface GamePreviewConfig {
   currentFactMaxAgeHours: number;
   preferredDomains: string[];
   blockedDomains: string[];
+  /** How hard the model works (low | medium | high | xhigh | max). Starts at medium; raise only if real testing shows a need. */
+  effort: string;
+  /** The vendor's versioned web-search tool name — a stored setting because the API versions its server tools. */
+  webSearchToolVersion: string;
+  /** One Game, one story: the most facts a single Preview may cite. */
+  maxCitedFacts: number;
+  /** A candidate story must average at least this (1-5) to be chosen over the season-record fallback. */
+  minStoryScore: number;
 }
 
 /** Why a Preview is being written: it is missing, it went stale, material new information appeared, or an admin asked. The database refuses a write that has no valid reason, and honours the stale window and the minimum refresh interval. */
