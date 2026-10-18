@@ -70,6 +70,17 @@ export function reconcileSeasonScope(facts: CandidateFact[], game: Pick<GameIden
   });
 }
 
+/** Statements about where a team stands in the league change with every game any team plays: "leads the NFL in", "tied for the most", "ranks 29th", "last unbeaten team", "first in the division". */
+const RANKING_WORDS = /\b(ranks?|ranked|ranking)\b|\b\d+(st|nd|rd|th) (in|of|among)\b|\btied for (the )?(most|fewest|lead|best|worst|first|last)\b|\b(leads?|leading|leaders?) (the )?(NFL|NHL|NBA|MLB|league|conference|division)\b|\b(most|fewest|best|worst) in the (NFL|NHL|NBA|MLB|league)\b|\b(last|only) (remaining )?(unbeaten|undefeated|winless)\b|\b(first|second|third|fourth) in the [A-Z]/i;
+
+/**
+ * A league rank or lead is a statement about the CURRENT state however it is phrased: it was true when its source was written and may have changed since (a team's "10 takeaways, tied for the most in the NFL" is no longer true once another team's game adds an eleventh).
+ * Research may file one as historical because the numbers come from completed games; it is re-filed as current, so it needs a dated source inside the freshness window like any other current-state fact. Only ever promotes historical -> current.
+ */
+export function reconcileFactKind(facts: CandidateFact[]): CandidateFact[] {
+  return facts.map((f) => (f.kind === "historical" && RANKING_WORDS.test(f.claim) ? { ...f, kind: "current" as const } : f));
+}
+
 export interface ExcludedFact {
   fact: CandidateFact;
   reason: string;
@@ -100,7 +111,11 @@ const SEASON_QUALIFIER = /\b(this|the current) (season|year)\b|\bso far in 20\d\
 /** What a fact must itself say to carry that time frame. */
 const FACT_STATES_SEASON = /\b(this|the current) (season|year)\b|\bso far in 20\d\d\b|\b2026\b/i;
 
-const teamTokens = (name: string) => [name.toLowerCase(), ...(name.toLowerCase().split(/\s+/).slice(-1))];
+/** How a Preview may name a team: the full name, the nickname ("Wild"), or the city/region ("Minnesota"). */
+const teamTokens = (name: string) => {
+  const words = name.toLowerCase().split(/\s+/);
+  return [name.toLowerCase(), words[words.length - 1], ...(words.length > 1 ? [words.slice(0, -1).join(" ")] : [])];
+};
 
 export function validateDraft({ draft, facts, game, config, now }: { draft: DraftToValidate; facts: CandidateFact[]; game: GameIdentity; config: GamePreviewConfig; now: Date }): ValidationResult {
   const problems: string[] = [];

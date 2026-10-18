@@ -2,7 +2,7 @@ import type { GamePreviewConfig, GamePreviewInput, GamePreviewReason, GamePrevie
 import type { GenerationRunInput } from "./repository";
 import { addUsage, emptyUsage, type AngleSelection, type CandidateFact, type EditorialAngle, type GameIdentity, type GamePreviewProviders, type ProviderUsage, type ReachedSource } from "./providers/types";
 import { angleBasis, chooseAngle, completeAngleFacts, overallScore, validateAngles, validateEditorial } from "./editorial";
-import { reconcileSeasonScope, splitUsableFacts, validateDraft } from "./validation";
+import { reconcileFactKind, reconcileSeasonScope, splitUsableFacts, validateDraft } from "./validation";
 
 /**
  * Preview generation, one Game at a time: research → candidate facts → candidate editorial angles, scored → the strongest story → a draft that tells only that story → deterministic provenance validation → deterministic editorial
@@ -128,7 +128,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
   } catch (error) {
     return fail(`research_failed: ${(error as Error).message}`);
   }
-  facts = reconcileSeasonScope(facts, game); // an earlier season is never current form, whatever the research called it
+  facts = reconcileFactKind(reconcileSeasonScope(facts, game)); // an earlier season is never current form, whatever the research called it
   factsFound = facts.length;
   // A fact about the current state needs a dated, recent source; one without it is recorded but never offered to the angle or the writer.
   const { usable, excluded } = splitUsableFacts(facts, config, deps.now());

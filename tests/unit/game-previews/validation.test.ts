@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { domainMatches, domainOf, numbersIn, reconcileSeasonScope, splitUsableFacts, validateDraft } from "@/lib/game-previews/validation";
+import { domainMatches, domainOf, numbersIn, reconcileFactKind, reconcileSeasonScope, splitUsableFacts, validateDraft } from "@/lib/game-previews/validation";
 import { config, fact, facts, game, goodDraft, NOW } from "./fixtures";
 
 const check = (draft = goodDraft, f = facts, c = config) => validateDraft({ draft, facts: f, game, config: c, now: NOW });
@@ -128,5 +128,29 @@ describe("a time frame is a claim: 'this season' needs a fact that says it", () 
 
   it("allows the fact's own time frame to be left out (plain 'six straight games')", () => {
     expect(run(withText("Justin Herbert has thrown at least one interception in six straight games, and Tennessee at Indianapolis is next.", "Justin Herbert has thrown at least one interception in six straight games.")).problems.filter((p) => /this season/.test(p))).toEqual([]);
+  });
+});
+
+describe("reconcileFactKind — a league rank is a current-state fact however it was filed", () => {
+  const f = (claim: string) => fact({ id: "r", kind: "historical", claim });
+  it("re-files rank/lead statements as current, so they need a dated recent source", () => {
+    for (const c of ["The Raiders' defense has 10 takeaways, tied for the most in the NFL.", "Dallas ranks 29th in the NFL with five sacks.", "Green Bay leads the NFL in interceptions.", "Kansas City is the last unbeaten team left in the AFC.", "The Bills are 4-1 and first in the AFC East."]) {
+      expect(reconcileFactKind([f(c)])[0].kind).toBe("current");
+    }
+  });
+  it("leaves results, scores and head-to-head history alone", () => {
+    for (const c of ["Tennessee lost 26-3 to Houston on Oct. 11.", "Herbert has been sacked at least twice in every game.", "Mahomes is 10-4 in his career against the Chargers."]) expect(reconcileFactKind([f(c)])[0].kind).toBe("historical");
+  });
+  it("an old rank statement is then set aside by the freshness rule", () => {
+    const old = reconcileFactKind([fact({ id: "r", kind: "historical", claim: "Ten takeaways, tied for the most in the NFL.", publishedAt: "2026-10-14T00:00:00.000Z" })]);
+    expect(splitUsableFacts(old, config, new Date("2026-10-18T18:00:00.000Z")).excluded).toHaveLength(1);
+  });
+});
+
+describe("naming a team: full name, nickname or city", () => {
+  it("accepts 'Columbus' and 'Minnesota' for the Blue Jackets at the Wild", () => {
+    const g = { ...game, homeTeam: "Minnesota Wild", awayTeam: "Columbus Blue Jackets" };
+    const d = { ...goodDraft, hook: "Columbus has not strung two wins together.", preview: "Columbus arrives on a back-to-back. Minnesota is 3-0-0 at home.", claims: [{ text: "Tennessee is 0-5 after a 26-3 loss to Houston.", factIds: ["f1"] }] };
+    expect(validateDraft({ draft: { ...d, preview: "Columbus is 0-5 after a 26-3 loss to Houston, and Minnesota awaits." }, facts, game: g, config, now: NOW }).problems.filter((p) => /name either team/.test(p))).toEqual([]);
   });
 });
