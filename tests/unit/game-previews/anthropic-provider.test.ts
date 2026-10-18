@@ -122,7 +122,8 @@ describe("Anthropic provider — angles, writing, verification", () => {
     const sel = await new AnthropicGamePreviewProvider(c).selectAngle(game, facts, { model: "configured-model", effort: "medium" });
     const body = calls(c)[0];
     expect(body.tools).toBeUndefined();
-    expect(body.output_config).toEqual({ effort: "medium" });
+    // Stages without search ask for schema-guaranteed JSON (structured outputs), so the answer is always parseable.
+    expect(body.output_config).toMatchObject({ effort: "medium", format: { type: "json_schema", schema: { type: "object", additionalProperties: false, required: ["angles", "selected_id", "selection_reason", "rejected"] } } });
     expect(String(body.system)).toContain("3 to 5 candidate editorial angles");
     expect(String(body.system)).toContain("HOT_VS_COLD");
     expect(String(body.system)).toMatch(/tension[\s\S]*surprise[\s\S]*specificity[\s\S]*humanInterest[\s\S]*conversation[\s\S]*recency/);
@@ -137,6 +138,7 @@ describe("Anthropic provider — angles, writing, verification", () => {
     const c = client(msg([text({ hook: goodDraft.hook, preview: goodDraft.preview, claims: goodDraft.claims.map((x) => ({ text: x.text, fact_ids: x.factIds })) })]));
     const draft = await new AnthropicGamePreviewProvider(c).write(game, { ...angles[2] }, facts, { model: "configured-model", effort: "medium", maxChars: 650, hookMaxChars: 90, maxCitedFacts: 3, feedback: ['The figure "27" is not in the facts.'] });
     const body = calls(c)[0];
+    expect(body.output_config).toMatchObject({ format: { type: "json_schema", schema: { required: ["hook", "preview", "claims"] } } });
     expect(body.tools).toBeUndefined(); // writing never searches
     const system = String(body.system);
     expect(system).toContain("at most 650 characters");
@@ -161,14 +163,18 @@ describe("Anthropic provider — angles, writing, verification", () => {
     const out = await new AnthropicGamePreviewProvider(c).verify(game, angles[0], goodDraft, facts, { model: "configured-model", effort: "medium" });
     expect(out).toMatchObject({ supported: true, editorialPasses: false, problems: ["It reads like game notes."] });
     const system = String(calls(c)[0].system);
+    expect(calls(c)[0].output_config).toMatchObject({ format: { type: "json_schema", schema: { required: ["supported", "editorial_passes", "problems"] } } });
     expect(system).toMatch(/strict fact-checker AND a sports editor/);
     expect(system).toContain(angles[0].summary);
     expect(calls(c)[0].tools).toBeUndefined();
   });
 
-  it("extractJson tolerates prose and code fences around the object", () => {
+  it("extractJson tolerates prose, code fences and trailing commentary that contains braces; and a failure says how the answer began", () => {
     expect(extractJson<{ a: number }>('Here you go:\n```json\n{"a":1}\n```', "x")).toEqual({ a: 1 });
-    expect(() => extractJson("nothing", "x")).toThrow(/no JSON/);
+    expect(extractJson<{ a: string }>('{"a":"} not the end"} and a note {like this}', "x")).toEqual({ a: "} not the end" });
+    expect(extractJson<{ a: { b: number } }>('{"a":{"b":2}}', "x")).toEqual({ a: { b: 2 } });
+    expect(() => extractJson("nothing at all", "angle")).toThrow(/no JSON.*began: nothing at all/);
+    expect(() => extractJson('{"a": 1,, }', "angle")).toThrow(/not valid JSON.*began: \{"a": 1,,/);
   });
 });
 
