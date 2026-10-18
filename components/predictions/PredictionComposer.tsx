@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,7 @@ export function PredictionComposer({
   choices,
   offer,
   disabledReason,
+  lockAt = null,
   initialSelection = null,
   legacyOpenPick = false,
   hideTitle = false,
@@ -36,6 +37,8 @@ export function PredictionComposer({
   offer: ConfidenceOffer | null;
   /** Market-level reason a prediction can't be made right now (stale numbers, closed…), or null. */
   disabledReason: string | null;
+  /** When the Game's pick lock passes (ISO), while it is still open: the composer closes itself at that instant, so a page left open never shows live controls the database would refuse. */
+  lockAt?: string | null;
   initialSelection?: "YES" | "NO" | null;
   legacyOpenPick?: boolean;
   /** A Market shown among others is introduced by the group's single "Make your prediction" title, so it does not repeat its own. */
@@ -54,6 +57,17 @@ export function PredictionComposer({
   // One key per composer, kept across retries of the same attempt: the database makes it exactly-once, so a lost response followed by another tap never creates a second prediction.
   const key = useRef(crypto.randomUUID());
   const inFlight = useRef(false);
+  // The pick lock passing while the page is open: close the composer at that instant (the database would refuse any tap after it) and re-read the page, so the lock state matches everywhere.
+  useEffect(() => {
+    if (!lockAt) return;
+    const wait = new Date(lockAt).getTime() - Date.now();
+    if (!Number.isFinite(wait) || wait > 2_000_000_000) return; // a timer cannot be longer than ~24 days; the page reloads long before
+    const timer = setTimeout(() => {
+      setClosed("Picks are locked for this game.");
+      startTransition(() => router.refresh());
+    }, Math.max(wait, 0));
+    return () => clearTimeout(timer);
+  }, [lockAt, router]);
   const hintId = `composer-hint-${marketId}`;
   const statusId = `composer-status-${marketId}`;
 

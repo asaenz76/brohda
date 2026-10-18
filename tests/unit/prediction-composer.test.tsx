@@ -175,3 +175,35 @@ describe("PredictionComposer — a prediction is a side AND Confidence", () => {
     await act(async () => d.resolve(committedOk("NO", 1)));
   });
 });
+
+describe("PredictionComposer — closes itself when the pick lock passes while the page is open", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("shows live controls before the lock, then the locked message at the lock instant (no tap needed), and re-reads the page", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-18T19:54:00.000Z"));
+    render(<PredictionComposer marketId="m1" choices={moneyline} offer={offer} disabledReason={null} lockAt="2026-10-18T19:55:00.000Z" />);
+    expect(screen.getByRole("button", { name: "Pick Washington Commanders to win" })).toBeEnabled();
+    act(() => void vi.advanceTimersByTime(59_000));
+    expect(screen.queryByText("Picks are locked for this game.")).toBeNull();
+    act(() => void vi.advanceTimersByTime(1_000));
+    expect(screen.getByText("Picks are locked for this game.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pick Washington Commanders to win" })).toBeNull();
+    expect(refresh).toHaveBeenCalled();
+  });
+
+  it("a lock that has already passed when the page renders closes at once", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-18T20:09:00.000Z"));
+    render(<PredictionComposer marketId="m1" choices={moneyline} offer={offer} disabledReason={null} lockAt="2026-10-18T19:55:00.000Z" />);
+    act(() => void vi.advanceTimersByTime(1));
+    expect(screen.getByText("Picks are locked for this game.")).toBeInTheDocument();
+  });
+
+  it("without a lock time nothing changes", () => {
+    vi.useFakeTimers();
+    render(<PredictionComposer marketId="m1" choices={moneyline} offer={offer} disabledReason={null} />);
+    act(() => void vi.advanceTimersByTime(10 * 60 * 60 * 1000));
+    expect(screen.getByRole("button", { name: "Pick Washington Commanders to win" })).toBeEnabled();
+  });
+});

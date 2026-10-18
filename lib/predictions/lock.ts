@@ -23,6 +23,15 @@ export function arePredictionsClosed(game: { internalStatus: string; scheduledSt
   return game.internalStatus !== "NOT_STARTED" || isPastEffectiveLock(game.scheduledStartUtc, lockMinutesBeforeKickoff, now);
 }
 
+/**
+ * What the Pick controls should show for a Game as of `now`: closed once the Game is no longer NOT_STARTED OR the effective lock (kickoff minus the configured minutes) has passed — the same two conditions the database enforces. A Game that is still open also
+ * says WHEN it locks, so a page that stays open on a phone can close its own controls at that instant instead of waiting for someone to tap and be refused. The status alone is not enough: the provider only reports a Game as live after it has started.
+ */
+export function pickLockState(game: { internalStatus: string; scheduledStartUtc: string }, lockMinutesBeforeKickoff: number, now: Date): { closed: boolean; lockAt: string | null } {
+  if (arePredictionsClosed(game, lockMinutesBeforeKickoff, now)) return { closed: true, lockAt: null };
+  return { closed: false, lockAt: computeEffectiveLockAt(game.scheduledStartUtc, lockMinutesBeforeKickoff).toISOString() };
+}
+
 /** Whether, as of `now`, ordinary Pick creation/editing has stopped for a Game with the given canonical kickoff. */
 export function isPastEffectiveLock(scheduledStartUtc: string, lockMinutesBeforeKickoff: number, now: Date): boolean {
   return now.getTime() >= computeEffectiveLockAt(scheduledStartUtc, lockMinutesBeforeKickoff).getTime();

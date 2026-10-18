@@ -14,7 +14,8 @@ import { selectPrimaryMarket } from "@/lib/posts/primary-market";
 import { getChoicePresentation, type Choice } from "@/lib/prediction-markets/selection-labels";
 import { getPickAggregatesForMarkets, listLatestUserPredictionsForMarkets } from "@/lib/predictions/repository";
 import { computePickSentiment } from "@/lib/predictions/sentiment";
-import { checkMarketEligibility, getPredictionPolicy } from "@/lib/predictions/policy";
+import { checkMarketEligibility, getPickLockPolicy, getPredictionPolicy } from "@/lib/predictions/policy";
+import { pickLockState } from "@/lib/predictions/lock";
 import { copyForIneligible } from "@/lib/predictions/copy";
 import { classifyFreshness } from "@/lib/prediction-markets/discovery/policy";
 import { deriveConsumerStatus } from "@/lib/prediction-markets/discovery/status";
@@ -150,6 +151,8 @@ export interface FeedMarketSummary {
   isEditable: boolean;
   /** Null when the viewer may submit/change a Pick right now; otherwise the consumer-facing reason a feed card's Pick control should show instead of live buttons — either why a NEW pick can't be made (copyForIneligible) or that an existing one is locked. */
   pickDisabledReason: string | null;
+  /** While the viewer may still pick: when the Game's pick lock passes (ISO), so the open card can close its own controls at that instant. Null once locked or when no pick is possible. */
+  pickLockAt: string | null;
   /** The viewer's own Pick id, so the card can put Confidence behind it. Null when the viewer has no Pick here (or no viewer). */
   viewerPredictionId: string | null;
   /**
@@ -293,7 +296,7 @@ export async function getSocialFeed(userId: string | null, limit: number = FEED_
   const [followedCommunityIds, publicationPolicy, predictionPolicy, freshnessPolicy] = await Promise.all([
     userId ? listFollowedCommunityIds(userId) : Promise.resolve([]),
     getPostPublicationPolicy(),
-    getPredictionPolicy(),
+    getFeedPredictionPolicy(),
     getFreshnessPolicy(),
   ]);
 
@@ -321,7 +324,16 @@ export async function getSocialFeed(userId: string | null, limit: number = FEED_
   return withSponsorships(await withSecondaryMarkets(items.slice(0, limit), userId, publicationPolicy, predictionPolicy, freshnessPolicy, confidenceOffer));
 }
 
+/** The prediction policy plus the pre-kickoff pick lock: the card closes its controls at the same instant the database starts refusing picks. */
+type FeedPredictionPolicy = Awaited<ReturnType<typeof getPredictionPolicy>> & { pickLockMinutesBeforeKickoff: number };
+
+async function getFeedPredictionPolicy(): Promise<FeedPredictionPolicy> {
+  const [base, lock] = await Promise.all([getPredictionPolicy(), getPickLockPolicy()]);
+  return { ...base, pickLockMinutesBeforeKickoff: lock.lockMinutesBeforeKickoff };
+}
+
 interface SummarizeMarketInput {
+  game: { scheduledStartUtc: string; internalStatus: string };
   market: MarketRecord;
   sport: string;
   homeTeamName: string;
@@ -331,7 +343,7 @@ interface SummarizeMarketInput {
   stakeStates: Map<string, StakeUiState>;
   confidenceOffer: ConfidenceOffer | null;
   now: Date;
-  predictionPolicy: Awaited<ReturnType<typeof getPredictionPolicy>>;
+  predictionPolicy: FeedPredictionPolicy;
   freshnessPolicy: Awaited<ReturnType<typeof getFreshnessPolicy>>;
 }
 
@@ -339,10 +351,11 @@ interface SummarizeMarketInput {
  * ONE Market on a feed card, for the primary Market and every secondary Market alike — the same eligibility decision, the same Pick-first sentiment reveal, the same choice presentation, the same Confidence state.
  * Nothing about a Market's treatment depends on whether it is the primary one.
  */
-function summarizeMarket({ market, sport, homeTeamName, awayTeamName, viewerPrediction, aggregate, stakeStates, confidenceOffer, now, predictionPolicy, freshnessPolicy }: SummarizeMarketInput): FeedMarketSummary {
+function summarizeMarket({ game, market, sport, homeTeamName, awayTeamName, viewerPrediction, aggregate, stakeStates, confidenceOffer, now, predictionPolicy, freshnessPolicy }: SummarizeMarketInput): FeedMarketSummary {
   // Same eligibility decision MarketPredictionCard makes for a single Market (lib/predictions/policy.ts's checkMarketEligibility), computed in-memory:
   // every input is already in scope, so no extra query per Market.
   let pickDisabledReason: string | null = null;
+  let pickLockAt: string | null = null;
   const isEditable = !viewerPrediction || (viewerPrediction.lockedAt === null && viewerPrediction.lifecycleState === "PENDING");
   // Commit-before-crowd: Brohda's crowd sentiment is shown only to someone whose prediction on THIS Market is final. Choosing a side in the composer shows nothing, and neither does an old open Pick that has not been completed with
   // Confidence yet. A logged-out visitor or a member with no prediction gets no percentages and no count — withheld here, so no surface can show them by accident. One Pick is one vote: Confidence never weights it.
@@ -353,6 +366,10 @@ function summarizeMarket({ market, sport, homeTeamName, awayTeamName, viewerPred
     const freshness = classifyFreshness(market.lastSyncedAt, market.yesPrice != null || market.noPrice != null, freshnessPolicy);
     const eligibility = checkMarketEligibility({ consumerStatus, freshness, yesPrice: market.yesPrice, noPrice: market.noPrice, closesAt: market.closesAt, now }, predictionPolicy);
     pickDisabledReason = eligibility.eligible ? null : copyForIneligible(eligibility.reason);
+    // The pre-kickoff lock: the Market stays ACTIVE until the provider reports the Game live (after kickoff), so the card must apply the lock itself.
+    const lock = pickLockState(game, predictionPolicy.pickLockMinutesBeforeKickoff, now);
+    if (pickDisabledReason === null && lock.closed) pickDisabledReason = "Picks are locked for this game.";
+    pickLockAt = pickDisabledReason === null ? lock.lockAt : null;
   } else {
     // Existing Pick, but locked — same copy PredictionActions itself falls back to for a locked Pick.
     pickDisabledReason = "Picks are locked for this game.";
@@ -375,6 +392,7 @@ function summarizeMarket({ market, sport, homeTeamName, awayTeamName, viewerPred
     viewerSelection: viewerPrediction?.selectedOutcome ?? null,
     isEditable,
     pickDisabledReason,
+    pickLockAt,
     viewerPredictionId: viewerPrediction?.id ?? null,
     confidence: (viewerPrediction && stakeStates.get(viewerPrediction.id)) || { state: "none" },
     confidenceOffer,
@@ -390,7 +408,7 @@ async function withSecondaryMarkets(
   items: FeedItem[],
   userId: string | null,
   publicationPolicy: Awaited<ReturnType<typeof getPostPublicationPolicy>>,
-  predictionPolicy: Awaited<ReturnType<typeof getPredictionPolicy>>,
+  predictionPolicy: FeedPredictionPolicy,
   freshnessPolicy: Awaited<ReturnType<typeof getFreshnessPolicy>>,
   confidenceOffer: ConfidenceOffer | null,
 ): Promise<FeedItem[]> {
@@ -428,6 +446,7 @@ async function withSecondaryMarkets(
       ...item,
       secondaryMarkets: others.map((market) =>
         summarizeMarket({
+          game: { scheduledStartUtc: item.scheduledStartUtc, internalStatus: item.internalStatus },
           market,
           sport: item.sport,
           homeTeamName: item.homeTeamName,
@@ -461,7 +480,7 @@ async function enrichFeedRows(
   userId: string | null,
   followedPostIds: Set<string>,
   publicationPolicy: Awaited<ReturnType<typeof getPostPublicationPolicy>>,
-  predictionPolicy: Awaited<ReturnType<typeof getPredictionPolicy>>,
+  predictionPolicy: FeedPredictionPolicy,
   freshnessPolicy: Awaited<ReturnType<typeof getFreshnessPolicy>>,
   confidenceOffer: ConfidenceOffer | null,
 ): Promise<FeedItem[]> {
@@ -507,6 +526,7 @@ async function enrichFeedRows(
 
     if (primary) {
       primaryMarket = summarizeMarket({
+        game: { scheduledStartUtc: row.fixtures!.scheduled_start_utc, internalStatus: row.fixtures!.internal_status },
         market: primary,
         sport: row.fixtures!.sport,
         homeTeamName: row.fixtures!.home_team_name,
@@ -572,7 +592,7 @@ export async function getCommunityTimeline(communityId: string, userId: string |
   const admin = createAdminClient();
   const [publicationPolicy, predictionPolicy, freshnessPolicy, feedPolicy, postCommunityRows] = await Promise.all([
     getPostPublicationPolicy(),
-    getPredictionPolicy(),
+    getFeedPredictionPolicy(),
     getFreshnessPolicy(),
     getFeedPolicy(),
     admin
