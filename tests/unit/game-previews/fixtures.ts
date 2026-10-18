@@ -39,6 +39,7 @@ export const config: GamePreviewConfig = {
 export const fact = (over: Partial<CandidateFact> = {}): CandidateFact => ({
   id: "f1",
   kind: "historical",
+  seasonScope: "CURRENT_SEASON",
   category: "result",
   claim: "Tennessee lost 26-3 to Houston on Oct. 11, falling to 0-5.",
   excerpt: "The Texans beat the Titans 26-3 ... Tennessee is 0-5.",
@@ -54,7 +55,7 @@ export const fact = (over: Partial<CandidateFact> = {}): CandidateFact => ({
 
 export const facts: CandidateFact[] = [
   fact(),
-  fact({ id: "f2", category: "head_to_head", claim: "Indianapolis beat Tennessee 41-20 and 38-14 in 2025.", excerpt: "Colts 41, Titans 20 (Sept. 21, 2025); Colts 38, Titans 14 (Oct. 26, 2025).", sourceUrl: "https://www.espn.com/nfl/team/schedule/_/name/ind/season/2025", sourceTitle: "Colts 2025 schedule" }),
+  fact({ id: "f2", seasonScope: "HISTORICAL_CONTEXT", category: "head_to_head", claim: "Indianapolis beat Tennessee 41-20 and 38-14 in 2025.", excerpt: "Colts 41, Titans 20 (Sept. 21, 2025); Colts 38, Titans 14 (Oct. 26, 2025).", sourceUrl: "https://www.espn.com/nfl/team/schedule/_/name/ind/season/2025", sourceTitle: "Colts 2025 schedule" }),
   fact({ id: "f3", category: "record", claim: "Indianapolis is 2-3 after a 34-22 loss at Pittsburgh.", excerpt: "Steelers 34, Colts 22. Indianapolis falls to 2-3.", kind: "historical", publishedAt: "2026-10-11T23:30:00.000Z", sourceUrl: "https://www.nfl.com/news/colts-steelers-recap", sourceProvider: "NFL.com", sourceTitle: "Steelers beat Colts" }),
 ];
 

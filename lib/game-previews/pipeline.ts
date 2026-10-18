@@ -1,8 +1,8 @@
 import type { GamePreviewConfig, GamePreviewInput, GamePreviewReason, GamePreviewWriteOutcome } from "./types";
 import type { GenerationRunInput } from "./repository";
 import { addUsage, emptyUsage, type AngleSelection, type CandidateFact, type EditorialAngle, type GameIdentity, type GamePreviewProviders, type ProviderUsage, type ReachedSource } from "./providers/types";
-import { chooseAngle, overallScore, validateAngles, validateEditorial } from "./editorial";
-import { validateDraft } from "./validation";
+import { angleBasis, chooseAngle, completeAngleFacts, overallScore, validateAngles, validateEditorial } from "./editorial";
+import { reconcileSeasonScope, splitUsableFacts, validateDraft } from "./validation";
 
 /**
  * Preview generation, one Game at a time: research → candidate facts → candidate editorial angles, scored → the strongest story → a draft that tells only that story → deterministic provenance validation → deterministic editorial
@@ -28,8 +28,13 @@ export interface AttemptLog {
 /** What a run found and decided — the record the owner reviews. */
 export interface RunDetails {
   sources: { reached: number; accepted: number; rejected: number; list: ReachedSource[] };
-  facts: Array<{ id: string; kind: string; category: string; claim: string; sourceUrl: string; publishedAt: string | null }>;
+  /** Every fact the research returned; `excluded` says why one was not allowed to reach the angle or the writer. */
+  facts: Array<{ id: string; kind: string; seasonScope: string; category: string; claim: string; sourceUrl: string; publishedAt: string | null; excluded?: string }>;
+  /** Facts added to the chosen story because its summary carried a figure they hold. */
+  angleFactsAdded: string[];
   angles: AngleSelection["angles"];
+  /** What each candidate angle rests on, computed from its facts: CURRENT_SEASON, CURRENT_WITH_HISTORY or HISTORY_ONLY. */
+  angleBasis: Record<string, string>;
   selectedAngleId: string | null;
   chosenAngleId: string | null;
   angleOverridden: boolean;
@@ -65,7 +70,9 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
   const details: RunDetails = {
     sources: { reached: 0, accepted: 0, rejected: 0, list: [] },
     facts: [],
+    angleFactsAdded: [],
     angles: [],
+    angleBasis: {},
     selectedAngleId: null,
     chosenAngleId: null,
     angleOverridden: false,
@@ -121,10 +128,16 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
   } catch (error) {
     return fail(`research_failed: ${(error as Error).message}`);
   }
+  facts = reconcileSeasonScope(facts, game); // an earlier season is never current form, whatever the research called it
   factsFound = facts.length;
-  details.facts = facts.map((f) => ({ id: f.id, kind: f.kind, category: f.category, claim: f.claim, sourceUrl: f.sourceUrl, publishedAt: f.publishedAt }));
+  // A fact about the current state needs a dated, recent source; one without it is recorded but never offered to the angle or the writer.
+  const { usable, excluded } = splitUsableFacts(facts, config, deps.now());
+  const excludedReason = new Map(excluded.map((e) => [e.fact.id, e.reason]));
+  details.facts = facts.map((f) => ({ id: f.id, kind: f.kind, seasonScope: f.seasonScope, category: f.category, claim: f.claim, sourceUrl: f.sourceUrl, publishedAt: f.publishedAt, ...(excludedReason.has(f.id) ? { excluded: excludedReason.get(f.id) } : {}) }));
   if (usage.searchCalls === 0) return fail("research_did_not_search"); // a model that did not actually search is not research
   if (facts.length === 0) return fail("no_verified_facts"); // weak research never becomes a manufactured story
+  if (usable.length === 0) return fail("no_usable_facts", excluded.map((e) => `Fact ${e.fact.id} was set aside: ${e.reason}.`), "REJECTED");
+  facts = usable;
 
   // 2. Editorial angles: 3-5 candidate stories from the verified facts, scored; the strongest wins, and a records-only fallback never beats a good-enough story.
   let chosen: EditorialAngle;
@@ -132,12 +145,15 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     const selection = await providers.angles.selectAngle(game, facts, stage);
     usage = addUsage(usage, selection.usage);
     details.angles = selection.angles;
+    details.angleBasis = Object.fromEntries(selection.angles.map((a) => [a.id, angleBasis(a, facts)]));
     details.selectedAngleId = selection.selectedId;
     details.rejectedAngles = selection.rejected;
     const structural = validateAngles(selection, facts);
     if (structural.length > 0) return fail("angle_selection_invalid", structural, "REJECTED");
-    const pick = chooseAngle(selection, config.minStoryScore);
-    chosen = pick.angle;
+    const pick = chooseAngle(selection, config.minStoryScore, facts);
+    const completed = completeAngleFacts(pick.angle, facts);
+    chosen = completed.angle;
+    details.angleFactsAdded = completed.added;
     details.chosenAngleId = pick.angle.id;
     details.angleOverridden = pick.overridden;
     details.selectionReason = pick.reason;
@@ -158,7 +174,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     usage = addUsage(usage, draft.usage);
 
     const provenance = validateDraft({ draft: { hook: draft.hook, preview: draft.preview, claims: draft.claims }, facts, game, config, now: deps.now() });
-    const editorial = validateEditorial({ draft, angle: chosen, config });
+    const editorial = validateEditorial({ draft, angle: chosen, config, facts });
     let verifierProblems: string[] = [];
     if (provenance.ok && editorial.length === 0 && providers.verifier) {
       try {
@@ -210,9 +226,9 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
         verifiedByModel: Boolean(providers.verifier),
         attempts,
         trigger: request.trigger,
-        angle: { id: chosen.id, type: chosen.type, summary: chosen.summary, score: Number(overallScore(chosen.scores).toFixed(2)), overridden: details.angleOverridden },
+        angle: { id: chosen.id, type: chosen.type, basis: angleBasis(chosen, facts), summary: chosen.summary, score: Number(overallScore(chosen.scores).toFixed(2)), overridden: details.angleOverridden },
         candidateAngles: details.angles.map((a) => ({ id: a.id, type: a.type, summary: a.summary, score: Number(overallScore(a.scores).toFixed(2)) })),
-        facts: cited.map((f) => ({ id: f.id, kind: f.kind, category: f.category, claim: f.claim, sourceUrl: f.sourceUrl })),
+        facts: cited.map((f) => ({ id: f.id, kind: f.kind, seasonScope: f.seasonScope, category: f.category, claim: f.claim, sourceUrl: f.sourceUrl })),
         usage,
       },
     });

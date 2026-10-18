@@ -49,6 +49,52 @@ export function numbersIn(text: string): Set<string> {
   return out;
 }
 
+/** Wording that puts a statement in a PREVIOUS season whatever the research said ("last season", "a year ago"). */
+const PREVIOUS_SEASON_WORDS = /\b(last|previous|prior) (season|year)\b|\b(a )?(year|seasons?) ago\b/i;
+
+/**
+ * A deterministic backstop for the research's season classification: it can only move a fact from CURRENT_SEASON to HISTORICAL_CONTEXT, never the other way. A current-state fact (injury, availability) is by nature this season's; a fact whose own wording
+ * names an earlier season (a year before this one, or "last season") is history. Years are judged against the Game's date: from August on, a season that began last year is over; in the first half of the year the previous calendar year may still be this season (a season that spans New Year).
+ */
+export function reconcileSeasonScope(facts: CandidateFact[], game: Pick<GameIdentity, "kickoffUtc">): CandidateFact[] {
+  const kickoff = new Date(game.kickoffUtc);
+  const year = kickoff.getUTCFullYear();
+  const firstPastYear = kickoff.getUTCMonth() >= 7 ? year - 1 : year - 2; // years at or before this are an earlier season
+  return facts.map((f) => {
+    if (f.kind === "current") return f.seasonScope === "CURRENT_SEASON" ? f : { ...f, seasonScope: "CURRENT_SEASON" };
+    if (f.seasonScope === "HISTORICAL_CONTEXT") return f;
+    const text = `${f.claim} ${f.excerpt ?? ""}`;
+    const years = [...text.matchAll(/\b(19|20)\d{2}\b/g)].map((m) => Number(m[0]));
+    const mentionsPast = years.some((y) => y <= firstPastYear) || PREVIOUS_SEASON_WORDS.test(f.claim);
+    return mentionsPast ? { ...f, seasonScope: "HISTORICAL_CONTEXT" } : f;
+  });
+}
+
+export interface ExcludedFact {
+  fact: CandidateFact;
+  reason: string;
+}
+
+/**
+ * Which researched facts may be written at all. A fact about the CURRENT state (an injury, a return, who is expected to start) is only worth as much as its source's date: with no publication time, or one older than the configured window,
+ * it cannot be stated as current — so it never reaches the angle or the writer (otherwise the story is built on a fact the provenance gate must reject, and the rewrite fails the same way). History does not expire this way.
+ */
+export function splitUsableFacts(facts: CandidateFact[], config: Pick<GamePreviewConfig, "currentFactMaxAgeHours">, now: Date): { usable: CandidateFact[]; excluded: ExcludedFact[] } {
+  const usable: CandidateFact[] = [];
+  const excluded: ExcludedFact[] = [];
+  for (const fact of facts) {
+    if (fact.kind !== "current") {
+      usable.push(fact);
+      continue;
+    }
+    const published = fact.publishedAt ? new Date(fact.publishedAt).getTime() : NaN;
+    if (!Number.isFinite(published)) excluded.push({ fact, reason: "about the current state, but its source shows no publication time" });
+    else if (now.getTime() - published > config.currentFactMaxAgeHours * 3_600_000) excluded.push({ fact, reason: `about the current state, but its source is older than ${config.currentFactMaxAgeHours} hours` });
+    else usable.push(fact);
+  }
+  return { usable, excluded };
+}
+
 const teamTokens = (name: string) => [name.toLowerCase(), ...(name.toLowerCase().split(/\s+/).slice(-1))];
 
 export function validateDraft({ draft, facts, game, config, now }: { draft: DraftToValidate; facts: CandidateFact[]; game: GameIdentity; config: GamePreviewConfig; now: Date }): ValidationResult {

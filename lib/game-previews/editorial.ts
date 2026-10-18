@@ -1,5 +1,6 @@
-import { ANGLE_TYPES, FALLBACK_ANGLE_TYPES, type AngleScores, type AngleSelection, type CandidateFact, type EditorialAngle } from "./providers/types";
+import { ANGLE_TYPES, FALLBACK_ANGLE_TYPES, type AngleBasis, type AngleScores, type AngleSelection, type CandidateFact, type EditorialAngle } from "./providers/types";
 import type { GamePreviewClaim, GamePreviewConfig } from "./types";
+import { numbersIn } from "./validation";
 
 /**
  * The editorial gate. A Game Preview is a story hook — "find the most interesting TRUE tension around this matchup and use only the facts that story needs" — not a miniature game-notes page. Two deterministic layers, both unit-tested
@@ -35,6 +36,42 @@ export function validateAngles(selection: Pick<AngleSelection, "angles" | "selec
   return problems;
 }
 
+/**
+ * The story line the writer is shown must not carry a figure the angle's facts do not contain (a score named in the summary but missing from its facts is a number the writer will use and the provenance gate must then reject).
+ * Facts from the researched pool that contain the missing figures are added to the angle; a figure no fact holds is reported so it is visible in the run record.
+ */
+export function completeAngleFacts(angle: EditorialAngle, facts: CandidateFact[]): { angle: EditorialAngle; added: string[]; unresolved: string[] } {
+  const byId = new Map(facts.map((f) => [f.id, f]));
+  const have = new Set<string>();
+  for (const id of angle.factIds) {
+    const f = byId.get(id);
+    if (f) for (const n of numbersIn(`${f.claim} ${f.excerpt ?? ""}`)) have.add(n);
+  }
+  const missing = [...numbersIn(angle.summary)].filter((n) => !have.has(n));
+  const added: string[] = [];
+  const unresolved: string[] = [];
+  for (const n of missing) {
+    if ([...have].includes(n)) continue; // an added fact already covered it
+    const holder = facts.find((f) => !angle.factIds.includes(f.id) && !added.includes(f.id) && numbersIn(`${f.claim} ${f.excerpt ?? ""}`).has(n));
+    if (!holder) {
+      unresolved.push(n);
+      continue;
+    }
+    added.push(holder.id);
+    for (const m of numbersIn(`${holder.claim} ${holder.excerpt ?? ""}`)) have.add(m);
+  }
+  return { angle: added.length ? { ...angle, factIds: [...angle.factIds, ...added] } : angle, added, unresolved };
+}
+
+/** What an angle rests on: this season only, this season with history behind it, or history alone. */
+export function angleBasis(angle: Pick<EditorialAngle, "factIds">, facts: CandidateFact[]): AngleBasis {
+  const byId = new Map(facts.map((f) => [f.id, f]));
+  const scopes = angle.factIds.map((id) => byId.get(id)?.seasonScope).filter((s): s is NonNullable<typeof s> => Boolean(s));
+  const current = scopes.filter((s) => s === "CURRENT_SEASON").length;
+  if (current === 0) return "HISTORY_ONLY";
+  return current === scopes.length ? "CURRENT_SEASON" : "CURRENT_WITH_HISTORY";
+}
+
 export interface ChosenAngle {
   angle: EditorialAngle;
   /** True when the model chose a records-only fallback although a good-enough story existed, and the choice was changed. */
@@ -42,14 +79,19 @@ export interface ChosenAngle {
   reason: string;
 }
 
-/** The angle the writer will tell. A season-record fallback is chosen only when no real story reaches the minimum score; otherwise the best real story wins. */
-export function chooseAngle(selection: Pick<AngleSelection, "angles" | "selectedId" | "selectionReason">, minStoryScore: number): ChosenAngle {
+/**
+ * The angle the writer will tell. Editorial priority: 1) a story on this season's material, 2) this season's story with historical support, 3) a records or history-only fallback. So a records-only angle, or one resting on history alone,
+ * is chosen only when no real story with a current-season core reaches the minimum score; otherwise the best such story wins. (History still has its place: it supports and sharpens a current-season story, and carries the Game when the season offers nothing.)
+ */
+export function chooseAngle(selection: Pick<AngleSelection, "angles" | "selectedId" | "selectionReason">, minStoryScore: number, facts: CandidateFact[]): ChosenAngle {
   const selected = selection.angles.find((a) => a.id === selection.selectedId)!;
   const isFallback = (a: EditorialAngle) => FALLBACK_ANGLE_TYPES.includes(a.type);
-  if (isFallback(selected)) {
-    const stories = selection.angles.filter((a) => !isFallback(a) && overallScore(a.scores) >= minStoryScore).sort((a, b) => overallScore(b.scores) - overallScore(a.scores));
+  const historyOnly = (a: EditorialAngle) => angleBasis(a, facts) === "HISTORY_ONLY";
+  if (isFallback(selected) || historyOnly(selected)) {
+    const stories = selection.angles.filter((a) => !isFallback(a) && !historyOnly(a) && overallScore(a.scores) >= minStoryScore).sort((a, b) => overallScore(b.scores) - overallScore(a.scores));
     if (stories.length > 0) {
-      return { angle: stories[0], overridden: true, reason: `The records-only angle was set aside: "${stories[0].summary}" scored ${overallScore(stories[0].scores).toFixed(1)} (minimum ${minStoryScore}).` };
+      const set = isFallback(selected) ? "The records-only angle" : "The history-only angle";
+      return { angle: stories[0], overridden: true, reason: `${set} was set aside: "${stories[0].summary}" is built on this season and scored ${overallScore(stories[0].scores).toFixed(1)} (minimum ${minStoryScore}).` };
     }
   }
   return { angle: selected, overridden: false, reason: selection.selectionReason };
@@ -75,6 +117,11 @@ const STOCK_QUESTION = /\b(who will win|who wins|who takes it|who comes out on t
 
 const RECORD_IN_HOOK = /\b\d{1,3}\s?[-–]\s?\d{1,3}(\s?[-–]\s?\d{1,3})?\b/;
 
+/** Wording that frames a statement as history rather than current form: a year, a previous season, "years ago", "all-time", "career", "the last time", "first time since", "historically". */
+const HISTORY_FRAMING = /\b(19|20)\d{2}\b|\b(last|previous|prior) (season|year)\b|\b(years?|seasons?) ago\b|\ball[- ]time\b|\bcareer\b|\bhistor(y|ically)\b|\bthe last time\b|\bfirst time since\b|\bsince \d|\bin the series\b|\bfranchise\b|\bever\b|\bback in\b/i;
+/** Wording that presents a statement as this season's — contradictory in a claim that rests only on history. */
+const CURRENT_FRAMING = /\b(currently|this season|so far this (season|year)|right now|this year)\b/i;
+
 export interface EditorialInput {
   hook: string;
   preview: string;
@@ -82,7 +129,7 @@ export interface EditorialInput {
 }
 
 /** Rejects a draft that is not a story: returns the reasons, fed back to the writer for a rewrite. */
-export function validateEditorial({ draft, angle, config }: { draft: EditorialInput; angle: EditorialAngle; config: Pick<GamePreviewConfig, "maxCitedFacts"> }): string[] {
+export function validateEditorial({ draft, angle, config, facts }: { draft: EditorialInput; angle: EditorialAngle; config: Pick<GamePreviewConfig, "maxCitedFacts">; facts: CandidateFact[] }): string[] {
   const problems: string[] = [];
   const hook = draft.hook.trim();
   const preview = draft.preview.trim();
@@ -91,6 +138,15 @@ export function validateEditorial({ draft, angle, config }: { draft: EditorialIn
   const outside = [...cited].filter((id) => !angle.factIds.includes(id));
   if (outside.length > 0) problems.push(`The draft uses facts outside the chosen story (${outside.join(", ")}). Tell ONE story with the facts it needs.`);
   if (cited.size > config.maxCitedFacts) problems.push(`The draft cites ${cited.size} facts; a Preview tells one story with at most ${config.maxCitedFacts}. Cut the ones that do not strengthen it.`);
+
+  // Do not mix seasons ambiguously: a statement resting only on earlier-season facts must read as history, never as this season's form.
+  const scopeOf = new Map(facts.map((f) => [f.id, f.seasonScope]));
+  for (const [i, claim] of draft.claims.entries()) {
+    const scopes = claim.factIds.map((id) => scopeOf.get(id)).filter(Boolean);
+    if (scopes.length === 0 || scopes.some((s) => s === "CURRENT_SEASON")) continue;
+    if (CURRENT_FRAMING.test(claim.text)) problems.push(`Claim ${i + 1} ("${claim.text.slice(0, 60)}") rests only on earlier-season facts but is worded as this season's. Frame it as history.`);
+    else if (!HISTORY_FRAMING.test(claim.text)) problems.push(`Claim ${i + 1} ("${claim.text.slice(0, 60)}") rests on earlier-season facts but does not say so. Frame it as history ("last season", "in 2025", "the last time ...").`);
+  }
 
   if (RECORD_IN_HOOK.test(hook)) problems.push("The hook just states a record or score. Lead with the tension, not the number.");
   if ((hook.match(/\d+/g) ?? []).length >= 2) problems.push("The hook is made of figures. A hook should read like sports conversation, not metadata.");

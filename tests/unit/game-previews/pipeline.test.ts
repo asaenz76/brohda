@@ -3,7 +3,7 @@ import { generateGamePreview, type PipelineDeps } from "@/lib/game-previews/pipe
 import { addUsage, emptyUsage, type GamePreviewAngleProvider, type GamePreviewProviders, type GamePreviewResearchProvider, type GamePreviewVerifierProvider, type GamePreviewWriterProvider, type PreviewDraft } from "@/lib/game-previews/providers/types";
 import type { GenerationRunInput } from "@/lib/game-previews/repository";
 import type { GamePreviewInput } from "@/lib/game-previews/types";
-import { config, facts, game, goodDraft, NOW, selection } from "./fixtures";
+import { config, fact, facts, game, goodDraft, NOW, selection } from "./fixtures";
 
 const usage = (o: Partial<ReturnType<typeof emptyUsage>> = {}) => ({ ...emptyUsage(), ...o });
 const draftOf = (over: Partial<PreviewDraft> = {}): PreviewDraft => ({ ...goodDraft, promptVersion: "test-v1", usage: usage({ modelCalls: 1, inputTokens: 100, outputTokens: 50 }), ...over });
@@ -99,6 +99,51 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
     expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
     expect(write.mock.calls[1][3].feedback.join(" ")).toMatch(/states a record or score/);
     expect(t.saves[0].hook).toBe(goodDraft.hook);
+  });
+
+  it("a current fact with no dated source never reaches the angle or the writer, and the run record says why", async () => {
+    const undated = fact({ id: "f4", kind: "current", category: "injury", claim: "The quarterback practiced in full.", publishedAt: null });
+    const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [...facts, undated], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) } } });
+    const out = await generateGamePreview(t.deps, req);
+    expect(out.status).toBe("SUCCEEDED");
+    expect(t.selectAngle.mock.calls[0][1].map((f) => f.id)).toEqual(["f1", "f2", "f3"]);
+    expect(t.write.mock.calls[0][2].map((f) => f.id)).toEqual(["f1", "f2", "f3"]);
+    const recorded = (t.runs[0].details as { facts: Array<{ id: string; excluded?: string }> }).facts;
+    expect(recorded.find((f) => f.id === "f4")?.excluded).toMatch(/no publication time/);
+    expect(recorded.find((f) => f.id === "f1")?.excluded).toBeUndefined();
+  });
+
+  it("when only undated current facts were found the run is REJECTED before any story is written", async () => {
+    const undated = fact({ id: "f1", kind: "current", publishedAt: null });
+    const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [undated], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) } } });
+    expect(await generateGamePreview(t.deps, req)).toMatchObject({ status: "REJECTED", error: "no_usable_facts" });
+    expect(t.selectAngle).not.toHaveBeenCalled();
+    expect(t.saves).toHaveLength(0);
+  });
+
+  it("a figure named in the chosen story is backed: the fact that holds it is handed to the writer", async () => {
+    const narrow = { ...selection, angles: selection.angles.map((a) => (a.id === "a1" ? { ...a, summary: "Indianapolis beat Tennessee 41-20.", factIds: ["f1"] } : a)) };
+    const t = setup({ providers: { angles: { name: "fake", selectAngle: async () => ({ ...narrow, usage: usage({ modelCalls: 1 }) }) } } });
+    await generateGamePreview(t.deps, req);
+    expect(t.write.mock.calls[0][1].factIds).toEqual(["f1", "f2"]);
+    expect((t.runs[0].details as { angleFactsAdded: string[] }).angleFactsAdded).toEqual(["f2"]);
+  });
+
+  it("a fact that is plainly from an earlier season is reclassified as history, whatever the research called it, and the record shows it", async () => {
+    const old = fact({ id: "f4", claim: "The Chargers swept the Chiefs in 2025.", seasonScope: "CURRENT_SEASON" });
+    const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [...facts, old], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) } } });
+    await generateGamePreview(t.deps, req);
+    expect(t.selectAngle.mock.calls[0][1].find((f) => f.id === "f4")?.seasonScope).toBe("HISTORICAL_CONTEXT");
+    const d = t.runs[0].details as { facts: Array<{ id: string; seasonScope: string }>; angleBasis: Record<string, string> };
+    expect(d.facts.find((f) => f.id === "f4")?.seasonScope).toBe("HISTORICAL_CONTEXT");
+    expect(d.angleBasis).toMatchObject({ a1: "CURRENT_WITH_HISTORY", a2: "CURRENT_SEASON", a3: "HISTORY_ONLY" });
+  });
+
+  it("a history-only choice is overridden by a current-season story, and the writer is given the current-season story", async () => {
+    const t = setup({ providers: { angles: { name: "fake", selectAngle: async () => ({ ...selection, selectedId: "a3", usage: usage({ modelCalls: 1 }) }) } } });
+    await generateGamePreview(t.deps, req);
+    expect(t.write.mock.calls[0][1].id).toBe("a1");
+    expect((t.runs[0].details as { angleOverridden: boolean }).angleOverridden).toBe(true);
   });
 
   it("when every attempt is rejected NOTHING is saved, the run is REJECTED, and the reasons are reported", async () => {
