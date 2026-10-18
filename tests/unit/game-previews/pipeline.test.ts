@@ -146,6 +146,13 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
     expect((t.runs[0].details as { angleOverridden: boolean }).angleOverridden).toBe(true);
   });
 
+  it("the run record keeps each fact's supporting excerpt, so a misattributed player or team can be spotted in review", async () => {
+    const t = setup();
+    await generateGamePreview(t.deps, req);
+    const recorded = (t.runs[0].details as { facts: Array<{ id: string; excerpt: string | null }> }).facts;
+    expect(recorded.find((f) => f.id === "f1")?.excerpt).toBe(facts[0].excerpt);
+  });
+
   it("when every attempt is rejected NOTHING is saved, the run is REJECTED, and the reasons are reported", async () => {
     const bad = draftOf({ hook: "Tennessee is 0-5, Indianapolis is 2-3" });
     const t = setup({ providers: { writer: { name: "fake", write: async () => bad } } });

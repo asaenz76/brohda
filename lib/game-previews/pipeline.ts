@@ -29,7 +29,7 @@ export interface AttemptLog {
 export interface RunDetails {
   sources: { reached: number; accepted: number; rejected: number; list: ReachedSource[] };
   /** Every fact the research returned; `excluded` says why one was not allowed to reach the angle or the writer. */
-  facts: Array<{ id: string; kind: string; seasonScope: string; category: string; claim: string; sourceUrl: string; publishedAt: string | null; excluded?: string }>;
+  facts: Array<{ id: string; kind: string; seasonScope: string; category: string; claim: string; excerpt: string | null; sourceUrl: string; publishedAt: string | null; excluded?: string }>;
   /** Facts added to the chosen story because its summary carried a figure they hold. */
   angleFactsAdded: string[];
   angles: AngleSelection["angles"];
@@ -133,7 +133,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
   // A fact about the current state needs a dated, recent source; one without it is recorded but never offered to the angle or the writer.
   const { usable, excluded } = splitUsableFacts(facts, config, deps.now());
   const excludedReason = new Map(excluded.map((e) => [e.fact.id, e.reason]));
-  details.facts = facts.map((f) => ({ id: f.id, kind: f.kind, seasonScope: f.seasonScope, category: f.category, claim: f.claim, sourceUrl: f.sourceUrl, publishedAt: f.publishedAt, ...(excludedReason.has(f.id) ? { excluded: excludedReason.get(f.id) } : {}) }));
+  details.facts = facts.map((f) => ({ id: f.id, kind: f.kind, seasonScope: f.seasonScope, category: f.category, claim: f.claim, excerpt: f.excerpt, sourceUrl: f.sourceUrl, publishedAt: f.publishedAt, ...(excludedReason.has(f.id) ? { excluded: excludedReason.get(f.id) } : {}) }));
   if (usage.searchCalls === 0) return fail("research_did_not_search"); // a model that did not actually search is not research
   if (facts.length === 0) return fail("no_verified_facts"); // weak research never becomes a manufactured story
   if (usable.length === 0) return fail("no_usable_facts", excluded.map((e) => `Fact ${e.fact.id} was set aside: ${e.reason}.`), "REJECTED");
