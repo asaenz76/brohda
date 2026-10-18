@@ -38,11 +38,19 @@ export function domainMatches(host: string, domains: string[]): boolean {
   });
 }
 
+/**
+ * Prose that uses a number word as plain language, not as a figure: "the two teams" / "two rebuilt rosters" (the two sides of THIS Game — no statistic is being claimed) and "first" as an adverb at the end of a clause ("who adjusts first?", "holds up first.").
+ * Dropped before the figures are read; everything else ("two straight wins", "their first win", "third in the league") still has to be in a cited fact.
+ */
+const PLAIN_TWO = /\b(the )?two (\w+ ){0,2}(teams?|sides?|clubs?|rosters?|franchises|programs|squads|lineups?|offenses|defenses)\b/gi;
+const ADVERB_FIRST = /\bfirst(?=\s*[.?!,;:]|\s*$)/gi;
+
 /** Numeric figures in a text: digits ("26", "3.5", "45-24" → 45 and 24), spelled numbers ("six") and ordinals ("third"), normalized to digits. */
 export function numbersIn(text: string): Set<string> {
   const out = new Set<string>();
-  for (const m of text.matchAll(/\d+(?:[.,]\d+)?/g)) out.add(m[0].replace(",", "."));
-  for (const word of text.toLowerCase().match(/[a-z]+/g) ?? []) {
+  const plain = text.replace(PLAIN_TWO, " ").replace(ADVERB_FIRST, " ");
+  for (const m of plain.matchAll(/\d+(?:[.,]\d+)?/g)) out.add(m[0].replace(",", "."));
+  for (const word of plain.toLowerCase().match(/[a-z]+/g) ?? []) {
     if (SPELLED[word]) out.add(SPELLED[word]);
     if (ORDINALS[word]) out.add(ORDINALS[word]);
   }
@@ -71,7 +79,7 @@ export function reconcileSeasonScope(facts: CandidateFact[], game: Pick<GameIden
 }
 
 /** Statements about where a team stands in the league change with every game any team plays: "leads the NFL in", "tied for the most", "ranks 29th", "last unbeaten team", "first in the division". */
-const RANKING_WORDS = /\b(ranks?|ranked|ranking)\b|\b\d+(st|nd|rd|th) (in|of|among)\b|\btied for (the )?(most|fewest|lead|best|worst|first|last)\b|\b(leads?|leading|leaders?) (the )?(NFL|NHL|NBA|MLB|league|conference|division)\b|\b(most|fewest|best|worst) in the (NFL|NHL|NBA|MLB|league)\b|\b(last|only) (remaining )?(unbeaten|undefeated|winless)\b|\b(first|second|third|fourth) in the [A-Z]/i;
+const RANKING_WORDS = /\b(ranks?|ranked|ranking)\b|\b\d+(st|nd|rd|th) (in|of|among)\b|\btied for (the )?(most|fewest|lead|best|worst|first|last)\b|\b(leads?|leading|leaders?) (the )?(NFL|NHL|NBA|MLB|league|conference|division)\b|\b(most|fewest|best|worst) in the (NFL|NHL|NBA|MLB|league)\b|\b(last|only) (remaining )?(unbeaten|undefeated|winless)\b|\bthe only (NFL |NHL |NBA |MLB )?(team|club|franchise)\b|\blongest (active )?(streak|run) in the (NFL|NHL|NBA|MLB|league)\b|\bthe (longest|shortest) active\b|\b(first|second|third|fourth) in the [A-Z]/i;
 
 /**
  * A league rank or lead is a statement about the CURRENT state however it is phrased: it was true when its source was written and may have changed since (a team's "10 takeaways, tied for the most in the NFL" is no longer true once another team's game adds an eleventh).
