@@ -19,7 +19,7 @@ function client(...responses: Msg[]) {
   return { messages: { create } } as unknown as ConstructorParameters<typeof AnthropicGamePreviewProvider>[0] & { messages: { create: typeof create } };
 }
 const calls = (c: ReturnType<typeof client>) => (c.messages.create as unknown as { mock: { calls: Array<[Record<string, unknown>]> } }).mock.calls.map((x) => x[0]);
-const rawFact = (over: Record<string, unknown> = {}) => ({ kind: "historical", category: "result", claim: "Tennessee lost 26-3 to Houston.", excerpt: "Texans 26, Titans 3", source_url: ESPN, source_provider: "ESPN", source_title: "Texans 26, Titans 3", published_at: "2026-10-11T22:00:00Z", relevance: 0.9, game_association: "Titans' last game", ...over });
+const rawFact = (over: Record<string, unknown> = {}) => ({ kind: "historical", season_scope: "CURRENT_SEASON", category: "result", claim: "Tennessee lost 26-3 to Houston.", excerpt: "Texans 26, Titans 3", source_url: ESPN, source_provider: "ESPN", source_title: "Texans 26, Titans 3", published_at: "2026-10-11T22:00:00Z", relevance: 0.9, game_association: "Titans' last game", ...over });
 
 describe("Anthropic provider — research", () => {
   it("calls the Messages API with the CONFIGURED model and effort, the configured web-search tool version and ceiling, blocked domains, and no sampling or thinking overrides", async () => {
@@ -56,6 +56,12 @@ describe("Anthropic provider — research", () => {
       { url: ESPN, title: `T ${ESPN}`, status: "accepted" },
       { url: other, title: `T ${other}`, status: "rejected", reason: "no usable fact taken from it" },
     ]);
+  });
+
+  it("classifies each fact's season: this season's stays CURRENT_SEASON; earlier seasons, a missing label and an unknown label are HISTORICAL_CONTEXT; a current-state fact is always this season's", async () => {
+    const c = client(msg([searchUse(), searchResult([ESPN]), text({ facts: [rawFact(), rawFact({ season_scope: "HISTORICAL_CONTEXT", claim: "Chargers swept the Chiefs." }), rawFact({ season_scope: undefined, claim: "No label." }), rawFact({ season_scope: "LAST_YEAR", claim: "Odd label." }), rawFact({ kind: "current", season_scope: "HISTORICAL_CONTEXT", claim: "Out Sunday." })] })]));
+    const out = await new AnthropicGamePreviewProvider(c).research(game, ctx);
+    expect(out.facts.map((f) => f.seasonScope)).toEqual(["CURRENT_SEASON", "HISTORICAL_CONTEXT", "HISTORICAL_CONTEXT", "HISTORICAL_CONTEXT", "CURRENT_SEASON"]);
   });
 
   it("keeps only facts from sources the search ACTUALLY reached: a fabricated citation or a blocked domain is dropped and recorded", async () => {

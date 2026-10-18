@@ -23,10 +23,17 @@ export interface GameIdentity {
 /** `current` = true NOW about a team or player and able to change before the game (injury, return, availability, expected starter); `historical` = a completed event or what follows from one (a result, score, record, streak, standing after a game, head-to-head, a milestone already reached). Freshness rules differ. */
 export type FactKind = "current" | "historical";
 
+/**
+ * Which season a fact belongs to. CURRENT_SEASON = this season's record, standing, streak, form, injury, availability, trend or milestone, and this season's meetings between the teams. HISTORICAL_CONTEXT = anything from an earlier season or
+ * a long-run frame (head-to-head history, rivalry, prior playoff meetings, franchise records, historical streaks, "first time since", unusual facts). A previous season is never current form: it is framed as history, and the primary story prefers CURRENT_SEASON material.
+ */
+export type SeasonScope = "CURRENT_SEASON" | "HISTORICAL_CONTEXT";
+
 /** One researched, sourced statement of fact about this Game's teams or players. The writer may only use facts; the stored provenance is built from the facts it cites. */
 export interface CandidateFact {
   id: string;
   kind: FactKind;
+  seasonScope: SeasonScope;
   /** What sort of fact it is (streak, milestone, head_to_head, player_form, injury, record, result, ...): lets the editorial stage tell a story from a statistic. */
   category: string;
   claim: string;
@@ -117,6 +124,9 @@ export const ANGLE_TYPES = [
   "SEASON_RECORD",
 ] as const;
 export type AngleType = (typeof ANGLE_TYPES)[number];
+/** What an angle rests on, computed from its facts (never from the model's say-so): this season only, this season with historical support, or history alone. */
+export type AngleBasis = "CURRENT_SEASON" | "CURRENT_WITH_HISTORY" | "HISTORY_ONLY";
+
 /** Angle types that are the fallback material rather than a story. */
 export const FALLBACK_ANGLE_TYPES: readonly AngleType[] = ["SEASON_RECORD"];
 

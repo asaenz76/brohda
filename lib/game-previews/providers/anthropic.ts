@@ -35,7 +35,7 @@ import {
  */
 
 /** Identifies the instruction set that produced a Preview, so a quality change can be traced to a prompt change. Bump it when the prompts below change. */
-export const PREVIEW_PROMPT_VERSION = "game-preview-anthropic-2026-10-v2";
+export const PREVIEW_PROMPT_VERSION = "game-preview-anthropic-2026-10-v3";
 
 /** The slice of the SDK this provider uses — injectable so every stage is tested against a fake without a network. */
 export type MessagesClient = Pick<Anthropic, "messages">;
@@ -193,6 +193,7 @@ const outputConfig = (effort: string) => ({ effort: effort as "low" | "medium" |
 const EDITORIAL_BRIEF = [
   "Your job is to find the most interesting TRUE story around this specific matchup — a tension, a conflict, a curiosity — and use only the facts that story needs. A Game Preview is a story hook, not a miniature game-notes page. It should feel like a sharp human sports editor found the one thing worth knowing about the game.",
   "Good stories: a streak on the line, a player on a run, revenge or unfinished business, a record chase, a historical oddity, a comeback or collapse, a breakout, a major injury or return, an old-team/new-team twist, a contrast between a hot and a cold team, matchup-specific dominance, a milestone, a weird statistic.",
+  "CURRENT SEASON vs HISTORY. Current-game context is THIS season only: team record, standings, streaks, recent form, player form, injuries, availability, scoring and defensive trends, milestones, and this season's meetings. Never present a previous season's performance as current form. Earlier seasons are HISTORICAL CONTEXT: head-to-head and rivalry history, prior playoff meetings, franchise records, historical streaks, \"first time since\" facts, long-term milestones, unusual fun facts, and earlier events that directly explain this matchup. Priority: 1) a story built on this season; 2) a this-season story sharpened by historical context; 3) history as the main angle only when this season offers nothing strong, and then only if it is clearly framed as history and directly relevant. Do not mix seasons ambiguously. GOOD: \"The Chargers swept Kansas City last season, snapping a six-game Chiefs streak in the series.\" BAD: \"The Chargers are on a two-game winning streak against Kansas City\" when both wins came last season.",
   "Season records, standings, last-game scores and generic head-to-head history are FALLBACK material: context that can support a stronger story, rarely the story itself. Never choose \"Team A is 4-1 and Team B is 1-4\" if something more interesting exists. \"Both teams are looking for a win\", \"this should be an exciting matchup\" and schedule summaries are filler.",
 ].join("\n");
 
@@ -206,7 +207,7 @@ const STYLE_EXAMPLES = [
 ].join("\n");
 
 const RESEARCH_SCHEMA_TEXT =
-  'Return ONLY a JSON object: {"facts":[{"kind":"current"|"historical","category":"streak|milestone|head_to_head|player_form|injury|record|result|rivalry|context|other","claim":"one statement a single source directly supports","excerpt":"the passage of the source that supports it","source_url":"...","source_provider":"...","source_title":"...","published_at":"ISO date or null","relevance":0-1,"game_association":"how it ties to this exact game"}]}';
+  'Return ONLY a JSON object: {"facts":[{"kind":"current"|"historical","season_scope":"CURRENT_SEASON"|"HISTORICAL_CONTEXT","category":"streak|milestone|head_to_head|player_form|injury|record|result|rivalry|context|other","claim":"one statement a single source directly supports","excerpt":"the passage of the source that supports it","source_url":"...","source_provider":"...","source_title":"...","published_at":"ISO date or null","relevance":0-1,"game_association":"how it ties to this exact game"}]}';
 
 export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider, GamePreviewAngleProvider, GamePreviewWriterProvider, GamePreviewVerifierProvider {
   readonly name = "anthropic";
@@ -219,7 +220,7 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
       "Prefer, in order: the official league, the official team, ESPN and other major established sports reporting, established local or beat reporting, trusted statistics providers. Never use content farms, social-media posts, forums or rumors as sources.",
       ctx.preferredDomains.length ? `Preferred domains: ${ctx.preferredDomains.join(", ")}.` : "",
       ctx.blockedDomains.length ? `Never use these domains: ${ctx.blockedDomains.join(", ")}.` : "",
-      'Each fact is ONE statement a single page directly supports, with the supporting passage. kind="current" is ONLY for things that can change before the game and are reported as of the source\'s date (injuries, returns, availability, who is expected to start). Everything that follows from completed games — results, scores, records, streaks, standings after a game, head-to-head, milestones already reached — is kind="historical". For a current fact you MUST give the source\'s real publication date (as the page or search result shows it); if the page shows no date, do not report that fact at all — an undated "current" statement cannot be used.',
+      'Each fact is ONE statement a single page directly supports, with the supporting passage. kind="current" is ONLY for things that can change before the game and are reported as of the source\'s date (injuries, returns, availability, who is expected to start). Separately, set season_scope for every fact: CURRENT_SEASON only for this season\'s record, standing, streak, form, injury, availability, trend, milestone or meeting; HISTORICAL_CONTEXT for anything from an earlier season or a long-run frame (head-to-head history, rivalry, prior playoff meetings, franchise records, "first time since"). Look first for current-season story material (this season\'s form, injuries and availability, streaks, milestones); collect historical context to support or sharpen it. Everything that follows from completed games — results, scores, records, streaks, standings after a game, head-to-head, milestones already reached — is kind="historical". For a current fact you MUST give the source\'s real publication date (as the page or search result shows it); if the page shows no date, do not report that fact at all — an undated "current" statement cannot be used.',
       "Only report what a page you actually retrieved says. If you cannot find something, omit it. Do not infer, estimate or round. Rate relevance by how interesting and specific the fact is for THIS matchup; collect the story-bearing facts, and include a bare record only as supporting context.",
       EDITORIAL_BRIEF,
       RESEARCH_SCHEMA_TEXT,
@@ -266,6 +267,7 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
       facts.push({
         id: `f${facts.length + 1}`,
         kind: raw.kind === "current" ? "current" : "historical",
+        seasonScope: raw.kind === "current" || raw.season_scope === "CURRENT_SEASON" ? "CURRENT_SEASON" : "HISTORICAL_CONTEXT", // unknown stays history: it must be framed as such, never passed off as current form
         category: String(raw.category ?? "other").slice(0, 40),
         claim,
         excerpt: raw.excerpt ? String(raw.excerpt).trim().slice(0, 1000) : null,
@@ -288,10 +290,10 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
     const system = [
       EDITORIAL_BRIEF,
       `Before anything is written, propose 3 to 5 candidate editorial angles from the verified facts only. Angle types (internal vocabulary): ${ANGLE_TYPES.join(", ")}. Use SEASON_RECORD only for a records-and-standings angle.`,
-      "Score each angle 1-5 on: tension (does something meaningful collide?), surprise (would a fan find it unexpected?), specificity (could it only belong to this matchup?), humanInterest (a player, coach, streak, comeback or emotion?), conversation (does it make someone want to take a side?), recency (is it relevant right now?). Penalize heavily simple records, standings, last-game recaps with no larger story, generic head-to-head, and schedule summaries. Choose the strongest overall angle; use editorial judgement, not just the arithmetic. One Game, one story.",
+      "Score each angle 1-5 on: tension (does something meaningful collide?), surprise (would a fan find it unexpected?), specificity (could it only belong to this matchup?), humanInterest (a player, coach, streak, comeback or emotion?), conversation (does it make someone want to take a side?), recency (is it relevant right now?). Penalize heavily simple records, standings, last-game recaps with no larger story, generic head-to-head, and schedule summaries. Choose the strongest overall angle; use editorial judgement, not just the arithmetic. One Game, one story. Build the primary angle on facts whose season_scope is CURRENT_SEASON; HISTORICAL_CONTEXT facts support or sharpen it, and a story resting only on history is a fallback for a Game whose season offers nothing strong.",
       'Each angle lists the fact ids it needs (only those; fewer is better). The one-sentence summary may contain a number, score or record ONLY if a fact in that angle\'s fact_ids holds it — list every fact behind every figure and name in the summary. Return ONLY a JSON object: {"angles":[{"id":"a1","type":"...","summary":"the story in one plain sentence","fact_ids":["f1"],"scores":{"tension":1-5,"surprise":1-5,"specificity":1-5,"humanInterest":1-5,"conversation":1-5,"recency":1-5},"note":"why it is or is not worth a Member\'s time"}],"selected_id":"a1","selection_reason":"why this one","rejected":[{"id":"a2","reason":"..."}]}',
     ].join("\n\n");
-    const material = facts.map((f) => ({ id: f.id, kind: f.kind, category: f.category, claim: f.claim, excerpt: f.excerpt, published_at: f.publishedAt, relevance: f.relevance, association: f.gameAssociation }));
+    const material = facts.map((f) => ({ id: f.id, season_scope: f.seasonScope, kind: f.kind, category: f.category, claim: f.claim, excerpt: f.excerpt, published_at: f.publishedAt, relevance: f.relevance, association: f.gameAssociation }));
     const result = await call(this.client, { model: ctx.model, max_tokens: STAGE_MAX_TOKENS, system, output_config: structured(ctx.effort, ANGLE_SCHEMA), messages: [{ role: "user", content: `${describeGame(game)}\n\nVerified facts (the only material you may use):\n${JSON.stringify(material)}` }] }, false);
     const parsed = extractJson<{ angles?: Array<Record<string, unknown>>; selected_id?: string; selection_reason?: string; rejected?: Array<{ id?: string; reason?: string }> }>(result.text, "angle");
     const angles: EditorialAngle[] = (parsed.angles ?? []).map((a) => {
@@ -321,11 +323,12 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
       "Structure: open with the central story; support it with 1-3 verified facts; connect them directly to today's matchup; end with tension or an implication when useful. Do not chronologically dump facts. One story only.",
       `Hook (at most ${ctx.hookMaxChars} characters): would it make someone stop scrolling if they already knew the two teams were playing? If not, find another way into the same story. It should feel like sports conversation — a challenge, a contrast, an understatement, an implication, a short dramatic statement, a question or direct address — never like ESPN metadata, an SEO headline, a sportsbook headline or a press release. Do not put a record or score in the hook.`,
       `Preview (at most ${ctx.maxChars} characters; shorter is better, never pad): specific enough that changing the team names could not reuse it for another game; it should make a reader want an opinion. Do NOT force a question: use one only if it sharpens this story's tension, and never end with "Who will win?" or "Can they do it?". Plain text; no emoji, no hashtags, no betting language (no odds, spreads, favorites, picks).`,
+      "Seasons: lead with CURRENT_SEASON facts. A HISTORICAL_CONTEXT fact is framed explicitly as history (\"last season\", \"in 2025\", \"the last time\", \"in the series\") and never as current form, a current streak or this season's trend; never blur the two in one sentence. A claim that rests only on HISTORICAL_CONTEXT facts must say it is history.",
       "A fact flagged kind=current may be stated as current only because its source is recent; a historical fact is stated as what happened (\"after a 26-3 loss\"), never as an ongoing condition. Do not describe an old injury or roster state as current.",
       STYLE_EXAMPLES,
       'Also return `claims`: every material statement you made that rests on a fact, each with the ids of the facts that support it (never an empty list; the matchup itself — who plays whom, where, today — is given and is not a claim). Return ONLY a JSON object: {"hook":"...","preview":"...","claims":[{"text":"...","fact_ids":["f1"]}]}',
     ].join("\n\n");
-    const used = facts.filter((f) => angle.factIds.includes(f.id)).map((f) => ({ id: f.id, kind: f.kind, category: f.category, claim: f.claim, excerpt: f.excerpt, published_at: f.publishedAt }));
+    const used = facts.filter((f) => angle.factIds.includes(f.id)).map((f) => ({ id: f.id, season_scope: f.seasonScope, kind: f.kind, category: f.category, claim: f.claim, excerpt: f.excerpt, published_at: f.publishedAt }));
     const feedback = ctx.feedback.length ? `\n\nYour previous draft was rejected for these reasons. Fix every one:\n- ${ctx.feedback.join("\n- ")}` : "";
     const result = await call(this.client, { model: ctx.model, max_tokens: STAGE_MAX_TOKENS, system, output_config: structured(ctx.effort, DRAFT_SCHEMA), messages: [{ role: "user", content: `${describeGame(game)}\n\nChosen story: ${angle.summary}\n\nFacts for this story:\n${JSON.stringify(used)}${feedback}` }] }, false);
     const parsed = extractJson<{ hook?: string; preview?: string; claims?: Array<{ text?: string; fact_ids?: string[] }> }>(result.text, "writer");
@@ -335,10 +338,10 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
 
   async verify(game: GameIdentity, angle: EditorialAngle, draft: Pick<PreviewDraft, "hook" | "preview" | "claims">, facts: CandidateFact[], ctx: StageContext): Promise<VerificationResult> {
     const byId = new Map(facts.map((f) => [f.id, f]));
-    const material = [...new Set(draft.claims.flatMap((c) => c.factIds))].map((id) => byId.get(id)).filter((f): f is CandidateFact => Boolean(f)).map((f) => ({ id: f.id, kind: f.kind, claim: f.claim, excerpt: f.excerpt, published_at: f.publishedAt }));
+    const material = [...new Set(draft.claims.flatMap((c) => c.factIds))].map((id) => byId.get(id)).filter((f): f is CandidateFact => Boolean(f)).map((f) => ({ id: f.id, season_scope: f.seasonScope, kind: f.kind, claim: f.claim, excerpt: f.excerpt, published_at: f.publishedAt }));
     const system = [
       "You are a strict fact-checker AND a sports editor. Given a game preview and the only facts it may rest on, judge two things independently, without outside knowledge.",
-      "1) supported: is EVERY factual statement in the hook and the preview directly supported by those facts? Flag any statement, number, name or implication the facts do not support, any current-state wording resting on a historical fact, and anything that goes beyond the facts.",
+      "1) supported: is EVERY factual statement in the hook and the preview directly supported by those facts? Flag any statement, number, name or implication the facts do not support, any current-state wording resting on a historical fact, anything that goes beyond the facts, and any statement resting on a HISTORICAL_CONTEXT fact that is not clearly framed as history or could be read as this season's form (mixing seasons ambiguously).",
       `2) editorial: does it tell ONE specific story (${angle.summary})? Would the hook stop the scroll for someone who already knew the teams were playing? Could the preview be reused for another matchup by swapping team names (if so it fails)? Does it read like a sharp editor and not like automated game notes, a list of statistics, or sportsbook copy? Does it make a reader want an opinion?`,
       'Return ONLY a JSON object: {"supported":true|false,"editorial_passes":true|false,"problems":["each specific problem, empty if none"]}',
     ].join("\n\n");

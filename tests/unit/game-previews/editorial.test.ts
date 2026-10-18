@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { chooseAngle, completeAngleFacts, overallScore, validateAngles, validateEditorial } from "@/lib/game-previews/editorial";
+import { angleBasis, chooseAngle, completeAngleFacts, overallScore, validateAngles, validateEditorial } from "@/lib/game-previews/editorial";
 import type { AngleScores, EditorialAngle } from "@/lib/game-previews/providers/types";
 import { angles, config, facts, goodDraft, selection } from "./fixtures";
 
 const s = (n: number): AngleScores => ({ tension: n, surprise: n, specificity: n, humanInterest: n, conversation: n, recency: n });
 const angle = (over: Partial<EditorialAngle> = {}): EditorialAngle => ({ ...angles[0], ...over });
-const editorial = (draft = goodDraft, a = angles[0], c = config) => validateEditorial({ draft, angle: a, config: c });
+const editorial = (draft = goodDraft, a = angles[0], c = config) => validateEditorial({ draft, angle: a, config: c, facts });
 
 describe("candidate angles", () => {
   it("accepts 3-5 well-formed angles that cite real facts and select one of them", () => {
@@ -29,21 +29,21 @@ describe("candidate angles", () => {
 
 describe("choosing the story: records are fallback material", () => {
   it("keeps the model's choice when it is a real story", () => {
-    const c = chooseAngle(selection, 3);
+    const c = chooseAngle(selection, 3, facts);
     expect(c.angle.id).toBe("a1");
     expect(c.overridden).toBe(false);
   });
 
   it("overrides a records-only choice when a story scoring at least the configured minimum exists", () => {
-    const c = chooseAngle({ ...selection, selectedId: "a2", selectionReason: "simple" }, 3);
+    const c = chooseAngle({ ...selection, selectedId: "a2", selectionReason: "simple" }, 3, facts);
     expect(c.overridden).toBe(true);
     expect(c.angle.id).toBe("a1"); // the best real story, not just any
     expect(c.reason).toMatch(/records-only angle was set aside/);
   });
 
   it("the minimum is configuration: a stricter bar leaves the fallback standing when no story clears it", () => {
-    expect(chooseAngle({ ...selection, selectedId: "a2", selectionReason: "x" }, 4.5).overridden).toBe(false);
-    expect(chooseAngle({ ...selection, selectedId: "a2", selectionReason: "x" }, 4.5).angle.id).toBe("a2");
+    expect(chooseAngle({ ...selection, selectedId: "a2", selectionReason: "x" }, 4.5, facts).overridden).toBe(false);
+    expect(chooseAngle({ ...selection, selectedId: "a2", selectionReason: "x" }, 4.5, facts).angle.id).toBe("a2");
   });
 });
 
@@ -103,5 +103,41 @@ describe("completeAngleFacts — the story line may not carry a figure its facts
     const unknown = completeAngleFacts(angle({ summary: "Tennessee has lost 99 straight.", factIds: ["f1"] }), facts);
     expect(unknown.unresolved).toEqual(["99"]);
     expect(unknown.angle.factIds).toEqual(["f1"]);
+  });
+});
+
+describe("current season first, history as support (never ambiguous)", () => {
+  it("computes what an angle rests on from its facts: this season, this season with history, or history alone", () => {
+    expect(angleBasis({ factIds: ["f1", "f3"] }, facts)).toBe("CURRENT_SEASON");
+    expect(angleBasis({ factIds: ["f1", "f2"] }, facts)).toBe("CURRENT_WITH_HISTORY");
+    expect(angleBasis({ factIds: ["f2"] }, facts)).toBe("HISTORY_ONLY");
+  });
+
+  it("a history-only story is set aside for a current-season story that clears the minimum", () => {
+    const sel = { ...selection, selectedId: "a3", selectionReason: "history" };
+    const c = chooseAngle(sel, 3, facts);
+    expect(c.overridden).toBe(true);
+    expect(c.angle.id).toBe("a1");
+    expect(c.reason).toMatch(/history-only angle was set aside/);
+  });
+
+  it("history may carry the Game when no current-season story clears the minimum", () => {
+    const weak = { ...selection, angles: selection.angles.map((a) => (a.id === "a3" ? a : { ...a, scores: s(2) })), selectedId: "a3", selectionReason: "history" };
+    const c = chooseAngle(weak, 3, facts);
+    expect(c.overridden).toBe(false);
+    expect(c.angle.id).toBe("a3");
+  });
+
+  it("a claim resting only on earlier-season facts must say it is history, and must not read as this season's form", () => {
+    const base = goodDraft.claims.filter((c) => !c.factIds.includes("f2"));
+    const draftWith = (text: string) => ({ ...goodDraft, claims: [...base, { text, factIds: ["f2"] }] });
+    expect(editorial(draftWith("Indianapolis beat Tennessee 41-20 and 38-14 last season.")).filter((p) => /earlier-season/.test(p))).toEqual([]);
+    expect(editorial(draftWith("Indianapolis beat Tennessee 41-20 and 38-14.")).join(" ")).toMatch(/does not say so/);
+    expect(editorial(draftWith("Indianapolis has currently beaten Tennessee 41-20 and 38-14.")).join(" ")).toMatch(/worded as this season's/);
+  });
+
+  it("a claim with at least one current-season fact is not held to the history wording", () => {
+    const d = { ...goodDraft, claims: [...goodDraft.claims, { text: "Tennessee is 0-5 and lost twice by 20 or more last year.", factIds: ["f1", "f2"] }] };
+    expect(editorial(d).filter((p) => /earlier-season/.test(p))).toEqual([]);
   });
 });
