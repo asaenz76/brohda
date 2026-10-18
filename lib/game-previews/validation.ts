@@ -49,6 +49,31 @@ export function numbersIn(text: string): Set<string> {
   return out;
 }
 
+export interface ExcludedFact {
+  fact: CandidateFact;
+  reason: string;
+}
+
+/**
+ * Which researched facts may be written at all. A fact about the CURRENT state (an injury, a return, who is expected to start) is only worth as much as its source's date: with no publication time, or one older than the configured window,
+ * it cannot be stated as current — so it never reaches the angle or the writer (otherwise the story is built on a fact the provenance gate must reject, and the rewrite fails the same way). History does not expire this way.
+ */
+export function splitUsableFacts(facts: CandidateFact[], config: Pick<GamePreviewConfig, "currentFactMaxAgeHours">, now: Date): { usable: CandidateFact[]; excluded: ExcludedFact[] } {
+  const usable: CandidateFact[] = [];
+  const excluded: ExcludedFact[] = [];
+  for (const fact of facts) {
+    if (fact.kind !== "current") {
+      usable.push(fact);
+      continue;
+    }
+    const published = fact.publishedAt ? new Date(fact.publishedAt).getTime() : NaN;
+    if (!Number.isFinite(published)) excluded.push({ fact, reason: "about the current state, but its source shows no publication time" });
+    else if (now.getTime() - published > config.currentFactMaxAgeHours * 3_600_000) excluded.push({ fact, reason: `about the current state, but its source is older than ${config.currentFactMaxAgeHours} hours` });
+    else usable.push(fact);
+  }
+  return { usable, excluded };
+}
+
 const teamTokens = (name: string) => [name.toLowerCase(), ...(name.toLowerCase().split(/\s+/).slice(-1))];
 
 export function validateDraft({ draft, facts, game, config, now }: { draft: DraftToValidate; facts: CandidateFact[]; game: GameIdentity; config: GamePreviewConfig; now: Date }): ValidationResult {

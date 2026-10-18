@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chooseAngle, overallScore, validateAngles, validateEditorial } from "@/lib/game-previews/editorial";
+import { chooseAngle, completeAngleFacts, overallScore, validateAngles, validateEditorial } from "@/lib/game-previews/editorial";
 import type { AngleScores, EditorialAngle } from "@/lib/game-previews/providers/types";
 import { angles, config, facts, goodDraft, selection } from "./fixtures";
 
@@ -84,5 +84,24 @@ describe("editorial validation — a story, not game notes", () => {
 
   it("rejects a preview that merely repeats the hook", () => {
     expect(editorial({ ...goodDraft, preview: `${goodDraft.hook} and nothing more` }).join(" ")).toMatch(/repeats the hook/);
+  });
+});
+
+describe("completeAngleFacts — the story line may not carry a figure its facts do not hold", () => {
+  it("adds the pool fact that holds a figure named in the summary", () => {
+    const a = angle({ summary: "Indianapolis beat Tennessee 41-20 last year.", factIds: ["f1"] });
+    const r = completeAngleFacts(a, facts);
+    expect(r.added).toEqual(["f2"]);
+    expect(r.angle.factIds).toEqual(["f1", "f2"]);
+    expect(r.unresolved).toEqual([]);
+  });
+
+  it("changes nothing when the listed facts already hold every figure, and reports a figure no fact holds", () => {
+    const covered = completeAngleFacts(angle({ summary: "Tennessee fell to 0-5 after a 26-3 loss.", factIds: ["f1"] }), facts);
+    expect(covered.added).toEqual([]);
+    expect(covered.angle.factIds).toEqual(["f1"]);
+    const unknown = completeAngleFacts(angle({ summary: "Tennessee has lost 99 straight.", factIds: ["f1"] }), facts);
+    expect(unknown.unresolved).toEqual(["99"]);
+    expect(unknown.angle.factIds).toEqual(["f1"]);
   });
 });

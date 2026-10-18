@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { domainMatches, domainOf, numbersIn, validateDraft } from "@/lib/game-previews/validation";
+import { domainMatches, domainOf, numbersIn, splitUsableFacts, validateDraft } from "@/lib/game-previews/validation";
 import { config, fact, facts, game, goodDraft, NOW } from "./fixtures";
 
 const check = (draft = goodDraft, f = facts, c = config) => validateDraft({ draft, facts: f, game, config: c, now: NOW });
@@ -63,5 +63,32 @@ describe("validateDraft — the gate before a Preview is saved", () => {
   it("rejects a preview that is not about this Game (names neither team)", () => {
     const r = check({ ...goodDraft, hook: "Zero wins in five.", preview: "A team is 0-5 after a 26-3 loss. Another is 2-3 after 34-22, and won 41-20 and 38-14 last year." });
     expect(r.problems.join(" ")).toMatch(/does not name either team/);
+  });
+});
+
+describe("splitUsableFacts — a current-state fact needs a dated, recent source before the angle or writer may see it", () => {
+  const current = (over = {}) => fact({ id: "c1", kind: "current", category: "injury", claim: "The quarterback practiced in full.", ...over });
+
+  it("keeps history (no expiry) and a recently dated current fact", () => {
+    const recent = current({ publishedAt: "2026-10-16T00:00:00.000Z" });
+    const { usable, excluded } = splitUsableFacts([...facts, recent], config, NOW);
+    expect(usable.map((f) => f.id)).toEqual(["f1", "f2", "f3", "c1"]);
+    expect(excluded).toEqual([]);
+  });
+
+  it("sets aside a current fact with no publication time, an unreadable one, or one older than the window — with the reason", () => {
+    const undated = current({ id: "c2", publishedAt: null });
+    const junk = current({ id: "c3", publishedAt: "not a date" });
+    const stale = current({ id: "c4", publishedAt: "2026-10-10T00:00:00.000Z" });
+    const { usable, excluded } = splitUsableFacts([...facts, undated, junk, stale], config, NOW);
+    expect(usable.map((f) => f.id)).toEqual(["f1", "f2", "f3"]);
+    expect(excluded.map((e) => e.fact.id)).toEqual(["c2", "c3", "c4"]);
+    expect(excluded[0].reason).toMatch(/no publication time/);
+    expect(excluded[2].reason).toMatch(/older than 72 hours/);
+  });
+
+  it("an old statement of HISTORY is never set aside for its age", () => {
+    const old = fact({ id: "h1", kind: "historical", publishedAt: "2025-12-14T00:00:00.000Z" });
+    expect(splitUsableFacts([old], config, NOW).usable).toHaveLength(1);
   });
 });

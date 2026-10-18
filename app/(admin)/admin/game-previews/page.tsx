@@ -46,7 +46,7 @@ export default async function AdminGamePreviewsPage() {
         {runs.length > 0 && (
           <ul className="space-y-1.5 text-xs text-text-muted" data-slot="generation-runs">
             {runs.map((r) => {
-              const d = r.details as { sources?: { reached: number; accepted: number; rejected: number }; facts?: unknown[]; angles?: Array<{ id: string; type: string; summary: string; scores: Record<string, number> }>; chosenAngleId?: string | null; selectedAngleId?: string | null; angleOverridden?: boolean; selectionReason?: string; rejectedAngles?: Array<{ id: string; reason: string }>; attemptsLog?: Array<{ attempt: number; hook: string; provenanceProblems: string[]; editorialProblems: string[]; verifierProblems: string[] }>; rewrites?: number };
+              const d = r.details as { sources?: { reached: number; accepted: number; rejected: number }; facts?: Array<{ excluded?: string }>; angles?: Array<{ id: string; type: string; summary: string; scores: Record<string, number> }>; chosenAngleId?: string | null; selectedAngleId?: string | null; angleOverridden?: boolean; selectionReason?: string; rejectedAngles?: Array<{ id: string; reason: string }>; attemptsLog?: Array<{ attempt: number; hook: string; provenanceProblems: string[]; editorialProblems: string[]; verifierProblems: string[] }>; rewrites?: number };
               return (
                 <li key={r.id}>
                   {new Date(r.startedAt).toUTCString()} · {r.trigger.toLowerCase()} · {r.reason} · <strong className="text-text-secondary">{r.status}</strong> · {r.model || "no model"}
@@ -57,7 +57,7 @@ export default async function AdminGamePreviewsPage() {
                       <summary className="cursor-pointer font-medium text-text-secondary">What it found and decided</summary>
                       <div className="mt-1 space-y-1">
                         <p>
-                          Sources: {d.sources?.reached ?? 0} reached, {d.sources?.accepted ?? 0} used, {d.sources?.rejected ?? 0} not used · {d.facts?.length ?? 0} facts · {d.rewrites ?? 0} rewrite(s) · tool {r.toolVersion}
+                          Sources: {d.sources?.reached ?? 0} reached, {d.sources?.accepted ?? 0} used, {d.sources?.rejected ?? 0} not used · {d.facts?.length ?? 0} facts{(d.facts ?? []).some((f) => f.excluded) ? ` (${(d.facts ?? []).filter((f) => f.excluded).length} set aside: no dated source for a current-state fact)` : ""} · {d.rewrites ?? 0} rewrite(s) · tool {r.toolVersion}
                         </p>
                         <p>
                           Chosen story: <strong className="text-text-secondary">{d.angles.find((a) => a.id === d.chosenAngleId)?.summary}</strong> ({d.angles.find((a) => a.id === d.chosenAngleId)?.type})

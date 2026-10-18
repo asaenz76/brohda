@@ -1,8 +1,8 @@
 import type { GamePreviewConfig, GamePreviewInput, GamePreviewReason, GamePreviewWriteOutcome } from "./types";
 import type { GenerationRunInput } from "./repository";
 import { addUsage, emptyUsage, type AngleSelection, type CandidateFact, type EditorialAngle, type GameIdentity, type GamePreviewProviders, type ProviderUsage, type ReachedSource } from "./providers/types";
-import { chooseAngle, overallScore, validateAngles, validateEditorial } from "./editorial";
-import { validateDraft } from "./validation";
+import { chooseAngle, completeAngleFacts, overallScore, validateAngles, validateEditorial } from "./editorial";
+import { splitUsableFacts, validateDraft } from "./validation";
 
 /**
  * Preview generation, one Game at a time: research → candidate facts → candidate editorial angles, scored → the strongest story → a draft that tells only that story → deterministic provenance validation → deterministic editorial
@@ -28,7 +28,10 @@ export interface AttemptLog {
 /** What a run found and decided — the record the owner reviews. */
 export interface RunDetails {
   sources: { reached: number; accepted: number; rejected: number; list: ReachedSource[] };
-  facts: Array<{ id: string; kind: string; category: string; claim: string; sourceUrl: string; publishedAt: string | null }>;
+  /** Every fact the research returned; `excluded` says why one was not allowed to reach the angle or the writer. */
+  facts: Array<{ id: string; kind: string; category: string; claim: string; sourceUrl: string; publishedAt: string | null; excluded?: string }>;
+  /** Facts added to the chosen story because its summary carried a figure they hold. */
+  angleFactsAdded: string[];
   angles: AngleSelection["angles"];
   selectedAngleId: string | null;
   chosenAngleId: string | null;
@@ -65,6 +68,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
   const details: RunDetails = {
     sources: { reached: 0, accepted: 0, rejected: 0, list: [] },
     facts: [],
+    angleFactsAdded: [],
     angles: [],
     selectedAngleId: null,
     chosenAngleId: null,
@@ -122,9 +126,14 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     return fail(`research_failed: ${(error as Error).message}`);
   }
   factsFound = facts.length;
-  details.facts = facts.map((f) => ({ id: f.id, kind: f.kind, category: f.category, claim: f.claim, sourceUrl: f.sourceUrl, publishedAt: f.publishedAt }));
+  // A fact about the current state needs a dated, recent source; one without it is recorded but never offered to the angle or the writer.
+  const { usable, excluded } = splitUsableFacts(facts, config, deps.now());
+  const excludedReason = new Map(excluded.map((e) => [e.fact.id, e.reason]));
+  details.facts = facts.map((f) => ({ id: f.id, kind: f.kind, category: f.category, claim: f.claim, sourceUrl: f.sourceUrl, publishedAt: f.publishedAt, ...(excludedReason.has(f.id) ? { excluded: excludedReason.get(f.id) } : {}) }));
   if (usage.searchCalls === 0) return fail("research_did_not_search"); // a model that did not actually search is not research
   if (facts.length === 0) return fail("no_verified_facts"); // weak research never becomes a manufactured story
+  if (usable.length === 0) return fail("no_usable_facts", excluded.map((e) => `Fact ${e.fact.id} was set aside: ${e.reason}.`), "REJECTED");
+  facts = usable;
 
   // 2. Editorial angles: 3-5 candidate stories from the verified facts, scored; the strongest wins, and a records-only fallback never beats a good-enough story.
   let chosen: EditorialAngle;
@@ -137,7 +146,9 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     const structural = validateAngles(selection, facts);
     if (structural.length > 0) return fail("angle_selection_invalid", structural, "REJECTED");
     const pick = chooseAngle(selection, config.minStoryScore);
-    chosen = pick.angle;
+    const completed = completeAngleFacts(pick.angle, facts);
+    chosen = completed.angle;
+    details.angleFactsAdded = completed.added;
     details.chosenAngleId = pick.angle.id;
     details.angleOverridden = pick.overridden;
     details.selectionReason = pick.reason;

@@ -1,5 +1,6 @@
 import { ANGLE_TYPES, FALLBACK_ANGLE_TYPES, type AngleScores, type AngleSelection, type CandidateFact, type EditorialAngle } from "./providers/types";
 import type { GamePreviewClaim, GamePreviewConfig } from "./types";
+import { numbersIn } from "./validation";
 
 /**
  * The editorial gate. A Game Preview is a story hook — "find the most interesting TRUE tension around this matchup and use only the facts that story needs" — not a miniature game-notes page. Two deterministic layers, both unit-tested
@@ -33,6 +34,33 @@ export function validateAngles(selection: Pick<AngleSelection, "angles" | "selec
   }
   if (!angles.some((a) => a.id === selection.selectedId)) problems.push(`The selected angle "${selection.selectedId}" is not one of the candidates.`);
   return problems;
+}
+
+/**
+ * The story line the writer is shown must not carry a figure the angle's facts do not contain (a score named in the summary but missing from its facts is a number the writer will use and the provenance gate must then reject).
+ * Facts from the researched pool that contain the missing figures are added to the angle; a figure no fact holds is reported so it is visible in the run record.
+ */
+export function completeAngleFacts(angle: EditorialAngle, facts: CandidateFact[]): { angle: EditorialAngle; added: string[]; unresolved: string[] } {
+  const byId = new Map(facts.map((f) => [f.id, f]));
+  const have = new Set<string>();
+  for (const id of angle.factIds) {
+    const f = byId.get(id);
+    if (f) for (const n of numbersIn(`${f.claim} ${f.excerpt ?? ""}`)) have.add(n);
+  }
+  const missing = [...numbersIn(angle.summary)].filter((n) => !have.has(n));
+  const added: string[] = [];
+  const unresolved: string[] = [];
+  for (const n of missing) {
+    if ([...have].includes(n)) continue; // an added fact already covered it
+    const holder = facts.find((f) => !angle.factIds.includes(f.id) && !added.includes(f.id) && numbersIn(`${f.claim} ${f.excerpt ?? ""}`).has(n));
+    if (!holder) {
+      unresolved.push(n);
+      continue;
+    }
+    added.push(holder.id);
+    for (const m of numbersIn(`${holder.claim} ${holder.excerpt ?? ""}`)) have.add(m);
+  }
+  return { angle: added.length ? { ...angle, factIds: [...angle.factIds, ...added] } : angle, added, unresolved };
 }
 
 export interface ChosenAngle {
