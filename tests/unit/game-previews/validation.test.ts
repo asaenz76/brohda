@@ -109,3 +109,24 @@ describe("reconcileSeasonScope — an earlier season is never current form", () 
     expect(reconcileSeasonScope([fact({ claim: "The Chargers won 16-13 in 2025." })], jan)[0].seasonScope).toBe("HISTORICAL_CONTEXT");
   });
 });
+
+describe("a time frame is a claim: 'this season' needs a fact that says it", () => {
+  const streak = fact({ id: "f9", kind: "historical", claim: "Justin Herbert has thrown at least one interception in six straight games.", excerpt: "one+ interception thrown in six straight games", publishedAt: "2026-10-18T00:00:00.000Z" });
+  const withText = (preview: string, claimText: string, f = streak) => ({ hook: "Six straight with a pick.", preview, claims: [{ text: claimText, factIds: [f.id] }] });
+  const run = (d: ReturnType<typeof withText>, f = streak) => validateDraft({ draft: d, facts: [f], game, config, now: NOW });
+
+  it("rejects 'six straight games this season' when the fact does not say this season (it may reach into last season)", () => {
+    const r = run(withText("Justin Herbert has thrown at least one interception in six straight games this season, and Tennessee at Indianapolis is next.", "Justin Herbert has thrown at least one interception in six straight games this season."));
+    expect(r.ok).toBe(false);
+    expect(r.problems.join(" ")).toMatch(/says "this season"/);
+  });
+
+  it("allows the same wording when the cited fact itself says it", () => {
+    const f = { ...streak, claim: "Justin Herbert has thrown at least one interception in six straight games this season." };
+    expect(run(withText("Justin Herbert has thrown at least one interception in six straight games this season, and Tennessee at Indianapolis is next.", f.claim, f), f).problems.filter((p) => /this season/.test(p))).toEqual([]);
+  });
+
+  it("allows the fact's own time frame to be left out (plain 'six straight games')", () => {
+    expect(run(withText("Justin Herbert has thrown at least one interception in six straight games, and Tennessee at Indianapolis is next.", "Justin Herbert has thrown at least one interception in six straight games.")).problems.filter((p) => /this season/.test(p))).toEqual([]);
+  });
+});
