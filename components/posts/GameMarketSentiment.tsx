@@ -25,9 +25,10 @@ export function GameMarketSentimentSection({ markets }: { markets: Sentiment[] }
             ) : (
               <div className="grid grid-cols-2 gap-x-4" data-slot="sentiment-shares">
                 {m.choices.map((c) => (
-                  <div key={c.outcome} className="flex min-w-0 items-baseline gap-2">
+                  // Beside the percentage when it fits; below 360px a long team name ("Jacksonville Jaguars") cannot fit beside it without breaking mid-word, so the label goes under the number instead.
+                  <div key={c.outcome} className="flex min-w-0 items-baseline gap-2 max-[359px]:flex-col max-[359px]:gap-0.5">
                     <span className="text-lg font-semibold tabular-nums leading-none text-text-primary">{c.percent}%</span>
-                    <span className="min-w-0 break-words text-xs font-medium uppercase leading-tight tracking-wide text-text-muted">{c.label}</span>
+                    <span className="min-w-0 break-words text-[11px] font-medium uppercase leading-tight tracking-normal text-text-muted sm:text-xs sm:tracking-wide">{c.label}</span>
                   </div>
                 ))}
               </div>

@@ -49,6 +49,9 @@ describe("Market sentiment on the Post", () => {
     expect(grid.children).toHaveLength(2);
     const sizes = [...grid.querySelectorAll("span")].map((e) => e.className);
     expect(sizes.join(" ")).not.toMatch(/text-(2xl|3xl|4xl)/); // no headline-sized numbers
+    // A long team name never breaks mid-word on a phone: smaller label type, and below 360px the label sits under the number.
+    expect(grid.firstElementChild!.className).toContain("max-[359px]:flex-col");
+    expect(grid.querySelector("span:last-child")!.className).toContain("text-[11px]");
     const header = screen.getByRole("heading", { name: "Moneyline" }).parentElement!;
     expect(header).toHaveTextContent("3 predicted"); // title and count on one line
   });
