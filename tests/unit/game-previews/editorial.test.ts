@@ -1,0 +1,88 @@
+import { describe, expect, it } from "vitest";
+import { chooseAngle, overallScore, validateAngles, validateEditorial } from "@/lib/game-previews/editorial";
+import type { AngleScores, EditorialAngle } from "@/lib/game-previews/providers/types";
+import { angles, config, facts, goodDraft, selection } from "./fixtures";
+
+const s = (n: number): AngleScores => ({ tension: n, surprise: n, specificity: n, humanInterest: n, conversation: n, recency: n });
+const angle = (over: Partial<EditorialAngle> = {}): EditorialAngle => ({ ...angles[0], ...over });
+const editorial = (draft = goodDraft, a = angles[0], c = config) => validateEditorial({ draft, angle: a, config: c });
+
+describe("candidate angles", () => {
+  it("accepts 3-5 well-formed angles that cite real facts and select one of them", () => {
+    expect(validateAngles(selection, facts)).toEqual([]);
+  });
+
+  it("rejects the wrong number of angles, unknown types, unknown facts, out-of-range scores, empty facts and a selection that is not a candidate", () => {
+    expect(validateAngles({ angles: angles.slice(0, 2), selectedId: "a1" }, facts).join(" ")).toMatch(/3 to 5/);
+    expect(validateAngles({ angles: [angle({ type: "NOT_A_TYPE" as never }), angles[1], angles[2]], selectedId: "a1" }, facts).join(" ")).toMatch(/unknown type/);
+    expect(validateAngles({ angles: [angle({ factIds: ["f99"] }), angles[1], angles[2]], selectedId: "a1" }, facts).join(" ")).toMatch(/not a researched fact/);
+    expect(validateAngles({ angles: [angle({ factIds: [] }), angles[1], angles[2]], selectedId: "a1" }, facts).join(" ")).toMatch(/uses no facts/);
+    expect(validateAngles({ angles: [angle({ scores: { ...s(3), tension: 9 } }), angles[1], angles[2]], selectedId: "a1" }, facts).join(" ")).toMatch(/invalid tension/);
+    expect(validateAngles({ angles, selectedId: "zzz" }, facts).join(" ")).toMatch(/not one of the candidates/);
+    expect(validateAngles({ angles: [angles[0], angles[0], angles[2]], selectedId: "a1" }, facts).join(" ")).toMatch(/repeated/);
+  });
+
+  it("scores an angle as the mean of the six criteria", () => {
+    expect(overallScore({ tension: 5, surprise: 3, specificity: 4, humanInterest: 2, conversation: 3, recency: 3 })).toBe(3.3333333333333335);
+  });
+});
+
+describe("choosing the story: records are fallback material", () => {
+  it("keeps the model's choice when it is a real story", () => {
+    const c = chooseAngle(selection, 3);
+    expect(c.angle.id).toBe("a1");
+    expect(c.overridden).toBe(false);
+  });
+
+  it("overrides a records-only choice when a story scoring at least the configured minimum exists", () => {
+    const c = chooseAngle({ ...selection, selectedId: "a2", selectionReason: "simple" }, 3);
+    expect(c.overridden).toBe(true);
+    expect(c.angle.id).toBe("a1"); // the best real story, not just any
+    expect(c.reason).toMatch(/records-only angle was set aside/);
+  });
+
+  it("the minimum is configuration: a stricter bar leaves the fallback standing when no story clears it", () => {
+    expect(chooseAngle({ ...selection, selectedId: "a2", selectionReason: "x" }, 4.5).overridden).toBe(false);
+    expect(chooseAngle({ ...selection, selectedId: "a2", selectionReason: "x" }, 4.5).angle.id).toBe("a2");
+  });
+});
+
+describe("editorial validation — a story, not game notes", () => {
+  it("accepts a draft that tells the chosen story with the facts it needs", () => {
+    expect(editorial()).toEqual([]);
+  });
+
+  it("rejects facts outside the chosen story, and more facts than one story may cite (configurable)", () => {
+    expect(editorial(goodDraft, angle({ factIds: ["f1"] })).join(" ")).toMatch(/outside the chosen story \(f3, f2\)|outside the chosen story/);
+    expect(editorial(goodDraft, angles[0], { ...config, maxCitedFacts: 2 }).join(" ")).toMatch(/cites 3 facts.*at most 2/);
+  });
+
+  it("rejects a hook that just states a record or score, or is made of figures", () => {
+    expect(editorial({ ...goodDraft, hook: "Tennessee is 0-5, Indianapolis is 2-3" }).join(" ")).toMatch(/states a record or score/);
+    expect(editorial({ ...goodDraft, hook: "Zero wins in 5 games, 3 straight blowouts" }).join(" ")).toMatch(/made of figures/);
+  });
+
+  it("rejects a statistics dump", () => {
+    const dump = "Tennessee is 0-5 with scores of 10, 20, 7, 18 and 3. Indianapolis is 2-3 after 23, 30, 19, 30 and 22 points and beat Tennessee 41-20 and 38-14, 26-3, 34-22.";
+    expect(editorial({ ...goodDraft, preview: dump }, angles[0], { ...config, maxCitedFacts: 3 }).join(" ")).toMatch(/list of statistics/);
+  });
+
+  it("rejects generic filler that could describe any matchup", () => {
+    for (const filler of ["Both teams are looking for a win.", "This should be an exciting matchup.", "It promises to be a great game.", "A battle between two struggling teams."]) {
+      expect(editorial({ ...goodDraft, preview: `${goodDraft.preview} ${filler}` }).join(" "), filler).toMatch(/Generic phrasing/);
+    }
+  });
+
+  it("rejects sportsbook language", () => {
+    expect(editorial({ ...goodDraft, preview: `${goodDraft.preview} The Colts are heavy favorites on the moneyline.` }).join(" ")).toMatch(/Sportsbook language/);
+  });
+
+  it("rejects a stock closing question, but allows a question that is part of the story", () => {
+    expect(editorial({ ...goodDraft, preview: "Tennessee is 0-5 after a 26-3 loss to Houston. Who will win?" }).join(" ")).toMatch(/stock question/);
+    expect(editorial().join(" ")).not.toMatch(/stock question/);
+  });
+
+  it("rejects a preview that merely repeats the hook", () => {
+    expect(editorial({ ...goodDraft, preview: `${goodDraft.hook} and nothing more` }).join(" ")).toMatch(/repeats the hook/);
+  });
+});

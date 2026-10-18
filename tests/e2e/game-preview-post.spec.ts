@@ -237,13 +237,20 @@ test("Admin → Game Previews: settings persist, credentials show as configured 
     // Settings persist and are audited; nothing generates automatically by default.
     const form = main.locator('[data-slot="game-preview-config-form"]');
     await expect(form.getByLabel("Generate Previews automatically")).not.toBeChecked();
-    await form.getByLabel("Model").fill("e2e-model");
-    await form.getByLabel("Writing attempts per Game").fill("3");
+    // Anthropic is the provider; effort starts at medium; the search tool version is a visible, changeable setting; sk- keys never appear.
+    await expect(form.locator('select[name="provider"]')).toHaveValue("anthropic");
+    await expect(form.locator('select[name="effort"]')).toHaveValue("medium");
+    await expect(form.locator('select[name="web_search_tool_version"]')).toHaveValue("web_search_20250305");
+    await expect(form.locator('input[name="max_search_calls_per_game"]')).toHaveValue("3");
+    await expect(form.locator('input[name="max_cited_facts"]')).toHaveValue("4");
+    await form.locator('input[name="model"]').fill("e2e-model");
+    await form.locator('input[name="max_attempts"]').fill("3");
+    await form.locator('select[name="effort"]').selectOption("high");
     await form.getByRole("button", { name: "Save" }).click();
     await expect(form.getByRole("status")).toContainText("Saved");
-    await expect.poll(async () => (await admin.from("game_preview_config").select("model, max_attempts, generation_enabled").eq("id", true).single()).data).toEqual({ model: "e2e-model", max_attempts: 3, generation_enabled: false });
+    await expect.poll(async () => (await admin.from("game_preview_config").select("model, max_attempts, generation_enabled, effort").eq("id", true).single()).data).toEqual({ model: "e2e-model", max_attempts: 3, generation_enabled: false, effort: "high" });
     // Turning automation on without a model is refused.
-    await form.getByLabel("Model").fill("");
+    await form.locator('input[name="model"]').fill("");
     await form.getByLabel("Generate Previews automatically").check();
     await form.getByRole("button", { name: "Save" }).click();
     await expect(form.getByRole("alert")).toContainText("Set a model");

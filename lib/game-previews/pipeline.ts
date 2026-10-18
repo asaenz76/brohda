@@ -1,18 +1,45 @@
 import type { GamePreviewConfig, GamePreviewInput, GamePreviewReason, GamePreviewWriteOutcome } from "./types";
 import type { GenerationRunInput } from "./repository";
-import { addUsage, emptyUsage, type CandidateFact, type GameIdentity, type GamePreviewProviders, type ProviderUsage } from "./providers/types";
+import { addUsage, emptyUsage, type AngleSelection, type CandidateFact, type EditorialAngle, type GameIdentity, type GamePreviewProviders, type ProviderUsage, type ReachedSource } from "./providers/types";
+import { chooseAngle, overallScore, validateAngles, validateEditorial } from "./editorial";
 import { validateDraft } from "./validation";
 
 /**
- * Preview generation, one Game at a time: research → candidate facts → angle and draft → validation → (model verification) → saved with its provenance. It is orchestration only: every external action (the providers, the database)
- * is injected, so the whole flow, including its failure modes, is unit-tested without a network. It runs only in the background (the scheduled job or an admin action) — never when a Member opens a Post.
+ * Preview generation, one Game at a time: research → candidate facts → candidate editorial angles, scored → the strongest story → a draft that tells only that story → deterministic provenance validation → deterministic editorial
+ * validation → (independent model read) → saved with its provenance. Orchestration only: every external action (the providers, the database) is injected, so the whole flow, including its failure modes, is unit-tested without a network.
+ * It runs only in the background (the scheduled job or an admin action) — never when a Member opens a Post.
  *
- * What it guarantees: web research happened first and the writer saw only its facts; a draft with a figure, a source or a freshness problem is rejected and the writer is told why (up to the configured number of attempts); nothing
- * unsupported is saved; a failed run leaves the Post exactly as it was (still working, with or without an older Preview); every run, successful or not, is recorded with its usage.
+ * What it guarantees: web research happened first and the writer saw only the facts of the chosen story; a draft with a figure, source, freshness or editorial problem is rejected and the writer is told why (up to the configured number of
+ * attempts); nothing unsupported or story-less is saved; a failed run leaves the Post exactly as it was; every run, successful or not, is recorded with its usage AND with what it found and decided, so the editorial quality can be reviewed.
  */
 export type GenerationOutcome =
-  | { status: "SUCCEEDED"; previewId: string; write: "created" | "refreshed"; hook: string; preview: string; usage: ProviderUsage; attempts: number }
-  | { status: "FAILED" | "REJECTED"; error: string; problems: string[]; usage: ProviderUsage; attempts: number };
+  | { status: "SUCCEEDED"; previewId: string; write: "created" | "refreshed"; hook: string; preview: string; usage: ProviderUsage; attempts: number; details: RunDetails }
+  | { status: "FAILED" | "REJECTED"; error: string; problems: string[]; usage: ProviderUsage; attempts: number; details: RunDetails };
+
+export interface AttemptLog {
+  attempt: number;
+  hook: string;
+  preview: string;
+  provenanceProblems: string[];
+  editorialProblems: string[];
+  verifierProblems: string[];
+}
+
+/** What a run found and decided — the record the owner reviews. */
+export interface RunDetails {
+  sources: { reached: number; accepted: number; rejected: number; list: ReachedSource[] };
+  facts: Array<{ id: string; kind: string; category: string; claim: string; sourceUrl: string; publishedAt: string | null }>;
+  angles: AngleSelection["angles"];
+  selectedAngleId: string | null;
+  chosenAngleId: string | null;
+  angleOverridden: boolean;
+  selectionReason: string | null;
+  rejectedAngles: AngleSelection["rejected"];
+  attemptsLog: AttemptLog[];
+  rewrites: number;
+  effort: string;
+  webSearchToolVersion: string;
+}
 
 export interface PipelineDeps {
   config: GamePreviewConfig;
@@ -35,6 +62,20 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
   let usage = emptyUsage();
   let attempts = 0;
   let factsFound = 0;
+  const details: RunDetails = {
+    sources: { reached: 0, accepted: 0, rejected: 0, list: [] },
+    facts: [],
+    angles: [],
+    selectedAngleId: null,
+    chosenAngleId: null,
+    angleOverridden: false,
+    selectionReason: null,
+    rejectedAngles: [],
+    attemptsLog: [],
+    rewrites: 0,
+    effort: config.effort,
+    webSearchToolVersion: config.webSearchToolVersion,
+  };
 
   const finish = async (outcome: GenerationOutcome, previewId: string | null): Promise<GenerationOutcome> => {
     await deps
@@ -54,11 +95,15 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
         error: outcome.status === "SUCCEEDED" ? null : outcome.error,
         previewId,
         startedAt,
+        effort: config.effort,
+        toolVersion: config.webSearchToolVersion,
+        details: outcome.details as unknown as Record<string, unknown>,
       })
       .catch(() => undefined); // observability must never turn a finished run into a failure
     return outcome;
   };
-  const fail = (error: string, problems: string[] = [], status: "FAILED" | "REJECTED" = "FAILED") => finish({ status, error, problems, usage, attempts }, null);
+  const fail = (error: string, problems: string[] = [], status: "FAILED" | "REJECTED" = "FAILED") => finish({ status, error, problems, usage, attempts, details }, null);
+  const stage = { model: config.model, effort: config.effort };
 
   // Preconditions: nothing external is called until the configuration allows it.
   if (!config.model.trim()) return fail("model_not_configured");
@@ -69,46 +114,72 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
   // 1. Research: sourced facts about this exact matchup. A failure here ends the run before any writing.
   let facts: CandidateFact[];
   try {
-    const research = await providers.research.research(game, { model: config.model, maxSearchCalls: config.maxSearchCallsPerGame, preferredDomains: config.preferredDomains, blockedDomains: config.blockedDomains });
+    const research = await providers.research.research(game, { ...stage, maxSearchCalls: config.maxSearchCallsPerGame, webSearchToolVersion: config.webSearchToolVersion, preferredDomains: config.preferredDomains, blockedDomains: config.blockedDomains });
     usage = addUsage(usage, research.usage);
     facts = research.facts;
+    details.sources = { reached: research.sources.length, accepted: research.sources.filter((s) => s.status === "accepted").length, rejected: research.sources.filter((s) => s.status === "rejected").length, list: research.sources.slice(0, 40) };
   } catch (error) {
     return fail(`research_failed: ${(error as Error).message}`);
   }
   factsFound = facts.length;
-  if (facts.length === 0) return fail("no_verified_facts");
+  details.facts = facts.map((f) => ({ id: f.id, kind: f.kind, category: f.category, claim: f.claim, sourceUrl: f.sourceUrl, publishedAt: f.publishedAt }));
   if (usage.searchCalls === 0) return fail("research_did_not_search"); // a model that did not actually search is not research
+  if (facts.length === 0) return fail("no_verified_facts"); // weak research never becomes a manufactured story
 
-  // 2-4. Angle + draft → validate → verify, with the rejection reasons fed back to the writer.
+  // 2. Editorial angles: 3-5 candidate stories from the verified facts, scored; the strongest wins, and a records-only fallback never beats a good-enough story.
+  let chosen: EditorialAngle;
+  try {
+    const selection = await providers.angles.selectAngle(game, facts, stage);
+    usage = addUsage(usage, selection.usage);
+    details.angles = selection.angles;
+    details.selectedAngleId = selection.selectedId;
+    details.rejectedAngles = selection.rejected;
+    const structural = validateAngles(selection, facts);
+    if (structural.length > 0) return fail("angle_selection_invalid", structural, "REJECTED");
+    const pick = chooseAngle(selection, config.minStoryScore);
+    chosen = pick.angle;
+    details.chosenAngleId = pick.angle.id;
+    details.angleOverridden = pick.overridden;
+    details.selectionReason = pick.reason;
+  } catch (error) {
+    return fail(`angle_selection_failed: ${(error as Error).message}`);
+  }
+
+  // 3-5. Draft → provenance validation → editorial validation → verification, with every rejection reason fed back to the writer.
   let feedback: string[] = [];
   let lastProblems: string[] = [];
   for (attempts = 1; attempts <= config.maxAttempts; attempts++) {
     let draft;
     try {
-      draft = await providers.writer.write(game, facts, { model: config.model, maxChars: config.maxChars, hookMaxChars: config.hookMaxChars, feedback });
+      draft = await providers.writer.write(game, chosen, facts, { ...stage, maxChars: config.maxChars, hookMaxChars: config.hookMaxChars, maxCitedFacts: config.maxCitedFacts, feedback });
     } catch (error) {
       return fail(`writer_failed: ${(error as Error).message}`);
     }
     usage = addUsage(usage, draft.usage);
 
-    const checked = validateDraft({ draft: { hook: draft.hook, preview: draft.preview, claims: draft.claims }, facts, game, config, now: deps.now() });
-    let problems = checked.problems;
-    if (checked.ok && providers.verifier) {
+    const provenance = validateDraft({ draft: { hook: draft.hook, preview: draft.preview, claims: draft.claims }, facts, game, config, now: deps.now() });
+    const editorial = validateEditorial({ draft, angle: chosen, config });
+    let verifierProblems: string[] = [];
+    if (provenance.ok && editorial.length === 0 && providers.verifier) {
       try {
-        const verdict = await providers.verifier.verify(game, draft, facts, { model: config.model });
+        const verdict = await providers.verifier.verify(game, chosen, draft, facts, stage);
         usage = addUsage(usage, verdict.usage);
-        if (!verdict.supported) problems = verdict.problems.length ? verdict.problems : ["The fact-check found a statement the cited facts do not support."];
+        if (!verdict.supported || !verdict.editorialPasses) verifierProblems = verdict.problems.length ? verdict.problems : ["The independent read found a statement the facts do not support, or a draft that is not a story."];
       } catch (error) {
         return fail(`verifier_failed: ${(error as Error).message}`);
       }
     }
+    details.attemptsLog.push({ attempt: attempts, hook: draft.hook, preview: draft.preview, provenanceProblems: provenance.problems, editorialProblems: editorial, verifierProblems });
+    const problems = [...provenance.problems, ...editorial, ...verifierProblems];
     if (problems.length > 0) {
       lastProblems = problems;
       feedback = problems;
+      details.rewrites = attempts;
       continue;
     }
 
-    // 5. Save with provenance: the sources of exactly the facts the draft cites, the claim → fact → source map, and the generation metadata.
+    // Save with provenance: the sources of exactly the cited facts, the claim → fact → source map, and the generation metadata (including what was decided).
+    details.rewrites = attempts - 1;
     const citedIds = new Set(draft.claims.flatMap((c) => c.factIds));
     const cited = facts.filter((f) => citedIds.has(f.id));
     const sources = cited.map((f) => ({
@@ -132,17 +203,21 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
       meta: {
         provider: config.provider,
         model: config.model,
+        effort: config.effort,
+        webSearchToolVersion: config.webSearchToolVersion,
         promptVersion: draft.promptVersion,
         research: providers.research.name,
         verifiedByModel: Boolean(providers.verifier),
         attempts,
         trigger: request.trigger,
-        facts: cited.map((f) => ({ id: f.id, kind: f.kind, claim: f.claim, sourceUrl: f.sourceUrl })),
+        angle: { id: chosen.id, type: chosen.type, summary: chosen.summary, score: Number(overallScore(chosen.scores).toFixed(2)), overridden: details.angleOverridden },
+        candidateAngles: details.angles.map((a) => ({ id: a.id, type: a.type, summary: a.summary, score: Number(overallScore(a.scores).toFixed(2)) })),
+        facts: cited.map((f) => ({ id: f.id, kind: f.kind, category: f.category, claim: f.claim, sourceUrl: f.sourceUrl })),
         usage,
       },
     });
     if ((saved.outcome === "created" || saved.outcome === "refreshed") && saved.previewId) {
-      return finish({ status: "SUCCEEDED", previewId: saved.previewId, write: saved.outcome, hook: draft.hook, preview: draft.preview, usage, attempts }, saved.previewId);
+      return finish({ status: "SUCCEEDED", previewId: saved.previewId, write: saved.outcome, hook: draft.hook, preview: draft.preview, usage, attempts, details }, saved.previewId);
     }
     return fail(`not_saved: ${saved.outcome}`); // e.g. the Game started while it was being written, or the refresh rules said no
   }
