@@ -112,6 +112,9 @@ const GENERIC_PHRASES = [
 /** Sportsbook vocabulary does not belong in a Preview (a Pick is not a bet). */
 const BETTING_WORDS = /\b(odds|moneyline|point spread|parlay|wager|bets?|betting|sportsbook|favorites?|underdogs?|over\/under)\b/i;
 
+/** The system knows the kickoff in UTC, not the viewer's clock or the venue's: a time of day is a claim no fact supports. */
+const TIME_OF_DAY = /\b(tonight|this (morning|afternoon|evening)|tomorrow night|late tonight)\b/i;
+
 /** A stock question tacked on the end of every Preview becomes repetitive AI copy. */
 const STOCK_QUESTION = /\b(who will win|who wins|who takes it|who comes out on top|can they do it|will they win)\?\s*$/i;
 
@@ -155,6 +158,7 @@ export function validateEditorial({ draft, angle, config, facts }: { draft: Edit
   if (figures > config.maxCitedFacts * 3) problems.push(`The preview carries ${figures} figures, which reads as a list of statistics. Keep only the numbers the story needs.`);
 
   for (const re of GENERIC_PHRASES) if (re.test(hook) || re.test(preview)) problems.push(`Generic phrasing ("${(hook + " " + preview).match(re)![0]}") could describe any matchup. Say the specific thing.`);
+  if (TIME_OF_DAY.test(hook) || TIME_OF_DAY.test(preview)) problems.push('A time of day ("tonight", "this afternoon") is not a fact the research gives. Say "today" or leave it out.');
   if (BETTING_WORDS.test(hook) || BETTING_WORDS.test(preview)) problems.push("Sportsbook language does not belong in a Preview.");
   if (STOCK_QUESTION.test(preview)) problems.push("The closing stock question is filler. Use a question only if it sharpens this story's tension, or end on the implication.");
   if (hook.toLowerCase() === preview.slice(0, hook.length).toLowerCase()) problems.push("The preview just repeats the hook.");

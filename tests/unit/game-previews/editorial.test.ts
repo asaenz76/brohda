@@ -141,3 +141,11 @@ describe("current season first, history as support (never ambiguous)", () => {
     expect(editorial(d).filter((p) => /earlier-season/.test(p))).toEqual([]);
   });
 });
+
+describe("no time of day", () => {
+  it("rejects 'tonight' and 'this afternoon': the research gives no local time", () => {
+    expect(editorial({ ...goodDraft, preview: `${goodDraft.preview} Tonight it ends.` }).join(" ")).toMatch(/time of day/);
+    expect(editorial({ ...goodDraft, hook: "This afternoon, Indianapolis answers." }).join(" ")).toMatch(/time of day/);
+    expect(editorial({ ...goodDraft, preview: `${goodDraft.preview} Today it ends.` }).join(" ")).not.toMatch(/time of day/);
+  });
+});
