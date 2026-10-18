@@ -95,6 +95,11 @@ export function splitUsableFacts(facts: CandidateFact[], config: Pick<GamePrevie
   return { usable, excluded };
 }
 
+/** A time frame a statement claims for itself: "this season", "this year", "so far this season". */
+const SEASON_QUALIFIER = /\b(this|the current) (season|year)\b|\bso far in 20\d\d\b/i;
+/** What a fact must itself say to carry that time frame. */
+const FACT_STATES_SEASON = /\b(this|the current) (season|year)\b|\bso far in 20\d\d\b|\b2026\b/i;
+
 const teamTokens = (name: string) => [name.toLowerCase(), ...(name.toLowerCase().split(/\s+/).slice(-1))];
 
 export function validateDraft({ draft, facts, game, config, now }: { draft: DraftToValidate; facts: CandidateFact[]; game: GameIdentity; config: GamePreviewConfig; now: Date }): ValidationResult {
@@ -134,6 +139,14 @@ export function validateDraft({ draft, facts, game, config, now }: { draft: Draf
   for (const fact of cited.values()) for (const n of numbersIn(`${fact.claim} ${fact.excerpt ?? ""}`)) supported.add(n);
   for (const claim of draft.claims) for (const n of numbersIn(claim.text)) if (!supported.has(n)) problems.push(`The figure "${n}" in a claim is not in the facts it cites.`);
   for (const n of numbersIn(`${hook} ${preview}`)) if (!supported.has(n)) problems.push(`The figure "${n}" appears in the hook or preview but in none of the cited facts.`);
+
+  // A time frame is a claim too. "Six straight games" may run into last season; writing "six straight games THIS SEASON" is only allowed when a cited fact says so itself.
+  const statesSeason = (f: CandidateFact) => FACT_STATES_SEASON.test(`${f.claim} ${f.excerpt ?? ""}`);
+  draft.claims.forEach((claim, i) => {
+    const facts = claim.factIds.map((id) => byId.get(id)).filter((f): f is CandidateFact => Boolean(f));
+    if (SEASON_QUALIFIER.test(claim.text) && facts.length > 0 && !facts.some(statesSeason)) problems.push(`Claim ${i + 1} says "this season" (or "this year"), but none of the facts it cites says that; a streak or count may reach into last season. State only the time frame the facts give.`);
+  });
+  if (SEASON_QUALIFIER.test(`${hook} ${preview}`) && cited.size > 0 && ![...cited.values()].some(statesSeason)) problems.push('The hook or preview says "this season" (or "this year"), but none of the cited facts says that. State only the time frame the facts give.');
 
   const text = `${hook} ${preview}`.toLowerCase();
   const names = [game.homeTeam, game.awayTeam].flatMap(teamTokens);
