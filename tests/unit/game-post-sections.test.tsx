@@ -42,10 +42,21 @@ describe("Market sentiment on the Post", () => {
     expect(blocks[1]).toHaveTextContent("5 predicted");
   });
 
+  it("is compact: the two sides sit side by side in even columns at a small size, and the predicted count shares the Market's title line", () => {
+    const { container } = render(<GameMarketSentimentSection markets={[moneyline]} />);
+    const grid = container.querySelector('[data-slot="sentiment-shares"]')!;
+    expect(grid.className).toContain("grid-cols-2");
+    expect(grid.children).toHaveLength(2);
+    const sizes = [...grid.querySelectorAll("span")].map((e) => e.className);
+    expect(sizes.join(" ")).not.toMatch(/text-(2xl|3xl|4xl)/); // no headline-sized numbers
+    const header = screen.getByRole("heading", { name: "Moneyline" }).parentElement!;
+    expect(header).toHaveTextContent("3 predicted"); // title and count on one line
+  });
+
   it("withholds a Market the viewer has not predicted on: no percentages, no count, just where the numbers come from", () => {
     render(<GameMarketSentimentSection markets={[spreadHidden]} />);
-    const block = screen.getByRole("heading", { name: "Spread" }).closest("div")!;
-    expect(block).toHaveTextContent("Make your pick in the feed to see how everyone else picked.");
+    const block = screen.getByRole("heading", { name: "Spread" }).closest('[data-slot="market-sentiment-block"]')!;
+    expect(block).toHaveTextContent("Make your prediction in the feed to see how everyone else picked.");
     expect(block.textContent).not.toMatch(/%|predicted/);
   });
 

@@ -2,13 +2,37 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { GamePreview, GamePreviewCandidate, GamePreviewConfig, GamePreviewInput, GamePreviewSource, GamePreviewWriteOutcome } from "./types";
 
-/** Fails to the shipped defaults only if the settings row cannot be read; the stored row is the source of truth. */
-const DEFAULT_CONFIG: GamePreviewConfig = { maxChars: 700, hookMaxChars: 120, leadHours: 48, staleAfterHours: 36, minRefreshIntervalHours: 6 };
+/** Used only if the settings row cannot be read at all; the stored row is the source of truth. Generation stays OFF and unconfigured in that case. */
+const DEFAULT_CONFIG: GamePreviewConfig = {
+  maxChars: 700, hookMaxChars: 120, leadHours: 48, staleAfterHours: 36, minRefreshIntervalHours: 6,
+  generationEnabled: false, provider: "openai", model: "", webSearchEnabled: true, verifyWithModel: true,
+  maxAttempts: 2, maxGamesPerRun: 3, maxSearchCallsPerGame: 8, currentFactMaxAgeHours: 72, preferredDomains: [], blockedDomains: [],
+};
+
+const CONFIG_COLUMNS =
+  "max_chars, hook_max_chars, lead_hours, stale_after_hours, min_refresh_interval_hours, generation_enabled, provider, model, web_search_enabled, verify_with_model, max_attempts, max_games_per_run, max_search_calls_per_game, current_fact_max_age_hours, preferred_domains, blocked_domains";
 
 export async function getGamePreviewConfig(): Promise<GamePreviewConfig> {
-  const { data } = await createAdminClient().from("game_preview_config").select("max_chars, hook_max_chars, lead_hours, stale_after_hours, min_refresh_interval_hours").eq("id", true).maybeSingle();
+  const { data } = await createAdminClient().from("game_preview_config").select(CONFIG_COLUMNS).eq("id", true).maybeSingle();
   if (!data) return DEFAULT_CONFIG;
-  return { maxChars: data.max_chars, hookMaxChars: data.hook_max_chars, leadHours: data.lead_hours, staleAfterHours: data.stale_after_hours, minRefreshIntervalHours: data.min_refresh_interval_hours };
+  return {
+    maxChars: data.max_chars,
+    hookMaxChars: data.hook_max_chars,
+    leadHours: data.lead_hours,
+    staleAfterHours: data.stale_after_hours,
+    minRefreshIntervalHours: data.min_refresh_interval_hours,
+    generationEnabled: data.generation_enabled,
+    provider: data.provider,
+    model: data.model,
+    webSearchEnabled: data.web_search_enabled,
+    verifyWithModel: data.verify_with_model,
+    maxAttempts: data.max_attempts,
+    maxGamesPerRun: data.max_games_per_run,
+    maxSearchCallsPerGame: data.max_search_calls_per_game,
+    currentFactMaxAgeHours: data.current_fact_max_age_hours,
+    preferredDomains: data.preferred_domains ?? [],
+    blockedDomains: data.blocked_domains ?? [],
+  };
 }
 
 /**
@@ -27,6 +51,8 @@ export interface GamePreviewAdminRow extends GamePreview {
   generatedBy: string;
   refreshCount: number;
   withdrawnReason: string | null;
+  claims: Array<{ text: string; fact_ids: string[] }>;
+  generationMeta: Record<string, unknown>;
   sources: GamePreviewSource[];
 }
 
@@ -35,9 +61,9 @@ export async function listGamePreviewsForAdmin(fixtureIds: string[]): Promise<Ma
   const out = new Map<string, GamePreviewAdminRow>();
   if (fixtureIds.length === 0) return out;
   const admin = createAdminClient();
-  const { data: previews } = await admin.from("game_previews").select("id, fixture_id, hook, body, status, generated_by, generated_at, checked_at, refresh_count, frozen_at, withdrawn_reason").in("fixture_id", fixtureIds);
+  const { data: previews } = await admin.from("game_previews").select("id, fixture_id, hook, body, status, generated_by, generated_at, checked_at, refresh_count, frozen_at, withdrawn_reason, claims, generation_meta").in("fixture_id", fixtureIds);
   const ids = (previews ?? []).map((p) => p.id);
-  const { data: sources } = ids.length ? await admin.from("game_preview_sources").select("preview_id, position, url, provider, title, published_at, retrieved_at, supports").in("preview_id", ids).order("position") : { data: [] };
+  const { data: sources } = ids.length ? await admin.from("game_preview_sources").select("preview_id, position, url, provider, title, published_at, retrieved_at, supports, excerpt").in("preview_id", ids).order("position") : { data: [] };
   for (const p of previews ?? []) {
     out.set(p.fixture_id, {
       id: p.id,
@@ -51,7 +77,9 @@ export async function listGamePreviewsForAdmin(fixtureIds: string[]): Promise<Ma
       refreshCount: p.refresh_count,
       frozenAt: p.frozen_at,
       withdrawnReason: p.withdrawn_reason,
-      sources: (sources ?? []).filter((s) => s.preview_id === p.id).map((s) => ({ url: s.url, provider: s.provider, title: s.title, publishedAt: s.published_at, retrievedAt: s.retrieved_at, supports: s.supports })),
+      claims: p.claims ?? [],
+      generationMeta: p.generation_meta ?? {},
+      sources: (sources ?? []).filter((s) => s.preview_id === p.id).map((s) => ({ url: s.url, provider: s.provider, title: s.title, publishedAt: s.published_at, retrievedAt: s.retrieved_at, supports: s.supports, excerpt: s.excerpt })),
     });
   }
   return out;
@@ -81,7 +109,9 @@ export async function saveGamePreview(input: GamePreviewInput): Promise<{ outcom
     p_body: input.body,
     p_generated_by: input.generatedBy,
     p_reason: input.reason,
-    p_sources: input.sources.map((s) => ({ url: s.url, provider: s.provider, title: s.title, published_at: s.publishedAt ?? null, retrieved_at: s.retrievedAt, supports: s.supports ?? null })),
+    p_sources: input.sources.map((s) => ({ url: s.url, provider: s.provider, title: s.title, published_at: s.publishedAt ?? null, retrieved_at: s.retrievedAt, supports: s.supports ?? null, excerpt: s.excerpt ?? null })),
+    p_claims: input.claims ?? [],
+    p_meta: input.meta ?? {},
   });
   if (error) throw error;
   return data as { outcome: GamePreviewWriteOutcome; previewId?: string };
@@ -113,4 +143,71 @@ export async function listUpcomingGamesForAdmin(days: number, limit = 60): Promi
     .map((r) => ({ fixtureId: r.fixture_id, postId: r.id, homeTeamName: r.fixtures.home_team_name, awayTeamName: r.fixtures.away_team_name, competitionName: r.fixtures.competition_name, scheduledStartUtc: r.fixtures.scheduled_start_utc }))
     .sort((a, b) => a.scheduledStartUtc.localeCompare(b.scheduledStartUtc))
     .slice(0, limit);
+}
+
+export interface GenerationRunInput {
+  fixtureId: string;
+  trigger: "AUTOMATIC" | "ADMIN";
+  reason: string;
+  status: "SUCCEEDED" | "FAILED" | "REJECTED";
+  provider: string;
+  model: string;
+  attempts: number;
+  searchCalls: number;
+  modelCalls: number;
+  inputTokens: number;
+  outputTokens: number;
+  factsFound: number;
+  error: string | null;
+  previewId: string | null;
+  startedAt: string;
+}
+
+/** One row per automated or admin-triggered attempt: what it cost and how it ended, so usage and quality are observable from the first run. */
+export async function recordGenerationRun(run: GenerationRunInput): Promise<void> {
+  const { error } = await createAdminClient().from("game_preview_runs").insert({
+    fixture_id: run.fixtureId, trigger: run.trigger, reason: run.reason, status: run.status, provider: run.provider, model: run.model, attempts: run.attempts, search_calls: run.searchCalls, model_calls: run.modelCalls,
+    input_tokens: run.inputTokens, output_tokens: run.outputTokens, facts_found: run.factsFound, error: run.error ? run.error.slice(0, 1000) : null, preview_id: run.previewId, started_at: run.startedAt,
+  });
+  if (error) throw error;
+}
+
+export interface GenerationUsageSummary {
+  since: string | null;
+  gamesResearched: number;
+  runs: number;
+  succeeded: number;
+  failed: number;
+  rejected: number;
+  regenerations: number;
+  searchCalls: number;
+  modelCalls: number;
+  inputTokens: number;
+  outputTokens: number;
+  avgCallsPerSuccessfulPreview: number | null;
+  byProviderModel: Array<{ provider: string; model: string; runs: number }>;
+}
+
+export async function getGenerationUsageSummary(since: Date | null = null): Promise<GenerationUsageSummary> {
+  const { data, error } = await createAdminClient().rpc("game_preview_usage_summary", { p_since: since ? since.toISOString() : null });
+  if (error) throw error;
+  return data as GenerationUsageSummary;
+}
+
+export interface GenerationRunRow {
+  id: string;
+  fixtureId: string;
+  trigger: string;
+  reason: string;
+  status: string;
+  model: string;
+  searchCalls: number;
+  modelCalls: number;
+  error: string | null;
+  startedAt: string;
+}
+
+export async function listRecentGenerationRuns(limit = 10): Promise<GenerationRunRow[]> {
+  const { data } = await createAdminClient().from("game_preview_runs").select("id, fixture_id, trigger, reason, status, model, search_calls, model_calls, error, started_at").order("started_at", { ascending: false }).limit(limit);
+  return (data ?? []).map((r) => ({ id: r.id, fixtureId: r.fixture_id, trigger: r.trigger, reason: r.reason, status: r.status, model: r.model, searchCalls: r.search_calls, modelCalls: r.model_calls, error: r.error, startedAt: r.started_at }));
 }

@@ -14,6 +14,8 @@ import { GameMarketSentimentSection } from "@/components/posts/GameMarketSentime
 import { GamePreviewSection } from "@/components/posts/GamePreviewSection";
 import { MarketParticipants } from "@/components/predictions/MarketParticipants";
 import { getGameMarketSentiment } from "@/lib/posts/game-sentiment";
+import { getPickLockPolicy } from "@/lib/predictions/policy";
+import { arePredictionsClosed } from "@/lib/predictions/lock";
 import { getGamePreviewForFixture } from "@/lib/game-previews/repository";
 import { PostConversation } from "@/components/posts/PostConversation";
 import { PostCommunityBadges } from "@/components/communities/PostCommunityBadges";
@@ -46,13 +48,14 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
   if (!fixture) notFound();
   const league = resolveLeagueIdentity({ competitionName: fixture.competitionName, competitionLogoUrl: fixture.competitionLogoUrl });
 
-  const [activeMarkets, policy, conversation, communities, sponsorship, preview] = await Promise.all([
+  const [activeMarkets, policy, conversation, communities, sponsorship, preview, lockPolicy] = await Promise.all([
     listDisplayableMarketsForFixture(post.fixtureId),
     getPostPublicationPolicy(),
     getPostConversation(post.id, undefined, user.id),
     getCommunityRefsForPost(post.id),
     loadPublicSponsorshipForPost(post.id),
     getGamePreviewForFixture(post.fixtureId),
+    getPickLockPolicy(),
   ]);
   const primaryMarket = selectPrimaryMarket(activeMarkets, policy.primaryMarketTemplatePriority);
   // One batched read for every Market of the Game (the viewer's predictions, the aggregates of those they have finished, their Confidence): the sentiment blocks, in the configured template order.
@@ -63,6 +66,8 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
     awayTeamName: fixture.awayTeamName,
     markets: activeMarkets,
     templatePriority: policy.primaryMarketTemplatePriority,
+    // After the canonical deadline every Market's aggregate may be shown (it can no longer influence a prediction); before it, only Markets the viewer has finished.
+    predictionsClosed: arePredictionsClosed(fixture, lockPolicy.lockMinutesBeforeKickoff, new Date()),
   });
   // Other Picks / Call BS ride on the primary Market and need to know whether the viewer has a Pick on it (unchanged from before).
   const viewerHasPick = primaryMarket ? sentiment.find((m) => m.marketId === primaryMarket.id)?.hasViewerPick === true : false;

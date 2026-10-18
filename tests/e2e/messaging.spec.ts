@@ -235,7 +235,8 @@ test("off by default; Super Admin turns it on; two Members request, accept, repl
 });
 
 test("Block from a profile is a relationship boundary: the blocker's view hides the blocked Member's comment, nobody else's changes, replies between the pair are refused, and moderation shows signals and holds", async ({ page }) => {
-  test.setTimeout(240_000);
+  // Seven logins, a block, a reply attempt and the moderation flow on a shared dev server: about a minute alone, but a loaded CI runner took the whole 240 s and failed on the last click. A ceiling, not a target.
+  test.setTimeout(480_000);
   await admin.from("platform_settings").update({ messaging_enabled: true }).eq("id", true);
   const superAdmin = await createMember("owner", "super_admin");
   const a = await createMember("blocker");

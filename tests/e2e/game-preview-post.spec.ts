@@ -12,11 +12,11 @@ const admin = getTestAdminClient();
 const PASSWORD = "e2e-password-123";
 const tag = randomUUID().slice(0, 6);
 
-async function createMember(label: string) {
+async function createMember(label: string, role: "player" | "super_admin" = "player") {
   const email = `e2e-gp-${label}-${randomUUID()}@test.local`;
   const { data, error } = await admin.auth.admin.createUser({ email, password: PASSWORD, email_confirm: true });
   if (error || !data.user) throw error ?? new Error("failed to create user");
-  const { error: profileError } = await admin.from("user_profiles").insert({ id: data.user.id, display_name: `${label}${tag}`, username: `gp${label}${tag}`.toLowerCase(), role: "player", is_active: true });
+  const { error: profileError } = await admin.from("user_profiles").insert({ id: data.user.id, display_name: `${label}${tag}`, username: `gp${label}${tag}`.toLowerCase(), role, is_active: true });
   if (profileError) throw profileError;
   await admin.rpc("confidence_bootstrap_member", { p_member_id: data.user.id });
   return { id: data.user.id as string, email };
@@ -136,7 +136,7 @@ test("the Post is the Game Preview: identity, then sentiment per Market, then th
   await expect(ml).toContainText("Your prediction:");
   await expect(ml).toContainText("🔥5");
   for (const i of [1, 2]) {
-    await expect(blocks.nth(i)).toContainText("Make your pick in the feed to see how everyone else picked.");
+    await expect(blocks.nth(i)).toContainText("Make your prediction in the feed to see how everyone else picked.");
     expect(await blocks.nth(i).innerText()).not.toMatch(/%|predicted/);
   }
 
@@ -214,4 +214,72 @@ test("phone: Preview, sentiment and comments read in one column without overflow
   await expect(main.locator('[data-slot="market-sentiment-block"]').first()).toBeVisible();
   await expect(main.getByText("Comments", { exact: true })).toBeVisible();
   await expect(main.getByText(/coming soon|unavailable|error/i)).toHaveCount(0);
+});
+
+test("Admin → Game Previews: settings persist, credentials show as configured or not (never the key), a Generate with no provider configured fails cleanly, and a Super Admin can edit and withdraw — all audited", async ({ page }) => {
+  test.setTimeout(180_000);
+  const owner = await createMember("owner", "super_admin");
+  const g = await seedGame("admin");
+  await savePreview(g.fixtureId, "Winless in six meets unbeaten at home.", "Vancouver has lost six straight. Tampa Bay is 4-0 at home. Can the Canucks flip the script today?");
+  const { data: cfg } = await admin.from("game_preview_config").select("*").eq("id", true).single();
+  try {
+    await loginAs(page, owner.email);
+    await page.goto("/admin/game-previews");
+    const main = page.getByRole("main");
+    await expect(main.getByRole("heading", { name: "Game Previews" })).toBeVisible();
+    // Usage is visible from day one.
+    await expect(main.locator('[data-slot="generation-usage"]')).toContainText("Games researched");
+    // Credentials: presence only, never the value.
+    await expect(main.locator('[data-slot="credentials-status"]')).toContainText(/configured in the environment|not configured/);
+    expect(await main.innerText()).not.toMatch(/sk-[A-Za-z0-9]/);
+    expect(await main.locator('[data-slot="game-preview-config-form"] input[type="password"]').count()).toBe(0);
+
+    // Settings persist and are audited; nothing generates automatically by default.
+    const form = main.locator('[data-slot="game-preview-config-form"]');
+    await expect(form.getByLabel("Generate Previews automatically")).not.toBeChecked();
+    await form.getByLabel("Model").fill("e2e-model");
+    await form.getByLabel("Writing attempts per Game").fill("3");
+    await form.getByRole("button", { name: "Save" }).click();
+    await expect(form.getByRole("status")).toContainText("Saved");
+    await expect.poll(async () => (await admin.from("game_preview_config").select("model, max_attempts, generation_enabled").eq("id", true).single()).data).toEqual({ model: "e2e-model", max_attempts: 3, generation_enabled: false });
+    // Turning automation on without a model is refused.
+    await form.getByLabel("Model").fill("");
+    await form.getByLabel("Generate Previews automatically").check();
+    await form.getByRole("button", { name: "Save" }).click();
+    await expect(form.getByRole("alert")).toContainText("Set a model");
+
+    // Generate with no provider credentials (the test environment has none): a plain message, nothing saved, nothing called.
+    await page.reload();
+    const row = main.locator(`[data-slot="game-preview-row"][data-fixture-id="${g.fixtureId}"]`);
+    await expect(row.locator('[data-slot="preview-status"]')).toContainText("Preview saved");
+    await expect(row.locator('[data-slot="preview-sources"]')).toHaveCount(1);
+    await row.getByRole("button", { name: "Regenerate" }).click();
+    await expect(row.getByRole("alert")).toContainText(/credentials|nothing was saved/i);
+    expect((await admin.from("game_preview_runs").select("id").eq("fixture_id", g.fixtureId)).data ?? []).toHaveLength(0);
+
+    // Manual edit: needs a note, keeps the sources, is audited, and the Post shows it.
+    await row.locator("summary", { hasText: "Edit" }).click();
+    await row.getByLabel("Hook").fill("Winless meets unbeaten.");
+    await row.getByLabel("What you changed and why").fill("Shortened the hook");
+    await row.getByRole("button", { name: "Save edit" }).click();
+    await expect(row.getByRole("status")).toContainText("Saved");
+    expect((await admin.from("audit_logs").select("id").eq("action", "game_preview.edited").eq("actor_id", owner.id)).data?.length).toBeGreaterThan(0);
+    await page.goto(`/post/${g.postId}`);
+    await expect(page.locator('[data-slot="game-preview-hook"]')).toHaveText("Winless meets unbeaten.");
+
+    // Withdraw: the Post stops showing it at once.
+    await page.goto("/admin/game-previews");
+    await row.getByLabel("Why this Preview is being withdrawn").fill("Checked and wrong");
+    await row.getByRole("button", { name: "Withdraw" }).click();
+    await expect(row.locator('[data-slot="preview-status"]')).toContainText("Withdrawn — Checked and wrong");
+    await page.goto(`/post/${g.postId}`);
+    await expect(page.locator('[data-slot="game-preview"]')).toHaveCount(0);
+  } finally {
+    if (cfg) {
+      const rest: Record<string, unknown> = { ...cfg };
+      delete rest.updated_at;
+      delete rest.updated_by;
+      await admin.from("game_preview_config").update(rest).eq("id", true);
+    }
+  }
 });

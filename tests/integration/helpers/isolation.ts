@@ -58,6 +58,7 @@ const TRANSIENT_TABLES = [
   "predictions",
   "post_comments",
   "post_communities",
+  "game_preview_runs",
   "game_preview_revisions",
   "game_preview_sources",
   "game_previews",
@@ -82,7 +83,18 @@ export async function resetIntegrationWorld(): Promise<void> {
     }
     // The Confidence cutover is one-way and has no column default, so the generic reset below would leave it set: clear it here (this connection has triggers off, which is the explicit remediation path the one-way trigger leaves open).
     await client.query("update public.platform_settings set confidence_mandatory_since = null where id = true");
-    await client.query("update public.game_preview_config set max_chars = default, hook_max_chars = default, lead_hours = default, stale_after_hours = default, min_refresh_interval_hours = default where id = true");
+    // Every Game Preview setting back to its shipped default (generation OFF, no model), whatever columns the table has.
+    await client.query(`
+      do $$
+      declare cols text;
+      begin
+        select string_agg(format('%I = default', column_name), ', ')
+          into cols
+          from information_schema.columns
+          where table_schema = 'public' and table_name = 'game_preview_config' and column_default is not null and column_name not in ('id', 'updated_at');
+        execute 'update public.game_preview_config set ' || cols || ' where id = true';
+      end $$;
+    `);
     await client.query(`
       do $$
       declare cols text;
