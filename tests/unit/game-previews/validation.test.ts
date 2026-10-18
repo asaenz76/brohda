@@ -154,3 +154,20 @@ describe("naming a team: full name, nickname or city", () => {
     expect(validateDraft({ draft: { ...d, preview: "Columbus is 0-5 after a 26-3 loss to Houston, and Minnesota awaits." }, facts, game: g, config, now: NOW }).problems.filter((p) => /name either team/.test(p))).toEqual([]);
   });
 });
+
+describe("number words used as plain language are not figures", () => {
+  it("'the two teams' and a clause-final 'first' are prose; 'two straight wins', 'their first win' and 'third' still need a fact", () => {
+    expect([...numbersIn("Two rebuilt rosters meet today. Who adjusts first?")]).toEqual([]);
+    expect([...numbersIn("The two teams meet today, and the question is which holds up first.")]).toEqual([]);
+    expect([...numbersIn("They have won two straight and are third in the league.")].sort()).toEqual(["2", "3"]);
+    expect([...numbersIn("It is their first win in Detroit.")]).toEqual(["1"]);
+  });
+});
+
+describe("reconcileFactKind — league comparisons beyond ranks", () => {
+  it("'the only NFL team to ...' and 'the longest active ...' are re-filed as current", () => {
+    for (const c of ["Dallas is the only NFL team to yield 375 yards in each of its first five games.", "Dallas has allowed 20 or more points in 12 straight games, the longest active such streak in the league.", "Dallas has the longest active streak in the NFL."]) {
+      expect(reconcileFactKind([fact({ id: "r", kind: "historical", claim: c })])[0].kind).toBe("current");
+    }
+  });
+});
