@@ -35,7 +35,7 @@ import {
  */
 
 /** Identifies the instruction set that produced a Preview, so a quality change can be traced to a prompt change. Bump it when the prompts below change. */
-export const PREVIEW_PROMPT_VERSION = "game-preview-anthropic-2026-10-v3";
+export const PREVIEW_PROMPT_VERSION = "game-preview-anthropic-2026-10-v4";
 
 /** The slice of the SDK this provider uses — injectable so every stage is tested against a fake without a network. */
 export type MessagesClient = Pick<Anthropic, "messages">;
@@ -320,6 +320,7 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
     const system = [
       EDITORIAL_BRIEF,
       `Write the Game Preview for the CHOSEN story below, using ONLY the facts provided (they are the facts this story needs) — and never anything from memory. Every figure, result, name, streak or claim must come from them; the one-line story below is only the theme — take no figure from it, only from the facts. If a provided fact does not strengthen the story, leave it out: three excellent facts beat eight mediocre ones, and at most ${ctx.maxCitedFacts} may be cited.`,
+      "Given, not researched: who plays whom and which team is the home team (\"Away at Home\"). Not given: the venue's name, the time of day, the weather, the crowd. Name a venue only as part of a fact that states it; never write \"tonight\", \"this afternoon\" or any time of day (say \"today\" or nothing); never attribute wants, feelings, motives or intentions (\"wants that loss back\", \"is determined\") unless a fact says so — let the facts imply the tension.",
       "Structure: open with the central story; support it with 1-3 verified facts; connect them directly to today's matchup; end with tension or an implication when useful. Do not chronologically dump facts. One story only.",
       `Hook (at most ${ctx.hookMaxChars} characters): would it make someone stop scrolling if they already knew the two teams were playing? If not, find another way into the same story. It should feel like sports conversation — a challenge, a contrast, an understatement, an implication, a short dramatic statement, a question or direct address — never like ESPN metadata, an SEO headline, a sportsbook headline or a press release. Do not put a record or score in the hook.`,
       `Preview (at most ${ctx.maxChars} characters; shorter is better, never pad): specific enough that changing the team names could not reuse it for another game; it should make a reader want an opinion. Do NOT force a question: use one only if it sharpens this story's tension, and never end with "Who will win?" or "Can they do it?". Plain text; no emoji, no hashtags, no betting language (no odds, spreads, favorites, picks).`,
@@ -340,7 +341,7 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
     const byId = new Map(facts.map((f) => [f.id, f]));
     const material = [...new Set(draft.claims.flatMap((c) => c.factIds))].map((id) => byId.get(id)).filter((f): f is CandidateFact => Boolean(f)).map((f) => ({ id: f.id, season_scope: f.seasonScope, kind: f.kind, claim: f.claim, excerpt: f.excerpt, published_at: f.publishedAt }));
     const system = [
-      "You are a strict fact-checker AND a sports editor. Given a game preview and the only facts it may rest on, judge two things independently, without outside knowledge.",
+      "You are a strict fact-checker AND a sports editor. Given a game preview and the only facts it may rest on, judge two things independently, without outside knowledge. The matchup in the message is GIVEN and counts as supported: which two teams play, which is the home team (\"Away at Home\"), and that the game is today/upcoming. Nothing else about the venue, time of day, weather or crowd is given.",
       "1) supported: is EVERY factual statement in the hook and the preview directly supported by those facts? Flag any statement, number, name or implication the facts do not support, any current-state wording resting on a historical fact, anything that goes beyond the facts, and any statement resting on a HISTORICAL_CONTEXT fact that is not clearly framed as history or could be read as this season's form (mixing seasons ambiguously).",
       `2) editorial: does it tell ONE specific story (${angle.summary})? Would the hook stop the scroll for someone who already knew the teams were playing? Could the preview be reused for another matchup by swapping team names (if so it fails)? Does it read like a sharp editor and not like automated game notes, a list of statistics, or sportsbook copy? Does it make a reader want an opinion?`,
       'Return ONLY a JSON object: {"supported":true|false,"editorial_passes":true|false,"problems":["each specific problem, empty if none"]}',
