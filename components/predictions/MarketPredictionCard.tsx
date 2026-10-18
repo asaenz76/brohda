@@ -10,6 +10,7 @@ import { YourPredictionCard } from "@/components/predictions/YourPredictionCard"
 import { MarketParticipants } from "@/components/predictions/MarketParticipants";
 import { getStakeUiState } from "@/lib/confidence/stakes";
 import { getConfidenceOffer } from "@/lib/confidence/offer";
+import { getMarketPickLock } from "@/lib/predictions/lock-state";
 
 /**
  * Milestone R3 (Post Foundation): extracted from
@@ -60,7 +61,11 @@ export async function MarketPredictionCard({
   const [stakeState, confidenceOffer] = await Promise.all([existingPrediction ? getStakeUiState(userId, existingPrediction.id) : Promise.resolve({ state: "none" } as const), getConfidenceOffer(userId)]);
 
   let predictionDisabledReason: string | null = null;
+  let pickLockAt: string | null = null;
   if (isEditable) {
+    // The pre-kickoff lock, shown the moment it passes (the Market stays ACTIVE until the provider reports the Game live, which is after kickoff).
+    const lock = await getMarketPickLock(market.id);
+    pickLockAt = lock.lockAt;
     // Re-reads the raw (unrounded) market record — the same source of
     // truth the submit action itself checks — so this pre-submission
     // disabled state never disagrees with what the action would actually
@@ -78,6 +83,7 @@ export async function MarketPredictionCard({
       predictionPolicy,
     );
     predictionDisabledReason = eligibility.eligible ? null : copyForIneligible(eligibility.reason);
+    if (predictionDisabledReason === null && lock.closed) predictionDisabledReason = "Picks are locked for this game.";
   }
 
   return (
@@ -127,6 +133,7 @@ export async function MarketPredictionCard({
           choices={market.choices}
           offer={confidenceOffer}
           disabledReason={predictionDisabledReason}
+          lockAt={pickLockAt}
           initialSelection={existingPrediction?.selectedOutcome ?? null}
           legacyOpenPick={existingPrediction !== null}
         />

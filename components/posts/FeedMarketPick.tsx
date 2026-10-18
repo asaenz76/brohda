@@ -48,6 +48,7 @@ export function FeedMarketPick({ market, isPublic, postId, heading = null, showT
           choices={market.choices}
           offer={market.confidenceOffer}
           disabledReason={market.pickDisabledReason}
+          lockAt={market.pickLockAt}
           initialSelection={market.viewerSelection}
           legacyOpenPick={market.viewerPredictionId !== null}
           hideTitle={!showTitle}
