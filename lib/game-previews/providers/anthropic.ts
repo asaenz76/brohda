@@ -93,16 +93,32 @@ async function call(client: MessagesClient, params: Omit<Anthropic.Messages.Mess
   return { text, blocks, usage, stopReason: last.stop_reason };
 }
 
-/** The first JSON object in a model answer (models sometimes wrap it in prose or a code fence). */
+/** The first balanced JSON object in a model answer (models sometimes wrap it in prose or a code fence, or follow it with commentary containing braces). */
 export function extractJson<T>(text: string, what: string): T {
   const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start === -1 || end <= start) throw new Error(`The ${what} answer contained no JSON.`);
-  try {
-    return JSON.parse(text.slice(start, end + 1)) as T;
-  } catch {
-    throw new Error(`The ${what} answer was not valid JSON.`);
+  if (start === -1) throw new Error(`The ${what} answer contained no JSON. It began: ${text.slice(0, 160).replace(/\s+/g, " ")}`);
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}" && --depth === 0) {
+      try {
+        return JSON.parse(text.slice(start, i + 1)) as T;
+      } catch {
+        break;
+      }
+    }
   }
+  throw new Error(`The ${what} answer was not valid JSON. It began: ${text.slice(start, start + 160).replace(/\s+/g, " ")}`);
 }
 
 const normUrl = (url: string): string => {
@@ -117,6 +133,59 @@ const normUrl = (url: string): string => {
 function describeGame(game: GameIdentity): string {
   return `Sport: ${game.sport}${game.competition ? ` (${game.competition})` : ""}\nMatchup: ${game.awayTeam} at ${game.homeTeam}\nScheduled start (UTC): ${game.kickoffUtc}\nToday (UTC): ${game.asOf}`;
 }
+
+
+const str = { type: "string" } as const;
+const strList = { type: "array", items: str } as const;
+
+/** The stages that do not search ask the API for schema-guaranteed JSON (structured outputs), so an answer is always parseable; the research stage cannot (it carries web-search results) and is parsed from the prompt-requested JSON. */
+const ANGLE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["angles", "selected_id", "selection_reason", "rejected"],
+  properties: {
+    angles: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["id", "type", "summary", "fact_ids", "scores", "note"],
+        properties: {
+          id: str,
+          type: str,
+          summary: str,
+          fact_ids: strList,
+          scores: {
+            type: "object",
+            additionalProperties: false,
+            required: ["tension", "surprise", "specificity", "humanInterest", "conversation", "recency"],
+            properties: { tension: { type: "number" }, surprise: { type: "number" }, specificity: { type: "number" }, humanInterest: { type: "number" }, conversation: { type: "number" }, recency: { type: "number" } },
+          },
+          note: str,
+        },
+      },
+    },
+    selected_id: str,
+    selection_reason: str,
+    rejected: { type: "array", items: { type: "object", additionalProperties: false, required: ["id", "reason"], properties: { id: str, reason: str } } },
+  },
+} as const;
+
+const DRAFT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["hook", "preview", "claims"],
+  properties: { hook: str, preview: str, claims: { type: "array", items: { type: "object", additionalProperties: false, required: ["text", "fact_ids"], properties: { text: str, fact_ids: strList } } } },
+} as const;
+
+const VERIFY_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["supported", "editorial_passes", "problems"],
+  properties: { supported: { type: "boolean" }, editorial_passes: { type: "boolean" }, problems: strList },
+} as const;
+
+const structured = (effort: string, schema: object) => ({ effort: effort as "low" | "medium" | "high" | "xhigh" | "max", format: { type: "json_schema" as const, schema: schema as Record<string, unknown> } });
 
 const outputConfig = (effort: string) => ({ effort: effort as "low" | "medium" | "high" | "xhigh" | "max" });
 
@@ -223,7 +292,7 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
       'Each angle lists the fact ids it needs (only those; fewer is better). Return ONLY a JSON object: {"angles":[{"id":"a1","type":"...","summary":"the story in one plain sentence","fact_ids":["f1"],"scores":{"tension":1-5,"surprise":1-5,"specificity":1-5,"humanInterest":1-5,"conversation":1-5,"recency":1-5},"note":"why it is or is not worth a Member\'s time"}],"selected_id":"a1","selection_reason":"why this one","rejected":[{"id":"a2","reason":"..."}]}',
     ].join("\n\n");
     const material = facts.map((f) => ({ id: f.id, kind: f.kind, category: f.category, claim: f.claim, excerpt: f.excerpt, published_at: f.publishedAt, relevance: f.relevance, association: f.gameAssociation }));
-    const result = await call(this.client, { model: ctx.model, max_tokens: STAGE_MAX_TOKENS, system, output_config: outputConfig(ctx.effort), messages: [{ role: "user", content: `${describeGame(game)}\n\nVerified facts (the only material you may use):\n${JSON.stringify(material)}` }] }, false);
+    const result = await call(this.client, { model: ctx.model, max_tokens: STAGE_MAX_TOKENS, system, output_config: structured(ctx.effort, ANGLE_SCHEMA), messages: [{ role: "user", content: `${describeGame(game)}\n\nVerified facts (the only material you may use):\n${JSON.stringify(material)}` }] }, false);
     const parsed = extractJson<{ angles?: Array<Record<string, unknown>>; selected_id?: string; selection_reason?: string; rejected?: Array<{ id?: string; reason?: string }> }>(result.text, "angle");
     const angles: EditorialAngle[] = (parsed.angles ?? []).map((a) => {
       const s = (a.scores ?? {}) as Record<string, unknown>;
@@ -258,7 +327,7 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
     ].join("\n\n");
     const used = facts.filter((f) => angle.factIds.includes(f.id)).map((f) => ({ id: f.id, kind: f.kind, category: f.category, claim: f.claim, excerpt: f.excerpt, published_at: f.publishedAt }));
     const feedback = ctx.feedback.length ? `\n\nYour previous draft was rejected for these reasons. Fix every one:\n- ${ctx.feedback.join("\n- ")}` : "";
-    const result = await call(this.client, { model: ctx.model, max_tokens: STAGE_MAX_TOKENS, system, output_config: outputConfig(ctx.effort), messages: [{ role: "user", content: `${describeGame(game)}\n\nChosen story: ${angle.summary}\n\nFacts for this story:\n${JSON.stringify(used)}${feedback}` }] }, false);
+    const result = await call(this.client, { model: ctx.model, max_tokens: STAGE_MAX_TOKENS, system, output_config: structured(ctx.effort, DRAFT_SCHEMA), messages: [{ role: "user", content: `${describeGame(game)}\n\nChosen story: ${angle.summary}\n\nFacts for this story:\n${JSON.stringify(used)}${feedback}` }] }, false);
     const parsed = extractJson<{ hook?: string; preview?: string; claims?: Array<{ text?: string; fact_ids?: string[] }> }>(result.text, "writer");
     const claims: GamePreviewClaim[] = (parsed.claims ?? []).map((c) => ({ text: String(c.text ?? ""), factIds: Array.isArray(c.fact_ids) ? c.fact_ids.map(String) : [] }));
     return { hook: String(parsed.hook ?? ""), preview: String(parsed.preview ?? ""), claims, promptVersion: PREVIEW_PROMPT_VERSION, usage: result.usage };
@@ -273,7 +342,7 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
       `2) editorial: does it tell ONE specific story (${angle.summary})? Would the hook stop the scroll for someone who already knew the teams were playing? Could the preview be reused for another matchup by swapping team names (if so it fails)? Does it read like a sharp editor and not like automated game notes, a list of statistics, or sportsbook copy? Does it make a reader want an opinion?`,
       'Return ONLY a JSON object: {"supported":true|false,"editorial_passes":true|false,"problems":["each specific problem, empty if none"]}',
     ].join("\n\n");
-    const result = await call(this.client, { model: ctx.model, max_tokens: STAGE_MAX_TOKENS, system, output_config: outputConfig(ctx.effort), messages: [{ role: "user", content: `${describeGame(game)}\n\nHook: ${draft.hook}\nPreview: ${draft.preview}\n\nFacts:\n${JSON.stringify(material)}` }] }, false);
+    const result = await call(this.client, { model: ctx.model, max_tokens: STAGE_MAX_TOKENS, system, output_config: structured(ctx.effort, VERIFY_SCHEMA), messages: [{ role: "user", content: `${describeGame(game)}\n\nHook: ${draft.hook}\nPreview: ${draft.preview}\n\nFacts:\n${JSON.stringify(material)}` }] }, false);
     const parsed = extractJson<{ supported?: boolean; editorial_passes?: boolean; problems?: string[] }>(result.text, "verifier");
     const problems = (parsed.problems ?? []).map(String);
     return { supported: parsed.supported === true, editorialPasses: parsed.editorial_passes === true, problems, usage: result.usage };
