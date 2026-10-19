@@ -52,6 +52,14 @@ export interface RunDetails {
   webSearchToolVersion: string;
 }
 
+/**
+ * The search ceiling is for the WHOLE generation (research + fact check). When facts are independently verified, a third of the ceiling (rounded down: 2 of 6) is held back from research so the check can actually search for the exact claims;
+ * whatever research does not use rolls over to it. Without the reserve a research pass that uses every search leaves the check to judge from excerpts alone, and it (correctly) cannot confirm what it cannot see.
+ */
+export function verificationReserve(ceiling: number, verifying: boolean): number {
+  return verifying ? Math.floor(Math.max(0, ceiling) / 3) : 0;
+}
+
 export interface PipelineDeps {
   config: GamePreviewConfig;
   providers: GamePreviewProviders;
@@ -131,7 +139,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
   let facts: CandidateFact[];
   let leads: ResearchLead[] = [];
   try {
-    const research = await providers.research.research(game, { ...stage, maxSearchCalls: config.maxSearchCallsPerGame, webSearchToolVersion: config.webSearchToolVersion, preferredDomains: config.preferredDomains, blockedDomains: config.blockedDomains });
+    const research = await providers.research.research(game, { ...stage, maxSearchCalls: config.maxSearchCallsPerGame - verificationReserve(config.maxSearchCallsPerGame, Boolean(providers.factVerifier)), webSearchToolVersion: config.webSearchToolVersion, preferredDomains: config.preferredDomains, blockedDomains: config.blockedDomains });
     usage = addUsage(usage, research.usage);
     facts = research.facts;
     leads = research.leads ?? [];

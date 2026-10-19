@@ -41,7 +41,7 @@ import {
  */
 
 /** Identifies the instruction set that produced a Preview, so a quality change can be traced to a prompt change. Bump it when the prompts below change. */
-export const PREVIEW_PROMPT_VERSION = "game-preview-anthropic-2026-10-v9";
+export const PREVIEW_PROMPT_VERSION = "game-preview-anthropic-2026-10-v10";
 
 /** The slice of the SDK this provider uses — injectable so every stage is tested against a fake without a network. */
 export type MessagesClient = Pick<Anthropic, "messages">;
@@ -386,6 +386,7 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
     const searching = ctx.maxSearchCalls > 0;
     const system = [
       "You independently verify the facts a sports preview is about to rest on, BEFORE it is written. For EACH fact: " + (searching ? "reach its source page (search for it by title or URL if needed) and judge from what you retrieve" : "judge from its excerpt") + " whether (1) the source actually says what the claim says — the exact player or team, the exact number, the exact game; (2) the date and the SEASON are right (this season's, not a previous season's, unless it is explicitly history); (3) a person is on the team the claim says (an injury report or preview page often lists both teams); (4) " + (searching ? "another authoritative source disagrees" : "nothing in the excerpt contradicts it") + ".",
+      "Evidence: the excerpt is what the research stage read on the page; it tells you what the page says, but when searches are available you must still look for the exact claim yourself rather than trusting it. A season-specific figure (a total, a streak, a rank, a record) from a current team or league statistics page, or from a page published this season (see published_at), is this season's; mark a season problem only when the evidence points to a DIFFERENT season, or when after searching the figure cannot be placed in any season. Do not mark a fact unsupported merely because the page text you can see does not repeat its date.",
       "Return status \"confirmed\" only when you saw support that matches exactly and nothing contradicts it; \"unsupported\" when the source does not say it, names a different team, person, number or season, or you could not verify it; \"disputed\" when authoritative sources disagree. Never confirm from memory or plausibility. When sources disagree, say what each says in the note.",
       'Return ONLY a JSON object: {"checks":[{"fact_id":"f1","status":"confirmed|unsupported|disputed","note":"what you saw, briefly","corroborating_url":"a second source that agrees, or null"}]} with one entry per fact.',
     ].join("\n\n");

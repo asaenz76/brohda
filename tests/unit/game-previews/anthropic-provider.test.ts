@@ -215,6 +215,8 @@ describe("Anthropic provider — story-first research and fact verification", ()
     expect(body.tools).toEqual([{ type: "web_search_20250305", name: "web_search", max_uses: 2, blocked_domains: ["reddit.com"] }]);
     expect(String(body.system)).toMatch(/season/);
     expect(String(body.system)).toMatch(/lists both teams/);
+    expect(String(body.system)).toMatch(/DIFFERENT season/);
+    expect(String(body.system)).toMatch(/does not repeat its date/);
     expect(JSON.stringify(body.messages)).toContain(facts[0].sourceUrl);
   });
 

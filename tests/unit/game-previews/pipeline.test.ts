@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { generateGamePreview, type PipelineDeps } from "@/lib/game-previews/pipeline";
+import { generateGamePreview, verificationReserve, type PipelineDeps } from "@/lib/game-previews/pipeline";
 import { addUsage, emptyUsage, type FactCheck, type GamePreviewAngleProvider, type GamePreviewFactVerifierProvider, type GamePreviewProviders, type GamePreviewResearchProvider, type GamePreviewVerifierProvider, type GamePreviewWriterProvider, type PreviewDraft } from "@/lib/game-previews/providers/types";
 import type { GenerationRunInput } from "@/lib/game-previews/repository";
 import type { GamePreviewInput } from "@/lib/game-previews/types";
@@ -207,6 +207,22 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
     const d = t.runs[0].details as { sourceConflicts: unknown[]; researchLeads: unknown[] };
     expect(d.sourceConflicts).toEqual(conflicts);
     expect(d.researchLeads).toHaveLength(1);
+  });
+
+  it("the ceiling covers research AND the fact check: research gets two thirds, and what it leaves unused rolls over to the check", async () => {
+    expect([6, 5, 3, 2, 0].map((n) => verificationReserve(n, true))).toEqual([2, 1, 1, 0, 0]);
+    expect(verificationReserve(6, false)).toBe(0);
+    const verifyFacts = verifierOf(() => "confirmed");
+    const t = setup({ providers: { factVerifier: { name: "fake", verifyFacts } }, config: { maxSearchCallsPerGame: 6 } });
+    await generateGamePreview(t.deps, req);
+    expect(t.research.mock.calls[0][1].maxSearchCalls).toBe(4);
+    expect(verifyFacts.mock.calls[0][2].maxSearchCalls).toBe(3); // research used 3 of its 4 (the fake reports 3): 6 - 3 remain
+  });
+
+  it("without a fact check the whole ceiling goes to research", async () => {
+    const t = setup({ config: { maxSearchCallsPerGame: 6 } });
+    await generateGamePreview(t.deps, req);
+    expect(t.research.mock.calls[0][1].maxSearchCalls).toBe(6);
   });
 
   it("when every attempt is rejected NOTHING is saved, the run is REJECTED, and the reasons are reported", async () => {
