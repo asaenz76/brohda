@@ -154,7 +154,7 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
   });
 
   const verifierOf = (status: (id: string) => FactCheck["status"]) =>
-    vi.fn<GamePreviewFactVerifierProvider["verifyFacts"]>(async (_g, fs) => ({ checks: fs.map((f) => ({ factId: f.id, status: status(f.id), note: `note ${f.id}`, corroboratingUrl: null })), usage: usage({ searchCalls: 1, modelCalls: 1 }) }));
+    vi.fn<GamePreviewFactVerifierProvider["verifyFacts"]>(async (_g, fs) => ({ checks: fs.map((f) => ({ factId: f.id, status: status(f.id), basis: "stored_evidence" as const, retrievalFailed: false, note: `note ${f.id}`, corroboratingUrl: null })), usage: usage({ searchCalls: 1, modelCalls: 1 }) }));
 
   it("after the story is chosen and before anything is written, every fact it needs is independently verified, with the searches that remain under the ceiling", async () => {
     const verifyFacts = verifierOf(() => "confirmed");
@@ -223,6 +223,25 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
     const t = setup({ config: { maxSearchCallsPerGame: 6 } });
     await generateGamePreview(t.deps, req);
     expect(t.research.mock.calls[0][1].maxSearchCalls).toBe(6);
+  });
+
+  it("pilot measurement: where the searches went and how each selected fact was settled (stored evidence vs targeted search vs unresolved)", async () => {
+    const verifyFacts = vi.fn<GamePreviewFactVerifierProvider["verifyFacts"]>(async (_g, fs) => ({
+      checks: fs.map((f, i) => ({ factId: f.id, status: "confirmed" as const, basis: (i === 0 ? "targeted_search" : "stored_evidence") as "targeted_search" | "stored_evidence", retrievalFailed: false, note: "ok", corroboratingUrl: null })),
+      usage: usage({ searchCalls: 1, modelCalls: 2 }),
+    }));
+    const t = setup({ providers: { factVerifier: { name: "fake", verifyFacts } }, config: { maxSearchCallsPerGame: 6 } });
+    await generateGamePreview(t.deps, req);
+    const m = (t.runs[0].details as { measurement: Record<string, number> }).measurement;
+    expect(m).toMatchObject({ researchSearches: 3, verificationSearches: 1, factsDiscovered: 3, factsSelected: 3, confirmedFromStoredEvidence: 2, confirmedAfterTargetedSearch: 1, needingExtraSearch: 1, disputed: 0, unsupported: 0, retrievalFailed: 0 });
+  });
+
+  it("a Preview may use 0 verification searches when the captured evidence settles everything", async () => {
+    const verifyFacts = verifierOf(() => "confirmed");
+    verifyFacts.mockImplementation(async (_g, fs) => ({ checks: fs.map((f) => ({ factId: f.id, status: "confirmed" as const, basis: "stored_evidence" as const, retrievalFailed: false, note: "ok", corroboratingUrl: null })), usage: usage({ searchCalls: 0, modelCalls: 1 }) }));
+    const t = setup({ providers: { factVerifier: { name: "fake", verifyFacts } }, config: { maxSearchCallsPerGame: 6 } });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect((t.runs[0].details as { measurement: { verificationSearches: number } }).measurement.verificationSearches).toBe(0);
   });
 
   it("when every attempt is rejected NOTHING is saved, the run is REJECTED, and the reasons are reported", async () => {

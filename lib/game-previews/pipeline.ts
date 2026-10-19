@@ -29,7 +29,7 @@ export interface AttemptLog {
 export interface RunDetails {
   sources: { reached: number; accepted: number; rejected: number; list: ReachedSource[] };
   /** Every fact the research returned; `excluded` says why one was not allowed to reach the angle or the writer. */
-  facts: Array<{ id: string; kind: string; seasonScope: string; category: string; claim: string; excerpt: string | null; sourceUrl: string; publishedAt: string | null; excluded?: string }>;
+  facts: Array<{ id: string; kind: string; seasonScope: string; category: string; claim: string; excerpt: string | null; sourceType: string; pageContext: string | null; pageSeason: string | null; subjectTeam: string | null; sourceUrl: string; publishedAt: string | null; excluded?: string }>;
   /** Facts added to the chosen story because its summary carried a figure they hold. */
   angleFactsAdded: string[];
   /** Authoritative sources that disagreed during research (the disputed figure is not used when the story can be told without it). */
@@ -38,6 +38,19 @@ export interface RunDetails {
   researchLeads: ResearchLead[];
   /** The independent re-check of the chosen story's facts, per round (a failed fact removes that story; the next-best story is checked). */
   factVerification: Array<{ round: number; angleId: string; checks: FactCheck[] }>;
+  /** Pilot measurement: where the searches went, and how the selected story's facts were settled (from stored evidence vs an extra search vs not at all). */
+  measurement: {
+    researchSearches: number;
+    verificationSearches: number;
+    factsDiscovered: number;
+    factsSelected: number;
+    confirmedFromStoredEvidence: number;
+    confirmedAfterTargetedSearch: number;
+    needingExtraSearch: number;
+    disputed: number;
+    unsupported: number;
+    retrievalFailed: number;
+  };
   angles: AngleSelection["angles"];
   /** What each candidate angle rests on, computed from its facts: CURRENT_SEASON, CURRENT_WITH_HISTORY or HISTORY_ONLY. */
   angleBasis: Record<string, string>;
@@ -88,6 +101,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     sourceConflicts: [],
     researchLeads: [],
     factVerification: [],
+    measurement: { researchSearches: 0, verificationSearches: 0, factsDiscovered: 0, factsSelected: 0, confirmedFromStoredEvidence: 0, confirmedAfterTargetedSearch: 0, needingExtraSearch: 0, disputed: 0, unsupported: 0, retrievalFailed: 0 },
     angles: [],
     angleBasis: {},
     selectedAngleId: null,
@@ -150,10 +164,12 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
   }
   facts = reconcileFactKind(reconcileSeasonScope(facts, game)); // an earlier season is never current form, whatever the research called it
   factsFound = facts.length;
+  details.measurement.researchSearches = usage.searchCalls;
+  details.measurement.factsDiscovered = facts.length;
   // A fact about the current state needs a dated, recent source; one without it is recorded but never offered to the angle or the writer.
   const { usable, excluded } = splitUsableFacts(facts, config, deps.now());
   const excludedReason = new Map(excluded.map((e) => [e.fact.id, e.reason]));
-  details.facts = facts.map((f) => ({ id: f.id, kind: f.kind, seasonScope: f.seasonScope, category: f.category, claim: f.claim, excerpt: f.excerpt, sourceUrl: f.sourceUrl, publishedAt: f.publishedAt, ...(excludedReason.has(f.id) ? { excluded: excludedReason.get(f.id) } : {}) }));
+  details.facts = facts.map((f) => ({ id: f.id, kind: f.kind, seasonScope: f.seasonScope, category: f.category, claim: f.claim, excerpt: f.excerpt, sourceType: f.sourceType, pageContext: f.pageContext, pageSeason: f.pageSeason, subjectTeam: f.subjectTeam, sourceUrl: f.sourceUrl, publishedAt: f.publishedAt, ...(excludedReason.has(f.id) ? { excluded: excludedReason.get(f.id) } : {}) }));
   if (usage.searchCalls === 0) return fail("research_did_not_search"); // a model that did not actually search is not research
   if (facts.length === 0) return fail("no_verified_facts"); // weak research never becomes a manufactured story
   if (usable.length === 0) return fail("no_usable_facts", excluded.map((e) => `Fact ${e.fact.id} was set aside: ${e.reason}.`), "REJECTED");
@@ -223,6 +239,15 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
       details.angleOverridden = true;
       details.selectionReason = pick.reason;
     }
+    const all = details.factVerification.flatMap((v) => v.checks);
+    details.measurement.factsSelected = new Set(details.factVerification.flatMap((v) => v.checks.map((c) => c.factId))).size;
+    details.measurement.confirmedFromStoredEvidence = all.filter((c) => c.status === "confirmed" && c.basis === "stored_evidence").length;
+    details.measurement.confirmedAfterTargetedSearch = all.filter((c) => c.status === "confirmed" && c.basis === "targeted_search").length;
+    details.measurement.needingExtraSearch = all.filter((c) => c.basis === "targeted_search" || c.basis === "none").length;
+    details.measurement.disputed = all.filter((c) => c.status === "disputed").length;
+    details.measurement.unsupported = all.filter((c) => c.status === "unsupported").length;
+    details.measurement.retrievalFailed = all.filter((c) => c.retrievalFailed).length;
+    details.measurement.verificationSearches = usage.searchCalls - details.measurement.researchSearches;
     if (!chosen.factIds.every((id) => confirmed.has(id))) return fail("story_not_verified", chosen.factIds.filter((id) => !confirmed.has(id)).map((id) => `Fact ${id} was not verified.`), "REJECTED");
   }
 

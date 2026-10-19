@@ -50,6 +50,10 @@ export const fact = (over: Partial<CandidateFact> = {}): CandidateFact => ({
   retrievedAt: NOW.toISOString(),
   relevance: 0.9,
   gameAssociation: "Tennessee Titans' most recent game",
+  sourceType: "recap",
+  pageContext: null,
+  pageSeason: null,
+  subjectTeam: null,
   ...over,
 });
 

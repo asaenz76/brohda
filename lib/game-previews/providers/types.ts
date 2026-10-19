@@ -29,6 +29,10 @@ export type FactKind = "current" | "historical";
  */
 export type SeasonScope = "CURRENT_SEASON" | "HISTORICAL_CONTEXT";
 
+/** What kind of page a fact came from: it decides what the page's identity can establish (a current-season statistics page, standings page, game log or schedule from a major provider places a figure in the current season; an undated biography, archive article, prospect profile or historical page cannot). */
+export const FACT_SOURCE_TYPES = ["stats_page", "standings", "game_log", "schedule_results", "recap", "article", "injury_report", "preview", "official_release", "profile", "archive", "reference", "other"] as const;
+export type FactSourceType = (typeof FACT_SOURCE_TYPES)[number];
+
 /** One researched, sourced statement of fact about this Game's teams or players. The writer may only use facts; the stored provenance is built from the facts it cites. */
 export interface CandidateFact {
   id: string;
@@ -37,8 +41,15 @@ export interface CandidateFact {
   /** What sort of fact it is (streak, milestone, head_to_head, player_form, injury, record, result, ...): lets the editorial stage tell a story from a statistic. */
   category: string;
   claim: string;
-  /** The passage of the source that supports the claim. */
+  /** The passage of the source that supports the claim — with the surrounding context needed to understand it, not a bare fragment. */
   excerpt: string | null;
+  sourceType: FactSourceType;
+  /** What the page IS, in a phrase ("ESPN Avalanche team statistics page, current regular season"): the identity that can establish season and team when the sentence itself does not repeat them. */
+  pageContext: string | null;
+  /** The season the PAGE identifies (its title, header or selected season), e.g. "2026-27"; null when it identifies none. */
+  pageSeason: string | null;
+  /** The team of the player or coach the fact names, as the page itself shows it; null when the fact names no person. */
+  subjectTeam: string | null;
   sourceUrl: string;
   sourceProvider: string;
   sourceTitle: string;
@@ -184,6 +195,10 @@ export type FactCheckStatus = "confirmed" | "unsupported" | "disputed";
 export interface FactCheck {
   factId: string;
   status: FactCheckStatus;
+  /** How it was settled: the evidence captured during research, a targeted verification search, or neither (not settled). */
+  basis: "stored_evidence" | "targeted_search" | "none";
+  /** The page could not be retrieved during verification — which is not evidence that the claim is false. */
+  retrievalFailed: boolean;
   note: string;
   corroboratingUrl: string | null;
 }
