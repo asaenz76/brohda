@@ -1,7 +1,7 @@
 import type { GamePreviewConfig, GamePreviewInput, GamePreviewReason, GamePreviewWriteOutcome } from "./types";
 import type { GenerationRunInput } from "./repository";
 import { addUsage, emptyUsage, type AngleSelection, type CandidateFact, type EditorialAngle, type FactCheck, type GameIdentity, type GamePreviewProviders, type ProviderUsage, type ReachedSource, type ResearchLead, type SourceConflict } from "./providers/types";
-import { angleBasis, chooseAngle, completeAngleFacts, overallScore, validateAngles, validateEditorial } from "./editorial";
+import { angleBasis, chooseAngle, completeAngleFacts, dedupeAngles, overallScore, validateAngles, validateEditorial } from "./editorial";
 import { domainOf, isTrustedSource, reconcileFactKind, reconcileSeasonScope, splitUsableFacts, validateDraft, verificationReasons } from "./validation";
 
 /**
@@ -32,6 +32,8 @@ export interface RunDetails {
   facts: Array<{ id: string; kind: string; seasonScope: string; category: string; claim: string; excerpt: string | null; sourceType: string; pageContext: string | null; pageSeason: string | null; subjectTeam: string | null; sourceUrl: string; publishedAt: string | null; excluded?: string }>;
   /** Facts added to the chosen story because its summary carried a figure they hold. */
   angleFactsAdded: string[];
+  /** Candidate angles set aside because a stronger angle was the same story (same facts or same kind). */
+  angleDuplicatesDropped: Array<{ id: string; keptId: string; reason: string }>;
   /** Authoritative sources that disagreed during research (the disputed figure is not used when the story can be told without it). */
   sourceConflicts: SourceConflict[];
   /** What research noticed around the Game, as hints for the angle stage. */
@@ -109,6 +111,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     sources: { reached: 0, accepted: 0, rejected: 0, list: [] },
     facts: [],
     angleFactsAdded: [],
+    angleDuplicatesDropped: [],
     sourceConflicts: [],
     researchLeads: [],
     factVerification: [],
@@ -201,15 +204,20 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
   let chosen: EditorialAngle;
   let selectionResult: AngleSelection;
   try {
-    const selection = await providers.angles.selectAngle(game, facts, stage, leads);
+    const proposed = await providers.angles.selectAngle(game, facts, stage, leads);
+    usage = addUsage(usage, proposed.usage);
+    const structural = validateAngles(proposed, facts);
+    if (structural.length > 0) {
+      details.angles = proposed.angles;
+      return fail("angle_selection_invalid", structural, "REJECTED");
+    }
+    const { selection, dropped } = dedupeAngles(proposed);
     selectionResult = selection;
-    usage = addUsage(usage, selection.usage);
+    details.angleDuplicatesDropped = dropped;
     details.angles = selection.angles;
     details.angleBasis = Object.fromEntries(selection.angles.map((a) => [a.id, angleBasis(a, facts)]));
     details.selectedAngleId = selection.selectedId;
     details.rejectedAngles = selection.rejected;
-    const structural = validateAngles(selection, facts);
-    if (structural.length > 0) return fail("angle_selection_invalid", structural, "REJECTED");
     const trustedAngles = selection.angles.filter(hasTrustedPrimary);
     if (trustedAngles.length === 0) return fail("no_trusted_primary_source", ["No candidate story rests on a primary source from the trusted group (the approved league, ESPN, FOX Sports, established reporting or team sites)."], "REJECTED");
     const selectedStands = trustedAngles.some((a) => a.id === selection.selectedId);

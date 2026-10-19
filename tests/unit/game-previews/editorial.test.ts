@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { angleBasis, chooseAngle, completeAngleFacts, overallScore, validateAngles, validateEditorial } from "@/lib/game-previews/editorial";
+import { angleBasis, chooseAngle, completeAngleFacts, dedupeAngles, overallScore, validateAngles, validateEditorial } from "@/lib/game-previews/editorial";
 import type { AngleScores, EditorialAngle } from "@/lib/game-previews/providers/types";
 import { angles, config, facts, goodDraft, selection } from "./fixtures";
 
@@ -180,14 +180,26 @@ describe("an earlier season's playoffs are not named by the new season's year", 
   });
 });
 
-describe("genuinely different angles", () => {
-  it("rejects two angles that rest on the same facts (one story reworded) and two angles of the same kind", () => {
-    const same = { ...selection, angles: [angles[0], { ...angles[1], type: "STREAK_ON_THE_LINE" as const, factIds: ["f1", "f3", "f2"] }, angles[2]] };
-    expect(validateAngles(same, facts).join(" ")).toMatch(/rest on the same facts/);
-    const twice = { ...selection, angles: [angles[0], { ...angles[1], type: "CONTRAST" as const, factIds: ["f1"] }, angles[2]] };
-    expect(validateAngles(twice, facts).join(" ")).toMatch(/both CONTRAST/);
+describe("genuinely different angles — duplicates are set aside, never a reason to reject the run", () => {
+  it("keeps the stronger of two angles on the same facts, and of two angles of the same kind; records what was dropped", () => {
+    const sameFacts = { ...selection, angles: [angles[0], { ...angles[1], type: "STREAK_ON_THE_LINE" as const, factIds: ["f1", "f3", "f2"], scores: s(2) }, angles[2]] };
+    const r1 = dedupeAngles(sameFacts);
+    expect(r1.selection.angles.map((a) => a.id)).toEqual(["a1", "a3"]);
+    expect(r1.dropped).toEqual([{ id: "a2", keptId: "a1", reason: "rests on the same facts as a stronger angle" }]);
+    const twice = { ...selection, angles: [angles[0], { ...angles[1], type: "CONTRAST" as const, factIds: ["f1"], scores: s(2) }, angles[2]] };
+    const r2 = dedupeAngles(twice);
+    expect(r2.dropped).toEqual([{ id: "a2", keptId: "a1", reason: "is another CONTRAST story; the stronger one was kept" }]);
   });
-  it("accepts angles of different kinds on different facts", () => {
+  it("two injury stories for a Game whose news is mostly injuries: the stronger stays, the run goes on", () => {
+    const inj = (id: string, fact: string, n: number) => ({ ...angles[0], id, type: "INJURY_RETURN" as const, factIds: [fact], scores: s(n) });
+    const r = dedupeAngles({ angles: [inj("a1", "f1", 3), inj("a2", "f3", 4), { ...angles[2], id: "a3" }], selectedId: "a1" });
+    expect(r.selection.angles.map((a) => a.id)).toEqual(["a2", "a3"]);
+    expect(r.selection.selectedId).toBe("a2"); // the selected angle was the weaker twin: its kept twin takes its place
+  });
+  it("leaves angles of different kinds on different facts untouched", () => {
+    const r = dedupeAngles(selection);
+    expect(r.selection.angles).toEqual(selection.angles);
+    expect(r.dropped).toEqual([]);
     expect(validateAngles(selection, facts)).toEqual([]);
   });
 });
