@@ -307,6 +307,16 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
     expect((t.runs[0].details as { measurement: { sourceDisagreement: boolean } }).measurement.sourceDisagreement).toBe(true);
   });
 
+  it("two angles of the same kind do not reject the run: the weaker is set aside, recorded, and the story is still written", async () => {
+    const dup = { ...selection, angles: selection.angles.map((a) => (a.id === "a3" ? { ...a, type: "CONTRAST" as const } : a)) }; // a3 is now a second CONTRAST (a1 is the stronger)
+    const t = setup({ providers: { angles: { name: "fake", selectAngle: async () => ({ ...dup, usage: usage({ modelCalls: 1 }) }) } } });
+    const out = await generateGamePreview(t.deps, req);
+    expect(out.status).toBe("SUCCEEDED");
+    const d = t.runs[0].details as { angleDuplicatesDropped: Array<{ id: string; keptId: string }>; angles: Array<{ id: string }> };
+    expect(d.angleDuplicatesDropped).toEqual([{ id: "a3", keptId: "a1", reason: expect.stringMatching(/another CONTRAST story/) }]);
+    expect(d.angles.map((a) => a.id)).toEqual(["a1", "a2"]);
+  });
+
   it("when every attempt is rejected NOTHING is saved, the run is REJECTED, and the reasons are reported", async () => {
     const bad = draftOf({ hook: "Tennessee is 0-5, Indianapolis is 2-3" });
     const t = setup({ providers: { writer: { name: "fake", write: async () => bad } } });

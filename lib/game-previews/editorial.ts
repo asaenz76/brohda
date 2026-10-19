@@ -32,16 +32,6 @@ export function validateAngles(selection: Pick<AngleSelection, "angles" | "selec
       if (!Number.isFinite(v) || v < 1 || v > 5) problems.push(`Angle "${a.id}" has an invalid ${k} score (${v}).`);
     }
   }
-  // Genuinely different angles: three phrasings of "Team A has won six straight" are one angle. Different stories rest on different facts and are different kinds of story.
-  for (let i = 0; i < angles.length; i++) {
-    for (let j = i + 1; j < angles.length; j++) {
-      const a = angles[i];
-      const b = angles[j];
-      const sameFacts = a.factIds.length > 0 && [...a.factIds].sort().join(",") === [...b.factIds].sort().join(",");
-      if (sameFacts) problems.push(`Angles "${a.id}" and "${b.id}" rest on the same facts: they are one story, not two.`);
-      else if (a.type === b.type) problems.push(`Angles "${a.id}" and "${b.id}" are both ${a.type}: propose different kinds of story.`);
-    }
-  }
   if (!angles.some((a) => a.id === selection.selectedId)) problems.push(`The selected angle "${selection.selectedId}" is not one of the candidates.`);
   return problems;
 }
@@ -80,6 +70,27 @@ export function angleBasis(angle: Pick<EditorialAngle, "factIds">, facts: Candid
   const current = scopes.filter((s) => s === "CURRENT_SEASON").length;
   if (current === 0) return "HISTORY_ONLY";
   return current === scopes.length ? "CURRENT_SEASON" : "CURRENT_WITH_HISTORY";
+}
+
+/**
+ * Genuinely different angles: three phrasings of "Team A has won six straight" are one angle. Different stories rest on different facts and are different kinds of story. A model that proposes two of the same kind (two injury stories for a Game whose news is mostly
+ * injuries) has not made the Game unwritable: the stronger of the two is kept and the weaker set aside (recorded), instead of rejecting the run. If the selected angle was the one set aside, its kept twin takes its place.
+ */
+export function dedupeAngles<T extends Pick<AngleSelection, "angles" | "selectedId">>(selection: T): { selection: T; dropped: Array<{ id: string; keptId: string; reason: string }> } {
+  const ranked = [...selection.angles].sort((a, b) => overallScore(b.scores) - overallScore(a.scores));
+  const kept: EditorialAngle[] = [];
+  const dropped: Array<{ id: string; keptId: string; reason: string }> = [];
+  for (const a of ranked) {
+    const sameFacts = kept.find((k) => a.factIds.length > 0 && [...a.factIds].sort().join(",") === [...k.factIds].sort().join(","));
+    const sameType = kept.find((k) => k.type === a.type);
+    const twin = sameFacts ?? sameType;
+    if (twin) dropped.push({ id: a.id, keptId: twin.id, reason: sameFacts ? "rests on the same facts as a stronger angle" : `is another ${a.type} story; the stronger one was kept` });
+    else kept.push(a);
+  }
+  const keptIds = new Set(kept.map((k) => k.id));
+  const angles = selection.angles.filter((a) => keptIds.has(a.id));
+  const selectedId = keptIds.has(selection.selectedId) ? selection.selectedId : (dropped.find((d) => d.id === selection.selectedId)?.keptId ?? selection.selectedId);
+  return { selection: { ...selection, angles, selectedId }, dropped };
 }
 
 export interface ChosenAngle {
