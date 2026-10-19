@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { generateGamePreview, type PipelineDeps } from "@/lib/game-previews/pipeline";
-import { addUsage, emptyUsage, type GamePreviewAngleProvider, type GamePreviewProviders, type GamePreviewResearchProvider, type GamePreviewVerifierProvider, type GamePreviewWriterProvider, type PreviewDraft } from "@/lib/game-previews/providers/types";
+import { addUsage, emptyUsage, type FactCheck, type GamePreviewAngleProvider, type GamePreviewFactVerifierProvider, type GamePreviewProviders, type GamePreviewResearchProvider, type GamePreviewVerifierProvider, type GamePreviewWriterProvider, type PreviewDraft } from "@/lib/game-previews/providers/types";
 import type { GenerationRunInput } from "@/lib/game-previews/repository";
 import type { GamePreviewInput } from "@/lib/game-previews/types";
 import { config, fact, facts, game, goodDraft, NOW, selection } from "./fixtures";
@@ -151,6 +151,62 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
     await generateGamePreview(t.deps, req);
     const recorded = (t.runs[0].details as { facts: Array<{ id: string; excerpt: string | null }> }).facts;
     expect(recorded.find((f) => f.id === "f1")?.excerpt).toBe(facts[0].excerpt);
+  });
+
+  const verifierOf = (status: (id: string) => FactCheck["status"]) =>
+    vi.fn<GamePreviewFactVerifierProvider["verifyFacts"]>(async (_g, fs) => ({ checks: fs.map((f) => ({ factId: f.id, status: status(f.id), note: `note ${f.id}`, corroboratingUrl: null })), usage: usage({ searchCalls: 1, modelCalls: 1 }) }));
+
+  it("after the story is chosen and before anything is written, every fact it needs is independently verified, with the searches that remain under the ceiling", async () => {
+    const verifyFacts = verifierOf(() => "confirmed");
+    const t = setup({ providers: { factVerifier: { name: "fake", verifyFacts } }, config: { maxSearchCallsPerGame: 6 } });
+    const out = await generateGamePreview(t.deps, req);
+    expect(out.status).toBe("SUCCEEDED");
+    const [, checked, vctx] = verifyFacts.mock.calls[0];
+    expect(checked.map((f) => f.id)).toEqual(["f1", "f2", "f3"]); // exactly the chosen story's facts
+    expect(vctx).toMatchObject({ maxSearchCalls: 3, webSearchToolVersion: "web_search_20250305" }); // 6 ceiling - 3 used by research
+    expect(t.write.mock.invocationCallOrder[0]).toBeGreaterThan(verifyFacts.mock.invocationCallOrder[0]);
+    expect((t.runs[0].details as { factVerification: Array<{ round: number; checks: unknown[] }> }).factVerification).toHaveLength(1);
+  });
+
+  it("a fact that does not verify takes its story with it: the next-best story whose facts stand is checked and written, and the writer never sees the failed fact", async () => {
+    const verifyFacts = verifierOf((id) => (id === "f2" ? "unsupported" : "confirmed"));
+    const t = setup({ providers: { factVerifier: { name: "fake", verifyFacts } } });
+    const out = await generateGamePreview(t.deps, req);
+    const [, angleArg, factsArg] = t.write.mock.calls[0];
+    expect(angleArg.id).toBe("a2"); // a1 and a3 both needed f2; a2 (records) is the story that stands
+    expect(factsArg.map((f) => f.id)).not.toContain("f2");
+    const d = t.runs[0].details as { facts: Array<{ id: string; excluded?: string }>; factVerification: unknown[]; angleOverridden: boolean };
+    expect(d.facts.find((f) => f.id === "f2")?.excluded).toMatch(/failed verification \(unsupported: note f2\)/);
+    expect(d.factVerification).toHaveLength(1); // the next story's facts (f1, f3) were already confirmed in that round: nothing is re-checked
+    expect(verifyFacts).toHaveBeenCalledTimes(1);
+    expect(d.angleOverridden).toBe(true);
+    expect(out.status).not.toBe("FAILED");
+  });
+
+  it("'disputed' does not verify either; when no story stands the run is REJECTED and the writer is never called", async () => {
+    const verifyFacts = verifierOf(() => "disputed");
+    const t = setup({ providers: { factVerifier: { name: "fake", verifyFacts } } });
+    const out = await generateGamePreview(t.deps, req);
+    expect(out).toMatchObject({ status: "REJECTED", error: "story_not_verified" });
+    expect(t.write).not.toHaveBeenCalled();
+    expect(t.saves).toHaveLength(0);
+  });
+
+  it("a failure of the verification call fails the run before anything is written", async () => {
+    const t = setup({ providers: { factVerifier: { name: "fake", verifyFacts: async () => { throw new Error("anthropic_api_500: x"); } } } });
+    expect(await generateGamePreview(t.deps, req)).toMatchObject({ status: "FAILED", error: expect.stringMatching(/^fact_verification_failed/) });
+    expect(t.write).not.toHaveBeenCalled();
+  });
+
+  it("source conflicts and research leads are recorded; leads keep only usable facts and reach the angle stage as hints", async () => {
+    const leads = [{ summary: "A winless team meets a team that owned it.", factIds: ["f1", "f2", "f99"] }, { summary: "Dropped.", factIds: ["f99"] }];
+    const conflicts = [{ topic: "Tennessee goals", note: "ESPN 3, NFL.com 4" }];
+    const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts, sources, leads, conflicts, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) } } });
+    await generateGamePreview(t.deps, req);
+    expect(t.selectAngle.mock.calls[0][3]).toEqual([{ summary: "A winless team meets a team that owned it.", factIds: ["f1", "f2"] }]);
+    const d = t.runs[0].details as { sourceConflicts: unknown[]; researchLeads: unknown[] };
+    expect(d.sourceConflicts).toEqual(conflicts);
+    expect(d.researchLeads).toHaveLength(1);
   });
 
   it("when every attempt is rejected NOTHING is saved, the run is REJECTED, and the reasons are reported", async () => {

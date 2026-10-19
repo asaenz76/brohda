@@ -14,7 +14,7 @@ export function createGamePreviewProviders(config: GamePreviewConfig, env: Recor
       const apiKey = env.ANTHROPIC_API_KEY;
       if (!apiKey) return null;
       const provider = new AnthropicGamePreviewProvider(new Anthropic({ apiKey, baseURL: env.ANTHROPIC_BASE_URL || undefined }));
-      return { research: provider, angles: provider, writer: provider, verifier: config.verifyWithModel ? provider : null };
+      return { research: provider, angles: provider, writer: provider, verifier: config.verifyWithModel ? provider : null, factVerifier: config.verifyWithModel ? provider : null };
     }
     default:
       return null;
