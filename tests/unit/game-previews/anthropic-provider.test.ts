@@ -31,7 +31,7 @@ describe("Anthropic provider — research", () => {
     expect(body.tools).toEqual([{ type: "web_search_20250305", name: "web_search", max_uses: 3, blocked_domains: ["reddit.com"] }]);
     for (const k of ["temperature", "top_p", "top_k", "thinking"]) expect(body, k).not.toHaveProperty(k);
     expect(String(body.system)).toMatch(/must use web search/i);
-    expect(String(body.system)).toContain("Preferred domains: espn.com");
+    expect(String(body.system)).toContain("Approved (trusted) domains: espn.com");
     expect(String(body.system)).toContain("Never use these domains: reddit.com");
     expect(String(body.system)).toMatch(/most interesting TRUE story/);
     expect(JSON.stringify(body.messages)).toContain("Tennessee Titans at Indianapolis Colts");
@@ -142,7 +142,7 @@ describe("Anthropic provider — angles, writing, verification", () => {
 
   it("the writer is given the CHOSEN story and only that story's facts, the configured limits and any rejection feedback, plus the editorial tests", async () => {
     const c = client(msg([text({ hook: goodDraft.hook, preview: goodDraft.preview, claims: goodDraft.claims.map((x) => ({ text: x.text, fact_ids: x.factIds })) })]));
-    const draft = await new AnthropicGamePreviewProvider(c).write(game, { ...angles[2] }, facts, { model: "configured-model", effort: "medium", maxChars: 650, hookMaxChars: 90, maxCitedFacts: 3, feedback: ['The figure "27" is not in the facts.'] });
+    const draft = await new AnthropicGamePreviewProvider(c).write(game, { ...angles[2] }, facts, { model: "configured-model", effort: "medium", maxChars: 650, hookMaxChars: 90, maxCitedFacts: 3, recentHooks: ["Can the Jets ground this storm?"], feedback: ['The figure "27" is not in the facts.'] });
     const body = calls(c)[0];
     expect(body.output_config).toMatchObject({ format: { type: "json_schema", schema: { required: ["hook", "preview", "claims"] } } });
     expect(body.tools).toBeUndefined(); // writing never searches
@@ -266,6 +266,26 @@ describe("Anthropic provider — story-first research and fact verification", ()
     const out = await new AnthropicGamePreviewProvider(c).verifyFacts(game, [facts[0], facts[1]], { ...vctx, maxSearchCalls: 0 });
     expect(out.checks.map((k) => k.status)).toEqual(["confirmed", "unsupported"]);
     expect(out.checks[1].note).toMatch(/no verdict returned/);
+  });
+
+  it("research reports the exception flags per fact (ambiguous / surprising / disputed), and tells the model that one approved source is normally enough and which sources are trusted", async () => {
+    const c = client(msg([searchUse(), searchResult([ESPN]), text({ facts: [rawFact({ ambiguous: true }), rawFact({ claim: "B", surprising: true }), rawFact({ claim: "C", disputed: true }), rawFact({ claim: "D" })] })]));
+    const out = await new AnthropicGamePreviewProvider(c).research(game, ctx);
+    expect(out.facts.map((f) => [f.ambiguous, f.surprising, f.disputed])).toEqual([[true, false, false], [false, true, false], [false, false, true], [false, false, false]]);
+    const system = String(calls(c)[0].system);
+    expect(system).toMatch(/One approved source that clearly states what you report is normally enough/);
+    expect(system).toMatch(/never primary support/);
+    expect(system).toMatch(/not a preseason game/);
+    expect(system).toContain("Approved (trusted) domains: espn.com");
+  });
+
+  it("the writer gets the recent hooks to vary from, the anti-template rule, and the no-fabricated-quote rule", async () => {
+    const c = client(msg([text({ hook: goodDraft.hook, preview: goodDraft.preview, claims: goodDraft.claims.map((x) => ({ text: x.text, fact_ids: x.factIds })) })]));
+    await new AnthropicGamePreviewProvider(c).write(game, { ...angles[2] }, facts, { model: "m", effort: "medium", maxChars: 650, hookMaxChars: 90, maxCitedFacts: 3, recentHooks: ["Three games. Four goals. Boston, you're next."], feedback: [] });
+    const body = calls(c)[0];
+    expect(JSON.stringify(body.messages)).toContain("Three games. Four goals. Boston, you're next.");
+    expect(String(body.system)).toMatch(/do not turn the style references into a formula/i);
+    expect(String(body.system)).toMatch(/Never put a quote in the Preview unless it appears word for word/);
   });
 
   it("research captures the evidence a later check needs: the page's own identity, season, source type and the team of any person named", async () => {

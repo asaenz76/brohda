@@ -81,6 +81,18 @@ describe("configuration, not constants", () => {
   });
 });
 
+describe("the public source credit", () => {
+  it("shows exactly the sources the Preview recorded as public (primary first, at most two), not every stored source", async () => {
+    const g = await game();
+    const espn = source({ url: "https://www.espn.com/nhl/story/_/id/1", provider: "ESPN", title: "Capitals notebook", supports: null });
+    const fox = source({ url: "https://www.foxsports.com/nhl/x", provider: "FOX Sports", title: "Fox story", supports: null });
+    const r = await saveGamePreview({ ...input(g.fixtureId, { sources: [espn, source(), fox] }), meta: { publicSourceUrls: [espn.url, fox.url] } });
+    expect(r.outcome).toBe("created");
+    const read = await getGamePreviewForFixture(g.fixtureId);
+    expect(read!.sources.map((s) => [s.name, s.url])).toEqual([["ESPN", espn.url], ["FOX Sports", fox.url]]);
+  });
+});
+
 describe("writing a Preview", () => {
   it("creates it with its provenance, and the Post reads exactly that saved text", async () => {
     const g = await game();
@@ -88,6 +100,8 @@ describe("writing a Preview", () => {
     expect(r.outcome).toBe("created");
     const read = await getGamePreviewForFixture(g.fixtureId);
     expect(read).toMatchObject({ hook: "Seven goals. Your move, Washington.", frozenAt: null });
+    // A Preview saved without a recorded public-source list credits its first (primary) source only: "Source: NHL.com".
+    expect(read!.sources).toEqual([{ url: "https://www.nhl.com/news/example-preview", name: "NHL.com", title: "Devils vs. Capitals preview", publishedAt: expect.any(String) }]);
     const [row] = [...(await listGamePreviewsForAdmin([g.fixtureId])).values()];
     expect(row.sources.map((s) => s.provider)).toEqual(["NHL.com", "ESPN"]); // order kept
     expect(row.sources[0]).toMatchObject({ url: "https://www.nhl.com/news/example-preview", title: "Devils vs. Capitals preview" });

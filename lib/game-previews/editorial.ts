@@ -164,6 +164,7 @@ export function validateEditorial({ draft, angle, config, facts, kickoffUtc }: {
   const preview = draft.preview.trim();
   const cited = new Set(draft.claims.flatMap((c) => c.factIds));
 
+  if (angle.factIds[0] && !cited.has(angle.factIds[0])) problems.push(`The draft must rest on the story's primary fact (${angle.factIds[0]}) and cite it: the Preview credits that source.`);
   const outside = [...cited].filter((id) => !angle.factIds.includes(id));
   if (outside.length > 0) problems.push(`The draft uses facts outside the chosen story (${outside.join(", ")}). Tell ONE story with the facts it needs.`);
   if (cited.size > config.maxCitedFacts) problems.push(`The draft cites ${cited.size} facts; a Preview tells one story with at most ${config.maxCitedFacts}. Cut the ones that do not strengthen it.`);

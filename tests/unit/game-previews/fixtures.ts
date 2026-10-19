@@ -54,6 +54,9 @@ export const fact = (over: Partial<CandidateFact> = {}): CandidateFact => ({
   pageContext: null,
   pageSeason: null,
   subjectTeam: null,
+  ambiguous: false,
+  surprising: false,
+  disputed: false,
   ...over,
 });
 

@@ -89,6 +89,50 @@ export function reconcileFactKind(facts: CandidateFact[]): CandidateFact[] {
   return facts.map((f) => (f.kind === "historical" && RANKING_WORDS.test(f.claim) ? { ...f, kind: "current" as const } : f));
 }
 
+/** The brand-name slug of a team ("Los Angeles Chargers" -> "chargers"): an official team website is its own brand domain (chargers.com). */
+const nicknameSlug = (team: string) => (team.toLowerCase().split(/\s+/).pop() ?? "").replace(/[^a-z]/g, "");
+
+/**
+ * Whether a source is trusted as the PRIMARY support of a published Preview: a domain on the stored trusted list (the configurable `preferred_domains`: the leagues, ESPN, FOX Sports, established major sports reporting, ...) or one of the two teams' own websites.
+ * A random blog, a content farm or a low-authority aggregator is never the primary source (it may still be a supporting one).
+ */
+export function isTrustedSource(url: string, teams: string[], trustedDomains: string[]): boolean {
+  const host = domainOf(url);
+  if (!host) return false;
+  if (domainMatches(host, trustedDomains)) return true;
+  const label = host.split(".").slice(-2)[0] ?? "";
+  return teams.some((t) => label.length >= 4 && nicknameSlug(t) === label);
+}
+
+/**
+ * Why a fact needs ADDITIONAL verification, if it does. One trusted source normally suffices, so a fact from a trusted source that clearly says what is claimed needs none; extra checking is reserved for: a source outside the trusted group, research's own flags (ambiguous
+ * season/date/team, an unusually surprising claim, trusted sources that disagree), a missing excerpt (nothing shows the source says it), and a current-season figure on a page that cannot place it in a season (an undated profile, archive or reference page).
+ */
+export function verificationReasons(fact: CandidateFact, trusted: boolean): string[] {
+  const reasons: string[] = [];
+  if (!trusted) reasons.push("the source is outside the trusted group");
+  if (fact.disputed) reasons.push("trusted sources disagree about it");
+  if (fact.ambiguous) reasons.push("the page is ambiguous about season, date or team");
+  if (fact.surprising) reasons.push("the claim is unusually surprising or consequential");
+  if (!fact.excerpt || !fact.excerpt.trim()) reasons.push("no passage shows that the source says it");
+  const undatedPage = ["profile", "archive", "reference", "other"].includes(fact.sourceType) && !fact.pageSeason && !fact.publishedAt;
+  if (fact.seasonScope === "CURRENT_SEASON" && undatedPage) reasons.push("the page cannot place the figure in the current season");
+  return reasons;
+}
+
+const normQuote = (t: string) => t.toLowerCase().replace(/[\u2018\u2019]/g, "'").replace(/[^a-z0-9' ]+/g, " ").replace(/\s+/g, " ").trim();
+
+/** A quote in the Preview must be in a cited source passage: a fabricated quote is never published. Returns the quotes that were not found. */
+export function unsupportedQuotes(text: string, cited: CandidateFact[]): string[] {
+  const corpus = normQuote(cited.map((f) => `${f.claim} ${f.excerpt ?? ""}`).join(" "));
+  const missing: string[] = [];
+  for (const m of text.matchAll(/["\u201C]([^"\u201D]{12,})["\u201D]/g)) {
+    const q = normQuote(m[1]);
+    if (q.split(" ").length >= 3 && !corpus.includes(q)) missing.push(m[1]);
+  }
+  return missing;
+}
+
 export interface ExcludedFact {
   fact: CandidateFact;
   reason: string;
@@ -170,6 +214,8 @@ export function validateDraft({ draft, facts, game, config, now }: { draft: Draf
     if (SEASON_QUALIFIER.test(claim.text) && facts.length > 0 && !facts.some(statesSeason)) problems.push(`Claim ${i + 1} says "this season" (or "this year"), but none of the facts it cites says that; a streak or count may reach into last season. State only the time frame the facts give.`);
   });
   if (SEASON_QUALIFIER.test(`${hook} ${preview}`) && cited.size > 0 && ![...cited.values()].some(statesSeason)) problems.push('The hook or preview says "this season" (or "this year"), but none of the cited facts says that. State only the time frame the facts give.');
+
+  for (const q of unsupportedQuotes(`${hook} ${preview}`, [...cited.values()])) problems.push(`The quote "${q.slice(0, 80)}" is not in any cited source passage. Never write a quote the research did not capture.`);
 
   const text = `${hook} ${preview}`.toLowerCase();
   const names = [game.homeTeam, game.awayTeam].flatMap(teamTokens);

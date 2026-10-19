@@ -59,6 +59,10 @@ export interface CandidateFact {
   relevance: number;
   /** How the fact ties to this exact Game (a team, a player on it, the series between them). */
   gameAssociation: string;
+  /** Research's own flags for the exceptions that call for extra verification: the page is ambiguous about season, date or team; the claim is unusually surprising or consequential; trusted sources disagree about it. */
+  ambiguous: boolean;
+  surprising: boolean;
+  disputed: boolean;
 }
 
 export interface ProviderUsage {
@@ -146,6 +150,8 @@ export const ANGLE_TYPES = [
   "RIVALRY",
   "WEIRD_STAT",
   "MILESTONE",
+  "COACH_OR_PLAYER_REUNION",
+  "MATCHUP_DOMINANCE",
   "SEASON_RECORD",
 ] as const;
 export type AngleType = (typeof ANGLE_TYPES)[number];
@@ -223,6 +229,8 @@ export interface DraftContext extends StageContext {
   hookMaxChars: number;
   /** How many facts the story may cite at most. */
   maxCitedFacts: number;
+  /** Hooks of the most recent Previews: the writer varies its structure from them instead of repeating a formula ("Three games. Four goals. Boston, you're next."). */
+  recentHooks: string[];
   /** Why the previous attempt was rejected (empty on the first attempt). */
   feedback: string[];
 }
