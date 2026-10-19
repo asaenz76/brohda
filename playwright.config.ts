@@ -32,7 +32,9 @@ export default defineConfig({
   // see tests/e2e/helpers/global-setup.ts.
   globalSetup: "./tests/e2e/helpers/global-setup.ts",
   fullyParallel: true,
-  retries: 0,
+  // On CI one automatic retry: every run starts a cold `next dev` and a fresh local Supabase, and a single test occasionally loses a race with a route compile or a gateway hiccup ("An invalid response was received from the upstream server" while seeding;
+  // a first navigation outlasting its wait). A test that fails twice still fails the run; one that passes on the retry is reported as "flaky" in the summary, so it stays visible. Locally there is no retry: flakiness shows up where it can be fixed.
+  retries: process.env.CI ? 1 : 0,
   reporter: "list",
   // 30s default isn't enough for a spec's first navigation to a route
   // Turbopack hasn't compiled yet on a freshly-started dev server — every
