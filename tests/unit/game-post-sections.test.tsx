@@ -100,7 +100,8 @@ describe("Market sentiment on the Post", () => {
 });
 
 describe("the Game Preview block", () => {
-  const preview = { fixtureId: "f1", hook: "Seven goals. Your move, Washington.", body: "The Devils crushed the Rangers 7-1. Today, they chase a third straight win against the Capitals. Who takes it?", generatedAt: new Date().toISOString(), checkedAt: new Date().toISOString(), frozenAt: null };
+  const espn = { url: "https://www.espn.com/nfl/story/_/id/1/chiefs-pass-rush", name: "ESPN", title: "Chiefs pass rush searching for answers", publishedAt: "2026-10-15T10:00:00.000Z" };
+  const preview = { fixtureId: "f1", hook: "Seven goals. Your move, Washington.", body: "The Devils crushed the Rangers 7-1. Today, they chase a third straight win against the Capitals. Who takes it?", generatedAt: new Date().toISOString(), checkedAt: new Date().toISOString(), frozenAt: null, sources: [espn] };
 
   it("shows the hook and the story under a 'Game Preview' heading", () => {
     render(<GamePreviewSection preview={preview} />);
@@ -114,9 +115,42 @@ describe("the Game Preview block", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("does not show provenance to Members by default", () => {
+  it("credits the primary source in small print under the text: 'Source: ESPN · Oct 15, 2026', linking to the publisher's own page", () => {
     const { container } = render(<GamePreviewSection preview={preview} />);
-    expect(container.querySelectorAll("a")).toHaveLength(0);
-    expect(container.textContent).not.toMatch(/source|https?:\/\//i);
+    const footer = container.querySelector('[data-slot="game-preview-source"]')!;
+    expect(footer.textContent).toBe("Source: ESPN · Oct 15, 2026");
+    const link = footer.querySelector("a")!;
+    expect(link).toHaveAttribute("href", espn.url);
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link.getAttribute("rel")).toContain("noopener");
+    expect(link).toHaveAttribute("title", "Chiefs pass rush searching for answers");
+    // accessible name carries the publisher and the article, and says it opens a new tab
+    expect(screen.getByRole("link", { name: "Source: ESPN — Chiefs pass rush searching for answers (opens in a new tab)" })).toBe(link);
+    // visually secondary: small, muted, and below the story (after the body in the document)
+    expect(footer.className).toMatch(/text-xs/);
+    expect(footer.className).toMatch(/text-text-muted/);
+    expect(container.querySelector('[data-slot="game-preview-body"]')!.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // the story itself is untouched by the credit
+    expect(container.querySelector('[data-slot="game-preview-body"]')!.textContent).toBe(preview.body);
+  });
+
+  it("a second source appears only when the Preview carries one, as 'Also:' — never a bibliography", () => {
+    const nfl = { url: "https://www.nfl.com/news/x", name: "NFL.com", title: null, publishedAt: null };
+    const { container } = render(<GamePreviewSection preview={{ ...preview, sources: [espn, nfl] }} />);
+    const footer = container.querySelector('[data-slot="game-preview-source"]')!;
+    expect(footer.textContent).toBe("Source: ESPN · Oct 15, 2026 · Also: NFL.com");
+    expect(footer.querySelectorAll("a")).toHaveLength(2);
+    expect(screen.getByRole("link", { name: "Also: NFL.com (opens in a new tab)" })).toHaveAttribute("href", nfl.url);
+  });
+
+  it("omits the date when the source has none, and shows the name when there is no article title", () => {
+    const { container } = render(<GamePreviewSection preview={{ ...preview, sources: [{ ...espn, title: null, publishedAt: null }] }} />);
+    expect(container.querySelector('[data-slot="game-preview-source"]')!.textContent).toBe("Source: ESPN");
+    expect(screen.getByRole("link", { name: "Source: ESPN (opens in a new tab)" })).toBeInTheDocument();
+  });
+
+  it("no visible supporting source, no Preview: a Preview with nothing to credit is not shown", () => {
+    const { container } = render(<GamePreviewSection preview={{ ...preview, sources: [] }} />);
+    expect(container).toBeEmptyDOMElement();
   });
 });

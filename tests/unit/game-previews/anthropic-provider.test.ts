@@ -31,7 +31,7 @@ describe("Anthropic provider — research", () => {
     expect(body.tools).toEqual([{ type: "web_search_20250305", name: "web_search", max_uses: 3, blocked_domains: ["reddit.com"] }]);
     for (const k of ["temperature", "top_p", "top_k", "thinking"]) expect(body, k).not.toHaveProperty(k);
     expect(String(body.system)).toMatch(/must use web search/i);
-    expect(String(body.system)).toContain("Preferred domains: espn.com");
+    expect(String(body.system)).toContain("Approved (trusted) domains: espn.com");
     expect(String(body.system)).toContain("Never use these domains: reddit.com");
     expect(String(body.system)).toMatch(/most interesting TRUE story/);
     expect(JSON.stringify(body.messages)).toContain("Tennessee Titans at Indianapolis Colts");
@@ -142,7 +142,7 @@ describe("Anthropic provider — angles, writing, verification", () => {
 
   it("the writer is given the CHOSEN story and only that story's facts, the configured limits and any rejection feedback, plus the editorial tests", async () => {
     const c = client(msg([text({ hook: goodDraft.hook, preview: goodDraft.preview, claims: goodDraft.claims.map((x) => ({ text: x.text, fact_ids: x.factIds })) })]));
-    const draft = await new AnthropicGamePreviewProvider(c).write(game, { ...angles[2] }, facts, { model: "configured-model", effort: "medium", maxChars: 650, hookMaxChars: 90, maxCitedFacts: 3, feedback: ['The figure "27" is not in the facts.'] });
+    const draft = await new AnthropicGamePreviewProvider(c).write(game, { ...angles[2] }, facts, { model: "configured-model", effort: "medium", maxChars: 650, hookMaxChars: 90, maxCitedFacts: 3, recentHooks: ["Can the Jets ground this storm?"], feedback: ['The figure "27" is not in the facts.'] });
     const body = calls(c)[0];
     expect(body.output_config).toMatchObject({ format: { type: "json_schema", schema: { required: ["hook", "preview", "claims"] } } });
     expect(body.tools).toBeUndefined(); // writing never searches
@@ -203,29 +203,97 @@ describe("Anthropic provider — story-first research and fact verification", ()
 
   const vctx = { model: "configured-model", effort: "medium", maxSearchCalls: 2, webSearchToolVersion: "web_search_20250305", blockedDomains: ["reddit.com"] };
 
-  it("verifies each fact with the remaining search budget: only 'confirmed' counts; a missing verdict, an unknown status and 'disputed' do not", async () => {
-    const c = client(msg([searchUse(), searchResult([ESPN]), text({ checks: [{ fact_id: "f1", status: "confirmed", note: "ESPN box score matches", corroborating_url: ESPN }, { fact_id: "f2", status: "disputed", note: "ESPN 3, KCSN 4", corroborating_url: null }] })]));
-    const out = await new AnthropicGamePreviewProvider(c).verifyFacts(game, facts, vctx);
-    expect(out.checks).toEqual([
-      { factId: "f1", status: "confirmed", note: "ESPN box score matches", corroboratingUrl: ESPN },
-      { factId: "f2", status: "disputed", note: "ESPN 3, KCSN 4", corroboratingUrl: null },
-      { factId: "f3", status: "unsupported", note: "no verdict returned", corroboratingUrl: null },
-    ]);
-    const body = calls(c)[0];
-    expect(body.tools).toEqual([{ type: "web_search_20250305", name: "web_search", max_uses: 2, blocked_domains: ["reddit.com"] }]);
-    expect(String(body.system)).toMatch(/season/);
-    expect(String(body.system)).toMatch(/lists both teams/);
-    expect(JSON.stringify(body.messages)).toContain(facts[0].sourceUrl);
-  });
+  const verdicts = (v: Array<[string, string, string?]>) => text({ verdicts: v.map(([fact_id, verdict, to_establish = ""]) => ({ fact_id, verdict, note: `note ${fact_id}`, to_establish })) });
 
-  it("with no searches left it judges from the retrieved excerpts, without the web-search tool, under a JSON schema", async () => {
-    const c = client(msg([text({ checks: [{ fact_id: "f1", status: "confirmed", note: "excerpt states it", corroborating_url: null }] })], { usage: { input_tokens: 300, output_tokens: 80 } }));
-    const out = await new AnthropicGamePreviewProvider(c).verifyFacts(game, [facts[0]], { ...vctx, maxSearchCalls: 0 });
-    expect(out.checks[0].status).toBe("confirmed");
+  it("EVIDENCE FIRST: facts the captured evidence proves are confirmed from it, in ONE call, with no search tool at all", async () => {
+    const c = client(msg([verdicts([["f1", "proves"], ["f2", "proves"], ["f3", "proves"]])], { usage: { input_tokens: 500, output_tokens: 90 } }));
+    const out = await new AnthropicGamePreviewProvider(c).verifyFacts(game, facts, vctx);
+    expect(out.checks.map((k) => [k.factId, k.status, k.basis])).toEqual([["f1", "confirmed", "stored_evidence"], ["f2", "confirmed", "stored_evidence"], ["f3", "confirmed", "stored_evidence"]]);
+    expect(calls(c)).toHaveLength(1);
     const body = calls(c)[0];
     expect(body).not.toHaveProperty("tools");
     expect((body.output_config as { format?: { type: string } }).format?.type).toBe("json_schema");
-    expect(out.usage.searchCalls).toBe(0);
+    expect(out.usage).toEqual({ searchCalls: 0, modelCalls: 1, inputTokens: 500, outputTokens: 90 });
+  });
+
+  it("the evidence check understands source semantics: page identity can establish the season; an undated biography or archive cannot; and what was captured is what the judge sees", async () => {
+    const c = client(msg([verdicts([["f1", "proves"]])]));
+    const rich = { ...facts[0], sourceType: "stats_page" as const, pageContext: "ESPN Avalanche team statistics page, current regular season", pageSeason: "2026-27", subjectTeam: "Colorado Avalanche" };
+    await new AnthropicGamePreviewProvider(c).verifyFacts(game, [rich], vctx);
+    const body = calls(c)[0];
+    const system = String(body.system);
+    expect(system).toMatch(/from the evidence already captured/i);
+    expect(system).toMatch(/Do NOT mark a fact insufficient merely because the visible text omits a date/);
+    expect(system).toMatch(/undated generic biography, archive article, prospect profile or historical page does NOT establish/i);
+    expect(system).toMatch(/Never use outside knowledge/);
+    const sent = JSON.stringify(body.messages);
+    for (const needle of ["stats_page", "ESPN Avalanche team statistics page, current regular season", "2026-27", "Colorado Avalanche", rich.retrievedAt]) expect(sent).toContain(needle);
+  });
+
+  it("only what the captured evidence could not settle gets a TARGETED search (within what is left); a contradiction is disputed from the evidence, without a search", async () => {
+    const c = client(
+      msg([verdicts([["f1", "proves"], ["f2", "insufficient", "Nathan MacKinnon 16 points 6 goals 10 assists 2026-27"], ["f3", "contradicted"]])]),
+      msg([searchUse(), searchResult([ESPN]), text({ checks: [{ fact_id: "f2", status: "confirmed", note: "ESPN stats page shows 16 PTS", corroborating_url: ESPN, retrieval_failed: false }] })], { usage: { input_tokens: 700, output_tokens: 120, server_tool_use: { web_search_requests: 1 } } }),
+    );
+    const out = await new AnthropicGamePreviewProvider(c).verifyFacts(game, facts, vctx);
+    expect(out.checks.map((k) => [k.factId, k.status, k.basis])).toEqual([["f1", "confirmed", "stored_evidence"], ["f2", "confirmed", "targeted_search"], ["f3", "disputed", "stored_evidence"]]);
+    const [, targeted] = calls(c);
+    expect(targeted.tools).toEqual([{ type: "web_search_20250305", name: "web_search", max_uses: 1, blocked_domains: ["reddit.com"] }]); // one unresolved claim -> at most one search, however many remain
+    expect(JSON.stringify(targeted.messages)).toContain("Nathan MacKinnon 16 points 6 goals 10 assists 2026-27");
+    expect(JSON.stringify(targeted.messages)).not.toContain(facts[0].claim); // f1 was settled: it is not searched again
+    expect(String(targeted.system)).toMatch(/EXACT unresolved claim/);
+    expect(String(targeted.system)).toMatch(/not evidence the claim is false/);
+    expect(out.usage.searchCalls).toBe(1);
+    expect(out.usage.modelCalls).toBe(2);
+  });
+
+  it("a page that cannot be retrieved during verification is recorded as a retrieval failure, not as a false claim — and still does not confirm", async () => {
+    const c = client(msg([verdicts([["f1", "insufficient", "the exact score"]])]), msg([searchUse(), searchResult([]), text({ checks: [{ fact_id: "f1", status: "unsupported", note: "could not retrieve the page; no other source found", corroborating_url: null, retrieval_failed: true }] })]));
+    const out = await new AnthropicGamePreviewProvider(c).verifyFacts(game, [facts[0]], vctx);
+    expect(out.checks[0]).toMatchObject({ status: "unsupported", basis: "targeted_search", retrievalFailed: true });
+  });
+
+  it("with no searches left, an unsettled fact is NOT confirmed and the check says why; no second call is made", async () => {
+    const c = client(msg([verdicts([["f1", "insufficient", "the season"]])]));
+    const out = await new AnthropicGamePreviewProvider(c).verifyFacts(game, [facts[0]], { ...vctx, maxSearchCalls: 0 });
+    expect(out.checks[0]).toMatchObject({ status: "unsupported", basis: "none" });
+    expect(out.checks[0].note).toMatch(/no verification search was available/);
+    expect(calls(c)).toHaveLength(1);
+  });
+
+  it("a fact the evidence check did not answer for is unresolved, not confirmed", async () => {
+    const c = client(msg([verdicts([["f1", "proves"]])]));
+    const out = await new AnthropicGamePreviewProvider(c).verifyFacts(game, [facts[0], facts[1]], { ...vctx, maxSearchCalls: 0 });
+    expect(out.checks.map((k) => k.status)).toEqual(["confirmed", "unsupported"]);
+    expect(out.checks[1].note).toMatch(/no verdict returned/);
+  });
+
+  it("research reports the exception flags per fact (ambiguous / surprising / disputed), and tells the model that one approved source is normally enough and which sources are trusted", async () => {
+    const c = client(msg([searchUse(), searchResult([ESPN]), text({ facts: [rawFact({ ambiguous: true }), rawFact({ claim: "B", surprising: true }), rawFact({ claim: "C", disputed: true }), rawFact({ claim: "D" })] })]));
+    const out = await new AnthropicGamePreviewProvider(c).research(game, ctx);
+    expect(out.facts.map((f) => [f.ambiguous, f.surprising, f.disputed])).toEqual([[true, false, false], [false, true, false], [false, false, true], [false, false, false]]);
+    const system = String(calls(c)[0].system);
+    expect(system).toMatch(/One approved source that clearly states what you report is normally enough/);
+    expect(system).toMatch(/never primary support/);
+    expect(system).toMatch(/not a preseason game/);
+    expect(system).toContain("Approved (trusted) domains: espn.com");
+  });
+
+  it("the writer gets the recent hooks to vary from, the anti-template rule, and the no-fabricated-quote rule", async () => {
+    const c = client(msg([text({ hook: goodDraft.hook, preview: goodDraft.preview, claims: goodDraft.claims.map((x) => ({ text: x.text, fact_ids: x.factIds })) })]));
+    await new AnthropicGamePreviewProvider(c).write(game, { ...angles[2] }, facts, { model: "m", effort: "medium", maxChars: 650, hookMaxChars: 90, maxCitedFacts: 3, recentHooks: ["Three games. Four goals. Boston, you're next."], feedback: [] });
+    const body = calls(c)[0];
+    expect(JSON.stringify(body.messages)).toContain("Three games. Four goals. Boston, you're next.");
+    expect(String(body.system)).toMatch(/do not turn the style references into a formula/i);
+    expect(String(body.system)).toMatch(/Never put a quote in the Preview unless it appears word for word/);
+  });
+
+  it("research captures the evidence a later check needs: the page's own identity, season, source type and the team of any person named", async () => {
+    const c = client(msg([searchUse(), searchResult([ESPN]), text({ facts: [rawFact({ source_type: "stats_page", page_context: "ESPN Avalanche team statistics page, current regular season", page_season: "2026-27", subject_team: "Colorado Avalanche", excerpt: "Nathan MacKinnon | GP 8 | G 6 | A 10 | PTS 16" }), rawFact({ source_type: "made-up-type", claim: "Other." })] })]));
+    const out = await new AnthropicGamePreviewProvider(c).research(game, ctx);
+    expect(out.facts[0]).toMatchObject({ sourceType: "stats_page", pageContext: "ESPN Avalanche team statistics page, current regular season", pageSeason: "2026-27", subjectTeam: "Colorado Avalanche" });
+    expect(out.facts[1]).toMatchObject({ sourceType: "other", pageContext: null, pageSeason: null, subjectTeam: null });
+    expect(String(calls(c)[0].system)).toMatch(/surrounding context/);
   });
 });
 

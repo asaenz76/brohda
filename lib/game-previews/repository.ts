@@ -1,5 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { derivePublicSources } from "./public-sources";
 import type { GamePreview, GamePreviewCandidate, GamePreviewConfig, GamePreviewInput, GamePreviewSource, GamePreviewWriteOutcome } from "./types";
 
 /** Used only if the settings row cannot be read at all; the stored row is the source of truth. Generation stays OFF and unconfigured in that case. */
@@ -45,12 +46,23 @@ export async function getGamePreviewConfig(): Promise<GamePreviewConfig> {
  * without a Preview block — it never disappears or errors because editorial content is not ready).
  */
 export async function getGamePreviewForFixture(fixtureId: string): Promise<GamePreview | null> {
-  const { data } = await createAdminClient().from("game_previews").select("fixture_id, hook, body, generated_at, checked_at, frozen_at").eq("fixture_id", fixtureId).eq("status", "PUBLISHED").maybeSingle();
+  const admin = createAdminClient();
+  const { data } = await admin.from("game_previews").select("id, fixture_id, hook, body, generated_at, checked_at, frozen_at, generation_meta").eq("fixture_id", fixtureId).eq("status", "PUBLISHED").maybeSingle();
   if (!data) return null;
-  return { fixtureId: data.fixture_id, hook: data.hook, body: data.body, generatedAt: data.generated_at, checkedAt: data.checked_at, frozenAt: data.frozen_at };
+  const { data: rows } = await admin.from("game_preview_sources").select("url, provider, title, published_at").eq("preview_id", data.id).order("position").limit(8);
+  const sources = derivePublicSources((rows ?? []).map((r) => ({ url: r.url, provider: r.provider, title: r.title, publishedAt: r.published_at })), data.generation_meta as Record<string, unknown> | null);
+  // No published Game Preview without a visible supporting source: one that cannot credit its reporting is not shown.
+  if (sources.length === 0) return null;
+  return { fixtureId: data.fixture_id, hook: data.hook, body: data.body, generatedAt: data.generated_at, checkedAt: data.checked_at, frozenAt: data.frozen_at, sources };
 }
 
-export interface GamePreviewAdminRow extends GamePreview {
+/** The hooks of the most recent Previews (published or withdrawn), newest first: the writer varies its structure from them. */
+export async function listRecentHooks(limit = 12): Promise<string[]> {
+  const { data } = await createAdminClient().from("game_previews").select("hook").order("generated_at", { ascending: false }).limit(limit);
+  return (data ?? []).map((r) => r.hook);
+}
+
+export interface GamePreviewAdminRow extends Omit<GamePreview, "sources"> {
   id: string;
   status: "PUBLISHED" | "WITHDRAWN";
   generatedBy: string;

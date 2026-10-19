@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { domainMatches, domainOf, numbersIn, reconcileFactKind, reconcileSeasonScope, splitUsableFacts, validateDraft } from "@/lib/game-previews/validation";
+import { domainMatches, domainOf, isTrustedSource, numbersIn, reconcileFactKind, reconcileSeasonScope, splitUsableFacts, unsupportedQuotes, validateDraft, verificationReasons } from "@/lib/game-previews/validation";
 import { config, fact, facts, game, goodDraft, NOW } from "./fixtures";
 
 const check = (draft = goodDraft, f = facts, c = config) => validateDraft({ draft, facts: f, game, config: c, now: NOW });
@@ -169,5 +169,56 @@ describe("reconcileFactKind — league comparisons beyond ranks", () => {
     for (const c of ["Dallas is the only NFL team to yield 375 yards in each of its first five games.", "Dallas has allowed 20 or more points in 12 straight games, the longest active such streak in the league.", "Dallas has the longest active streak in the NFL."]) {
       expect(reconcileFactKind([fact({ id: "r", kind: "historical", claim: c })])[0].kind).toBe("current");
     }
+  });
+});
+
+describe("trusted sources", () => {
+  const teams = ["Los Angeles Chargers", "Kansas City Chiefs"];
+  const trusted = ["espn.com", "nfl.com", "foxsports.com"];
+
+  it("accepts the stored trusted list (subdomains included) and each team's own website; rejects blogs, farms and aggregators as primary support", () => {
+    for (const url of ["https://www.espn.com/nfl/story/1", "https://africa.espn.com/x", "https://www.nfl.com/news/y", "https://www.foxsports.com/stories/z", "https://www.chargers.com/news/injury-report", "https://www.chiefs.com/news/x"]) expect(isTrustedSource(url, teams, trusted), url).toBe(true);
+    for (const url of ["https://random-blog.example/post", "https://athlonsports.com/nfl/x", "https://boltsfromtheblue.com/x", "https://nyknicksnews.com/x", "not a url", "https://www.packers.com/news/x"]) expect(isTrustedSource(url, teams, trusted), url).toBe(false);
+  });
+
+  it("the trusted list is configuration: an empty list trusts only the team sites", () => {
+    expect(isTrustedSource("https://www.espn.com/x", teams, [])).toBe(false);
+    expect(isTrustedSource("https://www.espn.com/x", teams, ["espn.com"])).toBe(true);
+  });
+});
+
+describe("verificationReasons — one trusted source is normally enough", () => {
+  it("a trusted source that clearly says it needs no extra verification", () => {
+    expect(verificationReasons(fact(), true)).toEqual([]);
+  });
+  it("the exceptions: untrusted source, disputed, ambiguous, surprising, no passage, a current-season figure on a page that cannot place it", () => {
+    expect(verificationReasons(fact(), false)).toEqual(["the source is outside the trusted group"]);
+    expect(verificationReasons(fact({ disputed: true }), true)).toEqual(["trusted sources disagree about it"]);
+    expect(verificationReasons(fact({ ambiguous: true }), true)).toEqual(["the page is ambiguous about season, date or team"]);
+    expect(verificationReasons(fact({ surprising: true }), true)).toEqual(["the claim is unusually surprising or consequential"]);
+    expect(verificationReasons(fact({ excerpt: null }), true)).toEqual(["no passage shows that the source says it"]);
+    expect(verificationReasons(fact({ sourceType: "profile", publishedAt: null, pageSeason: null }), true)).toEqual(["the page cannot place the figure in the current season"]);
+  });
+  it("a current-season stats page, or a profile whose page identifies its season, is not an exception", () => {
+    expect(verificationReasons(fact({ sourceType: "stats_page", publishedAt: null, pageSeason: null }), true)).toEqual([]);
+    expect(verificationReasons(fact({ sourceType: "profile", publishedAt: null, pageSeason: "2026-27" }), true)).toEqual([]);
+    expect(verificationReasons(fact({ sourceType: "archive", seasonScope: "HISTORICAL_CONTEXT", publishedAt: null }), true)).toEqual([]); // history needs no season placement
+  });
+});
+
+describe("no fabricated quotes", () => {
+  const cited = [fact({ id: "q", claim: "Embiid said he will be in the locker room.", excerpt: "\"I don't really feel like watching the whole ceremony, so I guess I'll be in the locker room,\" Embiid said." })];
+  it("a quote that is word for word in a cited passage passes (case, curly quotes and punctuation aside)", () => {
+    expect(unsupportedQuotes("Embiid: \u201Cso I guess I'll be in the locker room\u201D.", cited)).toEqual([]);
+  });
+  it("a quote that is not in any cited passage is reported", () => {
+    expect(unsupportedQuotes('He promised "we will win this game tonight no matter what".', cited)).toEqual(["we will win this game tonight no matter what"]);
+  });
+  it("scare quotes of one or two words are not quotes", () => {
+    expect(unsupportedQuotes('A "sackless" month, a "rough" start.', cited)).toEqual([]);
+  });
+  it("validateDraft rejects the draft", () => {
+    const r = validateDraft({ draft: { ...goodDraft, preview: `${goodDraft.preview} "We will absolutely dominate them" said the coach.` }, facts, game, config, now: NOW });
+    expect(r.problems.join(" ")).toMatch(/quote .* is not in any cited source passage/);
   });
 });

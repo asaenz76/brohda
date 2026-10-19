@@ -2,7 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateGamePreview, type GenerationOutcome, type PipelineDeps } from "./pipeline";
 import { createGamePreviewProviders } from "./providers";
-import { getGamePreviewConfig, listGamePreviewCandidates, recordGenerationRun, saveGamePreview } from "./repository";
+import { getGamePreviewConfig, listGamePreviewCandidates, listRecentHooks, recordGenerationRun, saveGamePreview } from "./repository";
 import type { GamePreviewReason } from "./types";
 import type { GameIdentity } from "./providers/types";
 
@@ -20,7 +20,7 @@ export async function runGamePreviewGenerationFor(fixtureId: string, reason: Gam
   const config = await getGamePreviewConfig();
   const providers = createGamePreviewProviders(config);
   if (!providers) return { configured: false, error: "No credentials are configured for the selected provider." };
-  const deps: PipelineDeps = { config, providers, loadGame, save: saveGamePreview, recordRun: recordGenerationRun, now: () => new Date() };
+  const deps: PipelineDeps = { config, providers, loadGame, save: saveGamePreview, recordRun: recordGenerationRun, now: () => new Date(), recentHooks: () => listRecentHooks() };
   return { configured: true, outcome: await generateGamePreview(deps, { fixtureId, reason, trigger }) };
 }
 
@@ -41,7 +41,7 @@ export async function runGamePreviewAutomation(): Promise<AutomationReport> {
   if (!config.generationEnabled) return { enabled: false, configured: false, attempted: 0, succeeded: 0, failed: 0 };
   const providers = createGamePreviewProviders(config);
   if (!providers || !config.model.trim()) return { enabled: true, configured: false, attempted: 0, succeeded: 0, failed: 0 };
-  const deps: PipelineDeps = { config, providers, loadGame, save: saveGamePreview, recordRun: recordGenerationRun, now: () => new Date() };
+  const deps: PipelineDeps = { config, providers, loadGame, save: saveGamePreview, recordRun: recordGenerationRun, now: () => new Date(), recentHooks: () => listRecentHooks() };
   const candidates = (await listGamePreviewCandidates()).slice(0, config.maxGamesPerRun);
   let succeeded = 0;
   let failed = 0;

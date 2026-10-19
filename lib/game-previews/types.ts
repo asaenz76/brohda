@@ -1,4 +1,14 @@
-/** One Game's stored Preview, exactly as the Post shows it: a short hook and a short factual story. Sources are provenance (admin, audit) and are not part of what a Member reads. */
+/** The source a published Preview credits in small print under its text: the primary source, and a second only when the story materially depends on it. Never a bibliography. */
+export interface PublicPreviewSource {
+  url: string;
+  /** The publisher's display name ("ESPN"). */
+  name: string;
+  /** The article or page title, when known. */
+  title: string | null;
+  publishedAt: string | null;
+}
+
+/** One Game's stored Preview, exactly as the Post shows it: a short hook, a short factual story and the visible credit to its primary source (no Preview is published without one). Full provenance is kept in the admin/audit view. */
 export interface GamePreview {
   fixtureId: string;
   hook: string;
@@ -7,6 +17,8 @@ export interface GamePreview {
   checkedAt: string;
   /** Set once the Game has started: the pregame Preview is final and is never rewritten. */
   frozenAt: string | null;
+  /** One, or at most two: always at least one for a published Preview. */
+  sources: PublicPreviewSource[];
 }
 
 export interface GamePreviewSource {

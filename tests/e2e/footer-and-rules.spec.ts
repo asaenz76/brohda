@@ -62,7 +62,6 @@ async function expectFooterAtBottom(page: Page, label: string) {
       { message: `${label}: footer is within the screen at the end of the page` },
     )
     .toBe(true);
-  const box = (await footer.boundingBox())!;
   // After all page content: the footer starts below the main column's end (measured in one go, so a growing page can't skew it).
   const gap = await page.evaluate(() => {
     const main = document.querySelector("main")!.getBoundingClientRect();
@@ -70,13 +69,23 @@ async function expectFooterAtBottom(page: Page, label: string) {
     return foot.top - main.bottom;
   });
   expect(gap, `${label}: footer sits below the main column`).toBeGreaterThanOrEqual(-1);
-  // The fixed bottom bar (phones) never overlaps the footer.
+  // The fixed bottom bar (phones) never overlaps the footer. Measured atomically at the end of the page and polled: the feed keeps growing as it loads, so a footer box read in a separate step can be stale by the time the bar is read.
   for (const id of ["public-bottom-bar", "auth-bottom-nav"]) {
-    const bar = page.getByTestId(id);
-    if (await bar.isVisible().catch(() => false)) {
-      const barBox = (await bar.boundingBox())!;
-      expect(box.y + box.height, `${label}: footer is not under the ${id}`).toBeLessThanOrEqual(barBox.y + 1);
-    }
+    if (!(await page.getByTestId(id).isVisible().catch(() => false))) continue;
+    await expect
+      .poll(
+        async () => {
+          await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+          return page.evaluate((barId) => {
+            const bar = document.querySelector(`[data-testid="${barId}"]`);
+            const foot = document.querySelector("footer");
+            if (!bar || !foot) return false;
+            return foot.getBoundingClientRect().bottom <= bar.getBoundingClientRect().top + 1;
+          }, id);
+        },
+        { message: `${label}: footer is not under the ${id}` },
+      )
+      .toBe(true);
   }
 }
 

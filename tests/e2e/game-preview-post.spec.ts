@@ -145,8 +145,19 @@ test("the Post is the Game Preview: identity, then sentiment per Market, then th
   await expect(preview.getByRole("heading", { name: "Game Preview" })).toBeVisible();
   await expect(preview.locator('[data-slot="game-preview-hook"]')).toHaveText("Seven goals. Your move, Washington.");
   await expect(preview.locator('[data-slot="game-preview-body"]')).toContainText("crushed the Rangers 7-1");
-  // The Member never sees provenance by default.
-  expect(await preview.innerText()).not.toMatch(/nhl\.com|source/i);
+  // The credit sits under the story, in small secondary print, and links to the publisher's own page in a new tab.
+  const credit = preview.locator('[data-slot="game-preview-source"]');
+  await expect(credit).toContainText("Source: NHL.com");
+  const creditLink = credit.getByRole("link", { name: /Source: NHL\.com/ });
+  await expect(creditLink).toHaveAttribute("href", "https://www.nhl.com/news/e2e-preview");
+  await expect(creditLink).toHaveAttribute("target", "_blank");
+  const bodyBox = (await preview.locator('[data-slot="game-preview-body"]').boundingBox())!;
+  const creditBox = (await credit.boundingBox())!;
+  expect(creditBox.y).toBeGreaterThan(bodyBox.y + bodyBox.height - 1); // below the story
+  expect(await credit.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeLessThan(await preview.locator('[data-slot="game-preview-body"]').evaluate((el) => parseFloat(getComputedStyle(el).fontSize))); // secondary to it
+  // Only the credit is public: one link, no raw URL text, no research notes, claim map or excerpts.
+  expect(await preview.locator("a").count()).toBe(1);
+  expect(await preview.innerText()).not.toMatch(/https?:\/\/|excerpt|supports|claim/i);
 
   // Order: identity → sentiment → preview → conversation → Other Picks.
   const y = async (loc: ReturnType<Page["locator"]>) => (await loc.first().boundingBox())!.y;
@@ -200,6 +211,7 @@ test("phone: Preview, sentiment and comments read in one column without overflow
     await page.goto(`/post/${withPreview.postId}`);
     const main = page.getByRole("main");
     await expect(main.locator('[data-slot="game-preview-hook"]')).toBeVisible();
+    await expect(main.locator('[data-slot="game-preview-source"]').getByRole("link", { name: /Source: NHL\.com/ })).toBeVisible();
     await expect(main.locator('[data-slot="market-sentiment-block"]').first()).toBeVisible();
     await expect(main.getByText("Comments", { exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), `${width}: no horizontal overflow`).toBeLessThanOrEqual(0);

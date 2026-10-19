@@ -213,8 +213,9 @@ test.describe("Profile", () => {
       await page.getByRole("tab", { name: "Communities" }).click();
       await expect(page).toHaveURL(/tab=communities/);
 
-      await expect(page.getByText("Team", { exact: true })).toBeVisible();
-      await expect(page.getByText(teamName)).toBeVisible();
+      // The first load of this route in a run compiles it (the E2E server is `next dev`); on a loaded CI runner that can outlast the default wait, so the first assertions after the navigation get a longer one.
+      await expect(page.getByText("Team", { exact: true })).toBeVisible({ timeout: 60_000 });
+      await expect(page.getByText(teamName)).toBeVisible({ timeout: 60_000 });
       await expect(page.getByText(/^\s*TEAM\s*$/)).toHaveCount(0);
 
       const row = page.locator("li", { hasText: teamName });
