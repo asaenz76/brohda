@@ -87,8 +87,22 @@ export interface ReachedSource {
   reason?: string;
 }
 
+/** Two authoritative sources that disagree: recorded for review; the disputed figure is not used when the story can be told without it. */
+export interface SourceConflict {
+  topic: string;
+  note: string;
+}
+
+/** What research noticed is going on around the Game, before any angle is chosen: hints for the angle stage (never a constraint), tied to facts by id. */
+export interface ResearchLead {
+  summary: string;
+  factIds: string[];
+}
+
 export interface ResearchResult {
   facts: CandidateFact[];
+  conflicts?: SourceConflict[];
+  leads?: ResearchLead[];
   /** Every source the search reached, with whether any fact from it was accepted (and why not, if rejected). */
   sources: ReachedSource[];
   usage: ProviderUsage;
@@ -162,7 +176,31 @@ export interface AngleSelection {
 /** Stage 2: from the verified facts, propose 3-5 candidate stories, score them, and pick the strongest — before anything is written. */
 export interface GamePreviewAngleProvider {
   readonly name: string;
-  selectAngle(game: GameIdentity, facts: CandidateFact[], ctx: StageContext): Promise<AngleSelection>;
+  selectAngle(game: GameIdentity, facts: CandidateFact[], ctx: StageContext, leads?: ResearchLead[]): Promise<AngleSelection>;
+}
+
+/** The outcome of independently re-checking one material fact against its source. */
+export type FactCheckStatus = "confirmed" | "unsupported" | "disputed";
+export interface FactCheck {
+  factId: string;
+  status: FactCheckStatus;
+  note: string;
+  corroboratingUrl: string | null;
+}
+export interface FactVerificationContext extends StageContext {
+  /** Searches left in this generation's ceiling (0 = judge from the retrieved excerpts only). */
+  maxSearchCalls: number;
+  webSearchToolVersion: string;
+  blockedDomains: string[];
+}
+export interface FactVerificationResult {
+  checks: FactCheck[];
+  usage: ProviderUsage;
+}
+/** Stage 2b: after the story is chosen and before anything is written, independently verify every material fact it needs — the source supports the claim, the date and season are right, no authoritative source disagrees. */
+export interface GamePreviewFactVerifierProvider {
+  readonly name: string;
+  verifyFacts(game: GameIdentity, facts: CandidateFact[], ctx: FactVerificationContext): Promise<FactVerificationResult>;
 }
 
 export interface DraftContext extends StageContext {
@@ -206,4 +244,6 @@ export interface GamePreviewProviders {
   angles: GamePreviewAngleProvider;
   writer: GamePreviewWriterProvider;
   verifier: GamePreviewVerifierProvider | null;
+  /** Independent re-check of the chosen story's facts; null = skipped. */
+  factVerifier?: GamePreviewFactVerifierProvider | null;
 }

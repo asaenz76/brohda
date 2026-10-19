@@ -12,7 +12,13 @@ import {
   type DraftContext,
   type EditorialAngle,
   type GameIdentity,
+  type FactCheck,
+  type FactVerificationContext,
+  type FactVerificationResult,
   type GamePreviewAngleProvider,
+  type GamePreviewFactVerifierProvider,
+  type ResearchLead,
+  type SourceConflict,
   type GamePreviewResearchProvider,
   type GamePreviewVerifierProvider,
   type GamePreviewWriterProvider,
@@ -35,7 +41,7 @@ import {
  */
 
 /** Identifies the instruction set that produced a Preview, so a quality change can be traced to a prompt change. Bump it when the prompts below change. */
-export const PREVIEW_PROMPT_VERSION = "game-preview-anthropic-2026-10-v8";
+export const PREVIEW_PROMPT_VERSION = "game-preview-anthropic-2026-10-v9";
 
 /** The slice of the SDK this provider uses — injectable so every stage is tested against a fake without a network. */
 export type MessagesClient = Pick<Anthropic, "messages">;
@@ -185,6 +191,13 @@ const VERIFY_SCHEMA = {
   properties: { supported: { type: "boolean" }, editorial_passes: { type: "boolean" }, problems: strList },
 } as const;
 
+const FACT_CHECK_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["checks"],
+  properties: { checks: { type: "array", items: { type: "object", additionalProperties: false, required: ["fact_id", "status", "note", "corroborating_url"], properties: { fact_id: str, status: str, note: str, corroborating_url: { type: ["string", "null"] } } } } },
+} as const;
+
 const structured = (effort: string, schema: object) => ({ effort: effort as "low" | "medium" | "high" | "xhigh" | "max", format: { type: "json_schema" as const, schema: schema as Record<string, unknown> } });
 
 const outputConfig = (effort: string) => ({ effort: effort as "low" | "medium" | "high" | "xhigh" | "max" });
@@ -197,26 +210,29 @@ const EDITORIAL_BRIEF = [
   "Season records, standings, last-game scores and generic head-to-head history are FALLBACK material: context that can support a stronger story, rarely the story itself. Never choose \"Team A is 4-1 and Team B is 1-4\" if something more interesting exists. \"Both teams are looking for a win\", \"this should be an exciting matchup\" and schedule summaries are filler.",
 ].join("\n");
 
-/** Illustrations of tone and of story selection. Never reuse their facts for another Game. */
+/** The owner's editorial style references: illustrations of tone and of story selection. Never reuse their facts for another Game. */
 const STYLE_EXAMPLES = [
-  'Tone examples (style only — never reuse their facts):',
-  'Hook: "Seven goals. Your move, Washington." Preview: "The Devils crushed the Rangers 7-1. Today, they chase a third straight win against the Capitals. Who takes it?"',
-  'Hook: "Can the Jets ground this storm?" Preview: "Six straight wins. Carolina rolls into Winnipeg chasing No. 7 today. Are the Jets stopping the streak or becoming its next victim?"',
-  'Hook: "Two games. Six goals. Seattle, you\'re next." Preview: "Brady Tkachuk enters today\'s matchup with back-to-back natural hat tricks. Against Vancouver, he scored all three Florida goals, including the overtime winner, to turn a 2-0 deficit into a 3-2 win. But Seattle has earned points in five straight meetings with the Panthers (3-0-2). Can the Kraken cool him off, or is another hat trick coming?"',
-  "Story selection, from the SAME facts: weak = Hook \"Houston has its first win. Jacksonville has three straight.\" (records recited like game notes). Better = Hook \"Houston finally won. Jacksonville wants to make it a one-week story.\" — the same facts, but built around one tension. The improvement comes from choosing and shaping the story, never from adding facts.",
+  "Editorial style references — STYLE ONLY. Never reuse their facts for another Game, copy their wording mechanically, force every Preview into one structure, or assume the facts are current. Study why each works: one clear story, strong tension, specific facts, a conversational hook, minimal filler, a natural reason to care.",
+  "STREAK — Hook: \"Can the Jets ground this storm?\" Preview: \"Six straight wins. Carolina rolls into Winnipeg chasing No. 7 today. Are the Jets stopping the streak or becoming its next victim?\" (one obvious story, immediate tension, the opponent is part of the story).",
+  "CONTRAST — Hook: \"Winless in six meets unbeaten at home.\" Preview: \"Vancouver has lost six straight. Tampa Bay is 4-0 at home. Can the Canucks flip the script today, or does the misery continue?\" (opposing trajectories; the records matter because the contrast itself is interesting).",
+  "PLAYER HEATER + HISTORY — Hook: \"Two games. Six goals. Seattle, you're next.\" Preview: \"Brady Tkachuk enters today's matchup with back-to-back natural hat tricks. Against Vancouver, he scored all three Florida goals, including the overtime winner, to turn a 2-0 deficit into a 3-2 win. But Seattle has earned points in five straight meetings with the Panthers (3-0-2). Can the Kraken cool him off, or is another hat trick coming?\" (an extraordinary player story leads; matchup history sharpens it instead of replacing it).",
+  "MILESTONE — Hook: \"Kane just made history. Dallas could be next.\" Preview: \"Patrick Kane became the NHL's all-time assists leader among U.S.-born players Thursday, setting the record on a Connor Bedard goal. Now Chicago hosts Dallas chasing a third straight win. Bedard has points in seven consecutive games against the Stars, with five goals and two assists. Can Dallas silence Chicago's past and future in the same night?\" (starts with a real event and connects it to today's opponent).",
+  "BAD START / PRESSURE — Hook: \"Nine games. Zero wins. Philly needs an escape.\" Preview: \"The Flyers host Ottawa at 0-6-3, one loss away from opening the season with 10 straight defeats. Their last meeting was painfully close: Carter Yakemchuk's third-period power-play goal gave the Senators a 2-1 win. Ottawa arrives at 6-2-0. Can Philadelphia finally break through, or will the Senators make an ugly start even uglier?\" (the record is interesting because it is extreme; today has a clear consequence).",
+  "CURRENT STORY + MATCHUP — Hook: \"Seven goals. Your move, Washington.\" Preview: \"The Devils crushed the Rangers 7-1. Today, they chase a third straight win against the Capitals. Who takes it?\" (leads with something that just happened; extremely economical).",
+  "BAD: Hook \"Houston has its first win. Jacksonville has three straight.\" Preview \"Houston is 1-4. Jacksonville is 4-1. Houston beat Tennessee 26-3 and Jacksonville beat Philadelphia 19-17. The teams split last season.\" — reads like game notes, facts listed instead of shaped, weak tension, could be generated for almost any matchup. BETTER from the SAME facts: Hook \"Houston finally won. Jacksonville wants to make it a one-week story.\" Preview \"The Texans started 0-4 before crushing Tennessee 26-3 for their first win. Jacksonville has gone the other direction, winning three straight. They split last season's meetings, so Houston knows it can beat them. Was Tennessee the start of a turnaround, or just a brief interruption to Jacksonville's run?\" — one central tension, every fact supports it, sounds like sports conversation. The improvement comes from choosing and shaping the story, never from adding facts.",
 ].join("\n");
 
 const RESEARCH_SCHEMA_TEXT =
-  'Return ONLY a JSON object: {"facts":[{"kind":"current"|"historical","season_scope":"CURRENT_SEASON"|"HISTORICAL_CONTEXT","category":"streak|milestone|head_to_head|player_form|injury|record|result|rivalry|context|other","claim":"one statement a single source directly supports","excerpt":"the passage of the source that supports it","source_url":"...","source_provider":"...","source_title":"...","published_at":"ISO date or null","relevance":0-1,"game_association":"how it ties to this exact game"}]}';
+  'Return ONLY a JSON object: {"facts":[{"kind":"current"|"historical","season_scope":"CURRENT_SEASON"|"HISTORICAL_CONTEXT","category":"streak|milestone|head_to_head|player_form|injury|record|result|rivalry|context|other","claim":"one statement a single source directly supports","excerpt":"the passage of the source that supports it","source_url":"...","source_provider":"...","source_title":"...","published_at":"ISO date or null","relevance":0-1,"game_association":"how it ties to this exact game"}],"leads":[{"summary":"what is happening around this game that would make a fan care, in one sentence","fact_numbers":[1,2]}],"conflicts":[{"topic":"what the sources disagree about","note":"which source says what"}]}';
 
-export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider, GamePreviewAngleProvider, GamePreviewWriterProvider, GamePreviewVerifierProvider {
+export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider, GamePreviewAngleProvider, GamePreviewWriterProvider, GamePreviewVerifierProvider, GamePreviewFactVerifierProvider {
   readonly name = "anthropic";
   constructor(private readonly client: MessagesClient) {}
 
   async research(game: GameIdentity, ctx: ResearchContext): Promise<ResearchResult> {
     const system = [
       "You research one specific upcoming game for a sports app and return VERIFIED FACTS only. You must use web search; never answer from memory.",
-      "Search specifically for this exact matchup: both teams, the date of the game, each team's recent results, meaningful player or team news, injuries and returns, streaks, milestones, record chases, head-to-head history, unusual statistics, rookie, coaching or old-team stories, revenge or rivalry context, dramatic recent performances. You do not need every category; you are looking for the strongest TRUE story.",
+      "Work in stages and stop early. A) The canonical Game is given in the message (league, teams, scheduled date and time, today's date): research THAT game, and if a search result gives a different date, opponent or a relative 'today' that is not that game, resolve the conflict before using anything from it. B) First search for STORIES, not statistics: previews, each team's latest news, injuries and returns, and the player names you discover; look for something that just happened, a player on an unusual run, a comeback, a milestone, a record, major roster news, unusual current form, a coaching or player connection, something emotionally or historically relevant to today's matchup. Do not begin by assuming the teams' records are the story. C) Then, to support or sharpen a story you found, search matchup history: head-to-head, unusual series streaks, memorable meetings, player performance against this opponent, franchise milestones, rivalry facts. D) Follow the story: when a search reveals an interesting player, streak, milestone or event, run a targeted follow-up to confirm the exact performances, that it is current, and that the player is expected to play; do not stop just because the first search returned enough numbers to fill a preview. E) The search limit is a ceiling, not a target: stop early once a strong story is found, the facts it needs are verified and the sources are good; if the searches find no compelling verified story, return the strongest factual material rather than inventing drama. When authoritative sources disagree on a number, never pick the more dramatic one: report the safe statement they agree on (for example 'no sack since Week 1' instead of a disputed total) and list the disagreement under conflicts. Also return leads: up to five different stories you noticed (not the same story reworded), each tied to the numbers of the facts that support it.",
       "Prefer, in order: the official league, the official team, ESPN and other major established sports reporting, established local or beat reporting, trusted statistics providers. Never use content farms, social-media posts, forums or rumors as sources.",
       ctx.preferredDomains.length ? `Preferred domains: ${ctx.preferredDomains.join(", ")}.` : "",
       ctx.blockedDomains.length ? `Never use these domains: ${ctx.blockedDomains.join(", ")}.` : "",
@@ -245,7 +261,7 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
       if (block.type === "text") for (const c of block.citations ?? []) if (c.type === "web_search_result_location" && !reached.has(normUrl(c.url))) reached.set(normUrl(c.url), { url: c.url, title: c.title ?? c.url, pageAge: null });
     }
 
-    const parsed = extractJson<{ facts?: Array<Record<string, unknown>> }>(result.text, "research");
+    const parsed = extractJson<{ facts?: Array<Record<string, unknown>>; leads?: Array<{ summary?: string; fact_numbers?: unknown[] }>; conflicts?: Array<{ topic?: string; note?: string }> }>(result.text, "research");
     const facts: CandidateFact[] = [];
     const usedUrls = new Set<string>();
     const rejectedReasons = new Map<string, { url: string; reason: string }>();
@@ -281,20 +297,35 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
       });
       usedUrls.add(key);
     }
+    const factIdByNumber = new Map<number, string>();
+    {
+      // facts are numbered 1..n in the order the model listed them; only the ones kept have ids
+      let kept = 0;
+      (parsed.facts ?? []).forEach((raw, i) => {
+        const hit = reached.get(normUrl(String(raw.source_url ?? "")));
+        if (String(raw.claim ?? "").trim() && raw.source_url && hit && !domainMatches(domainOf(String(raw.source_url)), ctx.blockedDomains)) factIdByNumber.set(i + 1, facts[kept++]?.id ?? "");
+      });
+    }
+    const leads: ResearchLead[] = (parsed.leads ?? [])
+      .map((l) => ({ summary: String(l.summary ?? "").trim(), factIds: (Array.isArray(l.fact_numbers) ? l.fact_numbers : []).map((n) => factIdByNumber.get(Number(n)) ?? "").filter(Boolean) }))
+      .filter((l) => l.summary && l.factIds.length > 0)
+      .slice(0, 5);
+    const conflicts: SourceConflict[] = (parsed.conflicts ?? []).map((c) => ({ topic: String(c.topic ?? "").trim(), note: String(c.note ?? "").trim() })).filter((c) => c.topic).slice(0, 10);
     const sources: ReachedSource[] = [...reached.entries()].map(([key, r]) => (usedUrls.has(key) ? { url: r.url, title: r.title, status: "accepted" as const } : { url: r.url, title: r.title, status: "rejected" as const, reason: rejectedReasons.get(key)?.reason ?? "no usable fact taken from it" }));
     for (const [key, r] of rejectedReasons) if (!reached.has(key)) sources.push({ url: r.url, title: r.url, status: "rejected", reason: r.reason });
-    return { facts, sources, usage: result.usage };
+    return { facts, sources, conflicts, leads, usage: result.usage };
   }
 
-  async selectAngle(game: GameIdentity, facts: CandidateFact[], ctx: StageContext): Promise<AngleSelection> {
+  async selectAngle(game: GameIdentity, facts: CandidateFact[], ctx: StageContext, leads: ResearchLead[] = []): Promise<AngleSelection> {
     const system = [
       EDITORIAL_BRIEF,
+      "Each angle answers one question: what is happening around this Game that would make a sports fan care? Angles must be GENUINELY DIFFERENT stories — different kinds of story resting on different facts. Three versions of 'Team A has won six straight' are ONE angle; a good set is, for example, a team streak, a star's current run, unusual head-to-head dominance, a major injury or return, a milestone. Research leads, when given, are hints about what the researcher noticed, not constraints. A plain record comparison is not a story unless the contrast is itself remarkable. Choose the primary story BEFORE anything is written, then only the facts that story needs. Final test for the chosen angle: what is this Preview ABOUT, in one sentence? If the honest answer is 'the teams' records and recent results', choose something else unless those records are an exceptional story.",
       `Before anything is written, propose 3 to 5 candidate editorial angles from the verified facts only. Angle types (internal vocabulary): ${ANGLE_TYPES.join(", ")}. Use SEASON_RECORD only for a records-and-standings angle.`,
       "Score each angle 1-5 on: tension (does something meaningful collide?), surprise (would a fan find it unexpected?), specificity (could it only belong to this matchup?), humanInterest (a player, coach, streak, comeback or emotion?), conversation (does it make someone want to take a side?), recency (is it relevant right now?). Penalize heavily simple records, standings, last-game recaps with no larger story, generic head-to-head, and schedule summaries. Choose the strongest overall angle; use editorial judgement, not just the arithmetic. One Game, one story. Build the primary angle on facts whose season_scope is CURRENT_SEASON; HISTORICAL_CONTEXT facts support or sharpen it, and a story resting only on history is a fallback for a Game whose season offers nothing strong.",
       'Each angle lists the fact ids it needs (only those; fewer is better). The one-sentence summary may contain a number, score or record ONLY if a fact in that angle\'s fact_ids holds it — list every fact behind every figure and name in the summary. Return ONLY a JSON object: {"angles":[{"id":"a1","type":"...","summary":"the story in one plain sentence","fact_ids":["f1"],"scores":{"tension":1-5,"surprise":1-5,"specificity":1-5,"humanInterest":1-5,"conversation":1-5,"recency":1-5},"note":"why it is or is not worth a Member\'s time"}],"selected_id":"a1","selection_reason":"why this one","rejected":[{"id":"a2","reason":"..."}]}',
     ].join("\n\n");
     const material = facts.map((f) => ({ id: f.id, season_scope: f.seasonScope, kind: f.kind, category: f.category, claim: f.claim, excerpt: f.excerpt, published_at: f.publishedAt, relevance: f.relevance, association: f.gameAssociation }));
-    const result = await call(this.client, { model: ctx.model, max_tokens: STAGE_MAX_TOKENS, system, output_config: structured(ctx.effort, ANGLE_SCHEMA), messages: [{ role: "user", content: `${describeGame(game)}\n\nVerified facts (the only material you may use):\n${JSON.stringify(material)}` }] }, false);
+    const result = await call(this.client, { model: ctx.model, max_tokens: STAGE_MAX_TOKENS, system, output_config: structured(ctx.effort, ANGLE_SCHEMA), messages: [{ role: "user", content: `${describeGame(game)}\n\nVerified facts (the only material you may use):\n${JSON.stringify(material)}${leads.length ? `\n\nResearch leads (hints, by fact id): ${JSON.stringify(leads)}` : ""}` }] }, false);
     const parsed = extractJson<{ angles?: Array<Record<string, unknown>>; selected_id?: string; selection_reason?: string; rejected?: Array<{ id?: string; reason?: string }> }>(result.text, "angle");
     const angles: EditorialAngle[] = (parsed.angles ?? []).map((a) => {
       const s = (a.scores ?? {}) as Record<string, unknown>;
@@ -351,4 +382,37 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
     const problems = (parsed.problems ?? []).map(String);
     return { supported: parsed.supported === true, editorialPasses: parsed.editorial_passes === true, problems, usage: result.usage };
   }
+  async verifyFacts(game: GameIdentity, facts: CandidateFact[], ctx: FactVerificationContext): Promise<FactVerificationResult> {
+    const searching = ctx.maxSearchCalls > 0;
+    const system = [
+      "You independently verify the facts a sports preview is about to rest on, BEFORE it is written. For EACH fact: " + (searching ? "reach its source page (search for it by title or URL if needed) and judge from what you retrieve" : "judge from its excerpt") + " whether (1) the source actually says what the claim says — the exact player or team, the exact number, the exact game; (2) the date and the SEASON are right (this season's, not a previous season's, unless it is explicitly history); (3) a person is on the team the claim says (an injury report or preview page often lists both teams); (4) " + (searching ? "another authoritative source disagrees" : "nothing in the excerpt contradicts it") + ".",
+      "Return status \"confirmed\" only when you saw support that matches exactly and nothing contradicts it; \"unsupported\" when the source does not say it, names a different team, person, number or season, or you could not verify it; \"disputed\" when authoritative sources disagree. Never confirm from memory or plausibility. When sources disagree, say what each says in the note.",
+      'Return ONLY a JSON object: {"checks":[{"fact_id":"f1","status":"confirmed|unsupported|disputed","note":"what you saw, briefly","corroborating_url":"a second source that agrees, or null"}]} with one entry per fact.',
+    ].join("\n\n");
+    const material = facts.map((f) => ({ fact_id: f.id, claim: f.claim, excerpt: f.excerpt, source_url: f.sourceUrl, source_title: f.sourceTitle, published_at: f.publishedAt, kind: f.kind, season_scope: f.seasonScope }));
+    const user = `${describeGame(game)}\n\nFacts to verify:\n${JSON.stringify(material)}`;
+    let text: string;
+    let usage: ProviderUsage;
+    if (searching) {
+      const tool: Record<string, unknown> = { type: ctx.webSearchToolVersion, name: "web_search", max_uses: ctx.maxSearchCalls };
+      if (ctx.blockedDomains.length) tool.blocked_domains = ctx.blockedDomains;
+      const result = await call(this.client, { model: ctx.model, max_tokens: RESEARCH_MAX_TOKENS, system, output_config: outputConfig(ctx.effort), tools: [tool as unknown as Anthropic.Messages.ToolUnion], messages: [{ role: "user", content: user }] }, true);
+      text = result.text;
+      usage = result.usage;
+    } else {
+      const result = await call(this.client, { model: ctx.model, max_tokens: STAGE_MAX_TOKENS, system, output_config: structured(ctx.effort, FACT_CHECK_SCHEMA), messages: [{ role: "user", content: user }] }, false);
+      text = result.text;
+      usage = result.usage;
+    }
+    const parsed = extractJson<{ checks?: Array<{ fact_id?: string; status?: string; note?: string; corroborating_url?: string | null }> }>(text, "fact verification");
+    const byId = new Map((parsed.checks ?? []).map((c) => [String(c.fact_id ?? ""), c]));
+    // A fact the verifier did not answer for is NOT confirmed.
+    const checks: FactCheck[] = facts.map((f) => {
+      const c = byId.get(f.id);
+      const status = c?.status === "confirmed" || c?.status === "disputed" ? c.status : "unsupported";
+      return { factId: f.id, status, note: String(c?.note ?? (c ? "" : "no verdict returned")).trim().slice(0, 500), corroboratingUrl: c?.corroborating_url ? String(c.corroborating_url) : null };
+    });
+    return { checks, usage };
+  }
+
 }

@@ -179,3 +179,15 @@ describe("an earlier season's playoffs are not named by the new season's year", 
     expect(validateEditorial({ draft: d, angle: angles[0], config, facts, kickoffUtc: "2027-03-02T17:00:00.000Z" }).filter((p) => /ambiguous/.test(p))).toEqual([]);
   });
 });
+
+describe("genuinely different angles", () => {
+  it("rejects two angles that rest on the same facts (one story reworded) and two angles of the same kind", () => {
+    const same = { ...selection, angles: [angles[0], { ...angles[1], type: "STREAK_ON_THE_LINE" as const, factIds: ["f1", "f3", "f2"] }, angles[2]] };
+    expect(validateAngles(same, facts).join(" ")).toMatch(/rest on the same facts/);
+    const twice = { ...selection, angles: [angles[0], { ...angles[1], type: "CONTRAST" as const, factIds: ["f1"] }, angles[2]] };
+    expect(validateAngles(twice, facts).join(" ")).toMatch(/both CONTRAST/);
+  });
+  it("accepts angles of different kinds on different facts", () => {
+    expect(validateAngles(selection, facts)).toEqual([]);
+  });
+});

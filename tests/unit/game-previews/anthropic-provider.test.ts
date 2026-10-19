@@ -184,6 +184,51 @@ describe("Anthropic provider — angles, writing, verification", () => {
   });
 });
 
+describe("Anthropic provider — story-first research and fact verification", () => {
+  it("the research instructions are staged: resolve the Game, stories before statistics, then history, follow the story, stop early, and never pick the more dramatic of two disputed numbers", async () => {
+    const c = client(msg([searchUse(), searchResult([ESPN]), text({ facts: [rawFact()] })]));
+    await new AnthropicGamePreviewProvider(c).research(game, ctx);
+    const system = String(calls(c)[0].system);
+    for (const re of [/canonical Game/i, /STORIES, not statistics/, /matchup history/i, /targeted follow-up/i, /ceiling, not a target/i, /never pick the more dramatic one/i]) expect(system).toMatch(re);
+  });
+
+  it("returns the leads (tied to the facts that were kept) and the source conflicts the research reported", async () => {
+    const other = "https://www.nfl.com/news/x";
+    const c = client(msg([searchUse(), searchResult([ESPN, other]), text({ facts: [rawFact(), rawFact({ source_url: "https://not-reached.example/x", claim: "Never reached." }), rawFact({ claim: "Indianapolis is 2-3.", source_url: other })], leads: [{ summary: "Winless Tennessee meets a Colts team that owned it.", fact_numbers: [1, 3] }, { summary: "Rests only on a dropped fact.", fact_numbers: [2] }, { summary: "", fact_numbers: [1] }], conflicts: [{ topic: "Colts sacks", note: "ESPN says 3, KCSN says 4" }] })]));
+    const out = await new AnthropicGamePreviewProvider(c).research(game, ctx);
+    expect(out.facts.map((f) => f.id)).toEqual(["f1", "f2"]);
+    expect(out.leads).toEqual([{ summary: "Winless Tennessee meets a Colts team that owned it.", factIds: ["f1", "f2"] }]);
+    expect(out.conflicts).toEqual([{ topic: "Colts sacks", note: "ESPN says 3, KCSN says 4" }]);
+  });
+
+  const vctx = { model: "configured-model", effort: "medium", maxSearchCalls: 2, webSearchToolVersion: "web_search_20250305", blockedDomains: ["reddit.com"] };
+
+  it("verifies each fact with the remaining search budget: only 'confirmed' counts; a missing verdict, an unknown status and 'disputed' do not", async () => {
+    const c = client(msg([searchUse(), searchResult([ESPN]), text({ checks: [{ fact_id: "f1", status: "confirmed", note: "ESPN box score matches", corroborating_url: ESPN }, { fact_id: "f2", status: "disputed", note: "ESPN 3, KCSN 4", corroborating_url: null }] })]));
+    const out = await new AnthropicGamePreviewProvider(c).verifyFacts(game, facts, vctx);
+    expect(out.checks).toEqual([
+      { factId: "f1", status: "confirmed", note: "ESPN box score matches", corroboratingUrl: ESPN },
+      { factId: "f2", status: "disputed", note: "ESPN 3, KCSN 4", corroboratingUrl: null },
+      { factId: "f3", status: "unsupported", note: "no verdict returned", corroboratingUrl: null },
+    ]);
+    const body = calls(c)[0];
+    expect(body.tools).toEqual([{ type: "web_search_20250305", name: "web_search", max_uses: 2, blocked_domains: ["reddit.com"] }]);
+    expect(String(body.system)).toMatch(/season/);
+    expect(String(body.system)).toMatch(/lists both teams/);
+    expect(JSON.stringify(body.messages)).toContain(facts[0].sourceUrl);
+  });
+
+  it("with no searches left it judges from the retrieved excerpts, without the web-search tool, under a JSON schema", async () => {
+    const c = client(msg([text({ checks: [{ fact_id: "f1", status: "confirmed", note: "excerpt states it", corroborating_url: null }] })], { usage: { input_tokens: 300, output_tokens: 80 } }));
+    const out = await new AnthropicGamePreviewProvider(c).verifyFacts(game, [facts[0]], { ...vctx, maxSearchCalls: 0 });
+    expect(out.checks[0].status).toBe("confirmed");
+    const body = calls(c)[0];
+    expect(body).not.toHaveProperty("tools");
+    expect((body.output_config as { format?: { type: string } }).format?.type).toBe("json_schema");
+    expect(out.usage.searchCalls).toBe(0);
+  });
+});
+
 describe("provider selection", () => {
   it("is built from the stored provider, with credentials ONLY from the environment; no key means 'not configured'", () => {
     expect(createGamePreviewProviders(config, {})).toBeNull();

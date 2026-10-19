@@ -32,6 +32,16 @@ export function validateAngles(selection: Pick<AngleSelection, "angles" | "selec
       if (!Number.isFinite(v) || v < 1 || v > 5) problems.push(`Angle "${a.id}" has an invalid ${k} score (${v}).`);
     }
   }
+  // Genuinely different angles: three phrasings of "Team A has won six straight" are one angle. Different stories rest on different facts and are different kinds of story.
+  for (let i = 0; i < angles.length; i++) {
+    for (let j = i + 1; j < angles.length; j++) {
+      const a = angles[i];
+      const b = angles[j];
+      const sameFacts = a.factIds.length > 0 && [...a.factIds].sort().join(",") === [...b.factIds].sort().join(",");
+      if (sameFacts) problems.push(`Angles "${a.id}" and "${b.id}" rest on the same facts: they are one story, not two.`);
+      else if (a.type === b.type) problems.push(`Angles "${a.id}" and "${b.id}" are both ${a.type}: propose different kinds of story.`);
+    }
+  }
   if (!angles.some((a) => a.id === selection.selectedId)) problems.push(`The selected angle "${selection.selectedId}" is not one of the candidates.`);
   return problems;
 }
