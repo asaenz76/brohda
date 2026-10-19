@@ -122,7 +122,7 @@ export function GamePreviewConfigForm({ config, credentialsConfigured }: { confi
         <label className="space-y-1 text-xs font-medium text-text-secondary">
           Trusted sources (domains)
           <textarea name="preferred_domains" defaultValue={config.preferredDomains.join("\n")} rows={4} className={area} />
-          <span className="block font-normal text-text-muted">Approved as the PRIMARY source of a Preview (the one credited publicly): the leagues, ESPN, FOX Sports and other established reporting. Each team's own site is also trusted. One per line.</span>
+          <span className="block font-normal text-text-muted">Approved as the PRIMARY source of a Preview (the one credited publicly): the leagues, ESPN, FOX Sports and other established reporting. Each team&apos;s own site is also trusted. One per line.</span>
         </label>
         <label className="space-y-1 text-xs font-medium text-text-secondary">
           Never use (domains)
