@@ -32,6 +32,16 @@ export function validateAngles(selection: Pick<AngleSelection, "angles" | "selec
       if (!Number.isFinite(v) || v < 1 || v > 5) problems.push(`Angle "${a.id}" has an invalid ${k} score (${v}).`);
     }
   }
+  // Genuinely different angles: three phrasings of "Team A has won six straight" are one angle. Different stories rest on different facts and are different kinds of story.
+  for (let i = 0; i < angles.length; i++) {
+    for (let j = i + 1; j < angles.length; j++) {
+      const a = angles[i];
+      const b = angles[j];
+      const sameFacts = a.factIds.length > 0 && [...a.factIds].sort().join(",") === [...b.factIds].sort().join(",");
+      if (sameFacts) problems.push(`Angles "${a.id}" and "${b.id}" rest on the same facts: they are one story, not two.`);
+      else if (a.type === b.type) problems.push(`Angles "${a.id}" and "${b.id}" are both ${a.type}: propose different kinds of story.`);
+    }
+  }
   if (!angles.some((a) => a.id === selection.selectedId)) problems.push(`The selected angle "${selection.selectedId}" is not one of the candidates.`);
   return problems;
 }
@@ -121,7 +131,23 @@ const STOCK_QUESTION = /\b(who will win|who wins|who takes it|who comes out on t
 const RECORD_IN_HOOK = /\b\d{1,3}\s?[-–]\s?\d{1,3}(\s?[-–]\s?\d{1,3})?\b/;
 
 /** Wording that frames a statement as history rather than current form: a year, a previous season, "years ago", "all-time", "career", "the last time", "first time since", "historically". */
-const HISTORY_FRAMING = /\b(19|20)\d{2}\b|\b(last|previous|prior) (season|year)\b|\b(years?|seasons?) ago\b|\ball[- ]time\b|\bcareer\b|\bhistor(y|ically)\b|\bthe last time\b|\bfirst time since\b|\bsince \d|\bin the series\b|\bfranchise\b|\bever\b|\bback in\b/i;
+const HISTORY_FRAMING = /\b(last|previous|prior) (season|year)\b|\b(years?|seasons?) ago\b|\ball[- ]time\b|\bcareer\b|\bhistor(y|ically)\b|\bthe last time\b|\bfirst time since\b|\bsince \d|\bin the series\b|\bfranchise\b|\bever\b|\bback in\b/i;
+/** A calendar year frames a statement as history only when it is an earlier year than the Game's: "in 2024" in an October 2026 Game is history; "the 2026 playoffs" in an October 2026 Game could be read as THIS season's (the 2026 season starts that month), although they were played last spring. */
+function yearFramesHistory(text: string, kickoffUtc: string | undefined): boolean {
+  if (!kickoffUtc) return /\b(19|20)\d{2}\b/.test(text);
+  const kickoff = new Date(kickoffUtc);
+  const lastFramingYear = kickoff.getUTCMonth() >= 7 ? kickoff.getUTCFullYear() - 1 : kickoff.getUTCFullYear() - 2;
+  return [...text.matchAll(/\b(19|20)\d{2}\b/g)].some((m) => Number(m[0]) <= lastFramingYear);
+}
+/** The new season's calendar year attached to a postseason ("the 2026 playoffs") in a Game from August to December: ambiguous between last spring's playoffs and the season that is starting. */
+function ambiguousPostseasonYear(text: string, kickoffUtc: string | undefined): string | null {
+  if (!kickoffUtc) return null;
+  const kickoff = new Date(kickoffUtc);
+  if (kickoff.getUTCMonth() < 7) return null;
+  const m = text.match(new RegExp(`\\b${kickoff.getUTCFullYear()}\\s+(playoffs?|postseason|finals|championship)\\b`, "i"));
+  return m ? m[0] : null;
+}
+
 /** Wording that presents a statement as this season's — contradictory in a claim that rests only on history. */
 const CURRENT_FRAMING = /\b(currently|this season|so far this (season|year)|right now|this year)\b/i;
 
@@ -132,7 +158,7 @@ export interface EditorialInput {
 }
 
 /** Rejects a draft that is not a story: returns the reasons, fed back to the writer for a rewrite. */
-export function validateEditorial({ draft, angle, config, facts }: { draft: EditorialInput; angle: EditorialAngle; config: Pick<GamePreviewConfig, "maxCitedFacts">; facts: CandidateFact[] }): string[] {
+export function validateEditorial({ draft, angle, config, facts, kickoffUtc }: { draft: EditorialInput; angle: EditorialAngle; config: Pick<GamePreviewConfig, "maxCitedFacts">; facts: CandidateFact[]; kickoffUtc?: string }): string[] {
   const problems: string[] = [];
   const hook = draft.hook.trim();
   const preview = draft.preview.trim();
@@ -148,7 +174,15 @@ export function validateEditorial({ draft, angle, config, facts }: { draft: Edit
     const scopes = claim.factIds.map((id) => scopeOf.get(id)).filter(Boolean);
     if (scopes.length === 0 || scopes.some((s) => s === "CURRENT_SEASON")) continue;
     if (CURRENT_FRAMING.test(claim.text)) problems.push(`Claim ${i + 1} ("${claim.text.slice(0, 60)}") rests only on earlier-season facts but is worded as this season's. Frame it as history.`);
-    else if (!HISTORY_FRAMING.test(claim.text)) problems.push(`Claim ${i + 1} ("${claim.text.slice(0, 60)}") rests on earlier-season facts but does not say so. Frame it as history ("last season", "in 2025", "the last time ...").`);
+    else if (!HISTORY_FRAMING.test(claim.text) && !yearFramesHistory(claim.text, kickoffUtc)) problems.push(`Claim ${i + 1} ("${claim.text.slice(0, 60)}") rests on earlier-season facts but does not say so. Frame it as history ("last season", "in 2025", "the last time ...").`);
+  }
+
+  for (const text of [hook, preview, ...draft.claims.map((c) => c.text)]) {
+    const ambiguous = ambiguousPostseasonYear(text, kickoffUtc);
+    if (ambiguous) {
+      problems.push(`"${ambiguous}" is ambiguous: it reads as this season's, but it was last season's (played last spring). Name it by its season label ("the 2025-26 playoffs") or say "last season's playoffs", not the bare calendar year.`);
+      break;
+    }
   }
 
   if (RECORD_IN_HOOK.test(hook)) problems.push("The hook just states a record or score. Lead with the tension, not the number.");

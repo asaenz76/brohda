@@ -1,6 +1,6 @@
 import type { GamePreviewConfig, GamePreviewInput, GamePreviewReason, GamePreviewWriteOutcome } from "./types";
 import type { GenerationRunInput } from "./repository";
-import { addUsage, emptyUsage, type AngleSelection, type CandidateFact, type EditorialAngle, type GameIdentity, type GamePreviewProviders, type ProviderUsage, type ReachedSource } from "./providers/types";
+import { addUsage, emptyUsage, type AngleSelection, type CandidateFact, type EditorialAngle, type FactCheck, type GameIdentity, type GamePreviewProviders, type ProviderUsage, type ReachedSource, type ResearchLead, type SourceConflict } from "./providers/types";
 import { angleBasis, chooseAngle, completeAngleFacts, overallScore, validateAngles, validateEditorial } from "./editorial";
 import { reconcileFactKind, reconcileSeasonScope, splitUsableFacts, validateDraft } from "./validation";
 
@@ -29,9 +29,15 @@ export interface AttemptLog {
 export interface RunDetails {
   sources: { reached: number; accepted: number; rejected: number; list: ReachedSource[] };
   /** Every fact the research returned; `excluded` says why one was not allowed to reach the angle or the writer. */
-  facts: Array<{ id: string; kind: string; seasonScope: string; category: string; claim: string; sourceUrl: string; publishedAt: string | null; excluded?: string }>;
+  facts: Array<{ id: string; kind: string; seasonScope: string; category: string; claim: string; excerpt: string | null; sourceUrl: string; publishedAt: string | null; excluded?: string }>;
   /** Facts added to the chosen story because its summary carried a figure they hold. */
   angleFactsAdded: string[];
+  /** Authoritative sources that disagreed during research (the disputed figure is not used when the story can be told without it). */
+  sourceConflicts: SourceConflict[];
+  /** What research noticed around the Game, as hints for the angle stage. */
+  researchLeads: ResearchLead[];
+  /** The independent re-check of the chosen story's facts, per round (a failed fact removes that story; the next-best story is checked). */
+  factVerification: Array<{ round: number; angleId: string; checks: FactCheck[] }>;
   angles: AngleSelection["angles"];
   /** What each candidate angle rests on, computed from its facts: CURRENT_SEASON, CURRENT_WITH_HISTORY or HISTORY_ONLY. */
   angleBasis: Record<string, string>;
@@ -71,6 +77,9 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     sources: { reached: 0, accepted: 0, rejected: 0, list: [] },
     facts: [],
     angleFactsAdded: [],
+    sourceConflicts: [],
+    researchLeads: [],
+    factVerification: [],
     angles: [],
     angleBasis: {},
     selectedAngleId: null,
@@ -120,10 +129,13 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
 
   // 1. Research: sourced facts about this exact matchup. A failure here ends the run before any writing.
   let facts: CandidateFact[];
+  let leads: ResearchLead[] = [];
   try {
     const research = await providers.research.research(game, { ...stage, maxSearchCalls: config.maxSearchCallsPerGame, webSearchToolVersion: config.webSearchToolVersion, preferredDomains: config.preferredDomains, blockedDomains: config.blockedDomains });
     usage = addUsage(usage, research.usage);
     facts = research.facts;
+    leads = research.leads ?? [];
+    details.sourceConflicts = research.conflicts ?? [];
     details.sources = { reached: research.sources.length, accepted: research.sources.filter((s) => s.status === "accepted").length, rejected: research.sources.filter((s) => s.status === "rejected").length, list: research.sources.slice(0, 40) };
   } catch (error) {
     return fail(`research_failed: ${(error as Error).message}`);
@@ -133,16 +145,21 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
   // A fact about the current state needs a dated, recent source; one without it is recorded but never offered to the angle or the writer.
   const { usable, excluded } = splitUsableFacts(facts, config, deps.now());
   const excludedReason = new Map(excluded.map((e) => [e.fact.id, e.reason]));
-  details.facts = facts.map((f) => ({ id: f.id, kind: f.kind, seasonScope: f.seasonScope, category: f.category, claim: f.claim, sourceUrl: f.sourceUrl, publishedAt: f.publishedAt, ...(excludedReason.has(f.id) ? { excluded: excludedReason.get(f.id) } : {}) }));
+  details.facts = facts.map((f) => ({ id: f.id, kind: f.kind, seasonScope: f.seasonScope, category: f.category, claim: f.claim, excerpt: f.excerpt, sourceUrl: f.sourceUrl, publishedAt: f.publishedAt, ...(excludedReason.has(f.id) ? { excluded: excludedReason.get(f.id) } : {}) }));
   if (usage.searchCalls === 0) return fail("research_did_not_search"); // a model that did not actually search is not research
   if (facts.length === 0) return fail("no_verified_facts"); // weak research never becomes a manufactured story
   if (usable.length === 0) return fail("no_usable_facts", excluded.map((e) => `Fact ${e.fact.id} was set aside: ${e.reason}.`), "REJECTED");
   facts = usable;
+  const usableIds = new Set(usable.map((f) => f.id));
+  leads = leads.map((l) => ({ ...l, factIds: l.factIds.filter((id) => usableIds.has(id)) })).filter((l) => l.factIds.length > 0);
+  details.researchLeads = leads;
 
   // 2. Editorial angles: 3-5 candidate stories from the verified facts, scored; the strongest wins, and a records-only fallback never beats a good-enough story.
   let chosen: EditorialAngle;
+  let selectionResult: AngleSelection;
   try {
-    const selection = await providers.angles.selectAngle(game, facts, stage);
+    const selection = await providers.angles.selectAngle(game, facts, stage, leads);
+    selectionResult = selection;
     usage = addUsage(usage, selection.usage);
     details.angles = selection.angles;
     details.angleBasis = Object.fromEntries(selection.angles.map((a) => [a.id, angleBasis(a, facts)]));
@@ -161,6 +178,46 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     return fail(`angle_selection_failed: ${(error as Error).message}`);
   }
 
+  // 2b. Verify AFTER the story is chosen, BEFORE anything is written: every fact the story needs is independently re-checked against its source (right claim, right season, right team, no authoritative disagreement). A fact that does not
+  // verify takes its story with it — the next-best story is checked instead, and if none stands the run is rejected. The writer only ever sees verified facts.
+  if (providers.factVerifier) {
+    const confirmed = new Set<string>();
+    const dead = new Map<string, string>();
+    for (let round = 1; round <= 2; round++) {
+      const needed = facts.filter((f) => chosen.factIds.includes(f.id) && !confirmed.has(f.id));
+      if (needed.length > 0) {
+        let result;
+        try {
+          result = await providers.factVerifier.verifyFacts(game, needed, { ...stage, maxSearchCalls: Math.max(0, config.maxSearchCallsPerGame - usage.searchCalls), webSearchToolVersion: config.webSearchToolVersion, blockedDomains: config.blockedDomains });
+        } catch (error) {
+          return fail(`fact_verification_failed: ${(error as Error).message}`);
+        }
+        usage = addUsage(usage, result.usage);
+        details.factVerification.push({ round, angleId: chosen.id, checks: result.checks });
+        const byId = new Map(result.checks.map((c) => [c.factId, c]));
+        for (const f of needed) {
+          const check = byId.get(f.id);
+          if (check?.status === "confirmed") confirmed.add(f.id);
+          else dead.set(f.id, `${check?.status ?? "unsupported"}${check?.note ? `: ${check.note}` : ""}`);
+        }
+      }
+      const failed = chosen.factIds.filter((id) => dead.has(id));
+      if (failed.length === 0) break;
+      for (const entry of details.facts) if (dead.has(entry.id)) entry.excluded = `failed verification (${dead.get(entry.id)})`;
+      facts = facts.filter((f) => !dead.has(f.id));
+      // "Remove it or choose another story": a story that lost a fact is no longer the story that was scored, so it is set aside whole.
+      const standing = selectionResult.angles.filter((a) => a.factIds.every((id) => !dead.has(id)));
+      if (standing.length === 0) return fail("story_not_verified", failed.map((id) => `Fact ${id} did not verify: ${dead.get(id)}`), "REJECTED");
+      const best = [...standing].sort((a, b) => overallScore(b.scores) - overallScore(a.scores))[0];
+      const pick = chooseAngle({ angles: standing, selectedId: best.id, selectionReason: "The first choice had a fact that did not verify; the strongest story whose facts stand was chosen." }, config.minStoryScore, facts);
+      chosen = completeAngleFacts(pick.angle, facts).angle;
+      details.chosenAngleId = pick.angle.id;
+      details.angleOverridden = true;
+      details.selectionReason = pick.reason;
+    }
+    if (!chosen.factIds.every((id) => confirmed.has(id))) return fail("story_not_verified", chosen.factIds.filter((id) => !confirmed.has(id)).map((id) => `Fact ${id} was not verified.`), "REJECTED");
+  }
+
   // 3-5. Draft → provenance validation → editorial validation → verification, with every rejection reason fed back to the writer.
   let feedback: string[] = [];
   let lastProblems: string[] = [];
@@ -174,7 +231,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     usage = addUsage(usage, draft.usage);
 
     const provenance = validateDraft({ draft: { hook: draft.hook, preview: draft.preview, claims: draft.claims }, facts, game, config, now: deps.now() });
-    const editorial = validateEditorial({ draft, angle: chosen, config, facts });
+    const editorial = validateEditorial({ draft, angle: chosen, config, facts, kickoffUtc: game.kickoffUtc });
     let verifierProblems: string[] = [];
     if (provenance.ok && editorial.length === 0 && providers.verifier) {
       try {

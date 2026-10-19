@@ -149,3 +149,45 @@ describe("no time of day", () => {
     expect(editorial({ ...goodDraft, preview: `${goodDraft.preview} Today it ends.` }).join(" ")).not.toMatch(/time of day/);
   });
 });
+
+describe("an earlier season's playoffs are not named by the new season's year", () => {
+  // The fixture Game is in October 2026: the 2026 season is just starting, so "the 2026 playoffs" were last spring but read as this season's.
+  const kickoffUtc = "2026-10-18T17:00:00.000Z";
+  const base = goodDraft.claims.filter((c) => !c.factIds.includes("f2"));
+  const withClaim = (text: string, preview = text) => ({ ...goodDraft, preview: `${goodDraft.preview} ${preview}`, claims: [...base, { text, factIds: ["f2"] }] });
+  const run = (d: typeof goodDraft) => validateEditorial({ draft: d, angle: angles[0], config, facts, kickoffUtc });
+
+  it("rejects 'the 2026 playoffs' in an October 2026 Game", () => {
+    expect(run(withClaim("New York swept Philadelphia in the 2026 playoffs.")).join(" ")).toMatch(/ambiguous/);
+  });
+
+  it("accepts the season label ('the 2025-26 playoffs') as ESPN prints it", () => {
+    expect(run(withClaim("New York swept Philadelphia in the 2025-26 playoffs.")).filter((p) => /ambiguous|does not say so/.test(p))).toEqual([]);
+  });
+
+  it("accepts 'last season's playoffs' and an earlier calendar year as history", () => {
+    expect(run(withClaim("Indianapolis beat Tennessee 41-20 and 38-14 last season.")).filter((p) => /ambiguous|does not say so/.test(p))).toEqual([]);
+    expect(run(withClaim("Indianapolis beat Tennessee 41-20 and 38-14 in 2025.")).filter((p) => /ambiguous|does not say so/.test(p))).toEqual([]);
+  });
+
+  it("a bare year equal to the Game's year is not history framing for a claim resting on earlier-season facts", () => {
+    expect(run(withClaim("Indianapolis beat Tennessee 41-20 and 38-14 in 2026.")).join(" ")).toMatch(/does not say so/);
+  });
+
+  it("a Game from the first half of a year does not trip the rule (that year's playoffs are the current season's)", () => {
+    const d = withClaim("Indianapolis beat Tennessee 41-20 and 38-14 last season, and the 2027 playoffs loom.");
+    expect(validateEditorial({ draft: d, angle: angles[0], config, facts, kickoffUtc: "2027-03-02T17:00:00.000Z" }).filter((p) => /ambiguous/.test(p))).toEqual([]);
+  });
+});
+
+describe("genuinely different angles", () => {
+  it("rejects two angles that rest on the same facts (one story reworded) and two angles of the same kind", () => {
+    const same = { ...selection, angles: [angles[0], { ...angles[1], type: "STREAK_ON_THE_LINE" as const, factIds: ["f1", "f3", "f2"] }, angles[2]] };
+    expect(validateAngles(same, facts).join(" ")).toMatch(/rest on the same facts/);
+    const twice = { ...selection, angles: [angles[0], { ...angles[1], type: "CONTRAST" as const, factIds: ["f1"] }, angles[2]] };
+    expect(validateAngles(twice, facts).join(" ")).toMatch(/both CONTRAST/);
+  });
+  it("accepts angles of different kinds on different facts", () => {
+    expect(validateAngles(selection, facts)).toEqual([]);
+  });
+});
