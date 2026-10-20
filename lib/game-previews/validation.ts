@@ -45,6 +45,30 @@ export function domainMatches(host: string, domains: string[]): boolean {
 const PLAIN_TWO = /\b(the )?two (\w+ ){0,2}(teams?|sides?|clubs?|rosters?|franchises|programs|squads|lineups?|offenses|defenses)\b/gi;
 const ADVERB_FIRST = /\bfirst(?=\s*[.?!,;:]|\s*$)/gi;
 
+/**
+ * Figures a piece of PROSE actually CLAIMS, as opposed to every word that can express a number. "his first chance", "the first meeting", "two stars are out", "the first to arrive" are ordinary language and need no source;
+ * "five straight", "60 wins", "two touchdowns", "first in the league", "ranked third", "their first win of the season" are factual quantitative claims and must be in a cited fact. Digits always count.
+ */
+const QUANT_NOUN = "straight|consecutive|in a row|wins?|losses|loss|defeats?|victories|games?|points?|goals?|assists?|yards?|touchdowns?|interceptions?|picks|sacks?|takeaways|giveaways|turnovers|rebounds?|steals?|blocks?|saves?|shutouts?|minutes|seasons?|years|meetings|titles|championships|starts|appearances|times|percent|shots|homers|runs|hits|innings|strikeouts|penalties";
+const ORDINAL_CONTEXT = /\b(wins?|loss(es)?|defeats?|victory|career|season|league|nfl|nba|nhl|mlb|conference|division|straight|consecutive|ever|goal|touchdown|shutout|title|championship|playoffs?|round|overall|road|home|away)\b/i;
+export function claimedFigures(text: string): Set<string> {
+  const out = new Set<string>();
+  for (const m of text.matchAll(/\d+(?:[.,]\d+)?/g)) out.add(m[0].replace(",", "."));
+  const lower = text.toLowerCase();
+  const words = lower.match(/[a-z']+/g) ?? [];
+  const rankedBefore = (i: number) => /^(ranked|ranks|ranking|top|last|no)$/.test(words[i - 1] ?? "");
+  words.forEach((w, i) => {
+    if (SPELLED[w]) {
+      const next = words.slice(i + 1, i + 3).join(" ");
+      if (new RegExp(`^(\\w+ )?(${QUANT_NOUN})\\b`).test(next) || new RegExp(`^(${QUANT_NOUN})\\b`).test(next) || rankedBefore(i)) out.add(SPELLED[w]);
+    } else if (ORDINALS[w]) {
+      const ahead = words.slice(i + 1, i + 5).join(" ");
+      if (ORDINAL_CONTEXT.test(ahead) || rankedBefore(i)) out.add(ORDINALS[w]);
+    }
+  });
+  return out;
+}
+
 /** Numeric figures in a text: digits ("26", "3.5", "45-24" → 45 and 24), spelled numbers ("six") and ordinals ("third"), normalized to digits. */
 export function numbersIn(text: string): Set<string> {
   const out = new Set<string>();
@@ -111,6 +135,7 @@ export function isTrustedSource(url: string, teams: string[], trustedDomains: st
 export function verificationReasons(fact: CandidateFact, trusted: boolean): string[] {
   const reasons: string[] = [];
   if (!trusted) reasons.push("the source is outside the trusted group");
+  if (isBettingPage(fact.sourceUrl, fact.sourceTitle)) reasons.push("the page is a betting, odds or picks page");
   if (fact.disputed) reasons.push("trusted sources disagree about it");
   if (fact.ambiguous) reasons.push("the page is ambiguous about season, date or team");
   if (fact.surprising) reasons.push("the claim is unusually surprising or consequential");
@@ -131,6 +156,28 @@ export function unsupportedQuotes(text: string, cited: CandidateFact[]): string[
     if (q.split(" ").length >= 3 && !corpus.includes(q)) missing.push(m[1]);
   }
   return missing;
+}
+
+/**
+ * A page whose purpose is betting, picks, odds or gambling advice. Such a page may never be the publicly credited PRIMARY source of a Brohda Preview, even on an otherwise trusted domain (an NBC Sports news story qualifies; NBC Sports' betting/odds/picks page does not).
+ * It may support a non-betting fact only when that fact is independently verified and another eligible trusted source carries the central story.
+ */
+const BETTING_URL = /\/(betting|odds|picks|predictions?|best-bets?|sportsbook|gambling|parlays?|dfs)(\/|-|$)|(^|[-_/])(odds|picks|predictions?|best-bets?|parlays?|sportsbook|betting)([-_/.]|$)|odds-expert-picks|player-props/i;
+const BETTING_TITLE = /\b(odds|picks|predictions?|best bets?|betting|parlays?|sportsbook|moneyline|against the spread|over\/under|player props)\b/i;
+export function isBettingPage(url: string, title?: string | null): boolean {
+  let path = url;
+  try {
+    const u = new URL(url);
+    path = `${u.pathname}${u.search}`;
+  } catch {
+    /* a non-URL falls through to the title check */
+  }
+  return BETTING_URL.test(path) || BETTING_TITLE.test(title ?? "");
+}
+
+/** Whether a fact's source may be the story's PRIMARY source: trusted, and not a betting page. */
+export function isEligiblePrimarySource(fact: Pick<CandidateFact, "sourceUrl" | "sourceTitle">, teams: string[], trustedDomains: string[]): boolean {
+  return isTrustedSource(fact.sourceUrl, teams, trustedDomains) && !isBettingPage(fact.sourceUrl, fact.sourceTitle);
 }
 
 export interface ExcludedFact {
@@ -204,8 +251,8 @@ export function validateDraft({ draft, facts, game, config, now }: { draft: Draf
 
   const supported = new Set<string>();
   for (const fact of cited.values()) for (const n of numbersIn(`${fact.claim} ${fact.excerpt ?? ""}`)) supported.add(n);
-  for (const claim of draft.claims) for (const n of numbersIn(claim.text)) if (!supported.has(n)) problems.push(`The figure "${n}" in a claim is not in the facts it cites.`);
-  for (const n of numbersIn(`${hook} ${preview}`)) if (!supported.has(n)) problems.push(`The figure "${n}" appears in the hook or preview but in none of the cited facts.`);
+  for (const claim of draft.claims) for (const n of claimedFigures(claim.text)) if (!supported.has(n)) problems.push(`The figure "${n}" in a claim is not in the facts it cites.`);
+  for (const n of claimedFigures(`${hook} ${preview}`)) if (!supported.has(n)) problems.push(`The figure "${n}" appears in the hook or preview but in none of the cited facts.`);
 
   // A time frame is a claim too. "Six straight games" may run into last season; writing "six straight games THIS SEASON" is only allowed when a cited fact says so itself.
   const statesSeason = (f: CandidateFact) => FACT_STATES_SEASON.test(`${f.claim} ${f.excerpt ?? ""}`);

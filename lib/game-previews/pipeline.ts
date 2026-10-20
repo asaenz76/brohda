@@ -1,8 +1,8 @@
 import type { GamePreviewConfig, GamePreviewInput, GamePreviewReason, GamePreviewWriteOutcome } from "./types";
 import type { GenerationRunInput } from "./repository";
-import { addUsage, emptyUsage, type AngleSelection, type CandidateFact, type EditorialAngle, type FactCheck, type GameIdentity, type GamePreviewProviders, type ProviderUsage, type ReachedSource, type ResearchLead, type SourceConflict } from "./providers/types";
+import { addUsage, emptyUsage, type AdvisoryKind, type AngleSelection, type CandidateFact, type EditorialAngle, type FactCheck, type GameIdentity, type GamePreviewProviders, type PreviewDraft, type ProviderUsage, type ReachedSource, type ResearchLead, type SourceConflict } from "./providers/types";
 import { angleBasis, chooseAngle, completeAngleFacts, dedupeAngles, overallScore, validateAngles, validateEditorial } from "./editorial";
-import { domainOf, isTrustedSource, reconcileFactKind, reconcileSeasonScope, splitUsableFacts, validateDraft, verificationReasons } from "./validation";
+import { domainOf, isEligiblePrimarySource, isTrustedSource, reconcileFactKind, reconcileSeasonScope, splitUsableFacts, validateDraft, verificationReasons } from "./validation";
 
 /**
  * Preview generation, one Game at a time: research → candidate facts → candidate editorial angles, scored → the strongest story → a draft that tells only that story → deterministic provenance validation → deterministic editorial
@@ -23,6 +23,15 @@ export interface AttemptLog {
   provenanceProblems: string[];
   editorialProblems: string[];
   verifierProblems: string[];
+  /** Editorial-taste findings (deterministic and from the reviewer): recorded, never a reason to reject. */
+  advisory: string[];
+}
+
+export interface AdvisoryNote {
+  attempt: number;
+  source: "deterministic" | "reviewer";
+  kind: AdvisoryKind | "editorial_rule";
+  note: string;
 }
 
 /** What a run found and decided — the record the owner reviews. */
@@ -60,6 +69,12 @@ export interface RunDetails {
     /** The source(s) credited publicly under the Preview. */
     publicSources: string[];
   };
+  /** Editorial-taste notes recorded for product analysis (bland story, weak hook, game-note feel, repetitive structure, low conversation, wording). */
+  advisoryNotes: AdvisoryNote[];
+  /** What blocked drafts, by kind: deterministic safety checks vs the reviewer's categories. */
+  blockingCounts: { deterministic: number; reviewer: number; reviewerByCategory: Record<string, number> };
+  /** "none": nothing advisory; "kept_rewrite": the advisory rewrite was factually valid and saved; "kept_original": the rewrite was not valid (or no attempt was left) and the earlier valid draft was saved. */
+  advisoryRewrite: "none" | "kept_rewrite" | "kept_original";
   /** Why each exception fact needed extra verification. */
   exceptionReasons: Record<string, string[]>;
   angles: AngleSelection["angles"];
@@ -117,6 +132,9 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     factVerification: [],
     measurement: { researchSearches: 0, verificationSearches: 0, factsDiscovered: 0, factsSelected: 0, confirmedFromStoredEvidence: 0, confirmedAfterTargetedSearch: 0, needingExtraSearch: 0, disputed: 0, unsupported: 0, retrievalFailed: 0, exceptionFacts: 0, exceptionVerification: false, sourceDisagreement: false, primarySource: null, publicSources: [] },
     exceptionReasons: {},
+    advisoryNotes: [],
+    blockingCounts: { deterministic: 0, reviewer: 0, reviewerByCategory: {} },
+    advisoryRewrite: "none",
     angles: [],
     angleBasis: {},
     selectedAngleId: null,
@@ -196,10 +214,12 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
   // 2. Editorial angles: 3-5 candidate stories from the facts, scored; the strongest wins, a records-only fallback never beats a good-enough story, and the story must be anchored in a TRUSTED primary source (the first fact of the angle).
   const teams = [game.homeTeam, game.awayTeam];
   const isTrusted = (f: CandidateFact) => isTrustedSource(f.sourceUrl, teams, config.preferredDomains);
+  // Eligible as the story's PRIMARY (publicly credited) source: trusted AND not a betting/odds/picks page. A betting page may only support a fact that is independently verified.
+  const isEligiblePrimary = (f: CandidateFact) => isEligiblePrimarySource(f, teams, config.preferredDomains);
   const primaryOf = (angle: EditorialAngle) => facts.find((f) => f.id === angle.factIds[0]);
   const hasTrustedPrimary = (angle: EditorialAngle) => {
     const f = primaryOf(angle);
-    return Boolean(f && isTrusted(f));
+    return Boolean(f && isEligiblePrimary(f));
   };
   let chosen: EditorialAngle;
   let selectionResult: AngleSelection;
@@ -292,46 +312,23 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     m.primarySource = primaryOf(chosen)?.sourceUrl ?? null;
   }
 
-  // 3-5. Draft → provenance validation → editorial validation → verification, with every rejection reason fed back to the writer.
+  // 3-5. Draft → deterministic safety checks → independent read, with BLOCKING problems fed back for a rewrite. ADVISORY (editorial taste) findings never reject: if a draft is factually valid but has advisory notes, ONE rewrite may use them; the rewrite is
+  // saved if it is also valid, otherwise the earlier valid draft is saved. No endless editorial loop.
   const recentHooks = deps.recentHooks ? await deps.recentHooks().catch(() => []) : [];
   let feedback: string[] = [];
+  let feedbackKind: "blocking" | "advisory" = "blocking";
   let lastProblems: string[] = [];
-  for (attempts = 1; attempts <= config.maxAttempts; attempts++) {
-    let draft;
-    try {
-      draft = await providers.writer.write(game, chosen, facts, { ...stage, maxChars: config.maxChars, hookMaxChars: config.hookMaxChars, maxCitedFacts: config.maxCitedFacts, recentHooks, feedback });
-    } catch (error) {
-      return fail(`writer_failed: ${(error as Error).message}`);
-    }
-    usage = addUsage(usage, draft.usage);
+  let advisoryRewriteTried = false;
+  let fallback: { draft: PreviewDraft; attempt: number } | null = null;
 
-    const provenance = validateDraft({ draft: { hook: draft.hook, preview: draft.preview, claims: draft.claims }, facts, game, config, now: deps.now() });
-    const editorial = validateEditorial({ draft, angle: chosen, config, facts, kickoffUtc: game.kickoffUtc });
-    let verifierProblems: string[] = [];
-    if (provenance.ok && editorial.length === 0 && providers.verifier) {
-      try {
-        const verdict = await providers.verifier.verify(game, chosen, draft, facts, stage);
-        usage = addUsage(usage, verdict.usage);
-        if (!verdict.supported || !verdict.editorialPasses) verifierProblems = verdict.problems.length ? verdict.problems : ["The independent read found a statement the facts do not support, or a draft that is not a story."];
-      } catch (error) {
-        return fail(`verifier_failed: ${(error as Error).message}`);
-      }
-    }
-    details.attemptsLog.push({ attempt: attempts, hook: draft.hook, preview: draft.preview, provenanceProblems: provenance.problems, editorialProblems: editorial, verifierProblems });
-    const problems = [...provenance.problems, ...editorial, ...verifierProblems];
-    if (problems.length > 0) {
-      lastProblems = problems;
-      feedback = problems;
-      details.rewrites = attempts;
-      continue;
-    }
-
+  const saveDraft = async (draft: PreviewDraft, attemptNo: number, rewrite: RunDetails["advisoryRewrite"]): Promise<GenerationOutcome> => {
     // Save with provenance: the sources of exactly the cited facts, the claim → fact → source map, and the generation metadata (including what was decided).
-    details.rewrites = attempts - 1;
+    details.rewrites = attemptNo - 1;
+    details.advisoryRewrite = rewrite;
     const citedIds = new Set(draft.claims.flatMap((c) => c.factIds));
     const primaryFact = primaryOf(chosen);
-    // No published Game Preview without a visible, trusted primary source: the primary fact must be cited and its source credible.
-    if (!primaryFact || !citedIds.has(primaryFact.id) || !isTrusted(primaryFact)) return fail("no_public_source", ["The Preview does not rest on a trusted primary source, so it has nothing to credit."], "REJECTED");
+    // No published Game Preview without a visible, eligible primary source: the primary fact must be cited and its source credible and not a betting page.
+    if (!primaryFact || !citedIds.has(primaryFact.id) || !isEligiblePrimary(primaryFact)) return fail("no_public_source", ["The Preview does not rest on an eligible trusted primary source (trusted, and not a betting page), so it has nothing to credit."], "REJECTED");
     const citedFacts = [primaryFact, ...facts.filter((f) => citedIds.has(f.id) && f.id !== primaryFact.id)];
     const byUrl = new Map<string, { fact: CandidateFact; supports: string[] }>();
     for (const f of citedFacts) {
@@ -349,8 +346,8 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
       supports: supports.join(" ").slice(0, 500) || null,
       excerpt: f.excerpt,
     }));
-    // Public credit: the primary source, and a second only when the story materially depends on a trusted source from a different publisher.
-    const publicSources = [primaryFact, ...citedFacts.filter((f) => f.id !== primaryFact.id && isTrusted(f) && domainOf(f.sourceUrl) !== domainOf(primaryFact.sourceUrl))].slice(0, 2);
+    // Public credit: the primary source, and a second only when the story materially depends on a trusted, non-betting source from a different publisher.
+    const publicSources = [primaryFact, ...citedFacts.filter((f) => f.id !== primaryFact.id && isEligiblePrimary(f) && domainOf(f.sourceUrl) !== domainOf(primaryFact.sourceUrl))].slice(0, 2);
     const publicSourceUrls = [...new Set(publicSources.map((f) => f.sourceUrl))];
     details.measurement.publicSources = publicSourceUrls;
     const factById = new Map(facts.map((f) => [f.id, f]));
@@ -370,7 +367,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
         promptVersion: draft.promptVersion,
         research: providers.research.name,
         verifiedByModel: Boolean(providers.verifier),
-        attempts,
+        attempts: attemptNo,
         trigger: request.trigger,
         angle: { id: chosen.id, type: chosen.type, basis: angleBasis(chosen, facts), summary: chosen.summary, score: Number(overallScore(chosen.scores).toFixed(2)), overridden: details.angleOverridden },
         candidateAngles: details.angles.map((a) => ({ id: a.id, type: a.type, summary: a.summary, score: Number(overallScore(a.scores).toFixed(2)) })),
@@ -378,14 +375,72 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
         primarySourceUrl: primaryFact.sourceUrl,
         publicSourceUrls,
         verification: { exceptionFacts: details.measurement.exceptionFacts, exceptionVerification: details.measurement.exceptionVerification, sourceDisagreement: details.measurement.sourceDisagreement },
+        advisoryRewrite: rewrite,
+        advisoryNotes: details.advisoryNotes.filter((n) => n.attempt === attemptNo).map(({ source, kind, note }) => ({ source, kind, note })),
         usage,
       },
     });
     if ((saved.outcome === "created" || saved.outcome === "refreshed") && saved.previewId) {
-      return finish({ status: "SUCCEEDED", previewId: saved.previewId, write: saved.outcome, hook: draft.hook, preview: draft.preview, usage, attempts, details }, saved.previewId);
+      return finish({ status: "SUCCEEDED", previewId: saved.previewId, write: saved.outcome, hook: draft.hook, preview: draft.preview, usage, attempts: attemptNo, details }, saved.previewId);
     }
     return fail(`not_saved: ${saved.outcome}`); // e.g. the Game started while it was being written, or the refresh rules said no
+  };
+
+  for (attempts = 1; attempts <= config.maxAttempts; attempts++) {
+    let draft: PreviewDraft;
+    try {
+      draft = await providers.writer.write(game, chosen, facts, { ...stage, maxChars: config.maxChars, hookMaxChars: config.hookMaxChars, maxCitedFacts: config.maxCitedFacts, recentHooks, feedback, feedbackKind });
+    } catch (error) {
+      return fail(`writer_failed: ${(error as Error).message}`);
+    }
+    usage = addUsage(usage, draft.usage);
+
+    const provenance = validateDraft({ draft: { hook: draft.hook, preview: draft.preview, claims: draft.claims }, facts, game, config, now: deps.now() });
+    const editorial = validateEditorial({ draft, angle: chosen, config, facts, kickoffUtc: game.kickoffUtc });
+    const reviewerBlocking: string[] = [];
+    const reviewerAdvisory: Array<{ kind: AdvisoryKind; note: string }> = [];
+    if (provenance.ok && editorial.blocking.length === 0 && providers.verifier) {
+      try {
+        const verdict = await providers.verifier.verify(game, chosen, draft, facts, stage);
+        usage = addUsage(usage, verdict.usage);
+        for (const b of verdict.blocking) {
+          reviewerBlocking.push(`[${b.category}] ${b.problem}`);
+          details.blockingCounts.reviewerByCategory[b.category] = (details.blockingCounts.reviewerByCategory[b.category] ?? 0) + 1;
+        }
+        reviewerAdvisory.push(...verdict.advisory);
+      } catch (error) {
+        return fail(`verifier_failed: ${(error as Error).message}`);
+      }
+    }
+    const advisoryText = [...editorial.advisory, ...reviewerAdvisory.map((a) => a.note)];
+    for (const note of editorial.advisory) details.advisoryNotes.push({ attempt: attempts, source: "deterministic", kind: "editorial_rule", note });
+    for (const a of reviewerAdvisory) details.advisoryNotes.push({ attempt: attempts, source: "reviewer", kind: a.kind, note: a.note });
+    details.attemptsLog.push({ attempt: attempts, hook: draft.hook, preview: draft.preview, provenanceProblems: provenance.problems, editorialProblems: editorial.blocking, verifierProblems: reviewerBlocking, advisory: advisoryText });
+    const blocking = [...provenance.problems, ...editorial.blocking, ...reviewerBlocking];
+    details.blockingCounts.deterministic += provenance.problems.length + editorial.blocking.length;
+    details.blockingCounts.reviewer += reviewerBlocking.length;
+
+    if (blocking.length > 0) {
+      lastProblems = blocking;
+      // A rewrite that was meant only to polish a valid draft went wrong: keep the valid one.
+      if (fallback) return saveDraft(fallback.draft, fallback.attempt, "kept_original");
+      feedback = blocking;
+      feedbackKind = "blocking";
+      details.rewrites = attempts;
+      continue;
+    }
+
+    // Factually valid. Advisory notes allow ONE polish rewrite (if an attempt is left); otherwise this draft is saved as it is.
+    if (advisoryText.length > 0 && !advisoryRewriteTried && attempts < config.maxAttempts) {
+      advisoryRewriteTried = true;
+      fallback = { draft, attempt: attempts };
+      feedback = advisoryText;
+      feedbackKind = "advisory";
+      continue;
+    }
+    return saveDraft(draft, attempts, fallback ? "kept_rewrite" : "none");
   }
   attempts = config.maxAttempts;
+  if (fallback) return saveDraft(fallback.draft, fallback.attempt, "kept_original");
   return fail("draft_rejected", lastProblems, "REJECTED");
 }

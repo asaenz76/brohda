@@ -233,6 +233,8 @@ export interface DraftContext extends StageContext {
   recentHooks: string[];
   /** Why the previous attempt was rejected (empty on the first attempt). */
   feedback: string[];
+  /** "blocking": the draft was WRONG (fix every problem). "advisory": the draft is factually valid and will be kept unless the rewrite is better — improve the writing using the notes WITHOUT adding, changing or removing any fact. */
+  feedbackKind?: "blocking" | "advisory";
 }
 export interface PreviewDraft {
   hook: string;
@@ -248,12 +250,31 @@ export interface GamePreviewWriterProvider {
   write(game: GameIdentity, angle: EditorialAngle, facts: CandidateFact[], ctx: DraftContext): Promise<PreviewDraft>;
 }
 
+/** What makes a Preview WRONG or MISLEADING: each one blocks publication. */
+export const BLOCKING_CATEGORIES = [
+  "unsupported_claim",
+  "wrong_figure",
+  "wrong_entity",
+  "wrong_season",
+  "stale_current",
+  "source_conflict",
+  "wrong_game",
+  "logical_contradiction",
+  "unsupported_causation",
+  "misleading_implication",
+  "fabricated_quote",
+  "betting_language",
+] as const;
+export type BlockingCategory = (typeof BLOCKING_CATEGORIES)[number];
+/** Editorial taste: recorded for product analysis and used for at most one rewrite, never a reason to reject. */
+export const ADVISORY_KINDS = ["bland_story", "weak_hook", "game_note_feel", "repetitive_structure", "low_conversation", "wording_tone"] as const;
+export type AdvisoryKind = (typeof ADVISORY_KINDS)[number];
+
 export interface VerificationResult {
-  /** Every statement is supported by the facts it cites. */
-  supported: boolean;
-  /** Editorial judgement: the hook stops the scroll, the story is specific, it is one story, it reads like an editor and not game notes. */
-  editorialPasses: boolean;
-  problems: string[];
+  /** The Preview is wrong or misleading in a way that must not publish: an unsupported claim, a wrong figure, entity or season, a stale current-state fact, a logical or causal misuse of true facts. */
+  blocking: Array<{ category: BlockingCategory; problem: string }>;
+  /** Editorial taste only ("reads like game notes", "the hook could be sharper"). */
+  advisory: Array<{ kind: AdvisoryKind; note: string }>;
   usage: ProviderUsage;
 }
 /** Optional stage 4: an independent read of the draft against its facts and the editorial bar. Supplemental — the deterministic checks stay authoritative. */
