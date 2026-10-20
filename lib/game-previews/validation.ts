@@ -88,13 +88,27 @@ const PREVIOUS_SEASON_WORDS = /\b(last|previous|prior) (season|year)\b|\b(a )?(y
  * A deterministic backstop for the research's season classification: it can only move a fact from CURRENT_SEASON to HISTORICAL_CONTEXT, never the other way. A current-state fact (injury, availability) is by nature this season's; a fact whose own wording
  * names an earlier season (a year before this one, or "last season") is history. Years are judged against the Game's date: from August on, a season that began last year is over; in the first half of the year the previous calendar year may still be this season (a season that spans New Year).
  */
-export function reconcileSeasonScope(facts: CandidateFact[], game: Pick<GameIdentity, "kickoffUtc">): CandidateFact[] {
+/**
+ * When the current season began, for the leagues whose seasons run autumn to spring (NFL, NBA, NHL): a report published BEFORE this is last season's news, whatever it says. A Game in August-December belongs to the season that starts that year (the offseason from July counts as the new
+ * season's context); a Game in January-June belongs to the season that began the previous August. Null for any other competition (their calendars differ), so no date rule is applied to them.
+ */
+export function currentSeasonStart(game: Pick<GameIdentity, "kickoffUtc" | "competition">): Date | null {
+  if (!game.competition || !/^(NFL|NBA|NHL)$/i.test(game.competition.trim())) return null;
+  const kickoff = new Date(game.kickoffUtc);
+  const year = kickoff.getUTCFullYear();
+  return kickoff.getUTCMonth() >= 6 ? new Date(Date.UTC(year, 6, 1)) : new Date(Date.UTC(year - 1, 7, 1));
+}
+
+export function reconcileSeasonScope(facts: CandidateFact[], game: Pick<GameIdentity, "kickoffUtc"> & Partial<Pick<GameIdentity, "competition">>): CandidateFact[] {
   const kickoff = new Date(game.kickoffUtc);
   const year = kickoff.getUTCFullYear();
   const firstPastYear = kickoff.getUTCMonth() >= 7 ? year - 1 : year - 2; // years at or before this are an earlier season
+  const seasonStart = currentSeasonStart({ kickoffUtc: game.kickoffUtc, competition: game.competition ?? null });
   return facts.map((f) => {
     if (f.kind === "current") return f.seasonScope === "CURRENT_SEASON" ? f : { ...f, seasonScope: "CURRENT_SEASON" };
     if (f.seasonScope === "HISTORICAL_CONTEXT") return f;
+    // A report from before this season began is last season's news.
+    if (seasonStart && f.publishedAt && new Date(f.publishedAt).getTime() < seasonStart.getTime()) return { ...f, seasonScope: "HISTORICAL_CONTEXT" };
     const text = `${f.claim} ${f.excerpt ?? ""}`;
     const years = [...text.matchAll(/\b(19|20)\d{2}\b/g)].map((m) => Number(m[0]));
     const mentionsPast = years.some((y) => y <= firstPastYear) || PREVIOUS_SEASON_WORDS.test(f.claim);

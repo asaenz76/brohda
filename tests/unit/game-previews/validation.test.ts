@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claimedFigures, domainMatches, domainOf, isBettingPage, isEligiblePrimarySource, isTrustedSource, numbersIn, reconcileFactKind, reconcileSeasonScope, splitUsableFacts, unsupportedQuotes, validateDraft, verificationReasons } from "@/lib/game-previews/validation";
+import { claimedFigures, currentSeasonStart, domainMatches, domainOf, isBettingPage, isEligiblePrimarySource, isTrustedSource, numbersIn, reconcileFactKind, reconcileSeasonScope, splitUsableFacts, unsupportedQuotes, validateDraft, verificationReasons } from "@/lib/game-previews/validation";
 import { config, fact, facts, game, goodDraft, NOW } from "./fixtures";
 
 const check = (draft = goodDraft, f = facts, c = config) => validateDraft({ draft, facts: f, game, config: c, now: NOW });
@@ -262,5 +262,22 @@ describe("betting pages are never the credited primary source", () => {
     expect(isEligiblePrimarySource({ sourceUrl: "https://www.nbcsports.com/nfl/news/purdy-leads-49ers", sourceTitle: "Purdy leads 49ers" }, teams, trusted)).toBe(true);
     expect(isEligiblePrimarySource({ sourceUrl: "https://www.nbcsports.com/betting/nfl/news/49ers-vs-commanders-odds-expert-picks", sourceTitle: "49ers vs Commanders Odds, expert picks" }, teams, trusted)).toBe(false);
     expect(isEligiblePrimarySource({ sourceUrl: "https://random-blog.example/x", sourceTitle: "x" }, teams, trusted)).toBe(false);
+  });
+});
+
+describe("a report from before this season began is last season's news", () => {
+  it("knows when the season began for the autumn-to-spring leagues, and applies no date rule to other competitions", () => {
+    expect(currentSeasonStart({ kickoffUtc: "2026-10-20T17:00:00.000Z", competition: "NBA" })?.toISOString()).toBe("2026-07-01T00:00:00.000Z");
+    expect(currentSeasonStart({ kickoffUtc: "2027-02-10T17:00:00.000Z", competition: "NHL" })?.toISOString()).toBe("2026-08-01T00:00:00.000Z");
+    expect(currentSeasonStart({ kickoffUtc: "2026-10-20T17:00:00.000Z", competition: "Premier League" })).toBeNull();
+    expect(currentSeasonStart({ kickoffUtc: "2026-10-20T17:00:00.000Z", competition: null })).toBeNull();
+  });
+  it("demotes a 'current-season' fact published before the season began (the Tatum March article in an October Game), never the other way", () => {
+    const game = { kickoffUtc: "2026-10-20T17:00:00.000Z", competition: "NBA" };
+    const out = reconcileSeasonScope([fact({ id: "a", publishedAt: "2026-03-06T00:00:00.000Z" }), fact({ id: "b", publishedAt: "2026-08-11T00:00:00.000Z" }), fact({ id: "c", publishedAt: null }), fact({ id: "d", kind: "current", publishedAt: "2026-03-06T00:00:00.000Z" })], game);
+    expect(out.map((f) => f.seasonScope)).toEqual(["HISTORICAL_CONTEXT", "CURRENT_SEASON", "CURRENT_SEASON", "CURRENT_SEASON"]);
+  });
+  it("a competition with no season rule is left alone", () => {
+    expect(reconcileSeasonScope([fact({ publishedAt: "2026-03-06T00:00:00.000Z" })], { kickoffUtc: "2026-10-20T17:00:00.000Z", competition: "MLS" })[0].seasonScope).toBe("CURRENT_SEASON");
   });
 });

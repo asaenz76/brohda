@@ -186,6 +186,19 @@ describe("Anthropic provider — angles, writing, verification", () => {
     expect(body.tools).toBeUndefined();
   });
 
+  it("a story that rests ONLY on earlier-season facts is reviewed with extra BLOCKING rules: nothing about the present or future without a current fact, and it must be tied to this matchup", async () => {
+    const c = client(msg([text({ blocking: [], advisory: [] })]), msg([text({ blocking: [], advisory: [] })]));
+    const p = new AnthropicGamePreviewProvider(c);
+    await p.verify(game, angles[2], goodDraft, facts, { model: "m", effort: "medium" }); // a3 rests on f2 only: HISTORICAL_CONTEXT
+    const system = String(calls(c)[0].system);
+    expect(system).toMatch(/THIS STORY RESTS ONLY ON EARLIER-SEASON FACTS/);
+    expect(system).toMatch(/is finding out/);
+    expect(system).toMatch(/tied to THIS matchup/);
+    await p.verify(game, angles[0], goodDraft, facts, { model: "m", effort: "medium" }); // a1 includes this season's facts
+    expect(String(calls(c)[1].system)).not.toMatch(/THIS STORY RESTS ONLY ON EARLIER-SEASON FACTS/);
+    expect(String(calls(c)[1].system)).toMatch(/no cited fact states/); // the general rule: a claim about the present or the future needs a fact
+  });
+
   it("an unrecognised blocking category still blocks (the reviewer said something is wrong); an unrecognised advisory kind is wording taste; empty findings are dropped", async () => {
     const c = client(msg([text({ blocking: [{ category: "something_new", problem: "a real problem" }, { category: "wrong_figure", problem: "  " }], advisory: [{ kind: "vibes", note: "meh" }, { kind: "weak_hook", note: "" }] })]));
     const out = await new AnthropicGamePreviewProvider(c).verify(game, angles[0], goodDraft, facts, { model: "m", effort: "medium" });
@@ -321,6 +334,8 @@ describe("Anthropic provider — story-first research and fact verification", ()
     expect(out.facts[0]).toMatchObject({ sourceType: "stats_page", pageContext: "ESPN Avalanche team statistics page, current regular season", pageSeason: "2026-27", subjectTeam: "Colorado Avalanche" });
     expect(out.facts[1]).toMatchObject({ sourceType: "other", pageContext: null, pageSeason: null, subjectTeam: null });
     expect(String(calls(c)[0].system)).toMatch(/surrounding context/);
+    expect(String(calls(c)[0].system)).toMatch(/at most 14 facts/);
+    expect(calls(c)[0].max_tokens).toBe(32000);
   });
 });
 
