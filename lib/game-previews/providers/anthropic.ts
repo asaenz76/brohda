@@ -58,6 +58,7 @@ export type MessagesClient = Pick<Anthropic, "messages">;
 /** Generous: research output (a list of facts with excerpts) and the model's own reasoning share this budget. Streaming is not needed at this size. */
 const RESEARCH_MAX_TOKENS = 32000;
 const STAGE_MAX_TOKENS = 8000;
+const REQUEST_TIMEOUT_MS = 290_000;
 /** A paused server-tool turn is resumed, but never without limit. */
 const MAX_PAUSE_RESUMES = 4;
 
@@ -84,7 +85,8 @@ async function call(client: MessagesClient, params: Omit<Anthropic.Messages.Mess
   for (let resumes = 0; ; resumes++) {
     let response: Anthropic.Messages.Message;
     try {
-      response = (await client.messages.create({ ...params, messages })) as Anthropic.Messages.Message;
+      // An explicit request timeout: without one the SDK refuses a non-streaming request whose max_tokens could take over 10 minutes (RESEARCH_MAX_TOKENS does), before sending anything. The route itself is capped at 300 seconds.
+      response = (await client.messages.create({ ...params, messages }, { timeout: REQUEST_TIMEOUT_MS })) as Anthropic.Messages.Message;
     } catch (error) {
       throw toError(error);
     }
