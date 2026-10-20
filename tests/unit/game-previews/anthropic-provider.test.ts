@@ -450,6 +450,23 @@ describe("credit lookup: searching the trusted domains for the page that carries
     expect(out.found[2].hit).toBeNull(); // never reached by the search
     expect(String(calls(c)[0].system)).toMatch(/Search ONLY the allowed trusted domains/);
   });
+  it("when the API refuses domains its crawler cannot access (the production 400), the lookup retries once without exactly those domains", async () => {
+    const good = "https://www.espn.com/nfl/story/_/id/77/titans-fall-to-0-5";
+    const refusal = new Error("anthropic_api_400: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The following domains are not accessible to our user agent: ['apnews.com', 'reuters.com', 'theathletic.com']. Read more");
+    const create = vi.fn<(params: Record<string, unknown>) => Promise<Msg>>();
+    create.mockRejectedValueOnce(refusal).mockResolvedValueOnce(msg([searchUse(), searchResult([good]), text({ results: [{ fact_id: "f1", url: good, title: "Titans fall to 0-5", provider: "ESPN", published_at: null, excerpt: "Tennessee fell to 0-5." }] })]));
+    const c = { messages: { create } } as unknown as ConstructorParameters<typeof AnthropicGamePreviewProvider>[0];
+    const out = await new AnthropicGamePreviewProvider(c).findTrustedSources(game, [facts[0]], { ...lookupCtx, trustedDomains: ["espn.com", "apnews.com", "reuters.com", "theathletic.com", "nfl.com"] });
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(((create.mock.calls[1][0].tools as Array<Record<string, unknown>>)[0]).allowed_domains).toEqual(["espn.com", "nfl.com"]);
+    expect(out.found[0].hit?.url).toBe(good);
+  });
+  it("any other API error is not retried: it propagates (and the pipeline records it)", async () => {
+    const create = vi.fn(async () => { throw new Error("anthropic_api_500: overloaded"); });
+    const c = { messages: { create } } as unknown as ConstructorParameters<typeof AnthropicGamePreviewProvider>[0];
+    await expect(new AnthropicGamePreviewProvider(c).findTrustedSources(game, [facts[0]], lookupCtx)).rejects.toThrow(/anthropic_api_500/);
+    expect(create).toHaveBeenCalledTimes(1);
+  });
   it("makes no call when there is nothing to search with", async () => {
     const c = client();
     const out = await new AnthropicGamePreviewProvider(c).findTrustedSources(game, facts, { ...lookupCtx, maxSearchCalls: 0 });
