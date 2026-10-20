@@ -9,8 +9,8 @@ const input = "block h-9 w-full rounded-md border border-border-subtle bg-surfac
 const area = "block w-full rounded-md border border-border-subtle bg-surface-primary px-2 py-1.5 text-sm text-text-primary";
 
 const NUMBERS: Array<{ name: string; key: keyof GamePreviewConfig; label: string; help: string; min: number; max: number }> = [
-  { name: "max_chars", key: "maxChars", label: "Preview length (characters)", help: "The longest a Preview story may be. Longer text is refused, never cut.", min: 100, max: 2000 },
-  { name: "hook_max_chars", key: "hookMaxChars", label: "Hook length (characters)", help: "The longest the headline may be.", min: 20, max: 300 },
+  { name: "max_chars", key: "maxChars", label: "Title + caption length (characters)", help: "The title and the caption TOGETHER must be fewer than this. Longer text is refused, never cut.", min: 100, max: 2000 },
+  { name: "hook_max_chars", key: "hookMaxChars", label: "Title length ceiling (database)", help: "Not a generation rule: the generator only enforces the combined limit above. The database still refuses a title longer than this, so keep it at 300.", min: 20, max: 300 },
   { name: "lead_hours", key: "leadHours", label: "Prepare a Game this many hours before kickoff", help: "A Game appears in “needs a Preview” once it starts within this many hours.", min: 1, max: 720 },
   { name: "stale_after_hours", key: "staleAfterHours", label: "Stale after (hours)", help: "A Preview not re-checked for this long may be refreshed before kickoff.", min: 1, max: 720 },
   { name: "min_refresh_interval_hours", key: "minRefreshIntervalHours", label: "Minimum hours between refreshes", help: "New information may replace a Preview only after this long, so it is never rewritten continuously.", min: 0, max: 720 },

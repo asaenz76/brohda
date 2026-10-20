@@ -68,6 +68,8 @@ export type GamePreviewReason = "MISSING" | "STALE" | "MATERIAL_NEW_INFORMATION"
 
 /** A material statement of a Preview and the research facts that support it. */
 export interface GamePreviewClaim {
+  /** Brief evidence or the precise statistical reference that supports the claim (kept for audit, never shown to Members). */
+  evidence?: string;
   text: string;
   factIds: string[];
 }
@@ -81,7 +83,7 @@ export interface GamePreviewInput {
   reason: GamePreviewReason;
   sources: Array<{ url: string; provider: string; title: string; publishedAt?: string | null; retrievedAt: string; supports?: string | null; excerpt?: string | null }>;
   /** Which stored research facts support which statements (empty for a hand-written Preview). */
-  claims?: Array<{ text: string; fact_ids: string[]; source_urls?: string[] }>;
+  claims?: Array<{ text: string; fact_ids: string[]; source_urls?: string[]; evidence?: string }>;
   /** Provider, model, prompt version and usage of the generation (omitted for a hand-written Preview). */
   meta?: Record<string, unknown>;
 }

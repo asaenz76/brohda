@@ -1,7 +1,7 @@
 import { requireSuperAdmin } from "@/lib/auth/session";
 import { LocalDateTime } from "@/components/LocalDateTime";
 import { EditPreviewForm, GamePreviewConfigForm, GeneratePreviewForm, WithdrawPreviewForm } from "@/components/game-previews/AdminGamePreviewTools";
-import { getGamePreviewConfig, getGenerationUsageSummary, listGamePreviewCandidates, listGamePreviewsForAdmin, listRecentGenerationRuns, listUpcomingGamesForAdmin } from "@/lib/game-previews/repository";
+import { getGamePreviewConfig, getGenerationUsageSummary, listGamePreviewCandidates, listGamePreviewsForAdmin, listRecentGenerationRuns, listStartedGamePreviewsForAdmin, listUpcomingGamesForAdmin } from "@/lib/game-previews/repository";
 
 export const dynamic = "force-dynamic";
 // Generating a Preview researches the web and writes with a model, which can take minutes: the explicit Generate action runs inside this page's route.
@@ -19,6 +19,7 @@ export default async function AdminGamePreviewsPage() {
   const games = await listUpcomingGamesForAdmin(SHOW_DAYS);
   const previews = await listGamePreviewsForAdmin(games.map((g) => g.fixtureId));
   const needs = new Map(candidates.map((c) => [c.fixtureId, c.reason]));
+  const started = await listStartedGamePreviewsForAdmin();
 
   return (
     <div className="space-y-6" data-slot="admin-game-previews">
@@ -160,6 +161,40 @@ export default async function AdminGamePreviewsPage() {
                 </li>
               );
             })}
+          </ul>
+        )}
+      </section>
+
+      <section className="space-y-2" aria-label="Published Previews of Games that have started" data-slot="started-previews">
+        <h2 className="text-sm font-semibold text-text-primary">Published Previews of Games that have started</h2>
+        <p className="text-sm text-text-secondary">These can no longer be regenerated. A Preview found to break the editorial contract (a stale story, an unsupported claim, a source a Member cannot read) can be withdrawn here, with the reason recorded.</p>
+        {started.length === 0 ? (
+          <p className="text-sm text-text-muted">None.</p>
+        ) : (
+          <ul className="divide-y divide-border-subtle rounded-lg border border-border-subtle">
+            {started.map((g) => (
+              <li key={g.fixtureId} className="space-y-1.5 px-4 py-3 text-sm" data-slot="started-preview-row" data-fixture-id={g.fixtureId}>
+                <p className="font-medium text-text-primary">
+                  {g.awayTeamName} @ {g.homeTeamName}
+                  {g.competitionName && <span className="font-normal text-text-muted"> · {g.competitionName}</span>} <span className="font-normal text-text-muted">· <LocalDateTime iso={g.scheduledStartUtc} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} /></span>
+                </p>
+                <p className="font-semibold text-text-primary">{g.preview.hook}</p>
+                <p className="text-text-secondary">{g.preview.body}</p>
+                <p className="text-xs text-text-muted">
+                  Sources:{" "}
+                  {g.preview.sources.map((s, i) => (
+                    <span key={i}>
+                      {i > 0 && ", "}
+                      <a href={s.url} target="_blank" rel="noopener noreferrer" className="text-accent-primary underline-offset-2 hover:underline">
+                        {s.provider || s.title}
+                      </a>
+                      {s.publishedAt ? ` (${new Date(s.publishedAt).toUTCString()})` : " (no date)"}
+                    </span>
+                  ))}
+                </p>
+                <WithdrawPreviewForm fixtureId={g.fixtureId} />
+              </li>
+            ))}
           </ul>
         )}
       </section>

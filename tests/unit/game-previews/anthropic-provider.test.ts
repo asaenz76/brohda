@@ -130,10 +130,11 @@ describe("Anthropic provider — angles, writing, verification", () => {
     expect(body.tools).toBeUndefined();
     // Stages without search ask for schema-guaranteed JSON (structured outputs), so the answer is always parseable.
     expect(body.output_config).toMatchObject({ effort: "medium", format: { type: "json_schema", schema: { type: "object", additionalProperties: false, required: ["angles", "selected_id", "selection_reason", "rejected"] } } });
-    expect(String(body.system)).toContain("3 to 5 candidate editorial angles");
+    expect(String(body.system)).toContain("Propose 1 to 5 candidate angles");
     expect(String(body.system)).toContain("HOT_VS_COLD");
     expect(String(body.system)).toMatch(/tension[\s\S]*surprise[\s\S]*specificity[\s\S]*humanInterest[\s\S]*conversation[\s\S]*recency/);
-    expect(String(body.system)).toMatch(/FALLBACK material/);
+    expect(String(body.system)).toMatch(/fallback, not a story/);
+    expect(String(body.system)).toMatch(/why is this relevant to THIS Game NOW/);
     expect(JSON.stringify(body.messages)).toContain("Tennessee lost 26-3");
     expect(sel.selectedId).toBe("a1");
     expect(sel.angles[0]).toMatchObject({ id: "a1", type: "CONTRAST", factIds: ["f1", "f2", "f3"], scores: { tension: 4, humanInterest: 4 } });
@@ -141,27 +142,26 @@ describe("Anthropic provider — angles, writing, verification", () => {
   });
 
   it("the writer is given the CHOSEN story and only that story's facts, the configured limits and any rejection feedback, plus the editorial tests", async () => {
-    const c = client(msg([text({ hook: goodDraft.hook, preview: goodDraft.preview, claims: goodDraft.claims.map((x) => ({ text: x.text, fact_ids: x.factIds })) })]));
-    const draft = await new AnthropicGamePreviewProvider(c).write(game, { ...angles[2] }, facts, { model: "configured-model", effort: "medium", maxChars: 650, hookMaxChars: 90, maxCitedFacts: 3, recentHooks: ["Can the Jets ground this storm?"], feedback: ['The figure "27" is not in the facts.'] });
+    const c = client(msg([text({ status: "ready", reason: "", title: goodDraft.hook, caption: goodDraft.preview, claims: goodDraft.claims.map((x) => ({ text: x.text, fact_ids: x.factIds, evidence: "from the fact" })) })]));
+    const draft = await new AnthropicGamePreviewProvider(c).write(game, { ...angles[2] }, facts, { model: "configured-model", effort: "medium", maxChars: 650, maxCitedFacts: 3, recentHooks: ["Can the Jets ground this storm?"], feedback: ['The figure "27" is not in the facts.'] });
     const body = calls(c)[0];
-    expect(body.output_config).toMatchObject({ format: { type: "json_schema", schema: { required: ["hook", "preview", "claims"] } } });
+    expect(body.output_config).toMatchObject({ format: { type: "json_schema", schema: { required: ["status", "reason", "title", "caption", "claims"] } } });
     expect(body.tools).toBeUndefined(); // writing never searches
     const system = String(body.system);
-    expect(system).toContain("at most 650 characters");
-    expect(system).toContain("at most 90 characters");
     expect(system).toContain("at most 3 may be cited");
-    expect(system).toMatch(/stop scrolling/);
-    expect(system).toMatch(/swapping team names|changing the team names/);
-    expect(system).toMatch(/Do NOT force a question/);
-    expect(system).toMatch(/Do not put a record or score in the hook/);
-    expect(system).toMatch(/never reuse their facts/i);
+    expect(system).toMatch(/Seven goals/); // the canonical style references
+    expect(system).toMatch(/relevant to THIS Game NOW/);
+    expect(system).toMatch(/needs_review/);
+    expect(system).toMatch(/em dashes or hashtags/);
+    expect(system).not.toMatch(/at most \d+ characters/); // no separate title limit; the combined limit is in the message
     const user = JSON.stringify(body.messages);
     expect(user).toContain(angles[2].summary);
     expect(user).toContain("beat Tennessee 41-20"); // f2, the angle's own fact
     expect(user).not.toContain("26-3 loss to Houston"); // f1 is not part of this story, so the writer never sees it
     expect(user).toContain("previous draft was rejected");
-    expect(draft).toMatchObject({ hook: goodDraft.hook, promptVersion: PREVIEW_PROMPT_VERSION });
-    expect(draft.claims[0]).toEqual({ text: goodDraft.claims[0].text, factIds: ["f1"] });
+    expect(user).toContain("fewer than 650 characters");
+    expect(draft).toMatchObject({ status: "ready", hook: goodDraft.hook, preview: goodDraft.preview, promptVersion: PREVIEW_PROMPT_VERSION });
+    expect(draft.claims[0]).toEqual({ text: goodDraft.claims[0].text, factIds: ["f1"], evidence: "from the fact" });
   });
 
   it("the reviewer returns TWO separate lists — BLOCKING (wrong or misleading) and ADVISORY (taste) — and is told the chosen story and the difference", async () => {
@@ -173,15 +173,16 @@ describe("Anthropic provider — angles, writing, verification", () => {
     expect(body.output_config).toMatchObject({ format: { type: "json_schema", schema: { required: ["blocking", "advisory"] } } });
     const system = String(body.system);
     expect(system).toContain(angles[0].summary);
-    expect(system).toMatch(/BLOCKING — the Preview is WRONG or MISLEADING/);
-    expect(system).toMatch(/ADVISORY — editorial taste only/);
-    expect(system).toMatch(/TRUE FACTS CAN BE MISUSED/);
-    expect(system).toMatch(/defensive player's absence presented as burdening the offense/);
+    expect(system).toMatch(/BLOCKING: the Preview is wrong or misleading/);
+    expect(system).toMatch(/ADVISORY: editorial taste only/);
+    expect(system).toMatch(/True facts can be misused/);
+    expect(system).toMatch(/defender's absence presented as burdening the offense/);
     expect(system).toMatch(/NEVER block/);
-    expect(system).toMatch(/is not drama: it is an unsupported_claim/);
+    expect(system).toMatch(/relevant to THIS Game NOW/);
+    expect(system).toMatch(/'first chance'/); // number words in ordinary prose are not figures
     // every blocking category and advisory kind is in the schema as an enum
     const schema = (body.output_config as { format: { schema: { properties: { blocking: { items: { properties: { category: { enum: string[] } } } }; advisory: { items: { properties: { kind: { enum: string[] } } } } } } } }).format.schema.properties;
-    expect(schema.blocking.items.properties.category.enum).toEqual(expect.arrayContaining(["unsupported_claim", "wrong_figure", "wrong_entity", "wrong_season", "stale_current", "source_conflict", "wrong_game", "logical_contradiction", "unsupported_causation", "misleading_implication", "fabricated_quote", "betting_language"]));
+    expect(schema.blocking.items.properties.category.enum).toEqual(expect.arrayContaining(["unsupported_claim", "wrong_figure", "wrong_entity", "wrong_season", "stale_current", "source_conflict", "wrong_game", "wrong_phase", "not_relevant_now", "logical_contradiction", "unsupported_causation", "misleading_implication", "fabricated_quote", "betting_language"]));
     expect(schema.advisory.items.properties.kind.enum).toEqual(expect.arrayContaining(["bland_story", "weak_hook", "game_note_feel", "repetitive_structure", "low_conversation", "wording_tone"]));
     expect(body.tools).toBeUndefined();
   });
@@ -207,13 +208,12 @@ describe("Anthropic provider — angles, writing, verification", () => {
   });
 
   it("the writer is told, for an ADVISORY rewrite, that the draft is sound and the facts must not change", async () => {
-    const c = client(msg([text({ hook: goodDraft.hook, preview: goodDraft.preview, claims: goodDraft.claims.map((x) => ({ text: x.text, fact_ids: x.factIds })) })]));
-    await new AnthropicGamePreviewProvider(c).write(game, { ...angles[2] }, facts, { model: "m", effort: "medium", maxChars: 650, hookMaxChars: 140, maxCitedFacts: 3, recentHooks: [], feedback: ["reads like game notes"], feedbackKind: "advisory" });
+    const c = client(msg([text({ status: "ready", reason: "", title: goodDraft.hook, caption: goodDraft.preview, claims: goodDraft.claims.map((x) => ({ text: x.text, fact_ids: x.factIds, evidence: "from the fact" })) })]));
+    await new AnthropicGamePreviewProvider(c).write(game, { ...angles[2] }, facts, { model: "m", effort: "medium", maxChars: 650, maxCitedFacts: 3, recentHooks: [], feedback: ["reads like game notes"], feedbackKind: "advisory" });
     const user = JSON.stringify(calls(c)[0].messages);
     expect(user).toMatch(/factually sound and will be kept unless this rewrite is better/);
     expect(user).toMatch(/Do NOT add, change or drop any fact/);
     expect(user).not.toMatch(/was rejected for these reasons/);
-    expect(String(calls(c)[0].system)).toContain("at most 140 characters");
   });
   it("extractJson tolerates prose, code fences and trailing commentary that contains braces; and a failure says how the answer began", () => {
     expect(extractJson<{ a: number }>('Here you go:\n```json\n{"a":1}\n```', "x")).toEqual({ a: 1 });
@@ -229,7 +229,7 @@ describe("Anthropic provider — story-first research and fact verification", ()
     const c = client(msg([searchUse(), searchResult([ESPN]), text({ facts: [rawFact()] })]));
     await new AnthropicGamePreviewProvider(c).research(game, ctx);
     const system = String(calls(c)[0].system);
-    for (const re of [/canonical Game/i, /STORIES, not statistics/, /matchup history/i, /targeted follow-up/i, /ceiling, not a target/i, /never pick the more dramatic one/i]) expect(system).toMatch(re);
+    for (const re of [/CONFIRM THE GAME/, /FIND THE STORY FIRST, not statistics/, /matchup history/i, /targeted search/i, /ceiling, not a target/i, /never pick the more dramatic one/i, /Syndicated copies/, /EXPECTED/, /Never infer the season from the calendar year/i]) expect(system).toMatch(re);
   });
 
   it("returns the leads (tied to the facts that were kept) and the source conflicts the research reported", async () => {
@@ -313,19 +313,19 @@ describe("Anthropic provider — story-first research and fact verification", ()
     const out = await new AnthropicGamePreviewProvider(c).research(game, ctx);
     expect(out.facts.map((f) => [f.ambiguous, f.surprising, f.disputed])).toEqual([[true, false, false], [false, true, false], [false, false, true], [false, false, false]]);
     const system = String(calls(c)[0].system);
-    expect(system).toMatch(/One approved source that clearly states what you report is normally enough/);
-    expect(system).toMatch(/never primary support/);
-    expect(system).toMatch(/not a preseason game/);
+    expect(system).toMatch(/One inspected trusted source that clearly states what you report is normally enough/);
+    expect(system).toMatch(/never a primary source/);
+    expect(system).toMatch(/preseason, regular season or playoffs/);
     expect(system).toContain("Approved (trusted) domains: espn.com");
   });
 
   it("the writer gets the recent hooks to vary from, the anti-template rule, and the no-fabricated-quote rule", async () => {
-    const c = client(msg([text({ hook: goodDraft.hook, preview: goodDraft.preview, claims: goodDraft.claims.map((x) => ({ text: x.text, fact_ids: x.factIds })) })]));
-    await new AnthropicGamePreviewProvider(c).write(game, { ...angles[2] }, facts, { model: "m", effort: "medium", maxChars: 650, hookMaxChars: 90, maxCitedFacts: 3, recentHooks: ["Three games. Four goals. Boston, you're next."], feedback: [] });
+    const c = client(msg([text({ status: "ready", reason: "", title: goodDraft.hook, caption: goodDraft.preview, claims: goodDraft.claims.map((x) => ({ text: x.text, fact_ids: x.factIds, evidence: "from the fact" })) })]));
+    await new AnthropicGamePreviewProvider(c).write(game, { ...angles[2] }, facts, { model: "m", effort: "medium", maxChars: 650, maxCitedFacts: 3, recentHooks: ["Three games. Four goals. Boston, you're next."], feedback: [] });
     const body = calls(c)[0];
     expect(JSON.stringify(body.messages)).toContain("Three games. Four goals. Boston, you're next.");
-    expect(String(body.system)).toMatch(/do not turn the style references into a formula/i);
-    expect(String(body.system)).toMatch(/Never put a quote in the Preview unless it appears word for word/);
+    expect(String(body.system)).toMatch(/vary the structure/i);
+    expect(String(body.system)).toMatch(/not word for word in a cited fact/);
   });
 
   it("research captures the evidence a later check needs: the page's own identity, season, source type and the team of any person named", async () => {
@@ -336,6 +336,49 @@ describe("Anthropic provider — story-first research and fact verification", ()
     expect(String(calls(c)[0].system)).toMatch(/surrounding context/);
     expect(String(calls(c)[0].system)).toMatch(/at most 14 facts/);
     expect(calls(c)[0].max_tokens).toBe(32000);
+  });
+});
+
+describe("Anthropic provider — the canonical contract inputs and outputs", () => {
+  it("every stage is told the Game's season identifier, competition phase and scheduled start with its timezone", async () => {
+    const c = client(msg([searchUse(), searchResult([ESPN]), text({ game_check: { confirmed: true, conflict: null }, facts: [rawFact()] })]));
+    await new AnthropicGamePreviewProvider(c).research({ ...game, season: "2026-2027", phase: "preseason", timezone: "America/New_York", kickoffUtc: "2026-10-20T23:30:00.000Z" }, ctx);
+    const user = JSON.stringify(calls(c)[0].messages);
+    expect(user).toContain("Season identifier: 2026-2027");
+    expect(user).toContain("Competition phase: preseason");
+    expect(user).toMatch(/local: .*7:30 PM America\/New_York/);
+    expect(String(calls(c)[0].system)).toContain("game_check");
+  });
+
+  it("(test S) research reports a schedule conflict through game_check; a confirmed Game (or no answer) is confirmed", async () => {
+    const conflict = client(msg([searchUse(), searchResult([ESPN]), text({ game_check: { confirmed: false, conflict: "The league shows Indianapolis hosting Houston on Oct. 19, not Tennessee on Oct. 18." }, facts: [] })]));
+    const out = await new AnthropicGamePreviewProvider(conflict).research(game, ctx);
+    expect(out.gameCheck).toEqual({ confirmed: false, conflict: "The league shows Indianapolis hosting Houston on Oct. 19, not Tennessee on Oct. 18." });
+    const ok = client(msg([searchUse(), searchResult([ESPN]), text({ facts: [rawFact()] })]));
+    expect((await new AnthropicGamePreviewProvider(ok).research(game, ctx)).gameCheck).toEqual({ confirmed: true, conflict: null });
+  });
+
+  it("the research prompt carries the currentness rules: current relevance is the primary gate, previous-season material is HISTORICAL_CONTEXT, opening-week context counts as current", async () => {
+    const c = client(msg([searchUse(), searchResult([ESPN]), text({ facts: [rawFact()] })]));
+    await new AnthropicGamePreviewProvider(c).research(game, ctx);
+    const system = String(calls(c)[0].system);
+    expect(system).toMatch(/CURRENT RELEVANCE is the primary gate/);
+    expect(system).toMatch(/Previous-season material is HISTORICAL_CONTEXT/);
+    expect(system).toMatch(/preseason, training camp, offseason trades/);
+    expect(system).toMatch(/Priority: 1\) a compelling current-season story/);
+  });
+
+  it("the writer can decline: status needs_review with a reason produces no title or caption to publish", async () => {
+    const c = client(msg([text({ status: "needs_review", reason: "Only last season's material was found.", title: "", caption: "", claims: [] })]));
+    const draft = await new AnthropicGamePreviewProvider(c).write(game, angles[2], facts, { model: "m", effort: "medium", maxChars: 700, maxCitedFacts: 4, recentHooks: [], feedback: [] });
+    expect(draft).toMatchObject({ status: "needs_review", reason: "Only last season's material was found.", hook: "", preview: "" });
+  });
+
+  it("the reviewer receives code hints as leads to check, and the evidence of each cited fact", async () => {
+    const c = client(msg([text({ blocking: [], advisory: [] })]));
+    await new AnthropicGamePreviewProvider(c).verify(game, angles[0], goodDraft, facts, { model: "m", effort: "medium" }, { figures: ["9"], seasonClaims: [] });
+    expect(JSON.stringify(calls(c)[0].messages)).toContain("Hints from code");
+    expect((calls(c)[0].messages as Array<{ content: string }>)[0].content).toContain('"figures":["9"]');
   });
 });
 

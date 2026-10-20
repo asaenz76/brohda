@@ -44,7 +44,7 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
     const [, angleArg, factsArg, ctx] = t.write.mock.calls[0];
     expect(angleArg.id).toBe("a1"); // the writer is told the chosen story
     expect(factsArg).toEqual(facts);
-    expect(ctx).toMatchObject({ maxChars: 700, hookMaxChars: 120, maxCitedFacts: 4, effort: "medium", feedback: [] });
+    expect(ctx).toMatchObject({ maxChars: 700, maxCitedFacts: 4, effort: "medium", feedback: [] });
     expect(t.verify).toHaveBeenCalledOnce();
     expect(t.saves).toHaveLength(1);
   });
@@ -81,48 +81,54 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
     expect(t.runs[0].details).toMatchObject({ selectedAngleId: "a2", chosenAngleId: "a1", angleOverridden: true });
   });
 
-  it("an unsupported figure is rejected and the corrected rewrite is the one saved", async () => {
+  it("an unsupported figure is a HINT for the reviewer, which blocks it; the corrected rewrite is the one saved", async () => {
     const write = vi.fn<GamePreviewWriterProvider["write"]>(async (_g, _a, _f, ctx) => (ctx.feedback.length === 0 ? draftOf({ preview: goodDraft.preview.replace("26-3", "27-3") }) : draftOf()));
-    const t = setup({ providers: { writer: { name: "fake", write } } });
+    const verify = vi.fn<GamePreviewVerifierProvider["verify"]>(async (_g, _a, d) => ({ blocking: d.preview.includes("27-3") ? [{ category: "wrong_figure" as const, problem: 'The score "27-3" is not in the facts.' }] : [], advisory: [], usage: usage({ modelCalls: 1 }) }));
+    const t = setup({ providers: { writer: { name: "fake", write }, verifier: { name: "fake", verify } } });
     const out = await generateGamePreview(t.deps, req);
     expect(out.status).toBe("SUCCEEDED");
-    expect(write.mock.calls[1][3].feedback.join(" ")).toMatch(/"27"/);
+    expect(verify.mock.calls[0][5]?.figures).toContain("27"); // code tells the reviewer where to look
+    expect(write.mock.calls[1][3].feedback.join(" ")).toMatch(/27-3/);
     expect(t.saves[0].body).toContain("26-3");
-    const d = t.runs[0].details as { attemptsLog: Array<{ provenanceProblems: string[] }>; rewrites: number };
-    expect(d.attemptsLog[0].provenanceProblems.join(" ")).toMatch(/"27"/);
+    const d = t.runs[0].details as { attemptsLog: Array<{ reviewerBlocking?: unknown[] }>; rewrites: number };
     expect(d.rewrites).toBe(1);
   });
 
-  it("an EDITORIAL-TASTE finding (a hook that merely states a record) is ADVISORY: it is never published as-is without a chance to polish, but never rejected either — ONE rewrite uses the note, and the valid rewrite is saved", async () => {
-    const write = vi.fn<GamePreviewWriterProvider["write"]>(async (_g, _a, _f, ctx) => (ctx.feedback.length === 0 ? draftOf({ hook: "Tennessee is 0-5, Indianapolis is 2-3" }) : draftOf()));
-    const t = setup({ providers: { writer: { name: "fake", write } } });
+  it("a deterministic ADVISORY (more facts cited than the guidance) is never a rejection: ONE rewrite uses the note, and the valid rewrite is saved", async () => {
+    const write = vi.fn<GamePreviewWriterProvider["write"]>(async (_g, _a, _f, ctx) => (ctx.feedback.length === 0 ? draftOf() : draftOf({ claims: goodDraft.claims.slice(0, 2) })));
+    const t = setup({ providers: { writer: { name: "fake", write } }, config: { maxCitedFacts: 2 } });
     expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
     expect(write).toHaveBeenCalledTimes(2);
     expect(write.mock.calls[1][3]).toMatchObject({ feedbackKind: "advisory" });
-    expect(write.mock.calls[1][3].feedback.join(" ")).toMatch(/states a record or score/);
-    expect(t.saves[0].hook).toBe(goodDraft.hook);
+    expect(write.mock.calls[1][3].feedback.join(" ")).toMatch(/cites 3 facts/);
     const d = t.runs[0].details as { advisoryRewrite: string; advisoryNotes: Array<{ attempt: number; source: string; note: string }> };
     expect(d.advisoryRewrite).toBe("kept_rewrite");
     expect(d.advisoryNotes[0]).toMatchObject({ attempt: 1, source: "deterministic" });
   });
 
-  it("a current fact with no dated source never reaches the angle or the writer, and the run record says why", async () => {
-    const undated = fact({ id: "f4", kind: "current", category: "injury", claim: "The quarterback practiced in full.", publishedAt: null });
-    const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [...facts, undated], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) } } });
-    const out = await generateGamePreview(t.deps, req);
-    expect(out.status).toBe("SUCCEEDED");
-    expect(t.selectAngle.mock.calls[0][1].map((f) => f.id)).toEqual(["f1", "f2", "f3"]);
-    expect(t.write.mock.calls[0][2].map((f) => f.id)).toEqual(["f1", "f2", "f3"]);
-    const recorded = (t.runs[0].details as { facts: Array<{ id: string; excluded?: string }> }).facts;
-    expect(recorded.find((f) => f.id === "f4")?.excluded).toMatch(/no publication time/);
-    expect(recorded.find((f) => f.id === "f1")?.excluded).toBeUndefined();
+  const withFact4 = (over = {}) => {
+    const injury = fact({ id: "f4", kind: "current", category: "injury", claim: "The quarterback practiced in full.", publishedAt: null, ...over });
+    const story = { ...selection, angles: selection.angles.map((a) => (a.id === "a1" ? { ...a, factIds: ["f1", "f4"] } : a)) };
+    return { injury, story };
+  };
+
+  it("(test M) an undated or stale current-state fact is NOT silently excluded: it stays in the pool, and a story that rests on it must verify first", async () => {
+    const { injury, story } = withFact4();
+    const verifyFacts = vi.fn<GamePreviewFactVerifierProvider["verifyFacts"]>(async (_g, fs) => ({ checks: fs.map((f) => ({ factId: f.id, status: "confirmed" as const, basis: "stored_evidence" as const, retrievalFailed: false, note: "ok", corroboratingUrl: null })), usage: usage({ modelCalls: 1 }) }));
+    const selectAngle = vi.fn<GamePreviewAngleProvider["selectAngle"]>(async () => ({ ...story, usage: usage({ modelCalls: 1 }) }));
+    const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [...facts, injury], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle }, factVerifier: { name: "fake", verifyFacts } } });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(selectAngle.mock.calls[0][1].map((f) => f.id)).toEqual(["f1", "f2", "f3", "f4"]);
+    expect(verifyFacts.mock.calls[0][1].map((f) => f.id)).toEqual(["f4"]);
+    expect((t.runs[0].details as { exceptionReasons: Record<string, string[]> }).exceptionReasons.f4.join(" ")).toMatch(/no publication date/);
   });
 
-  it("when only undated current facts were found the run is REJECTED before any story is written", async () => {
-    const undated = fact({ id: "f1", kind: "current", publishedAt: null });
-    const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [undated], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) } } });
-    expect(await generateGamePreview(t.deps, req)).toMatchObject({ status: "REJECTED", error: "no_usable_facts" });
-    expect(t.selectAngle).not.toHaveBeenCalled();
+  it("a stale current-state fact that cannot be verified takes its story with it (no verifier: the story is not trusted)", async () => {
+    const { injury, story } = withFact4({ publishedAt: "2026-10-01T00:00:00.000Z" });
+    const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [...facts, injury], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...story, usage: usage({ modelCalls: 1 }) }) }, factVerifier: null } });
+    expect(await generateGamePreview(t.deps, req)).toMatchObject({ status: "REJECTED", error: "story_not_verified" });
+    expect((t.runs[0].details as { exceptionReasons: Record<string, string[]> }).exceptionReasons.f4.join(" ")).toMatch(/older than 72 hours/);
+    expect(t.write).not.toHaveBeenCalled();
     expect(t.saves).toHaveLength(0);
   });
 
@@ -134,8 +140,8 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
     expect((t.runs[0].details as { angleFactsAdded: string[] }).angleFactsAdded).toEqual(["f2"]);
   });
 
-  it("a fact that is plainly from an earlier season is reclassified as history, whatever the research called it, and the record shows it", async () => {
-    const old = fact({ id: "f4", claim: "The Chargers swept the Chiefs in 2025.", seasonScope: "CURRENT_SEASON" });
+  it("(tests B, C) a fact published before the supplied season began is history, whatever the research called it, and the record shows it; a historical fact can still support a current story", async () => {
+    const old = fact({ id: "f4", claim: "The Chargers swept the Chiefs.", seasonScope: "CURRENT_SEASON", publishedAt: "2026-03-06T00:00:00.000Z" }); // published before the 2026 season began
     const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [...facts, old], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) } } });
     await generateGamePreview(t.deps, req);
     expect(t.selectAngle.mock.calls[0][1].find((f) => f.id === "f4")?.seasonScope).toBe("HISTORICAL_CONTEXT");
@@ -330,11 +336,11 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
   });
 
   it("when every attempt has a BLOCKING problem NOTHING is saved, the run is REJECTED, and the reasons are reported", async () => {
-    const bad = draftOf({ preview: `${goodDraft.preview} The Colts are heavy favorites on the moneyline.` });
+    const bad = draftOf({ preview: `${goodDraft.preview} The Colts are heavy favorites on the moneyline.` }); // wagering language is a deterministic style invariant
     const t = setup({ providers: { writer: { name: "fake", write: async () => bad } } });
     const out = await generateGamePreview(t.deps, req);
     expect(out).toMatchObject({ status: "REJECTED", error: "draft_rejected" });
-    expect(out.status !== "SUCCEEDED" && out.problems.join(" ")).toMatch(/Sportsbook language/);
+    expect(out.status !== "SUCCEEDED" && out.problems.join(" ")).toMatch(/wagering language/);
     expect(t.saves).toHaveLength(0);
     expect(t.runs[0]).toMatchObject({ status: "REJECTED", attempts: 2 });
     expect((t.runs[0].details as { attemptsLog: unknown[] }).attemptsLog).toHaveLength(2);
@@ -452,11 +458,52 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
     expect(t.saves).toHaveLength(0);
   });
 
-  it("malformed candidate angles reject the run before anything is written", async () => {
-    const t = setup({ providers: { angles: { name: "fake", selectAngle: async () => ({ ...selection, angles: selection.angles.slice(0, 2), usage: usage() }) } } });
-    expect(await generateGamePreview(t.deps, req)).toMatchObject({ status: "REJECTED", error: "angle_selection_invalid" });
+  it("candidate angles are cleaned structurally, not rejected: one angle is enough, an unknown type or out-of-range score is repaired, and only 'nothing usable' rejects the run", async () => {
+    const one = setup({ providers: { angles: { name: "fake", selectAngle: async () => ({ ...selection, angles: selection.angles.slice(0, 1), usage: usage() }) } } });
+    expect((await generateGamePreview(one.deps, req)).status).toBe("SUCCEEDED");
+    const none = setup({ providers: { angles: { name: "fake", selectAngle: async () => ({ ...selection, angles: selection.angles.map((a) => ({ ...a, factIds: ["f99"] })), usage: usage() }) } } });
+    expect(await generateGamePreview(none.deps, req)).toMatchObject({ status: "REJECTED", error: "angle_selection_invalid" });
+    expect(none.write).not.toHaveBeenCalled();
+    expect(none.saves).toHaveLength(0);
+  });
+
+  it("(test S) a Game the sources do not confirm is returned as needs_review with the specific conflict; no story is written and nothing is saved", async () => {
+    const conflict = "The league shows Indianapolis hosting Houston on Oct. 19.";
+    const t = setup({ providers: { research: { name: "fake", research: async () => ({ gameCheck: { confirmed: false, conflict }, facts, sources, usage: usage({ searchCalls: 2, modelCalls: 1 }) }) } } });
+    const out = await generateGamePreview(t.deps, req);
+    expect(out).toMatchObject({ status: "REJECTED", error: "needs_review: game_mismatch" });
+    expect(out.status !== "SUCCEEDED" && out.problems).toEqual([conflict]);
+    expect(t.selectAngle).not.toHaveBeenCalled();
     expect(t.write).not.toHaveBeenCalled();
     expect(t.saves).toHaveLength(0);
+    expect(t.runs).toHaveLength(1);
+  });
+
+  it("a writer that finds no honest story returns needs_review with its reason: nothing is reviewed or saved", async () => {
+    const t = setup({ providers: { writer: { name: "fake", write: async () => draftOf({ status: "needs_review", reason: "Only last season's material.", hook: "", preview: "", claims: [] }) } } });
+    const out = await generateGamePreview(t.deps, req);
+    expect(out).toMatchObject({ status: "REJECTED", error: "needs_review: no_supported_story" });
+    expect(out.status !== "SUCCEEDED" && out.problems).toEqual(["Only last season's material."]);
+    expect(t.verify).not.toHaveBeenCalled();
+    expect(t.saves).toHaveLength(0);
+  });
+
+  it("provenance: one saved Preview per successful generation, with claim evidence, season, phase and the research time", async () => {
+    const t = setup();
+    await generateGamePreview(t.deps, req);
+    expect(t.saves).toHaveLength(1);
+    expect(t.saves[0].claims![0]).toMatchObject({ fact_ids: ["f1"], source_urls: [facts[0].sourceUrl] });
+    expect(String((t.saves[0].claims![0] as { evidence?: string }).evidence).length).toBeGreaterThan(0);
+    expect(t.saves[0].meta).toMatchObject({ season: "2026", phase: "regular_season", researchedAt: NOW.toISOString() });
+  });
+
+  it("(test K) a figure the trusted sources disagree about is a verification exception, and an unresolved one does not publish", async () => {
+    const verifyFacts = vi.fn<GamePreviewFactVerifierProvider["verifyFacts"]>(async (_g, fs) => ({ checks: fs.map((f) => ({ factId: f.id, status: "disputed" as const, basis: "stored_evidence" as const, retrievalFailed: false, note: "ESPN says 3, KCSN says 4", corroboratingUrl: null })), usage: usage({ modelCalls: 1 }) }));
+    const research = { name: "fake", research: async () => ({ facts: facts.map((f) => (f.id === "f1" ? { ...f, disputed: true } : f)), sources, conflicts: [{ topic: "sacks", note: "3 vs 4" }], usage: usage({ searchCalls: 3, modelCalls: 1 }) }) };
+    const t = setup({ providers: { research, factVerifier: { name: "fake", verifyFacts } } });
+    const out = await generateGamePreview(t.deps, req);
+    expect(out.status).not.toBe("SUCCEEDED");
+    expect(t.saves.every((x) => !x.claims!.some((c) => c.fact_ids.includes("f1")))).toBe(true);
   });
 
   it("a provider failure in any later stage fails the run and saves nothing", async () => {

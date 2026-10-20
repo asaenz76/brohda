@@ -1,5 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { competitionPhase } from "./identity";
 import { generateGamePreview, type GenerationOutcome, type PipelineDeps } from "./pipeline";
 import { createGamePreviewProviders } from "./providers";
 import { getGamePreviewConfig, listGamePreviewCandidates, listRecentHooks, recordGenerationRun, saveGamePreview } from "./repository";
@@ -8,9 +9,9 @@ import type { GameIdentity } from "./providers/types";
 
 /** The canonical identity of a Game that is still eligible for a Preview (published Post, not started), or null. */
 async function loadGame(fixtureId: string): Promise<GameIdentity | null> {
-  const { data: f } = await createAdminClient().from("fixtures").select("id, sport, competition_name, home_team_name, away_team_name, scheduled_start_utc, internal_status").eq("id", fixtureId).maybeSingle();
+  const { data: f } = await createAdminClient().from("fixtures").select("id, sport, competition_name, home_team_name, away_team_name, scheduled_start_utc, internal_status, season, round, venue_timezone").eq("id", fixtureId).maybeSingle();
   if (!f || f.internal_status !== "NOT_STARTED" || new Date(f.scheduled_start_utc).getTime() <= Date.now()) return null;
-  return { fixtureId: f.id, sport: f.sport, competition: f.competition_name, homeTeam: f.home_team_name, awayTeam: f.away_team_name, kickoffUtc: f.scheduled_start_utc, asOf: new Date().toISOString() };
+  return { fixtureId: f.id, sport: f.sport, competition: f.competition_name, homeTeam: f.home_team_name, awayTeam: f.away_team_name, kickoffUtc: f.scheduled_start_utc, season: f.season ?? null, phase: competitionPhase(f.round), timezone: f.venue_timezone ?? null, asOf: new Date().toISOString() };
 }
 
 export type RunResult = { configured: true; outcome: GenerationOutcome } | { configured: false; error: string };

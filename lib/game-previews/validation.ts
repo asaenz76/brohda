@@ -1,14 +1,15 @@
 import type { GamePreviewClaim, GamePreviewConfig } from "./types";
-import type { CandidateFact, GameIdentity } from "./providers/types";
+import type { CandidateFact, DraftHints, GameIdentity } from "./providers/types";
+import { currentSeasonStart } from "./identity";
 
 /**
- * The gate between a drafted Preview and a saved one. Pure and deterministic, so every rule is unit-tested; a draft that fails ANY of them is rejected (and the writer is told why) — an unsupported fact is never published.
- *   - length: the hook and the story are within the configured limits;
- *   - provenance: every claim cites facts that exist in this run's research, none from a blocked source;
- *   - freshness: a claim about the CURRENT state needs a source published within the configured window; history may rest on an older authoritative source;
- *   - numbers: every figure in the hook or story (digits, spelled-out numbers, ordinals) appears in the facts the draft cites — a number the research does not contain cannot be written;
- *   - identity: the Preview is about this Game (it names one of its teams).
- * The model-based verification (is each sentence entailed by its cited facts?) runs in addition to this, never instead of it.
+ * The deterministic gate between a drafted Preview and a saved one: ONLY facts code can decide. Everything that needs to understand meaning (is this number right, is this claim current, is the logic sound, does it belong to this Game now) is the independent reader's job
+ * (`verify`, with BLOCKING and ADVISORY findings) and is never encoded as a regex here.
+ *   - shape: a title and a caption; at least one claim, each citing researched facts, none from a blocked source;
+ *   - length: title + caption TOGETHER fewer than the configured limit, counted exactly;
+ *   - no fabricated quote (a quote must appear in a cited passage);
+ *   - the contract's style invariants: no em dash, no hashtag, no wagering language, no banned phrase.
+ * `draftHints` lists what a person would want a second look at (a figure no cited fact contains, "this season" on a fact that does not say it): hints for the reader, not gates.
  */
 export interface DraftToValidate {
   hook: string;
@@ -20,7 +21,7 @@ export interface ValidationResult {
   problems: string[];
 }
 
-// "one" and "second" are left out on purpose: they are ordinary words far more often than figures ("no one", "a second half"), and flagging them would reject true prose.
+// "one" and "second" are left out on purpose: they are ordinary words far more often than figures ("no one", "a second half").
 const SPELLED: Record<string, string> = { two: "2", three: "3", four: "4", five: "5", six: "6", seven: "7", eight: "8", nine: "9", ten: "10", eleven: "11", twelve: "12" };
 const ORDINALS: Record<string, string> = { first: "1", third: "3", fourth: "4", fifth: "5", sixth: "6", seventh: "7", eighth: "8", ninth: "9", tenth: "10" };
 
@@ -81,50 +82,17 @@ export function numbersIn(text: string): Set<string> {
   return out;
 }
 
-/** Wording that puts a statement in a PREVIOUS season whatever the research said ("last season", "a year ago"). */
-const PREVIOUS_SEASON_WORDS = /\b(last|previous|prior) (season|year)\b|\b(a )?(year|seasons?) ago\b/i;
-
 /**
- * A deterministic backstop for the research's season classification: it can only move a fact from CURRENT_SEASON to HISTORICAL_CONTEXT, never the other way. A current-state fact (injury, availability) is by nature this season's; a fact whose own wording
- * names an earlier season (a year before this one, or "last season") is history. Years are judged against the Game's date: from August on, a season that began last year is over; in the first half of the year the previous calendar year may still be this season (a season that spans New Year).
+ * A deterministic backstop for the research's season classification, driven by the SUPPLIED season identifier (never the calendar year): a fact published before the current season began (NFL/NBA/NHL: before July 1 of the season's start year) is last season's news, whatever its
+ * wording, and is re-scoped to history. It only ever demotes: a current-state fact (injury, availability) is by nature this season's.
  */
-/**
- * When the current season began, for the leagues whose seasons run autumn to spring (NFL, NBA, NHL): a report published BEFORE this is last season's news, whatever it says. A Game in August-December belongs to the season that starts that year (the offseason from July counts as the new
- * season's context); a Game in January-June belongs to the season that began the previous August. Null for any other competition (their calendars differ), so no date rule is applied to them.
- */
-export function currentSeasonStart(game: Pick<GameIdentity, "kickoffUtc" | "competition">): Date | null {
-  if (!game.competition || !/^(NFL|NBA|NHL)$/i.test(game.competition.trim())) return null;
-  const kickoff = new Date(game.kickoffUtc);
-  const year = kickoff.getUTCFullYear();
-  return kickoff.getUTCMonth() >= 6 ? new Date(Date.UTC(year, 6, 1)) : new Date(Date.UTC(year - 1, 7, 1));
-}
-
-export function reconcileSeasonScope(facts: CandidateFact[], game: Pick<GameIdentity, "kickoffUtc"> & Partial<Pick<GameIdentity, "competition">>): CandidateFact[] {
-  const kickoff = new Date(game.kickoffUtc);
-  const year = kickoff.getUTCFullYear();
-  const firstPastYear = kickoff.getUTCMonth() >= 7 ? year - 1 : year - 2; // years at or before this are an earlier season
-  const seasonStart = currentSeasonStart({ kickoffUtc: game.kickoffUtc, competition: game.competition ?? null });
+export function reconcileSeasonScope(facts: CandidateFact[], game: Pick<GameIdentity, "season" | "competition">): CandidateFact[] {
+  const seasonStart = currentSeasonStart(game);
   return facts.map((f) => {
-    if (f.kind === "current") return f.seasonScope === "CURRENT_SEASON" ? f : { ...f, seasonScope: "CURRENT_SEASON" };
-    if (f.seasonScope === "HISTORICAL_CONTEXT") return f;
-    // A report from before this season began is last season's news.
+    if (f.kind === "current" || f.seasonScope === "HISTORICAL_CONTEXT") return f;
     if (seasonStart && f.publishedAt && new Date(f.publishedAt).getTime() < seasonStart.getTime()) return { ...f, seasonScope: "HISTORICAL_CONTEXT" };
-    const text = `${f.claim} ${f.excerpt ?? ""}`;
-    const years = [...text.matchAll(/\b(19|20)\d{2}\b/g)].map((m) => Number(m[0]));
-    const mentionsPast = years.some((y) => y <= firstPastYear) || PREVIOUS_SEASON_WORDS.test(f.claim);
-    return mentionsPast ? { ...f, seasonScope: "HISTORICAL_CONTEXT" } : f;
+    return f;
   });
-}
-
-/** Statements about where a team stands in the league change with every game any team plays: "leads the NFL in", "tied for the most", "ranks 29th", "last unbeaten team", "first in the division". */
-const RANKING_WORDS = /\b(ranks?|ranked|ranking)\b|\b\d+(st|nd|rd|th) (in|of|among)\b|\btied for (the )?(most|fewest|lead|best|worst|first|last)\b|\b(leads?|leading|leaders?) (the )?(NFL|NHL|NBA|MLB|league|conference|division)\b|\b(most|fewest|best|worst) in the (NFL|NHL|NBA|MLB|league)\b|\b(last|only) (remaining )?(unbeaten|undefeated|winless)\b|\bthe only (NFL |NHL |NBA |MLB )?(team|club|franchise)\b|\blongest (active )?(streak|run) in the (NFL|NHL|NBA|MLB|league)\b|\bthe (longest|shortest) active\b|\b(first|second|third|fourth) in the [A-Z]/i;
-
-/**
- * A league rank or lead is a statement about the CURRENT state however it is phrased: it was true when its source was written and may have changed since (a team's "10 takeaways, tied for the most in the NFL" is no longer true once another team's game adds an eleventh).
- * Research may file one as historical because the numbers come from completed games; it is re-filed as current, so it needs a dated source inside the freshness window like any other current-state fact. Only ever promotes historical -> current.
- */
-export function reconcileFactKind(facts: CandidateFact[]): CandidateFact[] {
-  return facts.map((f) => (f.kind === "historical" && RANKING_WORDS.test(f.claim) ? { ...f, kind: "current" as const } : f));
 }
 
 /** The brand-name slug of a team ("Los Angeles Chargers" -> "chargers"): an official team website is its own brand domain (chargers.com). */
@@ -140,23 +108,6 @@ export function isTrustedSource(url: string, teams: string[], trustedDomains: st
   if (domainMatches(host, trustedDomains)) return true;
   const label = host.split(".").slice(-2)[0] ?? "";
   return teams.some((t) => label.length >= 4 && nicknameSlug(t) === label);
-}
-
-/**
- * Why a fact needs ADDITIONAL verification, if it does. One trusted source normally suffices, so a fact from a trusted source that clearly says what is claimed needs none; extra checking is reserved for: a source outside the trusted group, research's own flags (ambiguous
- * season/date/team, an unusually surprising claim, trusted sources that disagree), a missing excerpt (nothing shows the source says it), and a current-season figure on a page that cannot place it in a season (an undated profile, archive or reference page).
- */
-export function verificationReasons(fact: CandidateFact, trusted: boolean): string[] {
-  const reasons: string[] = [];
-  if (!trusted) reasons.push("the source is outside the trusted group");
-  if (isBettingPage(fact.sourceUrl, fact.sourceTitle)) reasons.push("the page is a betting, odds or picks page");
-  if (fact.disputed) reasons.push("trusted sources disagree about it");
-  if (fact.ambiguous) reasons.push("the page is ambiguous about season, date or team");
-  if (fact.surprising) reasons.push("the claim is unusually surprising or consequential");
-  if (!fact.excerpt || !fact.excerpt.trim()) reasons.push("no passage shows that the source says it");
-  const undatedPage = ["profile", "archive", "reference", "other"].includes(fact.sourceType) && !fact.pageSeason && !fact.publishedAt;
-  if (fact.seasonScope === "CURRENT_SEASON" && undatedPage) reasons.push("the page cannot place the figure in the current season");
-  return reasons;
 }
 
 const normQuote = (t: string) => t.toLowerCase().replace(/[\u2018\u2019]/g, "'").replace(/[^a-z0-9' ]+/g, " ").replace(/\s+/g, " ").trim();
@@ -189,34 +140,67 @@ export function isBettingPage(url: string, title?: string | null): boolean {
   return BETTING_URL.test(path) || BETTING_TITLE.test(title ?? "");
 }
 
-/** Whether a fact's source may be the story's PRIMARY source: trusted, and not a betting page. */
-export function isEligiblePrimarySource(fact: Pick<CandidateFact, "sourceUrl" | "sourceTitle">, teams: string[], trustedDomains: string[]): boolean {
-  return isTrustedSource(fact.sourceUrl, teams, trustedDomains) && !isBettingPage(fact.sourceUrl, fact.sourceTitle);
+
+/**
+ * A source that can be CREDITED to a reader: a page about a story, not a data endpoint. A JSON API (`/apis/`, `site.api.`), a feed or a raw data file is evidence for a number, not "the original reporting" a Member can open and read.
+ */
+export function isStoryPage(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (!/^https?:$/.test(u.protocol)) return false;
+    return !(/^(site\.)?api[.-]/i.test(u.hostname) || /\/apis?\//i.test(u.pathname) || /\.(json|xml|csv|rss|atom)$/i.test(u.pathname));
+  } catch {
+    return false;
+  }
 }
 
-export interface ExcludedFact {
-  fact: CandidateFact;
-  reason: string;
+/** Whether a fact's source may be the story's PRIMARY (publicly credited) source: trusted, a readable page, and not a betting page. */
+export function isEligiblePrimarySource(fact: Pick<CandidateFact, "sourceUrl" | "sourceTitle">, teams: string[], trustedDomains: string[]): boolean {
+  return isTrustedSource(fact.sourceUrl, teams, trustedDomains) && isStoryPage(fact.sourceUrl) && !isBettingPage(fact.sourceUrl, fact.sourceTitle);
+}
+
+/** The Game's time frame as the freshness check needs it. */
+export interface FreshnessContext {
+  now: Date;
+  currentFactMaxAgeHours: number;
 }
 
 /**
- * Which researched facts may be written at all. A fact about the CURRENT state (an injury, a return, who is expected to start) is only worth as much as its source's date: with no publication time, or one older than the configured window,
- * it cannot be stated as current — so it never reaches the angle or the writer (otherwise the story is built on a fact the provenance gate must reject, and the rewrite fails the same way). History does not expire this way.
+ * Why a fact needs ADDITIONAL verification, if it does. One inspected trusted source that clearly says what is claimed is enough, so such a fact needs none. Extra checking is for AMBIGUITY and RISK: a source outside the trusted group or a betting page, research's own flags
+ * (ambiguous season/date/team, unusually surprising, trusted sources disagree), no passage showing the source says it, a current-season figure on a page that cannot place it in a season, and a CURRENT-STATE fact (an injury, availability, a league standing) that is undated or
+ * older than the freshness window — which may be stale. An unresolved exception removes only its own story.
  */
-export function splitUsableFacts(facts: CandidateFact[], config: Pick<GamePreviewConfig, "currentFactMaxAgeHours">, now: Date): { usable: CandidateFact[]; excluded: ExcludedFact[] } {
-  const usable: CandidateFact[] = [];
-  const excluded: ExcludedFact[] = [];
-  for (const fact of facts) {
-    if (fact.kind !== "current") {
-      usable.push(fact);
-      continue;
-    }
+export function verificationReasons(fact: CandidateFact, trusted: boolean, freshness?: FreshnessContext): string[] {
+  const reasons: string[] = [];
+  if (!trusted) reasons.push("the source is outside the trusted group");
+  if (isBettingPage(fact.sourceUrl, fact.sourceTitle)) reasons.push("the page is a betting, odds or picks page");
+  if (fact.disputed) reasons.push("trusted sources disagree about it");
+  if (fact.ambiguous) reasons.push("the page is ambiguous about season, date or team");
+  if (fact.surprising) reasons.push("the claim is unusually surprising or consequential");
+  if (!fact.excerpt || !fact.excerpt.trim()) reasons.push("no passage shows that the source says it");
+  const undatedPage = ["profile", "archive", "reference", "other"].includes(fact.sourceType) && !fact.pageSeason && !fact.publishedAt;
+  if (fact.seasonScope === "CURRENT_SEASON" && undatedPage) reasons.push("the page cannot place the figure in the current season");
+  if (freshness && fact.kind === "current") {
     const published = fact.publishedAt ? new Date(fact.publishedAt).getTime() : NaN;
-    if (!Number.isFinite(published)) excluded.push({ fact, reason: "about the current state, but its source shows no publication time" });
-    else if (now.getTime() - published > config.currentFactMaxAgeHours * 3_600_000) excluded.push({ fact, reason: `about the current state, but its source is older than ${config.currentFactMaxAgeHours} hours` });
-    else usable.push(fact);
+    if (!Number.isFinite(published)) reasons.push("a current-state fact whose source shows no publication date may be stale");
+    else if (freshness.now.getTime() - published > freshness.currentFactMaxAgeHours * 3_600_000) reasons.push(`a current-state fact from a source older than ${freshness.currentFactMaxAgeHours} hours may be stale`);
   }
-  return { usable, excluded };
+  return reasons;
+}
+
+/** Wagering language (contract: no betting odds, no wagering advice). Narrowed to terms that are only ever about betting: "favorites" and "underdogs" are ordinary sports prose. */
+const WAGERING = /\b(odds|moneyline|point spread|against the spread|parlay|wager(?:s|ed|ing)?|bet(?:s|ting)?|sportsbook|over\/under|prop bets?)\b/i;
+/** The contract's banned phrases. */
+const BANNED_PHRASES = [/epic showdown/i, /must[- ]watch clash/i, /both teams (?:want|need|are looking for) (?:the|a) win/i];
+
+/** The contract's style invariants, in code because they are deterministic: no em dash, no hashtag, no wagering language, no banned phrase. Returns what was found. */
+export function styleProblems(text: string): string[] {
+  const out: string[] = [];
+  if (text.includes("\u2014")) out.push("It contains an em dash. Use a comma, a period or a colon.");
+  if (/(^|\s)#\w/.test(text)) out.push("It contains a hashtag.");
+  if (WAGERING.test(text)) out.push("It uses wagering language (odds, bets, spread, parlay). A Preview is not betting content.");
+  for (const re of BANNED_PHRASES) if (re.test(text)) out.push(`It uses a banned phrase ("${text.match(re)![0]}").`);
+  return out;
 }
 
 /** A time frame a statement claims for itself: "this season", "this year", "so far this season". */
@@ -224,20 +208,31 @@ const SEASON_QUALIFIER = /\b(this|the current) (season|year)\b|\bso far in 20\d\
 /** What a fact must itself say to carry that time frame. */
 const FACT_STATES_SEASON = /\b(this|the current) (season|year)\b|\bso far in 20\d\d\b|\b2026\b/i;
 
-/** How a Preview may name a team: the full name, the nickname ("Wild"), or the city/region ("Minnesota"). */
-const teamTokens = (name: string) => {
-  const words = name.toLowerCase().split(/\s+/);
-  return [name.toLowerCase(), words[words.length - 1], ...(words.length > 1 ? [words.slice(0, -1).join(" ")] : [])];
-};
 
-export function validateDraft({ draft, facts, game, config, now }: { draft: DraftToValidate; facts: CandidateFact[]; game: GameIdentity; config: GamePreviewConfig; now: Date }): ValidationResult {
+/** Things worth a second look. NOT gates: the independent reader judges meaning; without a reader configured the pipeline falls back to treating unsupported DIGITS as blocking. */
+export function draftHints(draft: DraftToValidate, facts: CandidateFact[]): DraftHints {
+  const byId = new Map(facts.map((f) => [f.id, f]));
+  const cited = new Map<string, CandidateFact>();
+  for (const c of draft.claims) for (const id of c.factIds) if (byId.has(id)) cited.set(id, byId.get(id)!);
+  const supported = new Set<string>();
+  for (const fact of cited.values()) for (const n of numbersIn(`${fact.claim} ${fact.excerpt ?? ""}`)) supported.add(n);
+  const figures = [...claimedFigures(`${draft.hook} ${draft.preview}`)].filter((n) => !supported.has(n));
+  const statesSeason = (f: CandidateFact) => FACT_STATES_SEASON.test(`${f.claim} ${f.excerpt ?? ""}`);
+  const seasonClaims = draft.claims
+    .filter((c) => SEASON_QUALIFIER.test(c.text) && c.factIds.length > 0 && !c.factIds.map((id) => byId.get(id)).filter((f): f is CandidateFact => Boolean(f)).some(statesSeason))
+    .map((c) => c.text);
+  return { figures, seasonClaims };
+}
+
+export function validateDraft({ draft, facts, config }: { draft: DraftToValidate; facts: CandidateFact[]; game?: GameIdentity; config: Pick<GamePreviewConfig, "maxChars" | "blockedDomains">; now?: Date }): ValidationResult {
   const problems: string[] = [];
   const hook = draft.hook.trim();
   const preview = draft.preview.trim();
-  if (!hook) problems.push("The hook is empty.");
-  if (!preview) problems.push("The preview is empty.");
-  if (hook.length > config.hookMaxChars) problems.push(`The hook is ${hook.length} characters; the limit is ${config.hookMaxChars}.`);
-  if (preview.length > config.maxChars) problems.push(`The preview is ${preview.length} characters; the limit is ${config.maxChars}.`);
+  if (!hook) problems.push("The title is empty.");
+  if (!preview) problems.push("The caption is empty.");
+  // Title + caption together must be FEWER than the configured limit (contract: "fewer than 700 characters including spaces and punctuation"), counted exactly.
+  const total = hook.length + preview.length;
+  if (total >= config.maxChars) problems.push(`Title and caption together are ${total} characters; they must be fewer than ${config.maxChars}.`);
 
   const byId = new Map(facts.map((f) => [f.id, f]));
   if (draft.claims.length === 0) problems.push("The draft lists no supporting claims, so nothing in it is backed by research.");
@@ -251,36 +246,12 @@ export function validateDraft({ draft, facts, game, config, now }: { draft: Draf
       else cited.set(id, fact);
     }
   });
-
   for (const fact of cited.values()) {
     const host = domainOf(fact.sourceUrl);
     if (!host) problems.push(`Fact ${fact.id} has an unusable source URL.`);
     else if (domainMatches(host, config.blockedDomains)) problems.push(`Fact ${fact.id} comes from a blocked source (${host}).`);
-    if (fact.kind === "current") {
-      const published = fact.publishedAt ? new Date(fact.publishedAt).getTime() : NaN;
-      if (!Number.isFinite(published)) problems.push(`Fact ${fact.id} is about the current state but its source has no publication time, so it cannot be treated as current.`);
-      else if (now.getTime() - published > config.currentFactMaxAgeHours * 3_600_000) problems.push(`Fact ${fact.id} describes the current state but its source is older than ${config.currentFactMaxAgeHours} hours; state it as history or drop it.`);
-    }
   }
-
-  const supported = new Set<string>();
-  for (const fact of cited.values()) for (const n of numbersIn(`${fact.claim} ${fact.excerpt ?? ""}`)) supported.add(n);
-  for (const claim of draft.claims) for (const n of claimedFigures(claim.text)) if (!supported.has(n)) problems.push(`The figure "${n}" in a claim is not in the facts it cites.`);
-  for (const n of claimedFigures(`${hook} ${preview}`)) if (!supported.has(n)) problems.push(`The figure "${n}" appears in the hook or preview but in none of the cited facts.`);
-
-  // A time frame is a claim too. "Six straight games" may run into last season; writing "six straight games THIS SEASON" is only allowed when a cited fact says so itself.
-  const statesSeason = (f: CandidateFact) => FACT_STATES_SEASON.test(`${f.claim} ${f.excerpt ?? ""}`);
-  draft.claims.forEach((claim, i) => {
-    const facts = claim.factIds.map((id) => byId.get(id)).filter((f): f is CandidateFact => Boolean(f));
-    if (SEASON_QUALIFIER.test(claim.text) && facts.length > 0 && !facts.some(statesSeason)) problems.push(`Claim ${i + 1} says "this season" (or "this year"), but none of the facts it cites says that; a streak or count may reach into last season. State only the time frame the facts give.`);
-  });
-  if (SEASON_QUALIFIER.test(`${hook} ${preview}`) && cited.size > 0 && ![...cited.values()].some(statesSeason)) problems.push('The hook or preview says "this season" (or "this year"), but none of the cited facts says that. State only the time frame the facts give.');
-
   for (const q of unsupportedQuotes(`${hook} ${preview}`, [...cited.values()])) problems.push(`The quote "${q.slice(0, 80)}" is not in any cited source passage. Never write a quote the research did not capture.`);
-
-  const text = `${hook} ${preview}`.toLowerCase();
-  const names = [game.homeTeam, game.awayTeam].flatMap(teamTokens);
-  if (!names.some((n) => n.length >= 3 && text.includes(n))) problems.push(`The preview does not name either team (${game.awayTeam}, ${game.homeTeam}).`);
-
+  problems.push(...styleProblems(`${hook} ${preview}`));
   return { ok: problems.length === 0, problems };
 }

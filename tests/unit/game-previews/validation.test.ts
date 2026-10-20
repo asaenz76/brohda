@@ -1,40 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { claimedFigures, currentSeasonStart, domainMatches, domainOf, isBettingPage, isEligiblePrimarySource, isTrustedSource, numbersIn, reconcileFactKind, reconcileSeasonScope, splitUsableFacts, unsupportedQuotes, validateDraft, verificationReasons } from "@/lib/game-previews/validation";
+import { claimedFigures, domainMatches, domainOf, draftHints, isBettingPage, isEligiblePrimarySource, isStoryPage, isTrustedSource, reconcileSeasonScope, styleProblems, unsupportedQuotes, validateDraft, verificationReasons } from "@/lib/game-previews/validation";
+import { competitionPhase, currentSeasonStart } from "@/lib/game-previews/identity";
 import { config, fact, facts, game, goodDraft, NOW } from "./fixtures";
 
 const check = (draft = goodDraft, f = facts, c = config) => validateDraft({ draft, facts: f, game, config: c, now: NOW });
 
-describe("validateDraft — the gate before a Preview is saved", () => {
-  it("accepts a draft whose every claim cites researched facts and whose figures all come from them", () => {
+describe("validateDraft: only what code can decide", () => {
+  it("accepts a draft with a title, a caption, claims citing researched facts, and the combined length under the limit", () => {
     expect(check()).toEqual({ ok: true, problems: [] });
   });
 
-  it("rejects a figure that is in no cited fact (an invented number cannot be published)", () => {
-    const r = check({ ...goodDraft, preview: goodDraft.preview.replace("26-3", "27-3") });
-    expect(r.ok).toBe(false);
-    expect(r.problems.join(" ")).toMatch(/"27"/);
+  it("(test Q) title + caption TOGETHER must be fewer than the configured limit, counted exactly", () => {
+    const total = goodDraft.hook.length + goodDraft.preview.length;
+    expect(check(goodDraft, facts, { ...config, maxChars: total + 1 }).ok).toBe(true);
+    expect(check(goodDraft, facts, { ...config, maxChars: total }).problems.join(" ")).toMatch(/fewer than/);
+    expect(check({ ...goodDraft, hook: "x".repeat(100), preview: "y".repeat(599) }).ok).toBe(true); // 699
+    expect(check({ ...goodDraft, hook: "x".repeat(100), preview: "y".repeat(600) }).problems.join(" ")).toMatch(/700/); // 700 is not fewer than 700
   });
 
-  it("rejects a spelled-out number or ordinal the facts do not contain", () => {
-    expect(check({ ...goodDraft, preview: `${goodDraft.preview} Tennessee has lost seven straight.` }).problems.join(" ")).toMatch(/"7"/);
-    expect(check({ ...goodDraft, preview: `${goodDraft.preview} It is their fourth road game.` }).problems.join(" ")).toMatch(/"4"/);
+  it("there is no separate title-length gate (a 130 character title passes while the combined text fits)", () => {
+    expect(check({ ...goodDraft, hook: "x".repeat(130), preview: "Short." }, facts, { ...config, hookMaxChars: 20 }).ok).toBe(true);
   });
 
-  it("does not treat ordinary words like 'no one' or 'second half' as figures", () => {
-    expect(numbersIn("No one expected a second half like that").size).toBe(0);
-    expect(check({ ...goodDraft, preview: `${goodDraft.preview} No one saw it coming.` }).ok).toBe(true);
-  });
-
-  it("rejects a claim that cites nothing, or cites a fact that was not researched", () => {
+  it("rejects a missing title, a missing caption, no claims, a claim that cites nothing or an unknown fact", () => {
+    expect(check({ ...goodDraft, hook: " " }).problems.join(" ")).toMatch(/title is empty/);
+    expect(check({ ...goodDraft, preview: "" }).problems.join(" ")).toMatch(/caption is empty/);
+    expect(check({ ...goodDraft, claims: [] }).problems.join(" ")).toMatch(/no supporting claims/);
     expect(check({ ...goodDraft, claims: [...goodDraft.claims, { text: "Something else.", factIds: [] }] }).problems.join(" ")).toMatch(/cites no fact/);
     expect(check({ ...goodDraft, claims: [{ text: "x", factIds: ["f99"] }] }).problems.join(" ")).toMatch(/not one of the researched facts/);
-    expect(check({ ...goodDraft, claims: [] }).problems.join(" ")).toMatch(/no supporting claims/);
-  });
-
-  it("rejects text over the CONFIGURED limits (limits are configuration, not constants)", () => {
-    expect(check(goodDraft, facts, { ...config, maxChars: 100 }).problems.join(" ")).toMatch(/limit is 100/);
-    expect(check(goodDraft, facts, { ...config, hookMaxChars: 20 }).problems.join(" ")).toMatch(/limit is 20/);
-    expect(check({ ...goodDraft, hook: " " }).problems.join(" ")).toMatch(/hook is empty/);
   });
 
   it("rejects a fact from a blocked source, matching subdomains too", () => {
@@ -46,129 +39,89 @@ describe("validateDraft — the gate before a Preview is saved", () => {
     expect(domainMatches(domainOf("https://netflix.com/a"), ["x.com"])).toBe(false);
   });
 
-  it("freshness: a CURRENT claim needs a source published inside the configured window; history may use an older one", () => {
-    const staleCurrent = [facts[0], facts[1], { ...facts[2], kind: "current" as const, publishedAt: "2026-10-01T00:00:00.000Z" }];
-    expect(check(goodDraft, staleCurrent).problems.join(" ")).toMatch(/older than 72 hours/);
-    expect(check(goodDraft, staleCurrent, { ...config, currentFactMaxAgeHours: 24 * 30 }).ok).toBe(true); // the window is configuration
-    const undated = [facts[0], facts[1], { ...facts[2], kind: "current" as const, publishedAt: null }];
-    expect(check(goodDraft, undated).problems.join(" ")).toMatch(/no publication time/);
-    // A fresh CURRENT fact passes, and a record that follows from a completed game is history, whatever its age.
-    expect(check(goodDraft, [facts[0], facts[1], { ...facts[2], kind: "current" as const, publishedAt: "2026-10-17T08:00:00.000Z" }]).ok).toBe(true);
-    expect(check(goodDraft).ok).toBe(true);
-    // A historical fact from years ago is fine.
-    const oldHistory = [{ ...facts[0], publishedAt: "2019-01-01T00:00:00.000Z" }, ...facts.slice(1)];
-    expect(check(goodDraft, oldHistory).ok).toBe(true);
+  it("(test O) 'first chance' and 'two stars are out' do not block; numbers are judged by the reviewer, not by code", () => {
+    const prose = check({ ...goodDraft, preview: `${goodDraft.preview} Two stars are out, and it is his first chance to answer.` });
+    expect(prose.ok).toBe(true);
+    // An unsupported figure is no longer a code gate (the reviewer judges it); the code only surfaces it as a hint.
+    const wrongFigure = { ...goodDraft, preview: goodDraft.preview.replace("26-3", "27-3") };
+    expect(check(wrongFigure).ok).toBe(true);
+    expect(draftHints(wrongFigure, facts).figures).toContain("27");
   });
 
-  it("rejects a preview that is not about this Game (names neither team)", () => {
-    const r = check({ ...goodDraft, hook: "Zero wins in five.", preview: "A team is 0-5 after a 26-3 loss. Another is 2-3 after 34-22, and won 41-20 and 38-14 last year." });
-    expect(r.problems.join(" ")).toMatch(/does not name either team/);
+  it("(test P) a real figure with no supporting fact ('nine straight wins') is surfaced to the reviewer as a hint", () => {
+    const d = { ...goodDraft, preview: `${goodDraft.preview} Indianapolis has won nine straight.` };
+    expect(draftHints(d, facts).figures).toContain("9");
+    expect(draftHints(goodDraft, facts).figures).toEqual([]);
+  });
+
+  it("a time frame ('this season') on a fact that does not say it is a hint, not a gate", () => {
+    const f = fact({ id: "f9", claim: "Justin Herbert has thrown at least one interception in six straight games.", excerpt: "one+ interception thrown in six straight games" });
+    const d = { hook: "Six straight with a pick.", preview: "Herbert has thrown an interception in six straight games this season.", claims: [{ text: "Herbert has thrown an interception in six straight games this season.", factIds: ["f9"] }] };
+    expect(validateDraft({ draft: d, facts: [f], game, config, now: NOW }).ok).toBe(true);
+    expect(draftHints(d, [f]).seasonClaims).toHaveLength(1);
+    expect(draftHints(d, [{ ...f, claim: `${f.claim} this season` }]).seasonClaims).toEqual([]);
+  });
+
+  it("does not require the Preview to name a team (Game identity is the reviewer's wrong_game call)", () => {
+    expect(check({ ...goodDraft, hook: "Zero wins in five.", preview: "The city is 0-5 after a 26-3 loss. Can the winless side break through?" }).problems.join(" ")).not.toMatch(/name/);
   });
 });
 
-describe("splitUsableFacts — a current-state fact needs a dated, recent source before the angle or writer may see it", () => {
-  const current = (over = {}) => fact({ id: "c1", kind: "current", category: "injury", claim: "The quarterback practiced in full.", ...over });
-
-  it("keeps history (no expiry) and a recently dated current fact", () => {
-    const recent = current({ publishedAt: "2026-10-16T00:00:00.000Z" });
-    const { usable, excluded } = splitUsableFacts([...facts, recent], config, NOW);
-    expect(usable.map((f) => f.id)).toEqual(["f1", "f2", "f3", "c1"]);
-    expect(excluded).toEqual([]);
+describe("the contract's style invariants are deterministic", () => {
+  it("rejects an em dash, a hashtag, wagering language and the banned phrases", () => {
+    expect(styleProblems("A big game \u2014 a bigger story.").join(" ")).toMatch(/em dash/);
+    expect(styleProblems("Big night #NFL").join(" ")).toMatch(/hashtag/);
+    for (const t of ["The odds favor Houston.", "Take the over/under.", "A good bet today.", "Colts -3 point spread"]) expect(styleProblems(t).join(" "), t).toMatch(/wagering/);
+    for (const t of ["An epic showdown awaits.", "A must-watch clash in Indy.", "Both teams want the win."]) expect(styleProblems(t).join(" "), t).toMatch(/banned phrase/);
+    expect(check({ ...goodDraft, preview: `${goodDraft.preview} An epic showdown.` }).ok).toBe(false);
   });
-
-  it("sets aside a current fact with no publication time, an unreadable one, or one older than the window — with the reason", () => {
-    const undated = current({ id: "c2", publishedAt: null });
-    const junk = current({ id: "c3", publishedAt: "not a date" });
-    const stale = current({ id: "c4", publishedAt: "2026-10-10T00:00:00.000Z" });
-    const { usable, excluded } = splitUsableFacts([...facts, undated, junk, stale], config, NOW);
-    expect(usable.map((f) => f.id)).toEqual(["f1", "f2", "f3"]);
-    expect(excluded.map((e) => e.fact.id)).toEqual(["c2", "c3", "c4"]);
-    expect(excluded[0].reason).toMatch(/no publication time/);
-    expect(excluded[2].reason).toMatch(/older than 72 hours/);
-  });
-
-  it("an old statement of HISTORY is never set aside for its age", () => {
-    const old = fact({ id: "h1", kind: "historical", publishedAt: "2025-12-14T00:00:00.000Z" });
-    expect(splitUsableFacts([old], config, NOW).usable).toHaveLength(1);
+  it("leaves ordinary sports prose alone ('favorites', 'underdogs', 'better', 'betrayed')", () => {
+    expect(styleProblems("The underdogs are the favorites of the locker room. He felt betrayed, and better.")).toEqual([]);
   });
 });
 
-describe("reconcileSeasonScope — an earlier season is never current form", () => {
-  const g = { kickoffUtc: "2026-10-18T17:00:00.000Z" };
-  it("moves a fact that names an earlier season, or says 'last season', to HISTORICAL_CONTEXT", () => {
-    const out = reconcileSeasonScope([fact({ id: "a", claim: "The Chargers swept the Chiefs in 2025." }), fact({ id: "b", claim: "Kansas City lost both meetings last season." }), fact({ id: "c", claim: "Tennessee lost 26-3 on Oct. 11." })], g);
-    expect(out.map((f) => f.seasonScope)).toEqual(["HISTORICAL_CONTEXT", "HISTORICAL_CONTEXT", "CURRENT_SEASON"]);
+describe("(tests B, L, M) season currentness: the supplied season identifier, never the calendar year", () => {
+  const nba = { season: "2026-2027", competition: "NBA" };
+  it("knows when the season began for the autumn-to-spring leagues from the identifier, and applies no date rule elsewhere", () => {
+    expect(currentSeasonStart({ season: "2026", competition: "NFL" })?.toISOString()).toBe("2026-07-01T00:00:00.000Z");
+    expect(currentSeasonStart(nba)?.toISOString()).toBe("2026-07-01T00:00:00.000Z");
+    expect(currentSeasonStart({ season: "2026-2027", competition: "NHL" })?.toISOString()).toBe("2026-07-01T00:00:00.000Z");
+    expect(currentSeasonStart({ season: "2026", competition: "Premier League" })).toBeNull();
+    expect(currentSeasonStart({ season: null, competition: "NBA" })).toBeNull();
   });
-  it("only ever demotes: history stays history, and a current-state fact is this season's", () => {
-    expect(reconcileSeasonScope([fact({ seasonScope: "HISTORICAL_CONTEXT", claim: "Tennessee is 0-5." })], g)[0].seasonScope).toBe("HISTORICAL_CONTEXT");
-    expect(reconcileSeasonScope([fact({ kind: "current", seasonScope: "HISTORICAL_CONTEXT", claim: "Out since 2025 surgery." })], g)[0].seasonScope).toBe("CURRENT_SEASON");
+  it("demotes a 'current-season' fact published before the season began (the Tatum March report in an October Game); never the reverse", () => {
+    const out = reconcileSeasonScope([fact({ id: "a", publishedAt: "2026-03-06T00:00:00.000Z" }), fact({ id: "b", publishedAt: "2026-08-11T00:00:00.000Z" }), fact({ id: "c", publishedAt: null }), fact({ id: "d", kind: "current", publishedAt: "2026-03-06T00:00:00.000Z" }), fact({ id: "e", seasonScope: "HISTORICAL_CONTEXT", publishedAt: "2026-10-01T00:00:00.000Z" })], nba);
+    expect(out.map((f) => f.seasonScope)).toEqual(["HISTORICAL_CONTEXT", "CURRENT_SEASON", "CURRENT_SEASON", "CURRENT_SEASON", "HISTORICAL_CONTEXT"]);
   });
-  it("judges years against the Game's date: in January the previous calendar year can still be this season", () => {
-    const jan = { kickoffUtc: "2027-01-10T17:00:00.000Z" };
-    expect(reconcileSeasonScope([fact({ claim: "The Chargers lost on Dec. 14, 2026." })], jan)[0].seasonScope).toBe("CURRENT_SEASON");
-    expect(reconcileSeasonScope([fact({ claim: "The Chargers won 16-13 in 2025." })], jan)[0].seasonScope).toBe("HISTORICAL_CONTEXT");
+  it("does NOT infer the season from year words in the claim (a calendar-year regex was removed)", () => {
+    const out = reconcileSeasonScope([fact({ claim: "The Chargers lost on Dec. 14, 2026." }), fact({ claim: "Kansas City lost both meetings last season." })], { season: "2026", competition: "NFL" });
+    expect(out.map((f) => f.seasonScope)).toEqual(["CURRENT_SEASON", "CURRENT_SEASON"]); // research's own classification stands; the reviewer judges wording
   });
-});
-
-describe("a time frame is a claim: 'this season' needs a fact that says it", () => {
-  const streak = fact({ id: "f9", kind: "historical", claim: "Justin Herbert has thrown at least one interception in six straight games.", excerpt: "one+ interception thrown in six straight games", publishedAt: "2026-10-18T00:00:00.000Z" });
-  const withText = (preview: string, claimText: string, f = streak) => ({ hook: "Six straight with a pick.", preview, claims: [{ text: claimText, factIds: [f.id] }] });
-  const run = (d: ReturnType<typeof withText>, f = streak) => validateDraft({ draft: d, facts: [f], game, config, now: NOW });
-
-  it("rejects 'six straight games this season' when the fact does not say this season (it may reach into last season)", () => {
-    const r = run(withText("Justin Herbert has thrown at least one interception in six straight games this season, and Tennessee at Indianapolis is next.", "Justin Herbert has thrown at least one interception in six straight games this season."));
-    expect(r.ok).toBe(false);
-    expect(r.problems.join(" ")).toMatch(/says "this season"/);
-  });
-
-  it("allows the same wording when the cited fact itself says it", () => {
-    const f = { ...streak, claim: "Justin Herbert has thrown at least one interception in six straight games this season." };
-    expect(run(withText("Justin Herbert has thrown at least one interception in six straight games this season, and Tennessee at Indianapolis is next.", f.claim, f), f).problems.filter((p) => /this season/.test(p))).toEqual([]);
-  });
-
-  it("allows the fact's own time frame to be left out (plain 'six straight games')", () => {
-    expect(run(withText("Justin Herbert has thrown at least one interception in six straight games, and Tennessee at Indianapolis is next.", "Justin Herbert has thrown at least one interception in six straight games.")).problems.filter((p) => /this season/.test(p))).toEqual([]);
+  it("(test M) a stale or undated current-state fact becomes a verification exception instead of being excluded", () => {
+    const f = fact({ id: "c1", kind: "current", category: "injury", claim: "The quarterback practiced in full.", publishedAt: "2026-10-01T00:00:00.000Z" });
+    const freshness = { now: NOW, currentFactMaxAgeHours: 72 };
+    expect(verificationReasons(f, true, freshness).join(" ")).toMatch(/older than 72 hours/);
+    expect(verificationReasons({ ...f, publishedAt: null }, true, freshness).join(" ")).toMatch(/no publication date/);
+    expect(verificationReasons({ ...f, publishedAt: "2026-10-17T08:00:00.000Z" }, true, freshness)).toEqual([]);
+    expect(verificationReasons({ ...f, kind: "historical", publishedAt: "2019-01-01T00:00:00.000Z" }, true, freshness)).toEqual([]); // history never expires
   });
 });
 
-describe("reconcileFactKind — a league rank is a current-state fact however it was filed", () => {
-  const f = (claim: string) => fact({ id: "r", kind: "historical", claim });
-  it("re-files rank/lead statements as current, so they need a dated recent source", () => {
-    for (const c of ["The Raiders' defense has 10 takeaways, tied for the most in the NFL.", "Dallas ranks 29th in the NFL with five sacks.", "Green Bay leads the NFL in interceptions.", "Kansas City is the last unbeaten team left in the AFC.", "The Bills are 4-1 and first in the AFC East."]) {
-      expect(reconcileFactKind([f(c)])[0].kind).toBe("current");
-    }
-  });
-  it("leaves results, scores and head-to-head history alone", () => {
-    for (const c of ["Tennessee lost 26-3 to Houston on Oct. 11.", "Herbert has been sacked at least twice in every game.", "Mahomes is 10-4 in his career against the Chargers."]) expect(reconcileFactKind([f(c)])[0].kind).toBe("historical");
-  });
-  it("an old rank statement is then set aside by the freshness rule", () => {
-    const old = reconcileFactKind([fact({ id: "r", kind: "historical", claim: "Ten takeaways, tied for the most in the NFL.", publishedAt: "2026-10-14T00:00:00.000Z" })]);
-    expect(splitUsableFacts(old, config, new Date("2026-10-18T18:00:00.000Z")).excluded).toHaveLength(1);
+describe("competition phase comes from the provider's round label", () => {
+  it("separates preseason, regular season and playoffs", () => {
+    expect(competitionPhase("Regular Season - Week 6")).toBe("regular_season");
+    expect(competitionPhase("Preseason - 2")).toBe("preseason");
+    expect(competitionPhase("Playoffs - Conference Finals")).toBe("playoffs");
+    expect(competitionPhase("Finals")).toBe("playoffs");
+    expect(competitionPhase(null)).toBe("regular_season");
   });
 });
 
-describe("naming a team: full name, nickname or city", () => {
-  it("accepts 'Columbus' and 'Minnesota' for the Blue Jackets at the Wild", () => {
-    const g = { ...game, homeTeam: "Minnesota Wild", awayTeam: "Columbus Blue Jackets" };
-    const d = { ...goodDraft, hook: "Columbus has not strung two wins together.", preview: "Columbus arrives on a back-to-back. Minnesota is 3-0-0 at home.", claims: [{ text: "Tennessee is 0-5 after a 26-3 loss to Houston.", factIds: ["f1"] }] };
-    expect(validateDraft({ draft: { ...d, preview: "Columbus is 0-5 after a 26-3 loss to Houston, and Minnesota awaits." }, facts, game: g, config, now: NOW }).problems.filter((p) => /name either team/.test(p))).toEqual([]);
-  });
-});
-
-describe("number words used as plain language are not figures", () => {
-  it("'the two teams' and a clause-final 'first' are prose; 'two straight wins', 'their first win' and 'third' still need a fact", () => {
-    expect([...numbersIn("Two rebuilt rosters meet today. Who adjusts first?")]).toEqual([]);
-    expect([...numbersIn("The two teams meet today, and the question is which holds up first.")]).toEqual([]);
-    expect([...numbersIn("They have won two straight and are third in the league.")].sort()).toEqual(["2", "3"]);
-    expect([...numbersIn("It is their first win in Detroit.")]).toEqual(["1"]);
-  });
-});
-
-describe("reconcileFactKind — league comparisons beyond ranks", () => {
-  it("'the only NFL team to ...' and 'the longest active ...' are re-filed as current", () => {
-    for (const c of ["Dallas is the only NFL team to yield 375 yards in each of its first five games.", "Dallas has allowed 20 or more points in 12 straight games, the longest active such streak in the league.", "Dallas has the longest active streak in the NFL."]) {
-      expect(reconcileFactKind([fact({ id: "r", kind: "historical", claim: c })])[0].kind).toBe("current");
-    }
+describe("story pages: a data endpoint is not a source a member can read", () => {
+  it("accepts articles and team pages, rejects JSON/API endpoints", () => {
+    expect(isStoryPage("https://www.espn.com/nfl/story/_/id/1/x")).toBe(true);
+    expect(isStoryPage("https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard")).toBe(false);
+    expect(isStoryPage("https://example.com/feed.json")).toBe(false);
   });
 });
 
@@ -241,11 +194,11 @@ describe("claimedFigures — figures a draft actually CLAIMS, not every word tha
     expect(figs("Ranked 29th in the NFL.")).toEqual(["29"]);
   });
 
-  it("validateDraft therefore no longer rejects ordinary prose, and still rejects an unsupported claim", () => {
+  it("ordinary prose passes validation, and an unsupported claim is flagged as a hint for the reviewer", () => {
     const ok = validateDraft({ draft: { ...goodDraft, preview: "Two stars are out, and it is the first meeting since the trade. Tennessee is 0-5 after a 26-3 loss to Houston." }, facts, game, config, now: NOW });
-    expect(ok.problems.filter((p) => /figure/.test(p))).toEqual([]);
-    const bad = validateDraft({ draft: { ...goodDraft, preview: "Tennessee has lost seven straight. Tennessee is 0-5 after a 26-3 loss to Houston." }, facts, game, config, now: NOW });
-    expect(bad.problems.join(" ")).toMatch(/"7"/);
+    expect(ok.ok).toBe(true);
+    const bad = { ...goodDraft, preview: "Tennessee has lost seven straight. Tennessee is 0-5 after a 26-3 loss to Houston." };
+    expect(draftHints(bad, facts).figures).toContain("7");
   });
 });
 
@@ -265,19 +218,3 @@ describe("betting pages are never the credited primary source", () => {
   });
 });
 
-describe("a report from before this season began is last season's news", () => {
-  it("knows when the season began for the autumn-to-spring leagues, and applies no date rule to other competitions", () => {
-    expect(currentSeasonStart({ kickoffUtc: "2026-10-20T17:00:00.000Z", competition: "NBA" })?.toISOString()).toBe("2026-07-01T00:00:00.000Z");
-    expect(currentSeasonStart({ kickoffUtc: "2027-02-10T17:00:00.000Z", competition: "NHL" })?.toISOString()).toBe("2026-08-01T00:00:00.000Z");
-    expect(currentSeasonStart({ kickoffUtc: "2026-10-20T17:00:00.000Z", competition: "Premier League" })).toBeNull();
-    expect(currentSeasonStart({ kickoffUtc: "2026-10-20T17:00:00.000Z", competition: null })).toBeNull();
-  });
-  it("demotes a 'current-season' fact published before the season began (the Tatum March article in an October Game), never the other way", () => {
-    const game = { kickoffUtc: "2026-10-20T17:00:00.000Z", competition: "NBA" };
-    const out = reconcileSeasonScope([fact({ id: "a", publishedAt: "2026-03-06T00:00:00.000Z" }), fact({ id: "b", publishedAt: "2026-08-11T00:00:00.000Z" }), fact({ id: "c", publishedAt: null }), fact({ id: "d", kind: "current", publishedAt: "2026-03-06T00:00:00.000Z" })], game);
-    expect(out.map((f) => f.seasonScope)).toEqual(["HISTORICAL_CONTEXT", "CURRENT_SEASON", "CURRENT_SEASON", "CURRENT_SEASON"]);
-  });
-  it("a competition with no season rule is left alone", () => {
-    expect(reconcileSeasonScope([fact({ publishedAt: "2026-03-06T00:00:00.000Z" })], { kickoffUtc: "2026-10-20T17:00:00.000Z", competition: "MLS" })[0].seasonScope).toBe("CURRENT_SEASON");
-  });
-});
