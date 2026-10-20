@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claimedFigures, domainMatches, domainOf, draftHints, isBettingPage, isEligiblePrimarySource, isCreditablePage, isStoryPage, isTrustedSource, reconcileSeasonScope, styleProblems, unsupportedQuotes, validateDraft, verificationReasons } from "@/lib/game-previews/validation";
+import { claimedFigures, domainMatches, domainOf, draftHints, isBettingPage, isEligiblePrimarySource, isCreditablePage, isStoryPage, isTrustedSource, teamSiteLabels, reconcileSeasonScope, styleProblems, unsupportedQuotes, validateDraft, verificationReasons } from "@/lib/game-previews/validation";
 import { competitionPhase, currentSeasonStart } from "@/lib/game-previews/identity";
 import { config, fact, facts, game, goodDraft, NOW } from "./fixtures";
 
@@ -137,6 +137,29 @@ describe("trusted sources", () => {
   it("the trusted list is configuration: an empty list trusts only the team sites", () => {
     expect(isTrustedSource("https://www.espn.com/x", teams, [])).toBe(false);
     expect(isTrustedSource("https://www.espn.com/x", teams, ["espn.com"])).toBe(true);
+  });
+});
+
+describe("an official team website is recognised by its whole domain label", () => {
+  const trusted = ["espn.com"];
+  const trustedFor = (url: string, ...teams: string[]) => isTrustedSource(url, teams, trusted);
+  it("accepts the real NFL/NBA/NHL patterns: nickname, the+nickname, city+nickname, city initials+nickname, two-word nicknames, numbers", () => {
+    expect(trustedFor("https://www.therams.com/news/rams-injury-updates", "Los Angeles Rams", "Las Vegas Raiders")).toBe(true);
+    expect(trustedFor("https://www.detroitlions.com/news/x", "Green Bay Packers", "Detroit Lions")).toBe(true);
+    expect(trustedFor("https://www.buffalobills.com/news/x", "Buffalo Bills", "Miami Dolphins")).toBe(true);
+    expect(trustedFor("https://www.chargers.com/news/x", "Los Angeles Chargers", "Kansas City Chiefs")).toBe(true);
+    expect(trustedFor("https://www.nygiants.com/news/x", "New York Giants", "Houston Texans")).toBe(true);
+    expect(trustedFor("https://www.49ers.com/news/x", "San Francisco 49ers", "Atlanta Falcons")).toBe(true);
+    expect(trustedFor("https://www.mapleleafs.com/news/x", "Toronto Maple Leafs", "Columbus Blue Jackets")).toBe(true);
+    expect(trustedFor("https://www.bluejackets.com/news/x", "Toronto Maple Leafs", "Columbus Blue Jackets")).toBe(true);
+    expect(trustedFor("https://www.miamiheat.com/news/x", "Minnesota Timberwolves", "Miami Heat")).toBe(true);
+  });
+  it("rejects look-alikes and unrelated hosts: a substring is not a team site, and a team site of a team not in this Game is not trusted for it", () => {
+    for (const url of ["https://www.cheat.com/x", "https://www.therams-blog.com/x", "https://www.ramsfans.com/x", "https://www.lakingsinsider.com/x", "https://www.fieldgulls.com/x", "https://www.prideofdetroit.com/x"]) expect(trustedFor(url, "Los Angeles Rams", "Miami Heat", "Los Angeles Kings", "Seattle Seahawks", "Detroit Lions"), url).toBe(false);
+    expect(trustedFor("https://www.packers.com/news/x", "Los Angeles Rams", "Las Vegas Raiders")).toBe(false);
+  });
+  it("teamSiteLabels lists the labels explicitly", () => {
+    expect([...teamSiteLabels("Los Angeles Rams")].sort()).toEqual(expect.arrayContaining(["rams", "therams", "losangelesrams", "larams"]));
   });
 });
 

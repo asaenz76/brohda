@@ -95,8 +95,29 @@ export function reconcileSeasonScope(facts: CandidateFact[], game: Pick<GameIden
   });
 }
 
-/** The brand-name slug of a team ("Los Angeles Chargers" -> "chargers"): an official team website is its own brand domain (chargers.com). */
-const nicknameSlug = (team: string) => (team.toLowerCase().split(/\s+/).pop() ?? "").replace(/[^a-z]/g, "");
+/**
+ * The domain labels an official team website can have: the nickname ("chargers.com"), "the" + nickname ("therams.com"), city + nickname ("detroitlions.com", "buffalobills.com") and the city's initials + nickname ("nygiants.com", "larams.com").
+ * Matched on the WHOLE label, never as a substring, so an unrelated host that merely ends in a nickname ("cheat.com" for the Heat) is not a team site.
+ */
+const slug = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, "");
+export function teamSiteLabels(team: string): Set<string> {
+  const words = team.trim().split(/\s+/);
+  const nick = slug(words[words.length - 1] ?? "");
+  const cityWords = words.slice(0, -1);
+  const city = slug(cityWords.join(""));
+  const initials = cityWords.map((w) => w[0]?.toLowerCase() ?? "").join("");
+  const labels = new Set<string>();
+  if (nick.length >= 4) {
+    labels.add(nick);
+    labels.add(`the${nick}`);
+    if (city) labels.add(`${city}${nick}`);
+    if (initials.length >= 2) labels.add(`${initials}${nick}`);
+    // Two-word nicknames are one word on the web ("Maple Leafs", "Red Wings", "Blue Jackets", "Trail Blazers"): city + whole nickname, and the nickname alone.
+  }
+  const twoWord = words.length >= 3 ? slug(words.slice(-2).join("")) : "";
+  if (twoWord.length >= 6) labels.add(twoWord);
+  return labels;
+}
 
 /**
  * Whether a source is trusted as the PRIMARY support of a published Preview: a domain on the stored trusted list (the configurable `preferred_domains`: the leagues, ESPN, FOX Sports, established major sports reporting, ...) or one of the two teams' own websites.
@@ -107,7 +128,7 @@ export function isTrustedSource(url: string, teams: string[], trustedDomains: st
   if (!host) return false;
   if (domainMatches(host, trustedDomains)) return true;
   const label = host.split(".").slice(-2)[0] ?? "";
-  return teams.some((t) => label.length >= 4 && nicknameSlug(t) === label);
+  return label.length >= 4 && teams.some((t) => teamSiteLabels(t).has(label));
 }
 
 const normQuote = (t: string) => t.toLowerCase().replace(/[\u2018\u2019]/g, "'").replace(/[^a-z0-9' ]+/g, " ").replace(/\s+/g, " ").trim();
@@ -238,8 +259,8 @@ const SEASON_QUALIFIER = /\b(this|the current) (season|year)\b|\bso far in 20\d\
 const FACT_STATES_SEASON = /\b(this|the current) (season|year)\b|\bso far in 20\d\d\b|\b2026\b/i;
 
 
-/** Words that make a status or a forecast uncertain. A hint only: the reviewer decides whether the Preview kept that uncertainty. */
-const HEDGE = /\b(unlikely|doubtful|questionable|probable|expected|projected|could|might|may|likely|day-to-day|game-time decision|hopes?|plans? to|is listed as|listed as|no guarantee|not yet cleared|has a chance)\b/g;
+/** Words that make a status, an announcement, a forecast or a statistic provisional ("unlikely", "pretty sure", "so far", "as of"). A hint only: the reviewer decides whether the Preview kept that uncertainty and did not present an as-of figure as the current one. */
+const HEDGE = /\b(unlikely|doubtful|questionable|probable|expected|projected|could|might|may|likely|day-to-day|game-time decision|hopes?|plans? to|is listed as|listed as|no guarantee|not yet cleared|has a chance|pretty sure|i think|reportedly|rumou?red|appears to|so far|as of|set to|poised to)\b/g;
 
 /** Things worth a second look. NOT gates: the independent reader judges meaning; without a reader configured the pipeline falls back to treating unsupported DIGITS as blocking. */
 export function draftHints(draft: DraftToValidate, facts: CandidateFact[]): DraftHints {
