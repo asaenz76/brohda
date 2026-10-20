@@ -663,6 +663,16 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
       expect(t.saves).toHaveLength(0);
     });
 
+    it("a lookup that fails, or cannot run, is recorded in the run details (never silent) and only costs that story", async () => {
+      const failing = { ...verifierWith(() => hit), findTrustedSources: vi.fn(async () => { throw new Error("anthropic_api_400: bad request"); }) };
+      const t = build(failing as never);
+      expect(await generateGamePreview(t.deps, req)).toMatchObject({ status: "REJECTED", error: "no_trusted_primary_source" });
+      expect((t.runs[0].details as { creditLookups: Array<{ note?: string }> }).creditLookups[0].note).toMatch(/lookup failed: anthropic_api_400/);
+      const noRoom = build(verifierWith(() => hit), { maxSearchCallsPerGame: 3 });
+      await generateGamePreview(noRoom.deps, req);
+      expect((noRoom.runs[0].details as { creditLookups: Array<{ note?: string }> }).creditLookups[0].note).toMatch(/no searches left/);
+    });
+
     it("a page the lookup returns that is not trusted, not readable, a betting page or an old page for a current-state claim is not used", async () => {
       for (const bad of [{ ...hit, url: "https://random-blog.example/titans" }, { ...hit, url: "https://www.espn.com/nfl/team/injuries/_/name/ten/tennessee-titans" }, { ...hit, url: "https://www.espn.com/betting/nfl/titans-odds-picks" }]) {
         const t = build(verifierWith(() => bad));

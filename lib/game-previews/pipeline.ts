@@ -100,7 +100,7 @@ export interface RunDetails {
   /** Publication dates read from the page itself for the credited sources research left undated. */
   sourceDates: Array<{ url: string; found: string | null }>;
   /** Stories whose central claim first appeared in a lower-trust or republishing source: the search of the trusted domains for the page that carries the same claim, and what it found. */
-  creditLookups: Array<{ angleId: string; factId: string; found: string | null }>;
+  creditLookups: Array<{ angleId: string; factId: string; found: string | null; note?: string }>;
 }
 
 /**
@@ -298,13 +298,17 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
   const findTrustedCredit = async (angle: EditorialAngle): Promise<EditorialAngle | null> => {
     const finder = providers.factVerifier?.findTrustedSources;
     const left = config.maxSearchCallsPerGame - usage.searchCalls;
-    if (!finder || left <= 0 || config.preferredDomains.length === 0) return null;
+    if (!finder || left <= 0 || config.preferredDomains.length === 0) {
+      details.creditLookups.push({ angleId: angle.id, factId: "*", found: null, note: !finder ? "skipped: no lookup available" : left <= 0 ? "skipped: no searches left under the ceiling" : "skipped: no trusted domains configured" });
+      return null;
+    }
     const central = (angle.centralFactIds ?? [angle.factIds[0]]).map((id) => facts.find((f) => f.id === id)).filter((f): f is CandidateFact => Boolean(f) && !isEligiblePrimary(f as CandidateFact));
     if (central.length === 0) return null;
     let result;
     try {
       result = await finder.call(providers.factVerifier, game, central, { ...stage, maxSearchCalls: left, webSearchToolVersion: config.webSearchToolVersion, blockedDomains: config.blockedDomains, trustedDomains: config.preferredDomains });
-    } catch {
+    } catch (error) {
+      details.creditLookups.push({ angleId: angle.id, factId: "*", found: null, note: `lookup failed: ${(error as Error).message.slice(0, 300)}` });
       return null; // a failed lookup only means this story cannot be credited; the next-best story is tried
     }
     usage = addUsage(usage, result.usage);
