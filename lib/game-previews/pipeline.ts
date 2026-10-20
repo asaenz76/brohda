@@ -1,8 +1,8 @@
 import type { GamePreviewConfig, GamePreviewInput, GamePreviewReason, GamePreviewWriteOutcome } from "./types";
 import type { GenerationRunInput } from "./repository";
 import { addUsage, emptyUsage, type AdvisoryKind, type AngleSelection, type CandidateFact, type EditorialAngle, type FactCheck, type GameIdentity, type GamePreviewProviders, type PreviewDraft, type ProviderUsage, type ReachedSource, type ResearchLead, type SourceConflict } from "./providers/types";
-import { angleBasis, chooseAngle, completeAngleFacts, dedupeAngles, orderAnglePrimary, overallScore, validateAngles, validateEditorial } from "./editorial";
-import { domainOf, isEligiblePrimarySource, isTrustedSource, reconcileFactKind, reconcileSeasonScope, splitUsableFacts, validateDraft, verificationReasons } from "./validation";
+import { angleBasis, chooseAngle, completeAngleFacts, dedupeAngles, orderAnglePrimary, overallScore, sanitizeAngles, validateEditorial } from "./editorial";
+import { domainOf, draftHints, isEligiblePrimarySource, isTrustedSource, reconcileSeasonScope, validateDraft, verificationReasons } from "./validation";
 
 /**
  * Preview generation, one Game at a time: research → candidate facts → candidate editorial angles, scored → the strongest story → a draft that tells only that story → deterministic provenance validation → deterministic editorial
@@ -193,25 +193,27 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     usage = addUsage(usage, research.usage);
     facts = research.facts;
     leads = research.leads ?? [];
+    // Contract: verify the supplied Game against an official source. A conflict is needs_review with the specific conflict; the system never silently switches Games.
+    if (research.gameCheck && !research.gameCheck.confirmed) {
+      details.sources = { reached: research.sources.length, accepted: 0, rejected: research.sources.length, list: research.sources.slice(0, 40) };
+      return fail("needs_review: game_mismatch", [research.gameCheck.conflict ?? "The research could not confirm the supplied Game against an official source."], "REJECTED");
+    }
     details.sourceConflicts = research.conflicts ?? [];
     details.sources = { reached: research.sources.length, accepted: research.sources.filter((s) => s.status === "accepted").length, rejected: research.sources.filter((s) => s.status === "rejected").length, list: research.sources.slice(0, 40) };
   } catch (error) {
     return fail(`research_failed: ${(error as Error).message}`);
   }
-  facts = reconcileFactKind(reconcileSeasonScope(facts, game)); // game carries the competition: a report from before this season began is last season's news // an earlier season is never current form, whatever the research called it
+  facts = reconcileSeasonScope(facts, game); // a report published before the season began (by the SUPPLIED season identifier) is last season's news
   factsFound = facts.length;
   details.measurement.researchSearches = usage.searchCalls;
   details.measurement.factsDiscovered = facts.length;
-  // A fact about the current state needs a dated, recent source; one without it is recorded but never offered to the angle or the writer.
-  const { usable, excluded } = splitUsableFacts(facts, config, deps.now());
-  const excludedReason = new Map(excluded.map((e) => [e.fact.id, e.reason]));
-  details.facts = facts.map((f) => ({ id: f.id, kind: f.kind, seasonScope: f.seasonScope, category: f.category, claim: f.claim, excerpt: f.excerpt, sourceType: f.sourceType, pageContext: f.pageContext, pageSeason: f.pageSeason, subjectTeam: f.subjectTeam, sourceUrl: f.sourceUrl, publishedAt: f.publishedAt, ...(excludedReason.has(f.id) ? { excluded: excludedReason.get(f.id) } : {}) }));
+  details.facts = facts.map((f) => ({ id: f.id, kind: f.kind, seasonScope: f.seasonScope, category: f.category, claim: f.claim, excerpt: f.excerpt, sourceType: f.sourceType, pageContext: f.pageContext, pageSeason: f.pageSeason, subjectTeam: f.subjectTeam, sourceUrl: f.sourceUrl, publishedAt: f.publishedAt }));
   if (usage.searchCalls === 0) return fail("research_did_not_search"); // a model that did not actually search is not research
   if (facts.length === 0) return fail("no_verified_facts"); // weak research never becomes a manufactured story
-  if (usable.length === 0) return fail("no_usable_facts", excluded.map((e) => `Fact ${e.fact.id} was set aside: ${e.reason}.`), "REJECTED");
-  facts = usable;
-  const usableIds = new Set(usable.map((f) => f.id));
-  leads = leads.map((l) => ({ ...l, factIds: l.factIds.filter((id) => usableIds.has(id)) })).filter((l) => l.factIds.length > 0);
+  // A current-state fact that is undated or older than the freshness window is not discarded here: it is an EXCEPTION the story must resolve (below). Only its own story is lost if it cannot be.
+  const freshness = { now: deps.now(), currentFactMaxAgeHours: config.currentFactMaxAgeHours };
+  const factIdSet = new Set(facts.map((f) => f.id));
+  leads = leads.map((l) => ({ ...l, factIds: l.factIds.filter((id) => factIdSet.has(id)) })).filter((l) => l.factIds.length > 0);
   details.researchLeads = leads;
 
   // 2. Editorial angles: 3-5 candidate stories from the facts, scored; the strongest wins, a records-only fallback never beats a good-enough story, and the story must be anchored in a TRUSTED primary source (the first fact of the angle).
@@ -229,12 +231,12 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
   try {
     const proposed = await providers.angles.selectAngle(game, facts, stage, leads);
     usage = addUsage(usage, proposed.usage);
-    const structural = validateAngles(proposed, facts);
-    if (structural.length > 0) {
+    const cleaned = sanitizeAngles(proposed, facts);
+    if (cleaned.problems.length > 0) {
       details.angles = proposed.angles;
-      return fail("angle_selection_invalid", structural, "REJECTED");
+      return fail("angle_selection_invalid", cleaned.problems, "REJECTED");
     }
-    const { selection, dropped } = dedupeAngles(proposed);
+    const { selection, dropped } = dedupeAngles(cleaned.selection);
     selectionResult = selection;
     details.angleDuplicatesDropped = dropped;
     details.angles = selection.angles;
@@ -273,7 +275,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
   for (let round = 1; round <= 2; round++) {
     const exceptions = facts
       .filter((f) => chosen.factIds.includes(f.id) && !confirmed.has(f.id))
-      .map((f) => ({ fact: f, reasons: verificationReasons(f, isTrusted(f)) }))
+      .map((f) => ({ fact: f, reasons: verificationReasons(f, isTrusted(f), freshness) }))
       .filter((x) => x.reasons.length > 0);
     if (exceptions.length === 0) break;
     for (const x of exceptions) details.exceptionReasons[x.fact.id] = x.reasons;
@@ -307,7 +309,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     details.selectionReason = pick.reason;
   }
   {
-    const unresolved = facts.filter((f) => chosen.factIds.includes(f.id) && !confirmed.has(f.id) && verificationReasons(f, isTrusted(f)).length > 0);
+    const unresolved = facts.filter((f) => chosen.factIds.includes(f.id) && !confirmed.has(f.id) && verificationReasons(f, isTrusted(f), freshness).length > 0);
     if (unresolved.length > 0) return fail("story_not_verified", unresolved.map((f) => `Fact ${f.id} was not verified.`), "REJECTED");
     const all = details.factVerification.flatMap((v) => v.checks);
     const m = details.measurement;
@@ -371,7 +373,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
       generatedBy: `${providers.writer.name}:${config.model}`,
       reason: request.reason,
       sources,
-      claims: draft.claims.map((c) => ({ text: c.text, fact_ids: c.factIds, source_urls: c.factIds.map((id) => factById.get(id)?.sourceUrl).filter((u): u is string => Boolean(u)) })),
+      claims: draft.claims.map((c) => ({ text: c.text, fact_ids: c.factIds, source_urls: c.factIds.map((id) => factById.get(id)?.sourceUrl).filter((u): u is string => Boolean(u)), evidence: (c.evidence?.trim() || c.factIds.map((id) => factById.get(id)?.excerpt ?? factById.get(id)?.claim ?? "").filter(Boolean).join(" | ")).slice(0, 500) })),
       meta: {
         provider: config.provider,
         model: config.model,
@@ -388,6 +390,9 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
         primarySourceUrl: primaryFact.sourceUrl,
         publicSourceUrls,
         verification: { exceptionFacts: details.measurement.exceptionFacts, exceptionVerification: details.measurement.exceptionVerification, sourceDisagreement: details.measurement.sourceDisagreement },
+        researchedAt: game.asOf,
+        season: game.season,
+        phase: game.phase,
         advisoryRewrite: rewrite,
         advisoryNotes: details.advisoryNotes.filter((n) => n.attempt === attemptNo).map(({ source, kind, note }) => ({ source, kind, note })),
         usage,
@@ -402,19 +407,22 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
   for (attempts = 1; attempts <= config.maxAttempts; attempts++) {
     let draft: PreviewDraft;
     try {
-      draft = await providers.writer.write(game, chosen, facts, { ...stage, maxChars: config.maxChars, hookMaxChars: config.hookMaxChars, maxCitedFacts: config.maxCitedFacts, recentHooks, feedback, feedbackKind });
+      draft = await providers.writer.write(game, chosen, facts, { ...stage, maxChars: config.maxChars, maxCitedFacts: config.maxCitedFacts, recentHooks, feedback, feedbackKind });
     } catch (error) {
       return fail(`writer_failed: ${(error as Error).message}`);
     }
     usage = addUsage(usage, draft.usage);
+    // The writer may decide no supported story can be written: needs_review with the specific problem, never a manufactured story.
+    if (draft.status === "needs_review") return fail("needs_review: no_supported_story", [draft.reason?.trim() || "The writer could not produce a supported story from the facts."], "REJECTED");
 
-    const provenance = validateDraft({ draft: { hook: draft.hook, preview: draft.preview, claims: draft.claims }, facts, game, config, now: deps.now() });
-    const editorial = validateEditorial({ draft, angle: chosen, config, facts, kickoffUtc: game.kickoffUtc });
+    const provenance = validateDraft({ draft: { hook: draft.hook, preview: draft.preview, claims: draft.claims }, facts, config });
+    const editorial = validateEditorial({ draft, angle: chosen, config });
+    const hints = draftHints({ hook: draft.hook, preview: draft.preview, claims: draft.claims }, facts);
     const reviewerBlocking: string[] = [];
     const reviewerAdvisory: Array<{ kind: AdvisoryKind; note: string }> = [];
     if (provenance.ok && editorial.blocking.length === 0 && providers.verifier) {
       try {
-        const verdict = await providers.verifier.verify(game, chosen, draft, facts, stage);
+        const verdict = await providers.verifier.verify(game, chosen, draft, facts, stage, hints);
         usage = addUsage(usage, verdict.usage);
         for (const b of verdict.blocking) {
           reviewerBlocking.push(`[${b.category}] ${b.problem}`);
@@ -425,6 +433,8 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
         return fail(`verifier_failed: ${(error as Error).message}`);
       }
     }
+    // Without an independent reader nothing can judge whether a number is derived or wrong, so a DIGIT no cited fact contains is treated as blocking (the safe default); with a reader, hints are the reader's to adjudicate.
+    if (!providers.verifier) for (const n of hints.figures.filter((f) => /^\d/.test(f))) provenance.problems.push(`The figure "${n}" appears in the title or caption but in none of the cited facts.`);
     const advisoryText = [...editorial.advisory, ...reviewerAdvisory.map((a) => a.note)];
     for (const note of editorial.advisory) details.advisoryNotes.push({ attempt: attempts, source: "deterministic", kind: "editorial_rule", note });
     for (const a of reviewerAdvisory) details.advisoryNotes.push({ attempt: attempts, source: "reviewer", kind: a.kind, note: a.note });

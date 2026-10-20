@@ -1,4 +1,5 @@
 import type { GamePreviewClaim } from "../types";
+import type { CompetitionPhase } from "../identity";
 
 /**
  * Provider-neutral contracts for producing a Game Preview. Research, editorial angle selection, writing and verification are separate stages with separate interfaces, so the Game / Post domain never depends on one vendor,
@@ -16,6 +17,12 @@ export interface GameIdentity {
   homeTeam: string;
   awayTeam: string;
   kickoffUtc: string;
+  /** The season identifier the platform stores for this Game ("2026", "2026-2027"). Never inferred from the calendar year. */
+  season: string | null;
+  /** preseason, regular season or playoffs, from the provider's round label. */
+  phase: CompetitionPhase;
+  /** The venue's timezone when known, so the scheduled start can be stated in local time. */
+  timezone: string | null;
   /** "Now" for the run: the research must be about the time before this Game, as of this instant. */
   asOf: string;
 }
@@ -114,7 +121,16 @@ export interface ResearchLead {
   factIds: string[];
 }
 
+/** Research's check of the supplied Game against an official league or team source. A mismatch ends the run as needs_review: the system never silently switches Games. */
+export interface GameCheck {
+  confirmed: boolean;
+  /** The specific conflict (a different date, opponent, season or phase) when not confirmed. */
+  conflict: string | null;
+}
+
 export interface ResearchResult {
+  /** Absent = not reported (treated as confirmed). */
+  gameCheck?: GameCheck;
   facts: CandidateFact[];
   conflicts?: SourceConflict[];
   leads?: ResearchLead[];
@@ -225,9 +241,9 @@ export interface GamePreviewFactVerifierProvider {
 }
 
 export interface DraftContext extends StageContext {
+  /** Title + caption TOGETHER must be fewer than this many characters. */
   maxChars: number;
-  hookMaxChars: number;
-  /** How many facts the story may cite at most. */
+  /** How many facts the story may cite at most (guidance, not a gate). */
   maxCitedFacts: number;
   /** Hooks of the most recent Previews: the writer varies its structure from them instead of repeating a formula ("Three games. Four goals. Boston, you're next."). */
   recentHooks: string[];
@@ -237,6 +253,10 @@ export interface DraftContext extends StageContext {
   feedbackKind?: "blocking" | "advisory";
 }
 export interface PreviewDraft {
+  /** "ready", or "needs_review" when no supported story can be written (then `reason` says why and the title and caption are empty). */
+  status?: "ready" | "needs_review";
+  reason?: string | null;
+  /** The title (stored as `hook`) and the caption (stored as `body`). */
   hook: string;
   preview: string;
   /** Every material statement and the fact ids that support it. */
@@ -259,6 +279,8 @@ export const BLOCKING_CATEGORIES = [
   "stale_current",
   "source_conflict",
   "wrong_game",
+  "wrong_phase",
+  "not_relevant_now",
   "logical_contradiction",
   "unsupported_causation",
   "misleading_implication",
@@ -270,6 +292,12 @@ export type BlockingCategory = (typeof BLOCKING_CATEGORIES)[number];
 export const ADVISORY_KINDS = ["bland_story", "weak_hook", "game_note_feel", "repetitive_structure", "low_conversation", "wording_tone"] as const;
 export type AdvisoryKind = (typeof ADVISORY_KINDS)[number];
 
+/** Things worth a second look that code noticed but cannot judge (a figure no cited fact contains, "this season" on a fact that does not say it). */
+export interface DraftHints {
+  figures: string[];
+  seasonClaims: string[];
+}
+
 export interface VerificationResult {
   /** The Preview is wrong or misleading in a way that must not publish: an unsupported claim, a wrong figure, entity or season, a stale current-state fact, a logical or causal misuse of true facts. */
   blocking: Array<{ category: BlockingCategory; problem: string }>;
@@ -280,7 +308,7 @@ export interface VerificationResult {
 /** Optional stage 4: an independent read of the draft against its facts and the editorial bar. Supplemental — the deterministic checks stay authoritative. */
 export interface GamePreviewVerifierProvider {
   readonly name: string;
-  verify(game: GameIdentity, angle: EditorialAngle, draft: Pick<PreviewDraft, "hook" | "preview" | "claims">, facts: CandidateFact[], ctx: StageContext): Promise<VerificationResult>;
+  verify(game: GameIdentity, angle: EditorialAngle, draft: Pick<PreviewDraft, "hook" | "preview" | "claims">, facts: CandidateFact[], ctx: StageContext, hints?: DraftHints): Promise<VerificationResult>;
 }
 
 export interface GamePreviewProviders {

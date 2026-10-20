@@ -52,3 +52,12 @@ describe("betting pages are never credited", () => {
     expect(derivePublicSources([news, betting], { primarySourceUrl: news.url, publicSourceUrls: [news.url, betting.url] }).map((s) => s.name)).toEqual(["NBC Sports"]);
   });
 });
+
+describe("derivePublicSources: the credit must link to a page a Member can read", () => {
+  it("a data endpoint (a JSON scoreboard or schedule API) is never credited: such a Preview shows no source and is not shown", () => {
+    expect(derivePublicSources([row("https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard", "ESPN", "NFL scoreboard")], {})).toEqual([]);
+    const story = row("https://www.espn.com/nfl/story/_/id/1/x", "ESPN", "Story");
+    expect(derivePublicSources([story, row("https://example.com/feed.json", "X", "Feed")], { publicSourceUrls: [story.url, "https://example.com/feed.json"] }).map((s) => s.url)).toEqual([story.url]);
+  });
+});
+

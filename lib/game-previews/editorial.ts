@@ -14,26 +14,27 @@ export const overallScore = (s: AngleScores): number => (s.tension + s.surprise 
 
 const SCORE_KEYS: Array<keyof AngleScores> = ["tension", "surprise", "specificity", "humanInterest", "conversation", "recency"];
 
-export function validateAngles(selection: Pick<AngleSelection, "angles" | "selectedId">, facts: CandidateFact[]): string[] {
-  const problems: string[] = [];
+/**
+ * Structural clean-up of the candidate stories — the only thing deterministic code should decide about them. An unknown story type is kept as a CONTRAST (the type is an internal label, never shown), a score outside 1-5 is clamped, a fact id the research does not
+ * contain is dropped from the story, a story left with no facts is dropped, and a selected id that is not a candidate is replaced by the strongest story. There is no required NUMBER of candidates: the contract asks for the strongest ONE story. Returns the cleaned
+ * selection, or a reason when nothing usable remains.
+ */
+export function sanitizeAngles<T extends Pick<AngleSelection, "angles" | "selectedId">>(selection: T, facts: CandidateFact[]): { selection: T; problems: string[] } {
   const ids = new Set(facts.map((f) => f.id));
-  const { angles } = selection;
-  if (angles.length < 3 || angles.length > 5) problems.push(`Expected 3 to 5 candidate angles, got ${angles.length}.`);
   const seen = new Set<string>();
-  for (const a of angles) {
-    if (seen.has(a.id)) problems.push(`Angle id "${a.id}" is repeated.`);
+  const cleaned: EditorialAngle[] = [];
+  for (const a of selection.angles) {
+    if (!a.id || seen.has(a.id) || !a.summary.trim()) continue;
+    const factIds = a.factIds.filter((id) => ids.has(id));
+    if (factIds.length === 0) continue;
     seen.add(a.id);
-    if (!(ANGLE_TYPES as readonly string[]).includes(a.type)) problems.push(`Angle "${a.id}" has an unknown type "${a.type}".`);
-    if (!a.summary.trim()) problems.push(`Angle "${a.id}" has no summary.`);
-    if (a.factIds.length === 0) problems.push(`Angle "${a.id}" uses no facts.`);
-    for (const f of a.factIds) if (!ids.has(f)) problems.push(`Angle "${a.id}" cites "${f}", which is not a researched fact.`);
-    for (const k of SCORE_KEYS) {
-      const v = a.scores[k];
-      if (!Number.isFinite(v) || v < 1 || v > 5) problems.push(`Angle "${a.id}" has an invalid ${k} score (${v}).`);
-    }
+    const scores = { ...a.scores };
+    for (const k of SCORE_KEYS) scores[k] = Number.isFinite(scores[k]) ? Math.min(5, Math.max(1, scores[k])) : 3;
+    cleaned.push({ ...a, factIds, scores, type: (ANGLE_TYPES as readonly string[]).includes(a.type) ? a.type : "CONTRAST" });
   }
-  if (!angles.some((a) => a.id === selection.selectedId)) problems.push(`The selected angle "${selection.selectedId}" is not one of the candidates.`);
-  return problems;
+  if (cleaned.length === 0) return { selection: { ...selection, angles: [] }, problems: ["The story stage returned no usable story: none had a summary and facts the research contains."] };
+  const selectedId = cleaned.some((a) => a.id === selection.selectedId) ? selection.selectedId : [...cleaned].sort((x, y) => overallScore(y.scores) - overallScore(x.scores))[0].id;
+  return { selection: { ...selection, angles: cleaned, selectedId }, problems: [] };
 }
 
 /**
@@ -131,41 +132,6 @@ export function chooseAngle(selection: Pick<AngleSelection, "angles" | "selected
   return { angle: selected, overridden: false, reason: selection.selectionReason };
 }
 
-/** Phrases that mark filler: a Preview that could be about any two teams. */
-const GENERIC_PHRASES = [
-  /looking for a win/i,
-  /exciting (matchup|game|contest)/i,
-  /(should|promises to) be (a )?(great|exciting|good|thrilling) (game|matchup|one)/i,
-  /both teams (are|will|look|hope|need)/i,
-  /clash of (the )?titans/i,
-  /battle (of|between)/i,
-  /(fans|everyone) can('t| cannot) wait/i,
-  /in (a|this) (highly )?anticipated/i,
-];
-
-/** Sportsbook vocabulary does not belong in a Preview (a Pick is not a bet). */
-const BETTING_WORDS = /\b(odds|moneyline|point spread|parlay|wager|bets?|betting|sportsbook|favorites?|underdogs?|over\/under)\b/i;
-
-/** The system knows the kickoff in UTC, not the viewer's clock or the venue's: a time of day is a claim no fact supports. */
-const TIME_OF_DAY = /\b(tonight|this (morning|afternoon|evening)|tomorrow night|late tonight)\b/i;
-
-/** A stock question tacked on the end of every Preview becomes repetitive AI copy. */
-const STOCK_QUESTION = /\b(who will win|who wins|who takes it|who comes out on top|can they do it|will they win)\?\s*$/i;
-
-const RECORD_IN_HOOK = /\b\d{1,3}\s?[-–]\s?\d{1,3}(\s?[-–]\s?\d{1,3})?\b/;
-
-/** The new season's calendar year attached to a postseason ("the 2026 playoffs") in a Game from August to December: ambiguous between last spring's playoffs and the season that is starting. */
-function ambiguousPostseasonYear(text: string, kickoffUtc: string | undefined): string | null {
-  if (!kickoffUtc) return null;
-  const kickoff = new Date(kickoffUtc);
-  if (kickoff.getUTCMonth() < 7) return null;
-  const m = text.match(new RegExp(`\\b${kickoff.getUTCFullYear()}\\s+(playoffs?|postseason|finals|championship)\\b`, "i"));
-  return m ? m[0] : null;
-}
-
-/** Wording that presents a statement as this season's — contradictory in a claim that rests only on history. */
-const CURRENT_FRAMING = /\b(currently|this season|so far this (season|year)|right now|this year)\b/i;
-
 export interface EditorialInput {
   hook: string;
   preview: string;
@@ -173,53 +139,21 @@ export interface EditorialInput {
 }
 
 export interface EditorialFindings {
-  /** The draft is wrong or misleading and must not publish: it uses facts outside its story, no primary fact, an ambiguous season, an unsupported time of day, sportsbook language. */
+  /** The Preview does not rest on the source it credits. */
   blocking: string[];
-  /** Editorial taste (a hook that states a record, a stat dump, generic phrasing, a stock closing question): recorded, and the reason for at most one rewrite — never a rejection. */
+  /** Guidance only: more facts than one story needs. */
   advisory: string[];
 }
 
 /**
- * Deterministic checks on a draft, split by what they mean. BLOCKING: the story rests on facts it was not given, the Preview does not credit its primary source, a season is ambiguous or misrepresented ("this season" on earlier-season facts, "the 2026 playoffs"
- * for last spring), a time of day or sportsbook language the research does not support. ADVISORY: taste. History does not need a label merely because it happened before today ("Boston lost Saturday"): only a genuinely ambiguous or misleading season blocks,
- * and the independent read judges that with the facts in front of it.
+ * The few editorial facts code can decide. Taste is the reader's ADVISORY findings, not a regex; meaning (logic, causation, currency) is the reader's BLOCKING findings. Here: the draft must cite the story's primary fact (the Preview credits that source), and citing more facts than the
+ * configured guidance is advisory ("the smallest verified set that tells the story").
  */
-export function validateEditorial({ draft, angle, config, facts, kickoffUtc }: { draft: EditorialInput; angle: EditorialAngle; config: Pick<GamePreviewConfig, "maxCitedFacts">; facts: CandidateFact[]; kickoffUtc?: string }): EditorialFindings {
+export function validateEditorial({ draft, angle, config }: { draft: EditorialInput; angle: EditorialAngle; config: Pick<GamePreviewConfig, "maxCitedFacts">; facts?: CandidateFact[]; kickoffUtc?: string }): EditorialFindings {
   const blocking: string[] = [];
   const advisory: string[] = [];
-  const hook = draft.hook.trim();
-  const preview = draft.preview.trim();
   const cited = new Set(draft.claims.flatMap((c) => c.factIds));
-
   if (angle.factIds[0] && !cited.has(angle.factIds[0])) blocking.push(`The draft must rest on the story's primary fact (${angle.factIds[0]}) and cite it: the Preview credits that source.`);
-  const outside = [...cited].filter((id) => !angle.factIds.includes(id));
-  if (outside.length > 0) blocking.push(`The draft uses facts outside the chosen story (${outside.join(", ")}). Tell ONE story with the facts it needs.`);
-  if (cited.size > config.maxCitedFacts) blocking.push(`The draft cites ${cited.size} facts; a Preview tells one story with at most ${config.maxCitedFacts}. Cut the ones that do not strengthen it.`);
-
-  // Do not blur seasons: a statement resting only on earlier-season facts must not be worded as this season's form.
-  const scopeOf = new Map(facts.map((f) => [f.id, f.seasonScope]));
-  for (const [i, claim] of draft.claims.entries()) {
-    const scopes = claim.factIds.map((id) => scopeOf.get(id)).filter(Boolean);
-    if (scopes.length === 0 || scopes.some((s) => s === "CURRENT_SEASON")) continue;
-    if (CURRENT_FRAMING.test(claim.text)) blocking.push(`Claim ${i + 1} ("${claim.text.slice(0, 60)}") rests only on earlier-season facts but is worded as this season's. Frame it as history.`);
-  }
-
-  for (const text of [hook, preview, ...draft.claims.map((c) => c.text)]) {
-    const ambiguous = ambiguousPostseasonYear(text, kickoffUtc);
-    if (ambiguous) {
-      blocking.push(`"${ambiguous}" is ambiguous: it reads as this season's, but it was last season's (played last spring). Name it by its season label ("the 2025-26 playoffs") or say "last season's playoffs", not the bare calendar year.`);
-      break;
-    }
-  }
-  if (TIME_OF_DAY.test(hook) || TIME_OF_DAY.test(preview)) blocking.push('A time of day ("tonight", "this afternoon") is not a fact the research gives. Say "today" or leave it out.');
-  if (BETTING_WORDS.test(hook) || BETTING_WORDS.test(preview)) blocking.push("Sportsbook language does not belong in a Preview.");
-
-  if (RECORD_IN_HOOK.test(hook)) advisory.push("The hook just states a record or score. Lead with the tension, not the number.");
-  if ((hook.match(/\d+/g) ?? []).length >= 3) advisory.push("The hook is made of figures. A hook should read like sports conversation, not metadata.");
-  const figures = (preview.match(/\d+(?:[.,]\d+)?/g) ?? []).length;
-  if (figures > config.maxCitedFacts * 3) advisory.push(`The preview carries ${figures} figures, which reads as a list of statistics. Keep only the numbers the story needs.`);
-  for (const re of GENERIC_PHRASES) if (re.test(hook) || re.test(preview)) advisory.push(`Generic phrasing ("${(hook + " " + preview).match(re)![0]}") could describe any matchup. Say the specific thing.`);
-  if (STOCK_QUESTION.test(preview)) advisory.push("The closing stock question is filler. Use a question only if it sharpens this story's tension, or end on the implication.");
-  if (hook.toLowerCase() === preview.slice(0, hook.length).toLowerCase()) advisory.push("The preview just repeats the hook.");
+  if (cited.size > config.maxCitedFacts) advisory.push(`The draft cites ${cited.size} facts; a Preview tells one story with the smallest set that tells it (guidance: at most ${config.maxCitedFacts}).`);
   return { blocking, advisory };
 }

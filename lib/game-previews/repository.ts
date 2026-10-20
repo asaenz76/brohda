@@ -162,6 +162,26 @@ export async function listUpcomingGamesForAdmin(days: number, limit = 60): Promi
     .slice(0, limit);
 }
 
+/** Published Previews of Games that have already started (newest first): their Game has no row in the upcoming list, but a Preview found to break the editorial contract must still be withdrawable. */
+export async function listStartedGamePreviewsForAdmin(limit = 30): Promise<Array<UpcomingGameRow & { preview: GamePreviewAdminRow }>> {
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("posts")
+    .select("id, fixture_id, fixtures!inner(home_team_name, away_team_name, competition_name, scheduled_start_utc)")
+    .not("published_at", "is", null)
+    .lte("fixtures.scheduled_start_utc", new Date().toISOString())
+    .order("published_at", { ascending: false })
+    .limit(400);
+  type Row = { id: string; fixture_id: string; fixtures: { home_team_name: string; away_team_name: string; competition_name: string | null; scheduled_start_utc: string } | null };
+  const games = ((data ?? []) as unknown as Row[]).filter((r): r is Row & { fixtures: NonNullable<Row["fixtures"]> } => r.fixtures !== null);
+  const previews = await listGamePreviewsForAdmin(games.map((g) => g.fixture_id));
+  return games
+    .filter((g) => previews.get(g.fixture_id)?.status === "PUBLISHED")
+    .map((g) => ({ fixtureId: g.fixture_id, postId: g.id, homeTeamName: g.fixtures.home_team_name, awayTeamName: g.fixtures.away_team_name, competitionName: g.fixtures.competition_name, scheduledStartUtc: g.fixtures.scheduled_start_utc, preview: previews.get(g.fixture_id)! }))
+    .sort((a, b) => b.scheduledStartUtc.localeCompare(a.scheduledStartUtc))
+    .slice(0, limit);
+}
+
 export interface GenerationRunInput {
   fixtureId: string;
   trigger: "AUTOMATIC" | "ADMIN";

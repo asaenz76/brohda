@@ -80,6 +80,15 @@ describe("claim-level provenance", () => {
     expect(row.generatedBy).toBe("anthropic:test-model");
   });
 
+  it("the contract's per-claim evidence is stored with the Preview (claims may carry extra keys)", async () => {
+    const g = await game();
+    const claims = [{ text: "Tennessee is 0-5 after a 26-3 loss to Houston.", fact_ids: ["f1"], source_urls: ["https://www.espn.com/nfl/game/_/gameId/1"], evidence: "Texans 26, Titans 3. Tennessee falls to 0-5." }];
+    expect((await saveGamePreview(input(g.fixtureId, { claims, meta: { provider: "anthropic", model: "test-model", promptVersion: "v1", attempts: 1, season: "2026", phase: "regular_season", researchedAt: "2026-10-17T20:00:00.000Z" } }))).outcome).toBe("created");
+    const row = (await listGamePreviewsForAdmin([g.fixtureId])).get(g.fixtureId)!;
+    expect(row.claims).toEqual(claims);
+    expect(row.generationMeta).toMatchObject({ season: "2026", phase: "regular_season", researchedAt: "2026-10-17T20:00:00.000Z" });
+  });
+
   it("uses the owner's refresh vocabulary and refuses the old names, malformed claims and metadata", async () => {
     const g = await game();
     expect((await saveGamePreview(input(g.fixtureId))).outcome).toBe("created");

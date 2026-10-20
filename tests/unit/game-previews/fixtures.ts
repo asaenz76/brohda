@@ -10,6 +10,9 @@ export const game: GameIdentity = {
   homeTeam: "Indianapolis Colts",
   awayTeam: "Tennessee Titans",
   kickoffUtc: "2026-10-18T17:00:00.000Z",
+  season: "2026",
+  phase: "regular_season",
+  timezone: "America/Indiana/Indianapolis",
   asOf: NOW.toISOString(),
 };
 
