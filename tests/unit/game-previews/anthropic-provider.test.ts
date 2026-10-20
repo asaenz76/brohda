@@ -1,4 +1,5 @@
 // @vitest-environment node
+import Anthropic from "@anthropic-ai/sdk";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
@@ -379,6 +380,17 @@ describe("Anthropic provider — the canonical contract inputs and outputs", () 
     await new AnthropicGamePreviewProvider(c).verify(game, angles[0], goodDraft, facts, { model: "m", effort: "medium" }, { figures: ["9"], seasonClaims: [] });
     expect(JSON.stringify(calls(c)[0].messages)).toContain("Hints from code");
     expect((calls(c)[0].messages as Array<{ content: string }>)[0].content).toContain('"figures":["9"]');
+  });
+});
+
+describe("the real SDK accepts the research request", () => {
+  it("max_tokens large enough to need streaming does not make the SDK refuse the request client-side (an explicit timeout is passed)", async () => {
+    const body = { id: "m", type: "message", role: "assistant", model: "configured-model", content: [searchUse(), searchResult([ESPN]), text({ facts: [rawFact()] })], stop_reason: "end_turn", stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1, server_tool_use: { web_search_requests: 1 } } };
+    const fetchSpy = vi.fn(async () => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } }));
+    const real = new Anthropic({ apiKey: "test-key", fetch: fetchSpy as unknown as typeof fetch, maxRetries: 0 });
+    const out = await new AnthropicGamePreviewProvider(real).research(game, ctx);
+    expect(out.facts).toHaveLength(1);
+    expect(fetchSpy).toHaveBeenCalledOnce();
   });
 });
 
