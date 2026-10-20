@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { angleBasis, chooseAngle, completeAngleFacts, dedupeAngles, overallScore, validateAngles, validateEditorial } from "@/lib/game-previews/editorial";
+import { angleBasis, chooseAngle, completeAngleFacts, dedupeAngles, orderAnglePrimary, overallScore, validateAngles, validateEditorial } from "@/lib/game-previews/editorial";
 import type { AngleScores, EditorialAngle } from "@/lib/game-previews/providers/types";
 import { angles, config, facts, goodDraft, selection } from "./fixtures";
 
@@ -216,5 +216,27 @@ describe("genuinely different angles — duplicates are set aside, never a reaso
     expect(r.selection.angles).toEqual(selection.angles);
     expect(r.dropped).toEqual([]);
     expect(validateAngles(selection, facts)).toEqual([]);
+  });
+});
+
+describe("orderAnglePrimary — the credited source is chosen among the story's own facts", () => {
+  const ok = () => true;
+  it("keeps the first fact when it is eligible and current", () => {
+    expect(orderAnglePrimary(angles[0], facts, ok)).toBe(angles[0]);
+  });
+  it("re-points to the first eligible fact when the first-listed one is not (the story is not lost)", () => {
+    const r = orderAnglePrimary(angles[0], facts, (f) => f.id !== "f1")!;
+    expect(r.factIds).toEqual(["f3", "f1", "f2"]); // f2 is history, so the first eligible CURRENT fact (f3) leads
+  });
+  it("a story about this season never credits an earlier-season article, even if it is listed first and eligible", () => {
+    const hist = { ...angles[0], factIds: ["f2", "f1"] }; // f2 is HISTORICAL_CONTEXT, f1 is this season
+    expect(orderAnglePrimary(hist, facts, ok)!.factIds).toEqual(["f1", "f2"]);
+  });
+  it("returns null when no fact of the story can be credited: a current story whose only current facts are ineligible, or no eligible fact at all", () => {
+    expect(orderAnglePrimary(angles[0], facts, (f) => f.id === "f2")).toBeNull(); // only the historical fact is eligible: not a credit for a current story
+    expect(orderAnglePrimary(angles[0], facts, () => false)).toBeNull();
+  });
+  it("a history-only story may be credited to a historical source", () => {
+    expect(orderAnglePrimary(angles[2], facts, ok)!.factIds).toEqual(["f2"]);
   });
 });

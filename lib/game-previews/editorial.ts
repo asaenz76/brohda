@@ -63,6 +63,19 @@ export function completeAngleFacts(angle: EditorialAngle, facts: CandidateFact[]
   return { angle: added.length ? { ...angle, factIds: [...angle.factIds, ...added] } : angle, added, unresolved };
 }
 
+/**
+ * The credited primary source of a story is chosen among ITS OWN facts, not by the order the model happened to list them. The primary must be eligible (trusted, not a betting page); and when the story rests on this season at all, the primary must be a CURRENT-SEASON
+ * fact — the Preview credits current reporting, not a last-season article that happens to be listed first. The story's facts are reordered with the primary first; a story with no such fact has no eligible primary and is not publishable (returns null).
+ */
+export function orderAnglePrimary(angle: EditorialAngle, facts: CandidateFact[], eligible: (fact: CandidateFact) => boolean): EditorialAngle | null {
+  const byId = new Map(facts.map((f) => [f.id, f]));
+  const own = angle.factIds.map((id) => byId.get(id)).filter((f): f is CandidateFact => Boolean(f));
+  const hasCurrent = own.some((f) => f.seasonScope === "CURRENT_SEASON");
+  const primary = own.find((f) => eligible(f) && (!hasCurrent || f.seasonScope === "CURRENT_SEASON"));
+  if (!primary) return null;
+  return primary.id === angle.factIds[0] ? angle : { ...angle, factIds: [primary.id, ...angle.factIds.filter((id) => id !== primary.id)] };
+}
+
 /** What an angle rests on: this season only, this season with history behind it, or history alone. */
 export function angleBasis(angle: Pick<EditorialAngle, "factIds">, facts: CandidateFact[]): AngleBasis {
   const byId = new Map(facts.map((f) => [f.id, f]));

@@ -233,17 +233,24 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
     expect(t.write).not.toHaveBeenCalled();
   });
 
-  it("the story must rest on a TRUSTED primary source: an angle whose first fact is from a blog is set aside, and if none is trusted nothing is written", async () => {
+  it("the credited primary source is chosen among the story's OWN facts: a first-listed blog is not a reason to lose the story if another of its facts is trusted and current; with no such fact the story is set aside; with none anywhere nothing is written", async () => {
     const blog = (f: (typeof facts)[number]) => ({ ...f, sourceUrl: "https://random-blog.example/post" });
-    const onlyF1Untrusted = { name: "fake", research: async () => ({ facts: [blog(facts[0]), facts[1], facts[2]], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) };
-    const t1 = setup({ providers: { research: onlyF1Untrusted } });
+    // f1 (current, blog) is listed first in a1 and a2; f3 (current, nfl.com) is the story's best eligible source: it becomes the primary and the story stands.
+    // (the blog fact stays in the story as a SUPPORTING fact, so it is an exception that is verified)
+    const t1 = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [blog(facts[0]), facts[1], facts[2]], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, factVerifier: { name: "fake", verifyFacts: verifierOf(() => "confirmed") } } });
     await generateGamePreview(t1.deps, req);
-    expect(t1.write.mock.calls[0][1].id).toBe("a3"); // a1 and a2 begin with f1 (a blog): only a3 (primary f2, ESPN) is eligible
-    expect((t1.runs[0].details as { angleOverridden: boolean }).angleOverridden).toBe(true);
+    expect(t1.write.mock.calls[0][1].id).toBe("a1");
+    expect(t1.write.mock.calls[0][1].factIds[0]).toBe("f3");
+    expect((t1.runs[0].details as { primaryReordered: string[] }).primaryReordered).toEqual(["a1", "a2"]);
+    // both current-season facts are blogs: a1 and a2 (about this season) have no eligible CURRENT primary; only the history-only a3 (f2, espn.com) is publishable.
+    const t2 = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [blog(facts[0]), facts[1], blog(facts[2])], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) } } });
+    await generateGamePreview(t2.deps, req);
+    expect(t2.write.mock.calls[0][1].id).toBe("a3");
+    expect((t2.runs[0].details as { angleOverridden: boolean }).angleOverridden).toBe(true);
     const allBlogs = { name: "fake", research: async () => ({ facts: facts.map(blog), sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) };
-    const t2 = setup({ providers: { research: allBlogs } });
-    expect(await generateGamePreview(t2.deps, req)).toMatchObject({ status: "REJECTED", error: "no_trusted_primary_source" });
-    expect(t2.write).not.toHaveBeenCalled();
+    const t3 = setup({ providers: { research: allBlogs } });
+    expect(await generateGamePreview(t3.deps, req)).toMatchObject({ status: "REJECTED", error: "no_trusted_primary_source" });
+    expect(t3.write).not.toHaveBeenCalled();
   });
 
   it("the public credit: the primary source first, then at most one more trusted source from a DIFFERENT publisher; stored sources are primary-first and deduplicated", async () => {
@@ -392,11 +399,12 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
     expect(t.write.mock.calls[1][3]).toMatchObject({ feedbackKind: "blocking" });
   });
 
-  it("a betting page cannot be the credited primary source even on a trusted domain: the story with an eligible primary source is chosen; if none, nothing is written", async () => {
+  it("a betting page cannot be the credited primary source even on a trusted domain: another of the story's own facts is credited instead; if every fact is a betting page, nothing is written", async () => {
     const betting = (f: (typeof facts)[number]) => ({ ...f, sourceUrl: "https://www.espn.com/betting/nfl/news/colts-titans-odds-expert-picks" });
-    const t1 = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [betting(facts[0]), facts[1], facts[2]], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) } } });
+    const t1 = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [betting(facts[0]), facts[1], facts[2]], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, factVerifier: { name: "fake", verifyFacts: verifierOf(() => "confirmed") } } });
     await generateGamePreview(t1.deps, req);
-    expect(t1.write.mock.calls[0][1].id).toBe("a3"); // a1 and a2 begin with the betting page; a3's primary (f2) is eligible
+    expect(t1.write.mock.calls[0][1].factIds[0]).toBe("f3"); // never the betting page
+    expect((t1.saves[0]?.meta as { primarySourceUrl: string } | undefined)?.primarySourceUrl ?? facts[2].sourceUrl).toBe(facts[2].sourceUrl);
     const t2 = setup({ providers: { research: { name: "fake", research: async () => ({ facts: facts.map(betting), sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) } } });
     expect(await generateGamePreview(t2.deps, req)).toMatchObject({ status: "REJECTED", error: "no_trusted_primary_source" });
   });

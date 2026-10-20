@@ -1,7 +1,7 @@
 import type { GamePreviewConfig, GamePreviewInput, GamePreviewReason, GamePreviewWriteOutcome } from "./types";
 import type { GenerationRunInput } from "./repository";
 import { addUsage, emptyUsage, type AdvisoryKind, type AngleSelection, type CandidateFact, type EditorialAngle, type FactCheck, type GameIdentity, type GamePreviewProviders, type PreviewDraft, type ProviderUsage, type ReachedSource, type ResearchLead, type SourceConflict } from "./providers/types";
-import { angleBasis, chooseAngle, completeAngleFacts, dedupeAngles, overallScore, validateAngles, validateEditorial } from "./editorial";
+import { angleBasis, chooseAngle, completeAngleFacts, dedupeAngles, orderAnglePrimary, overallScore, validateAngles, validateEditorial } from "./editorial";
 import { domainOf, isEligiblePrimarySource, isTrustedSource, reconcileFactKind, reconcileSeasonScope, splitUsableFacts, validateDraft, verificationReasons } from "./validation";
 
 /**
@@ -41,6 +41,8 @@ export interface RunDetails {
   facts: Array<{ id: string; kind: string; seasonScope: string; category: string; claim: string; excerpt: string | null; sourceType: string; pageContext: string | null; pageSeason: string | null; subjectTeam: string | null; sourceUrl: string; publishedAt: string | null; excluded?: string }>;
   /** Facts added to the chosen story because its summary carried a figure they hold. */
   angleFactsAdded: string[];
+  /** Stories whose credited primary source was re-chosen among their own facts (the first-listed fact was not an eligible, current-season source). */
+  primaryReordered: string[];
   /** Candidate angles set aside because a stronger angle was the same story (same facts or same kind). */
   angleDuplicatesDropped: Array<{ id: string; keptId: string; reason: string }>;
   /** Authoritative sources that disagreed during research (the disputed figure is not used when the story can be told without it). */
@@ -127,6 +129,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     facts: [],
     angleFactsAdded: [],
     angleDuplicatesDropped: [],
+    primaryReordered: [],
     sourceConflicts: [],
     researchLeads: [],
     factVerification: [],
@@ -195,7 +198,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
   } catch (error) {
     return fail(`research_failed: ${(error as Error).message}`);
   }
-  facts = reconcileFactKind(reconcileSeasonScope(facts, game)); // an earlier season is never current form, whatever the research called it
+  facts = reconcileFactKind(reconcileSeasonScope(facts, game)); // game carries the competition: a report from before this season began is last season's news // an earlier season is never current form, whatever the research called it
   factsFound = facts.length;
   details.measurement.researchSearches = usage.searchCalls;
   details.measurement.factsDiscovered = facts.length;
@@ -238,7 +241,17 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     details.angleBasis = Object.fromEntries(selection.angles.map((a) => [a.id, angleBasis(a, facts)]));
     details.selectedAngleId = selection.selectedId;
     details.rejectedAngles = selection.rejected;
-    const trustedAngles = selection.angles.filter(hasTrustedPrimary);
+    // Each story's primary source is chosen among its own facts (eligible, and current-season when the story is about this season); a story with none is not publishable.
+    const reordered: string[] = [];
+    const trustedAngles: EditorialAngle[] = [];
+    for (const a of selection.angles) {
+      const ordered = orderAnglePrimary(a, facts, isEligiblePrimary);
+      if (!ordered) continue;
+      if (ordered !== a) reordered.push(a.id);
+      trustedAngles.push(ordered);
+    }
+    details.primaryReordered = reordered;
+    selectionResult = { ...selection, angles: selection.angles.map((a) => trustedAngles.find((t) => t.id === a.id) ?? a) };
     if (trustedAngles.length === 0) return fail("no_trusted_primary_source", ["No candidate story rests on a primary source from the trusted group (the approved league, ESPN, FOX Sports, established reporting or team sites)."], "REJECTED");
     const selectedStands = trustedAngles.some((a) => a.id === selection.selectedId);
     const pick = chooseAngle({ ...selection, angles: trustedAngles, selectedId: selectedStands ? selection.selectedId : [...trustedAngles].sort((x, y) => overallScore(y.scores) - overallScore(x.scores))[0].id, selectionReason: selectedStands ? selection.selectionReason : "The first choice's primary source is not in the trusted group; the strongest story with a trusted primary source was chosen." }, config.minStoryScore, facts);
