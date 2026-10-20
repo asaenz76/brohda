@@ -1,6 +1,6 @@
 import { ANGLE_TYPES, FALLBACK_ANGLE_TYPES, type AngleBasis, type AngleScores, type AngleSelection, type CandidateFact, type EditorialAngle } from "./providers/types";
 import type { GamePreviewClaim, GamePreviewConfig } from "./types";
-import { numbersIn } from "./validation";
+import { claimedFigures, numbersIn } from "./validation";
 
 /**
  * The editorial gate. A Game Preview is a story hook — "find the most interesting TRUE tension around this matchup and use only the facts that story needs" — not a miniature game-notes page. Two deterministic layers, both unit-tested
@@ -47,7 +47,7 @@ export function completeAngleFacts(angle: EditorialAngle, facts: CandidateFact[]
     const f = byId.get(id);
     if (f) for (const n of numbersIn(`${f.claim} ${f.excerpt ?? ""}`)) have.add(n);
   }
-  const missing = [...numbersIn(angle.summary)].filter((n) => !have.has(n));
+  const missing = [...claimedFigures(angle.summary)].filter((n) => !have.has(n));
   const added: string[] = [];
   const unresolved: string[] = [];
   for (const n of missing) {
@@ -141,15 +141,6 @@ const STOCK_QUESTION = /\b(who will win|who wins|who takes it|who comes out on t
 
 const RECORD_IN_HOOK = /\b\d{1,3}\s?[-–]\s?\d{1,3}(\s?[-–]\s?\d{1,3})?\b/;
 
-/** Wording that frames a statement as history rather than current form: a year, a previous season, "years ago", "all-time", "career", "the last time", "first time since", "historically". */
-const HISTORY_FRAMING = /\b(last|previous|prior) (season|year)\b|\b(years?|seasons?) ago\b|\ball[- ]time\b|\bcareer\b|\bhistor(y|ically)\b|\bthe last time\b|\bfirst time since\b|\bsince \d|\bin the series\b|\bfranchise\b|\bever\b|\bback in\b/i;
-/** A calendar year frames a statement as history only when it is an earlier year than the Game's: "in 2024" in an October 2026 Game is history; "the 2026 playoffs" in an October 2026 Game could be read as THIS season's (the 2026 season starts that month), although they were played last spring. */
-function yearFramesHistory(text: string, kickoffUtc: string | undefined): boolean {
-  if (!kickoffUtc) return /\b(19|20)\d{2}\b/.test(text);
-  const kickoff = new Date(kickoffUtc);
-  const lastFramingYear = kickoff.getUTCMonth() >= 7 ? kickoff.getUTCFullYear() - 1 : kickoff.getUTCFullYear() - 2;
-  return [...text.matchAll(/\b(19|20)\d{2}\b/g)].some((m) => Number(m[0]) <= lastFramingYear);
-}
 /** The new season's calendar year attached to a postseason ("the 2026 playoffs") in a Game from August to December: ambiguous between last spring's playoffs and the season that is starting. */
 function ambiguousPostseasonYear(text: string, kickoffUtc: string | undefined): string | null {
   if (!kickoffUtc) return null;
@@ -168,45 +159,54 @@ export interface EditorialInput {
   claims: GamePreviewClaim[];
 }
 
-/** Rejects a draft that is not a story: returns the reasons, fed back to the writer for a rewrite. */
-export function validateEditorial({ draft, angle, config, facts, kickoffUtc }: { draft: EditorialInput; angle: EditorialAngle; config: Pick<GamePreviewConfig, "maxCitedFacts">; facts: CandidateFact[]; kickoffUtc?: string }): string[] {
-  const problems: string[] = [];
+export interface EditorialFindings {
+  /** The draft is wrong or misleading and must not publish: it uses facts outside its story, no primary fact, an ambiguous season, an unsupported time of day, sportsbook language. */
+  blocking: string[];
+  /** Editorial taste (a hook that states a record, a stat dump, generic phrasing, a stock closing question): recorded, and the reason for at most one rewrite — never a rejection. */
+  advisory: string[];
+}
+
+/**
+ * Deterministic checks on a draft, split by what they mean. BLOCKING: the story rests on facts it was not given, the Preview does not credit its primary source, a season is ambiguous or misrepresented ("this season" on earlier-season facts, "the 2026 playoffs"
+ * for last spring), a time of day or sportsbook language the research does not support. ADVISORY: taste. History does not need a label merely because it happened before today ("Boston lost Saturday"): only a genuinely ambiguous or misleading season blocks,
+ * and the independent read judges that with the facts in front of it.
+ */
+export function validateEditorial({ draft, angle, config, facts, kickoffUtc }: { draft: EditorialInput; angle: EditorialAngle; config: Pick<GamePreviewConfig, "maxCitedFacts">; facts: CandidateFact[]; kickoffUtc?: string }): EditorialFindings {
+  const blocking: string[] = [];
+  const advisory: string[] = [];
   const hook = draft.hook.trim();
   const preview = draft.preview.trim();
   const cited = new Set(draft.claims.flatMap((c) => c.factIds));
 
-  if (angle.factIds[0] && !cited.has(angle.factIds[0])) problems.push(`The draft must rest on the story's primary fact (${angle.factIds[0]}) and cite it: the Preview credits that source.`);
+  if (angle.factIds[0] && !cited.has(angle.factIds[0])) blocking.push(`The draft must rest on the story's primary fact (${angle.factIds[0]}) and cite it: the Preview credits that source.`);
   const outside = [...cited].filter((id) => !angle.factIds.includes(id));
-  if (outside.length > 0) problems.push(`The draft uses facts outside the chosen story (${outside.join(", ")}). Tell ONE story with the facts it needs.`);
-  if (cited.size > config.maxCitedFacts) problems.push(`The draft cites ${cited.size} facts; a Preview tells one story with at most ${config.maxCitedFacts}. Cut the ones that do not strengthen it.`);
+  if (outside.length > 0) blocking.push(`The draft uses facts outside the chosen story (${outside.join(", ")}). Tell ONE story with the facts it needs.`);
+  if (cited.size > config.maxCitedFacts) blocking.push(`The draft cites ${cited.size} facts; a Preview tells one story with at most ${config.maxCitedFacts}. Cut the ones that do not strengthen it.`);
 
-  // Do not mix seasons ambiguously: a statement resting only on earlier-season facts must read as history, never as this season's form.
+  // Do not blur seasons: a statement resting only on earlier-season facts must not be worded as this season's form.
   const scopeOf = new Map(facts.map((f) => [f.id, f.seasonScope]));
   for (const [i, claim] of draft.claims.entries()) {
     const scopes = claim.factIds.map((id) => scopeOf.get(id)).filter(Boolean);
     if (scopes.length === 0 || scopes.some((s) => s === "CURRENT_SEASON")) continue;
-    if (CURRENT_FRAMING.test(claim.text)) problems.push(`Claim ${i + 1} ("${claim.text.slice(0, 60)}") rests only on earlier-season facts but is worded as this season's. Frame it as history.`);
-    else if (!HISTORY_FRAMING.test(claim.text) && !yearFramesHistory(claim.text, kickoffUtc)) problems.push(`Claim ${i + 1} ("${claim.text.slice(0, 60)}") rests on earlier-season facts but does not say so. Frame it as history ("last season", "in 2025", "the last time ...").`);
+    if (CURRENT_FRAMING.test(claim.text)) blocking.push(`Claim ${i + 1} ("${claim.text.slice(0, 60)}") rests only on earlier-season facts but is worded as this season's. Frame it as history.`);
   }
 
   for (const text of [hook, preview, ...draft.claims.map((c) => c.text)]) {
     const ambiguous = ambiguousPostseasonYear(text, kickoffUtc);
     if (ambiguous) {
-      problems.push(`"${ambiguous}" is ambiguous: it reads as this season's, but it was last season's (played last spring). Name it by its season label ("the 2025-26 playoffs") or say "last season's playoffs", not the bare calendar year.`);
+      blocking.push(`"${ambiguous}" is ambiguous: it reads as this season's, but it was last season's (played last spring). Name it by its season label ("the 2025-26 playoffs") or say "last season's playoffs", not the bare calendar year.`);
       break;
     }
   }
+  if (TIME_OF_DAY.test(hook) || TIME_OF_DAY.test(preview)) blocking.push('A time of day ("tonight", "this afternoon") is not a fact the research gives. Say "today" or leave it out.');
+  if (BETTING_WORDS.test(hook) || BETTING_WORDS.test(preview)) blocking.push("Sportsbook language does not belong in a Preview.");
 
-  if (RECORD_IN_HOOK.test(hook)) problems.push("The hook just states a record or score. Lead with the tension, not the number.");
-  if ((hook.match(/\d+/g) ?? []).length >= 2) problems.push("The hook is made of figures. A hook should read like sports conversation, not metadata.");
-
+  if (RECORD_IN_HOOK.test(hook)) advisory.push("The hook just states a record or score. Lead with the tension, not the number.");
+  if ((hook.match(/\d+/g) ?? []).length >= 3) advisory.push("The hook is made of figures. A hook should read like sports conversation, not metadata.");
   const figures = (preview.match(/\d+(?:[.,]\d+)?/g) ?? []).length;
-  if (figures > config.maxCitedFacts * 3) problems.push(`The preview carries ${figures} figures, which reads as a list of statistics. Keep only the numbers the story needs.`);
-
-  for (const re of GENERIC_PHRASES) if (re.test(hook) || re.test(preview)) problems.push(`Generic phrasing ("${(hook + " " + preview).match(re)![0]}") could describe any matchup. Say the specific thing.`);
-  if (TIME_OF_DAY.test(hook) || TIME_OF_DAY.test(preview)) problems.push('A time of day ("tonight", "this afternoon") is not a fact the research gives. Say "today" or leave it out.');
-  if (BETTING_WORDS.test(hook) || BETTING_WORDS.test(preview)) problems.push("Sportsbook language does not belong in a Preview.");
-  if (STOCK_QUESTION.test(preview)) problems.push("The closing stock question is filler. Use a question only if it sharpens this story's tension, or end on the implication.");
-  if (hook.toLowerCase() === preview.slice(0, hook.length).toLowerCase()) problems.push("The preview just repeats the hook.");
-  return problems;
+  if (figures > config.maxCitedFacts * 3) advisory.push(`The preview carries ${figures} figures, which reads as a list of statistics. Keep only the numbers the story needs.`);
+  for (const re of GENERIC_PHRASES) if (re.test(hook) || re.test(preview)) advisory.push(`Generic phrasing ("${(hook + " " + preview).match(re)![0]}") could describe any matchup. Say the specific thing.`);
+  if (STOCK_QUESTION.test(preview)) advisory.push("The closing stock question is filler. Use a question only if it sharpens this story's tension, or end on the implication.");
+  if (hook.toLowerCase() === preview.slice(0, hook.length).toLowerCase()) advisory.push("The preview just repeats the hook.");
+  return { blocking, advisory };
 }

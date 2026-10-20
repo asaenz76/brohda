@@ -15,7 +15,7 @@ function setup(opts: { providers?: Partial<GamePreviewProviders>; config?: Parti
   const research = vi.fn<GamePreviewResearchProvider["research"]>(async () => ({ facts, sources, usage: usage({ searchCalls: 3, modelCalls: 1, inputTokens: 900, outputTokens: 400 }) }));
   const selectAngle = vi.fn<GamePreviewAngleProvider["selectAngle"]>(async () => ({ ...selection, usage: usage({ modelCalls: 1, inputTokens: 300, outputTokens: 200 }) }));
   const write = vi.fn<GamePreviewWriterProvider["write"]>(async () => draftOf());
-  const verify = vi.fn<GamePreviewVerifierProvider["verify"]>(async () => ({ supported: true, editorialPasses: true, problems: [], usage: usage({ modelCalls: 1 }) }));
+  const verify = vi.fn<GamePreviewVerifierProvider["verify"]>(async () => ({ blocking: [], advisory: [], usage: usage({ modelCalls: 1 }) }));
   const providers: GamePreviewProviders = { research: { name: "fake", research }, angles: { name: "fake", selectAngle }, writer: { name: "fake", write }, verifier: { name: "fake", verify }, ...opts.providers };
   const deps: PipelineDeps = {
     config: { ...config, ...opts.config },
@@ -93,12 +93,17 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
     expect(d.rewrites).toBe(1);
   });
 
-  it("an EDITORIAL rejection (a hook that merely states a record) is fed back and rewritten, never published", async () => {
+  it("an EDITORIAL-TASTE finding (a hook that merely states a record) is ADVISORY: it is never published as-is without a chance to polish, but never rejected either — ONE rewrite uses the note, and the valid rewrite is saved", async () => {
     const write = vi.fn<GamePreviewWriterProvider["write"]>(async (_g, _a, _f, ctx) => (ctx.feedback.length === 0 ? draftOf({ hook: "Tennessee is 0-5, Indianapolis is 2-3" }) : draftOf()));
     const t = setup({ providers: { writer: { name: "fake", write } } });
     expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(write.mock.calls[1][3]).toMatchObject({ feedbackKind: "advisory" });
     expect(write.mock.calls[1][3].feedback.join(" ")).toMatch(/states a record or score/);
     expect(t.saves[0].hook).toBe(goodDraft.hook);
+    const d = t.runs[0].details as { advisoryRewrite: string; advisoryNotes: Array<{ attempt: number; source: string; note: string }> };
+    expect(d.advisoryRewrite).toBe("kept_rewrite");
+    expect(d.advisoryNotes[0]).toMatchObject({ attempt: 1, source: "deterministic" });
   });
 
   it("a current fact with no dated source never reaches the angle or the writer, and the run record says why", async () => {
@@ -317,25 +322,93 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
     expect(d.angles.map((a) => a.id)).toEqual(["a1", "a2"]);
   });
 
-  it("when every attempt is rejected NOTHING is saved, the run is REJECTED, and the reasons are reported", async () => {
-    const bad = draftOf({ hook: "Tennessee is 0-5, Indianapolis is 2-3" });
+  it("when every attempt has a BLOCKING problem NOTHING is saved, the run is REJECTED, and the reasons are reported", async () => {
+    const bad = draftOf({ preview: `${goodDraft.preview} The Colts are heavy favorites on the moneyline.` });
     const t = setup({ providers: { writer: { name: "fake", write: async () => bad } } });
     const out = await generateGamePreview(t.deps, req);
     expect(out).toMatchObject({ status: "REJECTED", error: "draft_rejected" });
-    expect(out.status !== "SUCCEEDED" && out.problems.join(" ")).toMatch(/states a record or score/);
+    expect(out.status !== "SUCCEEDED" && out.problems.join(" ")).toMatch(/Sportsbook language/);
     expect(t.saves).toHaveLength(0);
     expect(t.runs[0]).toMatchObject({ status: "REJECTED", attempts: 2 });
     expect((t.runs[0].details as { attemptsLog: unknown[] }).attemptsLog).toHaveLength(2);
   });
 
-  it("the independent read can reject a draft the deterministic checks passed (unsupported OR not a story)", async () => {
-    for (const verdict of [{ supported: false, editorialPasses: true }, { supported: true, editorialPasses: false }]) {
-      const verify = vi.fn<GamePreviewVerifierProvider["verify"]>(async () => ({ ...verdict, problems: ["the hook would not stop the scroll"], usage: usage({ modelCalls: 1 }) }));
-      const t = setup({ providers: { verifier: { name: "fake", verify } } });
-      expect((await generateGamePreview(t.deps, req)).status).toBe("REJECTED");
-      expect(verify).toHaveBeenCalledTimes(2);
-      expect(t.saves).toHaveLength(0);
-    }
+  const reviewer = (script: Array<Partial<Awaited<ReturnType<GamePreviewVerifierProvider["verify"]>>>>) => {
+    let i = 0;
+    return vi.fn<GamePreviewVerifierProvider["verify"]>(async () => ({ blocking: [], advisory: [], usage: usage({ modelCalls: 1 }), ...(script[Math.min(i++, script.length - 1)] ?? {}) }));
+  };
+  const BLOCK = { blocking: [{ category: "unsupported_causation" as const, problem: "A defensive player's absence is presented as burdening the offense." }] };
+  const ADVISE = { advisory: [{ kind: "game_note_feel" as const, note: "reads like game notes" }] };
+
+  it("a BLOCKING finding from the independent read (a causal misuse of true facts) rejects every attempt it appears in; the category is recorded", async () => {
+    const verify = reviewer([BLOCK]);
+    const t = setup({ providers: { verifier: { name: "fake", verify } } });
+    expect(await generateGamePreview(t.deps, req)).toMatchObject({ status: "REJECTED", error: "draft_rejected" });
+    expect(verify).toHaveBeenCalledTimes(2);
+    expect(t.saves).toHaveLength(0);
+    const d = t.runs[0].details as { blockingCounts: { reviewer: number; reviewerByCategory: Record<string, number> }; attemptsLog: Array<{ verifierProblems: string[] }> };
+    expect(d.blockingCounts.reviewerByCategory).toEqual({ unsupported_causation: 2 });
+    expect(d.attemptsLog[0].verifierProblems[0]).toMatch(/^\[unsupported_causation\]/);
+  });
+
+  it("ADVISORY-only findings never reject: ONE rewrite uses the notes, and a factually valid rewrite is saved (no endless editorial loop)", async () => {
+    const verify = reviewer([ADVISE, ADVISE, ADVISE]);
+    const write = vi.fn<GamePreviewWriterProvider["write"]>(async (_g, _a, _f, ctx) => draftOf({ hook: ctx.feedback.length ? "Zero wins in five. Indianapolis, you're up (v2)." : "Zero wins in five. Indianapolis, you're up." }));
+    const t = setup({ providers: { writer: { name: "fake", write }, verifier: { name: "fake", verify } }, config: { maxAttempts: 3 } });
+    const out = await generateGamePreview(t.deps, req);
+    expect(out.status).toBe("SUCCEEDED");
+    expect(write).toHaveBeenCalledTimes(2); // not three: the second valid draft is saved even though the reviewer still has taste notes
+    expect(write.mock.calls[1][3]).toMatchObject({ feedbackKind: "advisory", feedback: ["reads like game notes"] });
+    expect(t.saves[0].hook).toContain("(v2)");
+    const d = t.runs[0].details as { advisoryRewrite: string; advisoryNotes: unknown[]; blockingCounts: { reviewer: number } };
+    expect(d.advisoryRewrite).toBe("kept_rewrite");
+    expect(d.advisoryNotes).toHaveLength(2);
+    expect(d.blockingCounts.reviewer).toBe(0);
+    expect((t.saves[0].meta as { advisoryNotes: unknown[] }).advisoryNotes).toHaveLength(1); // the saved draft's own notes are kept with the Preview
+  });
+
+  it("if the polish rewrite introduces a BLOCKING problem, the earlier valid draft is saved instead", async () => {
+    const verify = reviewer([ADVISE, BLOCK]);
+    const write = vi.fn<GamePreviewWriterProvider["write"]>(async (_g, _a, _f, ctx) => draftOf({ hook: ctx.feedback.length ? "The rewrite that went wrong." : "Zero wins in five. Indianapolis, you're up." }));
+    const t = setup({ providers: { writer: { name: "fake", write }, verifier: { name: "fake", verify } }, config: { maxAttempts: 3 } });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(t.saves[0].hook).toBe("Zero wins in five. Indianapolis, you're up.");
+    expect((t.runs[0].details as { advisoryRewrite: string }).advisoryRewrite).toBe("kept_original");
+  });
+
+  it("with no attempt left for a polish rewrite, a valid draft with advisory notes is saved as it is", async () => {
+    const verify = reviewer([ADVISE]);
+    const t = setup({ providers: { verifier: { name: "fake", verify } }, config: { maxAttempts: 1 } });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(t.write).toHaveBeenCalledTimes(1);
+    expect((t.runs[0].details as { advisoryRewrite: string; advisoryNotes: unknown[] }).advisoryNotes).toHaveLength(1);
+  });
+
+  it("a BLOCKING problem first, then a clean rewrite: saved, and no advisory rewrite is attempted", async () => {
+    const verify = reviewer([BLOCK, {}]);
+    const t = setup({ providers: { verifier: { name: "fake", verify } } });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(t.write).toHaveBeenCalledTimes(2);
+    expect(t.write.mock.calls[1][3]).toMatchObject({ feedbackKind: "blocking" });
+  });
+
+  it("a betting page cannot be the credited primary source even on a trusted domain: the story with an eligible primary source is chosen; if none, nothing is written", async () => {
+    const betting = (f: (typeof facts)[number]) => ({ ...f, sourceUrl: "https://www.espn.com/betting/nfl/news/colts-titans-odds-expert-picks" });
+    const t1 = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [betting(facts[0]), facts[1], facts[2]], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) } } });
+    await generateGamePreview(t1.deps, req);
+    expect(t1.write.mock.calls[0][1].id).toBe("a3"); // a1 and a2 begin with the betting page; a3's primary (f2) is eligible
+    const t2 = setup({ providers: { research: { name: "fake", research: async () => ({ facts: facts.map(betting), sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) } } });
+    expect(await generateGamePreview(t2.deps, req)).toMatchObject({ status: "REJECTED", error: "no_trusted_primary_source" });
+  });
+
+  it("a betting page that supports a non-primary fact is an exception that must be verified, and is never credited publicly", async () => {
+    const verifyFacts = verifierOf(() => "confirmed");
+    const research = { name: "fake", research: async () => ({ facts: [facts[0], facts[1], { ...facts[2], sourceUrl: "https://www.nfl.com/betting/colts-odds-picks" }], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) };
+    const t = setup({ providers: { research, factVerifier: { name: "fake", verifyFacts } } });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(verifyFacts.mock.calls[0][1].map((f) => f.id)).toEqual(["f3"]);
+    expect((t.runs[0].details as { exceptionReasons: Record<string, string[]> }).exceptionReasons.f3).toEqual(["the page is a betting, odds or picks page"]);
+    expect((t.saves[0].meta as { publicSourceUrls: string[] }).publicSourceUrls).toEqual([facts[0].sourceUrl]);
   });
 
   it("the verifier is not even called when the deterministic checks already failed", async () => {

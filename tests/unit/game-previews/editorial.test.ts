@@ -5,7 +5,9 @@ import { angles, config, facts, goodDraft, selection } from "./fixtures";
 
 const s = (n: number): AngleScores => ({ tension: n, surprise: n, specificity: n, humanInterest: n, conversation: n, recency: n });
 const angle = (over: Partial<EditorialAngle> = {}): EditorialAngle => ({ ...angles[0], ...over });
-const editorial = (draft = goodDraft, a = angles[0], c = config) => validateEditorial({ draft, angle: a, config: c, facts });
+const findings = (draft = goodDraft, a = angles[0], c = config) => validateEditorial({ draft, angle: a, config: c, facts });
+const blocking = (draft = goodDraft, a = angles[0], c = config) => findings(draft, a, c).blocking;
+const advisory = (draft = goodDraft, a = angles[0], c = config) => findings(draft, a, c).advisory;
 
 describe("candidate angles", () => {
   it("accepts 3-5 well-formed angles that cite real facts and select one of them", () => {
@@ -47,43 +49,55 @@ describe("choosing the story: records are fallback material", () => {
   });
 });
 
-describe("editorial validation — a story, not game notes", () => {
-  it("accepts a draft that tells the chosen story with the facts it needs", () => {
-    expect(editorial()).toEqual([]);
+describe("editorial validation — BLOCKING is wrong or misleading; ADVISORY is taste", () => {
+  it("accepts a draft that tells the chosen story with the facts it needs: nothing blocking, nothing advisory", () => {
+    expect(findings()).toEqual({ blocking: [], advisory: [] });
   });
 
-  it("rejects facts outside the chosen story, and more facts than one story may cite (configurable)", () => {
-    expect(editorial(goodDraft, angle({ factIds: ["f1"] })).join(" ")).toMatch(/outside the chosen story \(f3, f2\)|outside the chosen story/);
-    expect(editorial(goodDraft, angles[0], { ...config, maxCitedFacts: 2 }).join(" ")).toMatch(/cites 3 facts.*at most 2/);
+  it("BLOCKS facts outside the chosen story, and more facts than one story may cite (configurable)", () => {
+    expect(blocking(goodDraft, angle({ factIds: ["f1"] })).join(" ")).toMatch(/outside the chosen story/);
+    expect(blocking(goodDraft, angles[0], { ...config, maxCitedFacts: 2 }).join(" ")).toMatch(/cites 3 facts.*at most 2/);
   });
 
-  it("rejects a hook that just states a record or score, or is made of figures", () => {
-    expect(editorial({ ...goodDraft, hook: "Tennessee is 0-5, Indianapolis is 2-3" }).join(" ")).toMatch(/states a record or score/);
-    expect(editorial({ ...goodDraft, hook: "Zero wins in 5 games, 3 straight blowouts" }).join(" ")).toMatch(/made of figures/);
+  it("BLOCKS sportsbook language and a time of day (no fact gives one)", () => {
+    expect(blocking({ ...goodDraft, preview: `${goodDraft.preview} The Colts are heavy favorites on the moneyline.` }).join(" ")).toMatch(/Sportsbook language/);
+    expect(blocking({ ...goodDraft, preview: `${goodDraft.preview} Tonight it ends.` }).join(" ")).toMatch(/time of day/);
   });
 
-  it("rejects a statistics dump", () => {
+  it("a hook that states a record or score is ADVISORY: noted, never a rejection", () => {
+    const f = findings({ ...goodDraft, hook: "Tennessee is 0-5, Indianapolis is 2-3" });
+    expect(f.advisory.join(" ")).toMatch(/states a record or score/);
+    expect(f.blocking).toEqual([]);
+  });
+
+  it("a hook with two figures is fine ('Two games. Six goals.'); three or more reads as metadata (advisory)", () => {
+    expect(advisory({ ...goodDraft, hook: "Wembanyama had 22 points in Game 7. Holmgren had four." })).toEqual([]);
+    expect(advisory({ ...goodDraft, hook: "Zero wins in 5 games, 3 straight blowouts, 41 points allowed" }).join(" ")).toMatch(/made of figures/);
+  });
+
+  it("a statistics dump is ADVISORY", () => {
     const dump = "Tennessee is 0-5 with scores of 10, 20, 7, 18 and 3. Indianapolis is 2-3 after 23, 30, 19, 30 and 22 points and beat Tennessee 41-20 and 38-14, 26-3, 34-22.";
-    expect(editorial({ ...goodDraft, preview: dump }, angles[0], { ...config, maxCitedFacts: 3 }).join(" ")).toMatch(/list of statistics/);
+    const f = findings({ ...goodDraft, preview: dump }, angles[0], { ...config, maxCitedFacts: 3 });
+    expect(f.advisory.join(" ")).toMatch(/list of statistics/);
+    expect(f.blocking.join(" ")).not.toMatch(/list of statistics/);
   });
 
-  it("rejects generic filler that could describe any matchup", () => {
+  it("generic filler is ADVISORY", () => {
     for (const filler of ["Both teams are looking for a win.", "This should be an exciting matchup.", "It promises to be a great game.", "A battle between two struggling teams."]) {
-      expect(editorial({ ...goodDraft, preview: `${goodDraft.preview} ${filler}` }).join(" "), filler).toMatch(/Generic phrasing/);
+      const f = findings({ ...goodDraft, preview: `${goodDraft.preview} ${filler}` });
+      expect(f.advisory.join(" "), filler).toMatch(/Generic phrasing/);
+      expect(f.blocking.join(" "), filler).not.toMatch(/Generic phrasing/);
     }
   });
 
-  it("rejects sportsbook language", () => {
-    expect(editorial({ ...goodDraft, preview: `${goodDraft.preview} The Colts are heavy favorites on the moneyline.` }).join(" ")).toMatch(/Sportsbook language/);
+  it("a stock closing question and a preview that repeats the hook are ADVISORY; a question that is part of the story is fine", () => {
+    expect(advisory({ ...goodDraft, preview: "Tennessee is 0-5 after a 26-3 loss to Houston. Who will win?" }).join(" ")).toMatch(/stock question/);
+    expect(advisory().join(" ")).not.toMatch(/stock question/);
+    expect(advisory({ ...goodDraft, preview: `${goodDraft.hook} and nothing more` }).join(" ")).toMatch(/repeats the hook/);
   });
 
-  it("rejects a stock closing question, but allows a question that is part of the story", () => {
-    expect(editorial({ ...goodDraft, preview: "Tennessee is 0-5 after a 26-3 loss to Houston. Who will win?" }).join(" ")).toMatch(/stock question/);
-    expect(editorial().join(" ")).not.toMatch(/stock question/);
-  });
-
-  it("rejects a preview that merely repeats the hook", () => {
-    expect(editorial({ ...goodDraft, preview: `${goodDraft.hook} and nothing more` }).join(" ")).toMatch(/repeats the hook/);
+  it("the draft must rest on the story's primary fact (the one the Preview credits)", () => {
+    expect(blocking({ ...goodDraft, claims: goodDraft.claims.filter((c) => !c.factIds.includes("f1")) }).join(" ")).toMatch(/primary fact \(f1\)/);
   });
 });
 
@@ -128,25 +142,30 @@ describe("current season first, history as support (never ambiguous)", () => {
     expect(c.angle.id).toBe("a3");
   });
 
-  it("a claim resting only on earlier-season facts must say it is history, and must not read as this season's form", () => {
+  it("history does not need a label merely because it happened before today: a claim on earlier-season facts is not blocked for lacking one (the independent read judges genuine ambiguity)", () => {
     const base = goodDraft.claims.filter((c) => !c.factIds.includes("f2"));
     const draftWith = (text: string) => ({ ...goodDraft, claims: [...base, { text, factIds: ["f2"] }] });
-    expect(editorial(draftWith("Indianapolis beat Tennessee 41-20 and 38-14 last season.")).filter((p) => /earlier-season/.test(p))).toEqual([]);
-    expect(editorial(draftWith("Indianapolis beat Tennessee 41-20 and 38-14.")).join(" ")).toMatch(/does not say so/);
-    expect(editorial(draftWith("Indianapolis has currently beaten Tennessee 41-20 and 38-14.")).join(" ")).toMatch(/worded as this season's/);
+    expect(blocking(draftWith("Indianapolis beat Tennessee 41-20 and 38-14 last season."))).toEqual([]);
+    expect(blocking(draftWith("Indianapolis beat Tennessee 41-20 and 38-14."))).toEqual([]);
   });
 
-  it("a claim with at least one current-season fact is not held to the history wording", () => {
-    const d = { ...goodDraft, claims: [...goodDraft.claims, { text: "Tennessee is 0-5 and lost twice by 20 or more last year.", factIds: ["f1", "f2"] }] };
-    expect(editorial(d).filter((p) => /earlier-season/.test(p))).toEqual([]);
+  it("but an earlier-season fact worded as THIS season's form still blocks", () => {
+    const base = goodDraft.claims.filter((c) => !c.factIds.includes("f2"));
+    const draftWith = (text: string) => ({ ...goodDraft, claims: [...base, { text, factIds: ["f2"] }] });
+    expect(blocking(draftWith("Indianapolis has currently beaten Tennessee 41-20 and 38-14.")).join(" ")).toMatch(/worded as this season's/);
+  });
+
+  it("a claim with at least one current-season fact is not held to that wording rule", () => {
+    const d = { ...goodDraft, claims: [...goodDraft.claims, { text: "Tennessee is 0-5 and currently lost twice by 20 or more last year.", factIds: ["f1", "f2"] }] };
+    expect(blocking(d).filter((p) => /earlier-season/.test(p))).toEqual([]);
   });
 });
 
 describe("no time of day", () => {
   it("rejects 'tonight' and 'this afternoon': the research gives no local time", () => {
-    expect(editorial({ ...goodDraft, preview: `${goodDraft.preview} Tonight it ends.` }).join(" ")).toMatch(/time of day/);
-    expect(editorial({ ...goodDraft, hook: "This afternoon, Indianapolis answers." }).join(" ")).toMatch(/time of day/);
-    expect(editorial({ ...goodDraft, preview: `${goodDraft.preview} Today it ends.` }).join(" ")).not.toMatch(/time of day/);
+    expect(blocking({ ...goodDraft, preview: `${goodDraft.preview} Tonight it ends.` }).join(" ")).toMatch(/time of day/);
+    expect(blocking({ ...goodDraft, hook: "This afternoon, Indianapolis answers." }).join(" ")).toMatch(/time of day/);
+    expect(blocking({ ...goodDraft, preview: `${goodDraft.preview} Today it ends.` }).join(" ")).not.toMatch(/time of day/);
   });
 });
 
@@ -155,28 +174,24 @@ describe("an earlier season's playoffs are not named by the new season's year", 
   const kickoffUtc = "2026-10-18T17:00:00.000Z";
   const base = goodDraft.claims.filter((c) => !c.factIds.includes("f2"));
   const withClaim = (text: string, preview = text) => ({ ...goodDraft, preview: `${goodDraft.preview} ${preview}`, claims: [...base, { text, factIds: ["f2"] }] });
-  const run = (d: typeof goodDraft) => validateEditorial({ draft: d, angle: angles[0], config, facts, kickoffUtc });
+  const run = (d: typeof goodDraft) => validateEditorial({ draft: d, angle: angles[0], config, facts, kickoffUtc }).blocking;
 
   it("rejects 'the 2026 playoffs' in an October 2026 Game", () => {
     expect(run(withClaim("New York swept Philadelphia in the 2026 playoffs.")).join(" ")).toMatch(/ambiguous/);
   });
 
   it("accepts the season label ('the 2025-26 playoffs') as ESPN prints it", () => {
-    expect(run(withClaim("New York swept Philadelphia in the 2025-26 playoffs.")).filter((p) => /ambiguous|does not say so/.test(p))).toEqual([]);
+    expect(run(withClaim("New York swept Philadelphia in the 2025-26 playoffs.")).filter((p) => /ambiguous/.test(p))).toEqual([]);
   });
 
-  it("accepts 'last season's playoffs' and an earlier calendar year as history", () => {
-    expect(run(withClaim("Indianapolis beat Tennessee 41-20 and 38-14 last season.")).filter((p) => /ambiguous|does not say so/.test(p))).toEqual([]);
-    expect(run(withClaim("Indianapolis beat Tennessee 41-20 and 38-14 in 2025.")).filter((p) => /ambiguous|does not say so/.test(p))).toEqual([]);
-  });
-
-  it("a bare year equal to the Game's year is not history framing for a claim resting on earlier-season facts", () => {
-    expect(run(withClaim("Indianapolis beat Tennessee 41-20 and 38-14 in 2026.")).join(" ")).toMatch(/does not say so/);
+  it("accepts 'last season' and an earlier calendar year", () => {
+    expect(run(withClaim("Indianapolis beat Tennessee 41-20 and 38-14 last season.")).filter((p) => /ambiguous/.test(p))).toEqual([]);
+    expect(run(withClaim("Indianapolis beat Tennessee 41-20 and 38-14 in 2025.")).filter((p) => /ambiguous/.test(p))).toEqual([]);
   });
 
   it("a Game from the first half of a year does not trip the rule (that year's playoffs are the current season's)", () => {
     const d = withClaim("Indianapolis beat Tennessee 41-20 and 38-14 last season, and the 2027 playoffs loom.");
-    expect(validateEditorial({ draft: d, angle: angles[0], config, facts, kickoffUtc: "2027-03-02T17:00:00.000Z" }).filter((p) => /ambiguous/.test(p))).toEqual([]);
+    expect(validateEditorial({ draft: d, angle: angles[0], config, facts, kickoffUtc: "2027-03-02T17:00:00.000Z" }).blocking.filter((p) => /ambiguous/.test(p))).toEqual([]);
   });
 });
 

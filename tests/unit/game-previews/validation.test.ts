@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { domainMatches, domainOf, isTrustedSource, numbersIn, reconcileFactKind, reconcileSeasonScope, splitUsableFacts, unsupportedQuotes, validateDraft, verificationReasons } from "@/lib/game-previews/validation";
+import { claimedFigures, domainMatches, domainOf, isBettingPage, isEligiblePrimarySource, isTrustedSource, numbersIn, reconcileFactKind, reconcileSeasonScope, splitUsableFacts, unsupportedQuotes, validateDraft, verificationReasons } from "@/lib/game-previews/validation";
 import { config, fact, facts, game, goodDraft, NOW } from "./fixtures";
 
 const check = (draft = goodDraft, f = facts, c = config) => validateDraft({ draft, facts: f, game, config: c, now: NOW });
@@ -220,5 +220,47 @@ describe("no fabricated quotes", () => {
   it("validateDraft rejects the draft", () => {
     const r = validateDraft({ draft: { ...goodDraft, preview: `${goodDraft.preview} "We will absolutely dominate them" said the coach.` }, facts, game, config, now: NOW });
     expect(r.problems.join(" ")).toMatch(/quote .* is not in any cited source passage/);
+  });
+});
+
+describe("claimedFigures — figures a draft actually CLAIMS, not every word that can express a number", () => {
+  const figs = (t: string) => [...claimedFigures(t)].sort();
+
+  it("ordinary language is not a figure: 'his first chance', 'the first meeting', 'two stars are out', 'the first to arrive', 'the first look'", () => {
+    for (const t of ["He gets his first chance to answer.", "It is the first meeting between them.", "Two stars are out for the Rangers.", "Anaheim is not the first to arrive in New York.", "Two teams reshaped this offseason meet in Detroit.", "Who adjusts first?", "Two more are waiting on word.", "A first look at life without Brown."]) expect(figs(t), t).toEqual([]);
+  });
+
+  it("factual quantitative claims are figures: 'five straight', '60 wins', 'two touchdowns', 'first in the league', 'ranked third', 'their first win of the season'", () => {
+    expect(figs("Carolina has won five straight.")).toEqual(["5"]);
+    expect(figs("Detroit won 60 games last season.")).toEqual(["60"]);
+    expect(figs("He threw two touchdowns and one interception.")).toEqual(["2"]); // 'one' is left alone (a pronoun far more often than a figure)
+    expect(figs("Green Bay is first in the league in interceptions.")).toEqual(["1"]);
+    expect(figs("Dallas ranks third in the NFL.")).toEqual(["3"]);
+    expect(figs("It was their first win of the season.")).toEqual(["1"]);
+    expect(figs("Their fourth road game.")).toEqual(["4"]);
+    expect(figs("Ranked 29th in the NFL.")).toEqual(["29"]);
+  });
+
+  it("validateDraft therefore no longer rejects ordinary prose, and still rejects an unsupported claim", () => {
+    const ok = validateDraft({ draft: { ...goodDraft, preview: "Two stars are out, and it is the first meeting since the trade. Tennessee is 0-5 after a 26-3 loss to Houston." }, facts, game, config, now: NOW });
+    expect(ok.problems.filter((p) => /figure/.test(p))).toEqual([]);
+    const bad = validateDraft({ draft: { ...goodDraft, preview: "Tennessee has lost seven straight. Tennessee is 0-5 after a 26-3 loss to Houston." }, facts, game, config, now: NOW });
+    expect(bad.problems.join(" ")).toMatch(/"7"/);
+  });
+});
+
+describe("betting pages are never the credited primary source", () => {
+  it("recognises betting, odds, picks and prediction pages by URL or title — even on a trusted domain", () => {
+    for (const url of ["https://www.nbcsports.com/betting/nfl/news/49ers-vs-commanders-odds-expert-picks-team-and-player-news", "https://www.espn.com/nfl/odds", "https://www.foxsports.com/nfl/best-bets-week-6", "https://www.cbssports.com/nfl/picks/experts/", "https://www.nfl.com/news/chargers-vs-chiefs-prediction-picks"]) expect(isBettingPage(url), url).toBe(true);
+    expect(isBettingPage("https://www.espn.com/nfl/story/_/id/1/chiefs-pass-rush-sackless", "Chiefs still have faith in pass rush")).toBe(false);
+    expect(isBettingPage("https://www.nbcsports.com/nfl/news/purdy-leads-49ers", "Purdy leads 49ers")).toBe(false);
+    expect(isBettingPage("https://www.espn.com/nfl/story/_/id/2/x", "Chargers vs. Chiefs odds, picks and predictions")).toBe(true); // by title
+  });
+  it("an eligible primary source is trusted AND not a betting page", () => {
+    const teams = ["Washington Commanders", "San Francisco 49ers"];
+    const trusted = ["nbcsports.com", "cbssports.com"];
+    expect(isEligiblePrimarySource({ sourceUrl: "https://www.nbcsports.com/nfl/news/purdy-leads-49ers", sourceTitle: "Purdy leads 49ers" }, teams, trusted)).toBe(true);
+    expect(isEligiblePrimarySource({ sourceUrl: "https://www.nbcsports.com/betting/nfl/news/49ers-vs-commanders-odds-expert-picks", sourceTitle: "49ers vs Commanders Odds, expert picks" }, teams, trusted)).toBe(false);
+    expect(isEligiblePrimarySource({ sourceUrl: "https://random-blog.example/x", sourceTitle: "x" }, teams, trusted)).toBe(false);
   });
 });

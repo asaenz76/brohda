@@ -31,6 +31,10 @@ import {
   type ResearchResult,
   type StageContext,
   type VerificationResult,
+  BLOCKING_CATEGORIES,
+  ADVISORY_KINDS,
+  type AdvisoryKind,
+  type BlockingCategory,
 } from "./types";
 
 /**
@@ -43,7 +47,7 @@ import {
  */
 
 /** Identifies the instruction set that produced a Preview, so a quality change can be traced to a prompt change. Bump it when the prompts below change. */
-export const PREVIEW_PROMPT_VERSION = "game-preview-anthropic-2026-10-v12";
+export const PREVIEW_PROMPT_VERSION = "game-preview-anthropic-2026-10-v13";
 
 /** The slice of the SDK this provider uses — injectable so every stage is tested against a fake without a network. */
 export type MessagesClient = Pick<Anthropic, "messages">;
@@ -186,11 +190,16 @@ const DRAFT_SCHEMA = {
   properties: { hook: str, preview: str, claims: { type: "array", items: { type: "object", additionalProperties: false, required: ["text", "fact_ids"], properties: { text: str, fact_ids: strList } } } },
 } as const;
 
-const VERIFY_SCHEMA = {
+const REVIEW_PROMPT = "You review a sports game preview against the only facts it may rest on, without outside knowledge. The matchup in the message is GIVEN and counts as supported: which two teams play, which is the home team (\"Away at Home\"), and that the game is today/upcoming. Nothing else about the venue, time of day, weather or crowd is given. Return TWO SEPARATE lists, and keep them separate.\n\nBLOCKING — the Preview is WRONG or MISLEADING and must not be published. Use these categories only: unsupported_claim (a statement the facts do not support, including a motive, feeling or intention attributed to a team or person, or a future event stated as fact); wrong_figure (a score, stat, record or number the facts do not give); wrong_entity (a player, coach or injury attributed to the wrong team or role — check each named person against the fact's own excerpt); wrong_season (a previous season's result or form presented as this season's, or a season left genuinely ambiguous or misleading); stale_current (a current-state fact — injury, availability, starter, league rank — stated as true today when its date makes that doubtful; a statement the preview itself dates, such as 'as of Saturday' or 'listed as questionable', is fine); source_conflict (a figure that trusted sources disagree about); wrong_game (the wrong date, opponent or matchup); logical_contradiction (the Preview contradicts itself or its facts); unsupported_causation (a causal link the facts do not support — a 'because', 'so', 'with X out, Y has to ...' — for example a defensive player's absence presented as burdening the offense, or one player's injury explained by another fact that has no relationship to it); misleading_implication (an implication that materially changes what the facts mean, even if every sentence is individually true); fabricated_quote; betting_language. This is the most important job: TRUE FACTS CAN BE MISUSED. Ask of every connection the Preview draws between two facts whether the facts actually support that connection.\n\nADVISORY — editorial taste only. Use these kinds only: bland_story, weak_hook, game_note_feel (reads like game notes), repetitive_structure, low_conversation (little to argue about), wording_tone. Advisory findings are recorded and may trigger one rewrite; they NEVER block. 'Could be more interesting', 'the hook could be sharper', 'it reads like a list of stats' are ADVISORY, never blocking. Dramatic phrasing that asserts nothing checkable ('needs an escape', 'the pressure is on') is advisory at most. A claim about a person's or team's attitude, motive or intention is not drama: it is an unsupported_claim.\n\nBe exact: list only real problems, each specific, and put nothing in BLOCKING that is a matter of taste. If there is nothing, return empty lists.";
+
+const REVIEW_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["supported", "editorial_passes", "problems"],
-  properties: { supported: { type: "boolean" }, editorial_passes: { type: "boolean" }, problems: strList },
+  required: ["blocking", "advisory"],
+  properties: {
+    blocking: { type: "array", items: { type: "object", additionalProperties: false, required: ["category", "problem"], properties: { category: { type: "string", enum: [...BLOCKING_CATEGORIES] }, problem: str } } },
+    advisory: { type: "array", items: { type: "object", additionalProperties: false, required: ["kind", "note"], properties: { kind: { type: "string", enum: [...ADVISORY_KINDS] }, note: str } } },
+  },
 } as const;
 
 const EVIDENCE_CHECK_PROMPT = "You verify the facts a sports preview is about to rest on, FROM THE EVIDENCE ALREADY CAPTURED during research. Verify from captured source evidence first; do not ask for more unless it is genuinely needed. For each fact give one verdict:\n- proves: the captured evidence by itself clearly establishes the subject (player or team), the number, the season, the date/context, the team and the meaning of the claim.\n- insufficient: plausible, but the evidence does not establish it — an unclear subject or team, an unclear season, a paraphrase that changes the meaning, a number you cannot see, or a page that cannot place the figure in a season. Say in to_establish exactly what a targeted search would have to find.\n- contradicted: the captured evidence (this fact's or another listed fact's) contradicts the claim.\nSeason and date context may come from the PAGE's identity and metadata, not only from the sentence: a current-season statistics page, standings page, game log, schedule/results page or recap from a major provider (ESPN, NHL.com, NFL.com, NBA.com, the league or team's official site), retrieved this season (see page_season, page_context, source_type, published_at, retrieved_at), establishes current-season figures even when the visible row does not repeat the season. Do NOT mark a fact insufficient merely because the visible text omits a date when the page's identity establishes the season. An undated generic biography, archive article, prospect profile or historical page does NOT establish current-season context. Facts about completed past events (history) need only the right event and subject. A person must appear on the team the claim says (a page that lists both teams proves a person's team only if the excerpt shows which). Never use outside knowledge to prove a claim, and never confirm from plausibility.";
@@ -376,7 +385,7 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
     ].join("\n\n");
     const used = facts.filter((f) => angle.factIds.includes(f.id)).map((f) => ({ id: f.id, season_scope: f.seasonScope, kind: f.kind, category: f.category, claim: f.claim, excerpt: f.excerpt, published_at: f.publishedAt }));
     const recent = ctx.recentHooks.length ? `\n\nHooks of recent Previews — vary the structure, do not echo them:\n- ${ctx.recentHooks.slice(0, 12).join("\n- ")}` : "";
-    const feedback = ctx.feedback.length ? `\n\nYour previous draft was rejected for these reasons. Fix every one:\n- ${ctx.feedback.join("\n- ")}` : "";
+    const feedback = ctx.feedback.length ? (ctx.feedbackKind === "advisory" ? `\n\nYour previous draft is factually sound and will be kept unless this rewrite is better. Improve the WRITING using these editorial notes. Do NOT add, change or drop any fact, figure or claim; keep the same facts and the same story:\n- ${ctx.feedback.join("\n- ")}` : `\n\nYour previous draft was rejected for these reasons. Fix every one:\n- ${ctx.feedback.join("\n- ")}`) : "";
     const result = await call(this.client, { model: ctx.model, max_tokens: STAGE_MAX_TOKENS, system, output_config: structured(ctx.effort, DRAFT_SCHEMA), messages: [{ role: "user", content: `${describeGame(game)}\n\nChosen story: ${angle.summary}\n\nFacts for this story:\n${JSON.stringify(used)}${recent}${feedback}` }] }, false);
     const parsed = extractJson<{ hook?: string; preview?: string; claims?: Array<{ text?: string; fact_ids?: string[] }> }>(result.text, "writer");
     const claims: GamePreviewClaim[] = (parsed.claims ?? []).map((c) => ({ text: String(c.text ?? ""), factIds: Array.isArray(c.fact_ids) ? c.fact_ids.map(String) : [] }));
@@ -385,17 +394,14 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
 
   async verify(game: GameIdentity, angle: EditorialAngle, draft: Pick<PreviewDraft, "hook" | "preview" | "claims">, facts: CandidateFact[], ctx: StageContext): Promise<VerificationResult> {
     const byId = new Map(facts.map((f) => [f.id, f]));
-    const material = [...new Set(draft.claims.flatMap((c) => c.factIds))].map((id) => byId.get(id)).filter((f): f is CandidateFact => Boolean(f)).map((f) => ({ id: f.id, season_scope: f.seasonScope, kind: f.kind, claim: f.claim, excerpt: f.excerpt, published_at: f.publishedAt }));
-    const system = [
-      "You are a strict fact-checker AND a sports editor. Given a game preview and the only facts it may rest on, judge two things independently, without outside knowledge. The matchup in the message is GIVEN and counts as supported: which two teams play, which is the home team (\"Away at Home\"), and that the game is today/upcoming. Nothing else about the venue, time of day, weather or crowd is given.",
-      "0) attribution: for every player, coach or injury the preview names, check the fact\'s claim AGAINST ITS OWN EXCERPT: the excerpt must show that person on the team the preview says (a player on one team\'s injury report is not the other team\'s). Flag any person attributed to a team the excerpt does not support. 1) supported: is EVERY factual statement in the hook and the preview directly supported by those facts? Flag any statement, number, name or implication the facts do not support, any current-state wording resting on a historical fact, anything that goes beyond the facts, any time frame the facts do not state (a streak or count of games may reach into the previous season, so \"this season\" or \"this year\" needs a fact that says it), and any statement resting on a HISTORICAL_CONTEXT fact that is not clearly framed as history or could be read as this season's form (mixing seasons ambiguously).",
-      `2) editorial: does it tell ONE specific story (${angle.summary})? Would the hook stop the scroll for someone who already knew the teams were playing? Could the preview be reused for another matchup by swapping team names (if so it fails)? Does it read like a sharp editor and not like automated game notes, a list of statistics, or sportsbook copy? Does it make a reader want an opinion?`,
-      'Return ONLY a JSON object: {"supported":true|false,"editorial_passes":true|false,"problems":["each specific problem, empty if none"]}',
-    ].join("\n\n");
-    const result = await call(this.client, { model: ctx.model, max_tokens: STAGE_MAX_TOKENS, system, output_config: structured(ctx.effort, VERIFY_SCHEMA), messages: [{ role: "user", content: `${describeGame(game)}\n\nHook: ${draft.hook}\nPreview: ${draft.preview}\n\nFacts:\n${JSON.stringify(material)}` }] }, false);
-    const parsed = extractJson<{ supported?: boolean; editorial_passes?: boolean; problems?: string[] }>(result.text, "verifier");
-    const problems = (parsed.problems ?? []).map(String);
-    return { supported: parsed.supported === true, editorialPasses: parsed.editorial_passes === true, problems, usage: result.usage };
+    const material = [...new Set(draft.claims.flatMap((c) => c.factIds))].map((id) => byId.get(id)).filter((f): f is CandidateFact => Boolean(f)).map((f) => ({ id: f.id, season_scope: f.seasonScope, kind: f.kind, claim: f.claim, excerpt: f.excerpt, published_at: f.publishedAt, subject_team: f.subjectTeam }));
+    const system = [REVIEW_PROMPT, `The story the Preview is meant to tell: ${angle.summary}`].join("\n\n");
+    const result = await call(this.client, { model: ctx.model, max_tokens: STAGE_MAX_TOKENS, system, output_config: structured(ctx.effort, REVIEW_SCHEMA), messages: [{ role: "user", content: `${describeGame(game)}\n\nHook: ${draft.hook}\nPreview: ${draft.preview}\n\nFacts:\n${JSON.stringify(material)}` }] }, false);
+    const parsed = extractJson<{ blocking?: Array<{ category?: string; problem?: string }>; advisory?: Array<{ kind?: string; note?: string }> }>(result.text, "reviewer");
+    // An unrecognised category is treated as blocking (the reviewer said something is wrong); an unrecognised advisory kind is wording taste.
+    const blocking = (parsed.blocking ?? []).filter((b) => String(b.problem ?? "").trim()).map((b) => ({ category: ((BLOCKING_CATEGORIES as readonly string[]).includes(String(b.category)) ? String(b.category) : "unsupported_claim") as BlockingCategory, problem: String(b.problem).trim() }));
+    const advisory = (parsed.advisory ?? []).filter((a) => String(a.note ?? "").trim()).map((a) => ({ kind: ((ADVISORY_KINDS as readonly string[]).includes(String(a.kind)) ? String(a.kind) : "wording_tone") as AdvisoryKind, note: String(a.note).trim() }));
+    return { blocking, advisory, usage: result.usage };
   }
   async verifyFacts(game: GameIdentity, facts: CandidateFact[], ctx: FactVerificationContext): Promise<FactVerificationResult> {
     // STEP 1 — evidence first: judge every fact from the evidence research already captured (no search). What the captured evidence proves needs no second lookup.

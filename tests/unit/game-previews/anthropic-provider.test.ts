@@ -164,17 +164,44 @@ describe("Anthropic provider — angles, writing, verification", () => {
     expect(draft.claims[0]).toEqual({ text: goodDraft.claims[0].text, factIds: ["f1"] });
   });
 
-  it("the verifier judges both support and editorial quality, and is told the chosen story", async () => {
-    const c = client(msg([text({ supported: true, editorial_passes: false, problems: ["It reads like game notes."] })]));
+  it("the reviewer returns TWO separate lists — BLOCKING (wrong or misleading) and ADVISORY (taste) — and is told the chosen story and the difference", async () => {
+    const c = client(msg([text({ blocking: [{ category: "unsupported_causation", problem: "Bosa is a defender; his absence does not burden the offense." }], advisory: [{ kind: "game_note_feel", note: "It reads like game notes." }] })]));
     const out = await new AnthropicGamePreviewProvider(c).verify(game, angles[0], goodDraft, facts, { model: "configured-model", effort: "medium" });
-    expect(out).toMatchObject({ supported: true, editorialPasses: false, problems: ["It reads like game notes."] });
-    const system = String(calls(c)[0].system);
-    expect(calls(c)[0].output_config).toMatchObject({ format: { type: "json_schema", schema: { required: ["supported", "editorial_passes", "problems"] } } });
-    expect(system).toMatch(/strict fact-checker AND a sports editor/);
+    expect(out.blocking).toEqual([{ category: "unsupported_causation", problem: "Bosa is a defender; his absence does not burden the offense." }]);
+    expect(out.advisory).toEqual([{ kind: "game_note_feel", note: "It reads like game notes." }]);
+    const body = calls(c)[0];
+    expect(body.output_config).toMatchObject({ format: { type: "json_schema", schema: { required: ["blocking", "advisory"] } } });
+    const system = String(body.system);
     expect(system).toContain(angles[0].summary);
-    expect(calls(c)[0].tools).toBeUndefined();
+    expect(system).toMatch(/BLOCKING — the Preview is WRONG or MISLEADING/);
+    expect(system).toMatch(/ADVISORY — editorial taste only/);
+    expect(system).toMatch(/TRUE FACTS CAN BE MISUSED/);
+    expect(system).toMatch(/defensive player's absence presented as burdening the offense/);
+    expect(system).toMatch(/NEVER block/);
+    expect(system).toMatch(/is not drama: it is an unsupported_claim/);
+    // every blocking category and advisory kind is in the schema as an enum
+    const schema = (body.output_config as { format: { schema: { properties: { blocking: { items: { properties: { category: { enum: string[] } } } }; advisory: { items: { properties: { kind: { enum: string[] } } } } } } } }).format.schema.properties;
+    expect(schema.blocking.items.properties.category.enum).toEqual(expect.arrayContaining(["unsupported_claim", "wrong_figure", "wrong_entity", "wrong_season", "stale_current", "source_conflict", "wrong_game", "logical_contradiction", "unsupported_causation", "misleading_implication", "fabricated_quote", "betting_language"]));
+    expect(schema.advisory.items.properties.kind.enum).toEqual(expect.arrayContaining(["bland_story", "weak_hook", "game_note_feel", "repetitive_structure", "low_conversation", "wording_tone"]));
+    expect(body.tools).toBeUndefined();
   });
 
+  it("an unrecognised blocking category still blocks (the reviewer said something is wrong); an unrecognised advisory kind is wording taste; empty findings are dropped", async () => {
+    const c = client(msg([text({ blocking: [{ category: "something_new", problem: "a real problem" }, { category: "wrong_figure", problem: "  " }], advisory: [{ kind: "vibes", note: "meh" }, { kind: "weak_hook", note: "" }] })]));
+    const out = await new AnthropicGamePreviewProvider(c).verify(game, angles[0], goodDraft, facts, { model: "m", effort: "medium" });
+    expect(out.blocking).toEqual([{ category: "unsupported_claim", problem: "a real problem" }]);
+    expect(out.advisory).toEqual([{ kind: "wording_tone", note: "meh" }]);
+  });
+
+  it("the writer is told, for an ADVISORY rewrite, that the draft is sound and the facts must not change", async () => {
+    const c = client(msg([text({ hook: goodDraft.hook, preview: goodDraft.preview, claims: goodDraft.claims.map((x) => ({ text: x.text, fact_ids: x.factIds })) })]));
+    await new AnthropicGamePreviewProvider(c).write(game, { ...angles[2] }, facts, { model: "m", effort: "medium", maxChars: 650, hookMaxChars: 140, maxCitedFacts: 3, recentHooks: [], feedback: ["reads like game notes"], feedbackKind: "advisory" });
+    const user = JSON.stringify(calls(c)[0].messages);
+    expect(user).toMatch(/factually sound and will be kept unless this rewrite is better/);
+    expect(user).toMatch(/Do NOT add, change or drop any fact/);
+    expect(user).not.toMatch(/was rejected for these reasons/);
+    expect(String(calls(c)[0].system)).toContain("at most 140 characters");
+  });
   it("extractJson tolerates prose, code fences and trailing commentary that contains braces; and a failure says how the answer began", () => {
     expect(extractJson<{ a: number }>('Here you go:\n```json\n{"a":1}\n```', "x")).toEqual({ a: 1 });
     expect(extractJson<{ a: string }>('{"a":"} not the end"} and a note {like this}', "x")).toEqual({ a: "} not the end" });

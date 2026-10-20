@@ -38,3 +38,17 @@ describe("derivePublicSources — never a bibliography", () => {
     expect(derivePublicSources([], { publicSourceUrls: [a.url] })).toEqual([]);
   });
 });
+
+describe("betting pages are never credited", () => {
+  const news = row("https://www.nbcsports.com/nfl/news/purdy-leads-49ers", "NBC Sports", "Purdy leads 49ers");
+  const betting = row("https://www.nbcsports.com/betting/nfl/news/49ers-vs-commanders-odds-expert-picks", "NBC Sports", "49ers vs Commanders Odds, expert picks");
+  const cbs = row("https://www.cbssports.com/nfl/teams/sf/injuries/", "CBS Sports", "49ers injuries");
+
+  it("a Preview whose PRIMARY source is a betting page has nothing eligible to credit and is not shown", () => {
+    expect(derivePublicSources([betting, cbs], { primarySourceUrl: betting.url, publicSourceUrls: [betting.url, cbs.url] })).toEqual([]);
+    expect(derivePublicSources([betting, cbs], {})).toEqual([]); // an earlier Preview: its first, primary source is the betting page
+  });
+  it("a betting page is never listed as an 'Also'", () => {
+    expect(derivePublicSources([news, betting], { primarySourceUrl: news.url, publicSourceUrls: [news.url, betting.url] }).map((s) => s.name)).toEqual(["NBC Sports"]);
+  });
+});
