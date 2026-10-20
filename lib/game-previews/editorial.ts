@@ -30,7 +30,8 @@ export function sanitizeAngles<T extends Pick<AngleSelection, "angles" | "select
     seen.add(a.id);
     const scores = { ...a.scores };
     for (const k of SCORE_KEYS) scores[k] = Number.isFinite(scores[k]) ? Math.min(5, Math.max(1, scores[k])) : 3;
-    cleaned.push({ ...a, factIds, scores, type: (ANGLE_TYPES as readonly string[]).includes(a.type) ? a.type : "CONTRAST" });
+    const central = (a.centralFactIds ?? []).filter((id) => factIds.includes(id));
+    cleaned.push({ ...a, factIds, centralFactIds: central.length > 0 ? central.slice(0, 2) : [factIds[0]], scores, type: (ANGLE_TYPES as readonly string[]).includes(a.type) ? a.type : "CONTRAST" });
   }
   if (cleaned.length === 0) return { selection: { ...selection, angles: [] }, problems: ["The story stage returned no usable story: none had a summary and facts the research contains."] };
   const selectedId = cleaned.some((a) => a.id === selection.selectedId) ? selection.selectedId : [...cleaned].sort((x, y) => overallScore(y.scores) - overallScore(x.scores))[0].id;
@@ -72,7 +73,9 @@ export function orderAnglePrimary(angle: EditorialAngle, facts: CandidateFact[],
   const byId = new Map(facts.map((f) => [f.id, f]));
   const own = angle.factIds.map((id) => byId.get(id)).filter((f): f is CandidateFact => Boolean(f));
   const hasCurrent = own.some((f) => f.seasonScope === "CURRENT_SEASON");
-  const primary = own.find((f) => eligible(f) && (!hasCurrent || f.seasonScope === "CURRENT_SEASON"));
+  // The public primary source must support the CENTRAL claim(s): it is chosen among the story's central facts (when the story names them), never among its incidental ones.
+  const central = new Set(angle.centralFactIds && angle.centralFactIds.length > 0 ? angle.centralFactIds : [angle.factIds[0]]);
+  const primary = own.find((f) => central.has(f.id) && eligible(f) && (!hasCurrent || f.seasonScope === "CURRENT_SEASON"));
   if (!primary) return null;
   return primary.id === angle.factIds[0] ? angle : { ...angle, factIds: [primary.id, ...angle.factIds.filter((id) => id !== primary.id)] };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claimedFigures, domainMatches, domainOf, draftHints, isBettingPage, isEligiblePrimarySource, isStoryPage, isTrustedSource, reconcileSeasonScope, styleProblems, unsupportedQuotes, validateDraft, verificationReasons } from "@/lib/game-previews/validation";
+import { claimedFigures, domainMatches, domainOf, draftHints, isBettingPage, isEligiblePrimarySource, isCreditablePage, isStoryPage, isTrustedSource, reconcileSeasonScope, styleProblems, unsupportedQuotes, validateDraft, verificationReasons } from "@/lib/game-previews/validation";
 import { competitionPhase, currentSeasonStart } from "@/lib/game-previews/identity";
 import { config, fact, facts, game, goodDraft, NOW } from "./fixtures";
 
@@ -202,9 +202,54 @@ describe("claimedFigures — figures a draft actually CLAIMS, not every word tha
   });
 });
 
+describe("(tests J, K) betting detection is about the page's purpose, not one editorial word", () => {
+  it("J: an ordinary editorial page is NOT betting even when 'predictions', 'picks' or 'preview' appear in it", () => {
+    for (const [url, title] of [
+      ["https://www.espn.com/nba/story/_/id/49998634/2026-27-nba-season-preview-rankings-predictions-every-team", "2026-27 NBA season preview: rankings, predictions for every team"],
+      ["https://www.espn.com/nfl/preview/_/gameId/401892543", "Chiefs vs. Seahawks preview"],
+      ["https://www.nfl.com/news/week-7-picks-who-we-pick-to-win-every-division", "Who we pick to win every division"],
+      ["https://www.nba.com/news/2026-27-season-preview-hou", "2026-27 Season Preview: Houston Rockets"],
+      ["https://www.espn.com/nfl/story/_/id/7/fpi-predictions-playoff-chances", "FPI predictions: playoff chances for all 32 teams"],
+    ]) expect(isBettingPage(url, title), url).toBe(false);
+  });
+  it("K: an actual sportsbook / betting / odds article IS betting", () => {
+    for (const [url, title] of [
+      ["https://www.nbcsports.com/betting/nfl/news/49ers-vs-commanders-odds-expert-picks-team-and-player-news", "49ers vs. Commanders odds, expert picks"],
+      ["https://www.foxsports.com/nfl/best-bets-week-6", "Best bets for Week 6"],
+      ["https://www.cbssports.com/nfl/picks/experts/", "Expert picks"],
+      ["https://www.espn.com/nfl/story/_/id/2/x", "Chargers vs. Chiefs odds, picks and predictions"],
+      ["https://www.example.com/nfl/chiefs-seahawks-prediction-and-spread-pick", "Chiefs vs Seahawks prediction and spread pick"],
+      ["https://www.espn.com/nfl/story/_/id/9/x", "Best prop bets for Sunday"],
+    ]) expect(isBettingPage(url, title), url).toBe(true);
+  });
+});
+
+describe("(tests B, C, D) evidence eligibility is not public-credit eligibility", () => {
+  const credit = (url: string, title = "A story") => isCreditablePage(url, title);
+  it("B: a raw JSON/API endpoint is valid evidence but never a public credit", () => {
+    expect(credit("https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard")).toBe(false);
+    expect(credit("https://example.com/feed.json")).toBe(false);
+  });
+  it("C: a schedule PDF or any uploaded document is not a public credit", () => {
+    expect(credit("https://cdn.nba.com/teams/uploads/sites/1610612744/2026/08/Warriors-2026-27-Schedule_list.pdf")).toBe(false);
+    expect(credit("https://www.nfl.com/schedules/2026/by-team/detroit-lions")).toBe(false);
+  });
+  it("D: a live injury list, stats table, standings or roster page is not the preferred credit", () => {
+    for (const url of ["https://www.espn.com/nfl/team/injuries/_/name/gb/green-bay-packers", "https://www.espn.com/nfl/standings", "https://www.espn.com/nba/team/stats/_/name/bos", "https://www.espn.com/nfl/team/roster/_/name/kc", "https://www.espn.com/nfl/team/schedule/_/name/ind/season/2025"]) expect(credit(url), url).toBe(false);
+  });
+  it("readable editorial pages stay creditable, including articles whose slug mentions an injury report or a schedule", () => {
+    for (const url of ["https://www.nhl.com/devils/news/preview-2026020142", "https://www.espn.com/nfl/story/_/id/401/chiefs-injury-report-schedule-notes", "https://sports.yahoo.com/articles/celtics-announce-injury-report-ahead-193847873.html", "https://www.nba.com/news/andre-drummond-joins-knicks-media-day", "https://www.espn.com/nfl/preview/_/gameId/401892543"]) expect(credit(url), url).toBe(true);
+  });
+  it("trusted AND creditable is what makes a source eligible as the public primary; evidence from any non-blocked source stays usable", () => {
+    const teams = ["Green Bay Packers", "Detroit Lions"];
+    expect(isEligiblePrimarySource({ sourceUrl: "https://www.espn.com/nfl/team/injuries/_/name/gb/green-bay-packers", sourceTitle: "Packers injuries" }, teams, ["espn.com"])).toBe(false);
+    expect(isEligiblePrimarySource({ sourceUrl: "https://www.espn.com/nfl/story/_/id/5/packers-lose-parsons", sourceTitle: "Packers lose Parsons" }, teams, ["espn.com"])).toBe(true);
+  });
+});
+
 describe("betting pages are never the credited primary source", () => {
   it("recognises betting, odds, picks and prediction pages by URL or title — even on a trusted domain", () => {
-    for (const url of ["https://www.nbcsports.com/betting/nfl/news/49ers-vs-commanders-odds-expert-picks-team-and-player-news", "https://www.espn.com/nfl/odds", "https://www.foxsports.com/nfl/best-bets-week-6", "https://www.cbssports.com/nfl/picks/experts/", "https://www.nfl.com/news/chargers-vs-chiefs-prediction-picks"]) expect(isBettingPage(url), url).toBe(true);
+    for (const url of ["https://www.nbcsports.com/betting/nfl/news/49ers-vs-commanders-odds-expert-picks-team-and-player-news", "https://www.espn.com/nfl/odds", "https://www.foxsports.com/nfl/best-bets-week-6", "https://www.cbssports.com/nfl/picks/experts/", "https://www.nfl.com/news/chargers-vs-chiefs-odds-prediction-picks"]) expect(isBettingPage(url), url).toBe(true);
     expect(isBettingPage("https://www.espn.com/nfl/story/_/id/1/chiefs-pass-rush-sackless", "Chiefs still have faith in pass rush")).toBe(false);
     expect(isBettingPage("https://www.nbcsports.com/nfl/news/purdy-leads-49ers", "Purdy leads 49ers")).toBe(false);
     expect(isBettingPage("https://www.espn.com/nfl/story/_/id/2/x", "Chargers vs. Chiefs odds, picks and predictions")).toBe(true); // by title

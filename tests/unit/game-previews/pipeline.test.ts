@@ -14,7 +14,8 @@ function setup(opts: { providers?: Partial<GamePreviewProviders>; config?: Parti
   const saves: GamePreviewInput[] = [];
   const research = vi.fn<GamePreviewResearchProvider["research"]>(async () => ({ facts, sources, usage: usage({ searchCalls: 3, modelCalls: 1, inputTokens: 900, outputTokens: 400 }) }));
   const selectAngle = vi.fn<GamePreviewAngleProvider["selectAngle"]>(async () => ({ ...selection, usage: usage({ modelCalls: 1, inputTokens: 300, outputTokens: 200 }) }));
-  const write = vi.fn<GamePreviewWriterProvider["write"]>(async () => draftOf());
+  // A writer that cites only the facts of the story it is given (a story may have lost a fact that failed verification).
+  const write = vi.fn<GamePreviewWriterProvider["write"]>(async (_g, angle) => draftOf({ claims: goodDraft.claims.filter((c) => c.factIds.every((id) => angle.factIds.includes(id))) }));
   const verify = vi.fn<GamePreviewVerifierProvider["verify"]>(async () => ({ blocking: [], advisory: [], usage: usage({ modelCalls: 1 }) }));
   const providers: GamePreviewProviders = { research: { name: "fake", research }, angles: { name: "fake", selectAngle }, writer: { name: "fake", write }, verifier: { name: "fake", verify }, ...opts.providers };
   const deps: PipelineDeps = {
@@ -123,11 +124,24 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
     expect((t.runs[0].details as { exceptionReasons: Record<string, string[]> }).exceptionReasons.f4.join(" ")).toMatch(/no publication date/);
   });
 
-  it("a stale current-state fact that cannot be verified takes its story with it (no verifier: the story is not trusted)", async () => {
+  it("(test G) a stale peripheral fact that cannot be verified is REMOVED and the story is kept when its central facts stand", async () => {
     const { injury, story } = withFact4({ publishedAt: "2026-10-01T00:00:00.000Z" });
     const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [...facts, injury], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...story, usage: usage({ modelCalls: 1 }) }) }, factVerifier: null } });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    const [, angleArg, factsArg] = t.write.mock.calls[0];
+    expect(angleArg.id).toBe("a1");
+    expect(factsArg.map((f) => f.id)).not.toContain("f4");
+    const d = t.runs[0].details as { exceptionReasons: Record<string, string[]>; factsRemoved: Array<{ angleId: string; factId: string }> };
+    expect(d.exceptionReasons.f4.join(" ")).toMatch(/older than 72 hours/);
+    expect(d.factsRemoved).toEqual([expect.objectContaining({ angleId: "a1", factId: "f4" })]);
+    expect(t.saves).toHaveLength(1);
+  });
+
+  it("(test H) a stale or unverifiable CENTRAL fact drops that story; with no other story the run is story_not_verified and nothing is written", async () => {
+    const { injury } = withFact4({ publishedAt: "2026-10-01T00:00:00.000Z" });
+    const only = { ...selection, angles: [{ ...selection.angles[0], factIds: ["f4"], centralFactIds: ["f4"], summary: "A quarterback is back." }], selectedId: "a1" };
+    const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [...facts, { ...injury, sourceUrl: "https://www.espn.com/nfl/story/_/id/9/qb-back" }], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...only, usage: usage({ modelCalls: 1 }) }) }, factVerifier: null } });
     expect(await generateGamePreview(t.deps, req)).toMatchObject({ status: "REJECTED", error: "story_not_verified" });
-    expect((t.runs[0].details as { exceptionReasons: Record<string, string[]> }).exceptionReasons.f4.join(" ")).toMatch(/older than 72 hours/);
     expect(t.write).not.toHaveBeenCalled();
     expect(t.saves).toHaveLength(0);
   });
@@ -204,18 +218,33 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
     expect(d.exceptionReasons.f1).toBeUndefined();
   });
 
-  it("a flagged fact that does not verify takes its story with it: the next story with a trusted primary source is written, and the writer never sees the failed fact", async () => {
+  it("(test G) a flagged PERIPHERAL fact that does not verify is removed; the story it supported is kept and written without it", async () => {
     const verifyFacts = verifierOf((id) => (id === "f2" ? "unsupported" : "confirmed"));
     const t = setup({ providers: { research: flagged("f2"), factVerifier: { name: "fake", verifyFacts } } });
     const out = await generateGamePreview(t.deps, req);
     const [, angleArg, factsArg] = t.write.mock.calls[0];
-    expect(angleArg.id).toBe("a2"); // a1 and a3 both needed f2; a2 stands
-    expect(factsArg.map((f) => f.id)).not.toContain("f2");
-    const d = t.runs[0].details as { facts: Array<{ id: string; excluded?: string }>; angleOverridden: boolean };
+    expect(angleArg.id).toBe("a1"); // f2 is supporting context for a1: a1 stands without it
+    expect(angleArg.factIds).not.toContain("f2");
+    expect(factsArg.map((f) => f.id)).not.toContain("f2"); // the writer never sees the failed fact
+    const d = t.runs[0].details as { facts: Array<{ id: string; excluded?: string }>; factsRemoved: Array<{ angleId: string; factId: string }>; storyAttempts: Array<{ angleId: string; outcome: string }> };
     expect(d.facts.find((f) => f.id === "f2")?.excluded).toMatch(/failed verification \(unsupported: note f2\)/);
+    expect(d.factsRemoved.some((r) => r.angleId === "a1" && r.factId === "f2")).toBe(true);
+    expect(d.storyAttempts).toEqual([{ angleId: "a1", outcome: "used" }]);
     expect(verifyFacts).toHaveBeenCalledTimes(1);
+    expect(out.status).toBe("SUCCEEDED");
+  });
+
+  it("(tests H, I) a story whose CENTRAL fact does not verify collapses, and the next-best supported story is used from the research already gathered (no new research)", async () => {
+    const verifyFacts = verifierOf((id) => (id === "f1" ? "unsupported" : "confirmed"));
+    const researchSpy = vi.fn(flagged("f1").research);
+    const t = setup({ providers: { research: { name: "fake", research: researchSpy }, factVerifier: { name: "fake", verifyFacts } } });
+    const out = await generateGamePreview(t.deps, req);
+    expect(out.status).toBe("SUCCEEDED");
+    expect(t.write.mock.calls[0][1].id).toBe("a3"); // a1 and a2 are centred on f1; the history story a3 (f2) is the next-best supported one
+    expect(researchSpy).toHaveBeenCalledTimes(1);
+    const d = t.runs[0].details as { storyAttempts: Array<{ angleId: string; outcome: string }>; angleOverridden: boolean };
+    expect(d.storyAttempts.map((a) => `${a.angleId}:${a.outcome}`)).toEqual(["a1:collapsed", "a3:used"]);
     expect(d.angleOverridden).toBe(true);
-    expect(out.status).not.toBe("FAILED");
   });
 
   it("'disputed' does not verify either; when no story stands the run is REJECTED and the writer is never called", async () => {
@@ -247,7 +276,7 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
     await generateGamePreview(t1.deps, req);
     expect(t1.write.mock.calls[0][1].id).toBe("a1");
     expect(t1.write.mock.calls[0][1].factIds[0]).toBe("f3");
-    expect((t1.runs[0].details as { primaryReordered: string[] }).primaryReordered).toEqual(["a1", "a2"]);
+    expect((t1.runs[0].details as { primaryReordered: string[] }).primaryReordered).toEqual(["a1"]);
     // both current-season facts are blogs: a1 and a2 (about this season) have no eligible CURRENT primary; only the history-only a3 (f2, espn.com) is publishable.
     const t2 = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [blog(facts[0]), facts[1], blog(facts[2])], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) } } });
     await generateGamePreview(t2.deps, req);
@@ -479,13 +508,126 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
     expect(t.runs).toHaveLength(1);
   });
 
-  it("a writer that finds no honest story returns needs_review with its reason: nothing is reviewed or saved", async () => {
-    const t = setup({ providers: { writer: { name: "fake", write: async () => draftOf({ status: "needs_review", reason: "Only last season's material.", hook: "", preview: "", claims: [] }) } } });
+  it("a writer that finds no honest story in ANY supported story returns needs_review with its reason: nothing is reviewed or saved", async () => {
+    const write = vi.fn<GamePreviewWriterProvider["write"]>(async () => draftOf({ status: "needs_review", reason: "Only last season's material.", hook: "", preview: "", claims: [] }));
+    const t = setup({ providers: { writer: { name: "fake", write } } });
     const out = await generateGamePreview(t.deps, req);
     expect(out).toMatchObject({ status: "REJECTED", error: "needs_review: no_supported_story" });
-    expect(out.status !== "SUCCEEDED" && out.problems).toEqual(["Only last season's material."]);
+    expect(out.status !== "SUCCEEDED" && out.problems.join(" ")).toMatch(/Only last season's material\./);
+    expect(write).toHaveBeenCalledTimes(2); // a1, then the next-best a3, within the attempt budget
     expect(t.verify).not.toHaveBeenCalled();
     expect(t.saves).toHaveLength(0);
+  });
+
+  it("(test I) when the writer declines the first story, the next-best supported story is written before needs_review, inside the same attempt budget", async () => {
+    const write = vi.fn<GamePreviewWriterProvider["write"]>(async (_g, angle) => (angle.id === "a1" ? draftOf({ status: "needs_review", reason: "Thin.", hook: "", preview: "", claims: [] }) : draftOf({ claims: [{ text: "Indianapolis beat Tennessee 41-20 and 38-14 last season.", factIds: ["f2"] }] })));
+    const t = setup({ providers: { writer: { name: "fake", write } }, config: { maxAttempts: 3 } });
+    const out = await generateGamePreview(t.deps, req);
+    expect(out.status).toBe("SUCCEEDED");
+    expect(write.mock.calls.map((c) => c[1].id)).toEqual(["a1", "a3"]);
+    expect(out.attempts).toBe(2); // never more than max attempts
+    expect((t.runs[0].details as { storyAttempts: Array<{ angleId: string; outcome: string }> }).storyAttempts.map((a) => `${a.angleId}:${a.outcome}`)).toEqual(["a1:used", "a1:collapsed", "a3:used"]);
+  });
+
+  it("(test E) status inflation is a BLOCKING finding: 'unlikely to play' written as 'out' is rejected and rewritten (Packers @ Lions regression)", async () => {
+    const hedged = fact({ id: "f1", claim: "Micah Parsons won't practice this week and doesn't look likely to play in Week 7.", excerpt: "Parsons will not practice this week; Yahoo Sports reports he is unlikely to play Sunday." });
+    const inflated = draftOf({ hook: "Green Bay is missing Parsons just as Detroit scores 33", preview: "Micah Parsons is out. Can the Packers' front hold up?", claims: [{ text: "Micah Parsons is out.", factIds: ["f1"] }] });
+    const honest = draftOf({ hook: "Parsons is unlikely to play, and Detroit scores 33", preview: "Micah Parsons is unlikely to play after sitting out practice. Can the Packers' front hold up?", claims: [{ text: "Micah Parsons is unlikely to play.", factIds: ["f1"] }] });
+    const write = vi.fn<GamePreviewWriterProvider["write"]>(async (_g, _a, _f, ctx) => (ctx.feedback.length === 0 ? inflated : honest));
+    const verify = vi.fn<GamePreviewVerifierProvider["verify"]>(async (_g, _a, d, _f, _c, hints) => ({
+      blocking: /\b(is out|is missing)\b/i.test(`${d.hook} ${d.preview}`) ? [{ category: "status_overstated" as const, problem: "'unlikely to play' is written as 'out'/'missing'." }] : [],
+      advisory: [],
+      usage: usage({ modelCalls: 1 }),
+      ...(hints ? {} : {}),
+    }));
+    const story = { ...selection, angles: [{ ...selection.angles[0], factIds: ["f1"], centralFactIds: ["f1"], summary: "A pass rusher is unlikely to play." }], selectedId: "a1" };
+    const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [hedged], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...story, usage: usage({ modelCalls: 1 }) }) }, writer: { name: "fake", write }, verifier: { name: "fake", verify } } });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(t.saves[0].hook).toBe(honest.hook);
+    expect(verify.mock.calls[0][5]?.hedges?.join(" ")).toMatch(/f1: "unlikely"/); // code tells the reviewer which hedges the source carried
+    expect((t.runs[0].details as { blockingCounts: { reviewerByCategory: Record<string, number> } }).blockingCounts.reviewerByCategory.status_overstated).toBe(1);
+  });
+
+  const ESPN_STORY = "https://www.espn.com/nfl/story/_/id/1/titans-winless";
+  const savedPublic = (t: ReturnType<typeof setup>) => ((t.saves[0].meta as { publicSourceUrls: string[] }).publicSourceUrls);
+
+  it("(test A) the public primary is the source of the CENTRAL claim, not of an incidental fact that happens to be listed first", async () => {
+    const incidental = fact({ id: "f9", claim: "Kickoff is at 1 PM.", excerpt: "Kickoff 1 PM ET", sourceUrl: "https://www.nfl.com/news/kickoff-notes", sourceProvider: "NFL.com", sourceTitle: "Kickoff notes", category: "context" });
+    const central = fact({ id: "f1", sourceUrl: ESPN_STORY });
+    const story = { ...selection, angles: [{ ...selection.angles[0], factIds: ["f9", "f1"], centralFactIds: ["f1"], summary: "A winless team." }], selectedId: "a1" };
+    const draft = draftOf({ claims: [{ text: "Tennessee is 0-5 after a 26-3 loss to Houston.", factIds: ["f1"] }, { text: "Kickoff is at 1 PM.", factIds: ["f9"] }] });
+    const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [incidental, central], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...story, usage: usage({ modelCalls: 1 }) }) }, writer: { name: "fake", write: async () => draft } } });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(t.write).not.toHaveBeenCalled();
+    expect((t.saves[0].meta as { primarySourceUrl: string }).primarySourceUrl).toBe(ESPN_STORY);
+    expect(savedPublic(t)[0]).toBe(ESPN_STORY);
+    const cs = (t.runs[0].details as { centralStory: { primarySource: string; primaryClaims: string[] } }).centralStory;
+    expect(cs.primarySource).toBe(ESPN_STORY);
+    expect(cs.primaryClaims).toEqual([central.claim]);
+  });
+
+  it("(tests B, C, D) raw JSON, a schedule PDF and a live injury list are VALID EVIDENCE (stored with the Preview) but are never the public credit", async () => {
+    const central = fact({ id: "f1", sourceUrl: ESPN_STORY });
+    const json = fact({ id: "f2", category: "context", claim: "The game is Sunday at 1 PM.", sourceUrl: "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard", sourceProvider: "ESPN", sourceTitle: "scoreboard" });
+    const pdf = fact({ id: "f3", category: "context", claim: "The league schedule lists the game in Week 7.", sourceUrl: "https://www.nfl.com/uploads/2026-schedule.pdf", sourceProvider: "NFL.com", sourceTitle: "2026 schedule" });
+    const list = fact({ id: "f4", kind: "current", category: "injury", claim: "The quarterback is listed as questionable.", sourceUrl: "https://www.espn.com/nfl/team/injuries/_/name/ten/tennessee-titans", sourceProvider: "ESPN", sourceTitle: "Titans injuries", publishedAt: "2026-10-17T12:00:00.000Z" });
+    const story = { ...selection, angles: [{ ...selection.angles[0], factIds: ["f1", "f2", "f3", "f4"], centralFactIds: ["f1"], summary: "A winless team." }], selectedId: "a1" };
+    const draft = draftOf({ claims: [{ text: "Tennessee is 0-5.", factIds: ["f1"] }, { text: "The game is Sunday at 1 PM.", factIds: ["f2"] }, { text: "It is Week 7.", factIds: ["f3"] }, { text: "The quarterback is questionable.", factIds: ["f4"] }] });
+    const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [central, json, pdf, list], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...story, usage: usage({ modelCalls: 1 }) }) }, writer: { name: "fake", write: async () => draft } }, config: { maxCitedFacts: 4 } });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(t.saves[0].sources.map((x) => x.url)).toEqual(expect.arrayContaining([json.sourceUrl, pdf.sourceUrl, list.sourceUrl])); // evidence is kept
+    expect(savedPublic(t)).toEqual([ESPN_STORY]); // the credit is only the readable story
+  });
+
+  it("a story whose CENTRAL claim rests only on a data feed, a PDF or a live list has no creditable source: it is not published", async () => {
+    const json = fact({ id: "f1", sourceUrl: "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard" });
+    const only = { ...selection, angles: [{ ...selection.angles[0], factIds: ["f1"], centralFactIds: ["f1"], summary: "A winless team." }], selectedId: "a1" };
+    const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [json], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...only, usage: usage({ modelCalls: 1 }) }) } } });
+    expect(await generateGamePreview(t.deps, req)).toMatchObject({ status: "REJECTED", error: "no_trusted_primary_source" });
+    expect(t.saves).toHaveLength(0);
+  });
+
+  it("(test N) a second public source only when it materially supports the story: a source that merely backs a claim the primary already covers is not shown", async () => {
+    const primary = fact({ id: "f1", sourceUrl: ESPN_STORY });
+    const other = fact({ id: "f3", category: "record", claim: "Indianapolis is 2-3.", excerpt: "Colts 2-3", sourceUrl: "https://www.nfl.com/news/colts-steelers-recap", sourceProvider: "NFL.com", sourceTitle: "Steelers beat Colts" });
+    const story = { ...selection, angles: [{ ...selection.angles[0], factIds: ["f1", "f3"], centralFactIds: ["f1"], summary: "A winless team." }], selectedId: "a1" };
+    const run = async (claims: Array<{ text: string; factIds: string[] }>) => {
+      const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [primary, other], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...story, usage: usage({ modelCalls: 1 }) }) }, writer: { name: "fake", write: async () => draftOf({ claims }) } } });
+      await generateGamePreview(t.deps, req);
+      return savedPublic(t);
+    };
+    // The second source carries a claim of its own: material.
+    expect(await run([{ text: "Tennessee is 0-5.", factIds: ["f1"] }, { text: "Indianapolis is 2-3.", factIds: ["f3"] }])).toEqual([ESPN_STORY, other.sourceUrl]);
+    // Its only claim is also backed by the primary: not material, so not shown.
+    expect(await run([{ text: "Tennessee is 0-5.", factIds: ["f1"] }, { text: "Indianapolis is 2-3 and Tennessee is 0-5.", factIds: ["f1", "f3"] }])).toEqual([ESPN_STORY]);
+    // A source that was only consulted (found by research, never cited) is never shown.
+    expect(await run([{ text: "Tennessee is 0-5.", factIds: ["f1"] }])).toEqual([ESPN_STORY]);
+  });
+
+  it("(tests L, M) a credited source research left undated gets the date the page itself shows; if the page shows none it stays null; a date research already has is kept", async () => {
+    const undated = fact({ id: "f1", sourceUrl: ESPN_STORY, publishedAt: null });
+    const dated = fact({ id: "f3", category: "record", claim: "Indianapolis is 2-3.", excerpt: "Colts 2-3", sourceUrl: "https://www.nfl.com/news/colts-steelers-recap", sourceProvider: "NFL.com", sourceTitle: "Steelers beat Colts", publishedAt: "2026-10-12T00:00:00.000Z" });
+    const story = { ...selection, angles: [{ ...selection.angles[0], factIds: ["f1", "f3"], centralFactIds: ["f1"], summary: "A winless team." }], selectedId: "a1" };
+    const draft = draftOf({ claims: [{ text: "Tennessee is 0-5.", factIds: ["f1"] }, { text: "Indianapolis is 2-3.", factIds: ["f3"] }] });
+    const make = (fetchPublishedDate: PipelineDeps["fetchPublishedDate"]) => {
+      const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [undated, dated], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...story, usage: usage({ modelCalls: 1 }) }) }, writer: { name: "fake", write: async () => draft } }, config: { verifyWithModel: false } });
+      t.deps.fetchPublishedDate = fetchPublishedDate;
+      return t;
+    };
+    const fetchSpy = vi.fn(async (url: string) => (url === ESPN_STORY ? "2026-10-20T08:00:00.000Z" : "2099-01-01T00:00:00.000Z"));
+    const found = make(fetchSpy);
+    await generateGamePreview(found.deps, req);
+    expect(found.saves[0].sources.find((x) => x.url === ESPN_STORY)?.publishedAt).toBe("2026-10-20T08:00:00.000Z");
+    expect(found.saves[0].sources.find((x) => x.url === dated.sourceUrl)?.publishedAt).toBe("2026-10-12T00:00:00.000Z");
+    expect(fetchSpy).toHaveBeenCalledTimes(1); // only the undated credited source is looked up
+    const none = make(async () => null);
+    await generateGamePreview(none.deps, req);
+    expect(none.saves[0].sources.find((x) => x.url === ESPN_STORY)?.publishedAt ?? null).toBeNull();
+    const absent = make(undefined);
+    await generateGamePreview(absent.deps, req);
+    expect(absent.saves[0].sources.find((x) => x.url === ESPN_STORY)?.publishedAt ?? null).toBeNull();
+    const throws = make(async () => { throw new Error("blocked"); });
+    expect((await generateGamePreview(throws.deps, req)).status).toBe("SUCCEEDED"); // a failed lookup never fails the run
   });
 
   it("provenance: one saved Preview per successful generation, with claim evidence, season, phase and the research time", async () => {
@@ -501,9 +643,10 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
     const verifyFacts = vi.fn<GamePreviewFactVerifierProvider["verifyFacts"]>(async (_g, fs) => ({ checks: fs.map((f) => ({ factId: f.id, status: "disputed" as const, basis: "stored_evidence" as const, retrievalFailed: false, note: "ESPN says 3, KCSN says 4", corroboratingUrl: null })), usage: usage({ modelCalls: 1 }) }));
     const research = { name: "fake", research: async () => ({ facts: facts.map((f) => (f.id === "f1" ? { ...f, disputed: true } : f)), sources, conflicts: [{ topic: "sacks", note: "3 vs 4" }], usage: usage({ searchCalls: 3, modelCalls: 1 }) }) };
     const t = setup({ providers: { research, factVerifier: { name: "fake", verifyFacts } } });
-    const out = await generateGamePreview(t.deps, req);
-    expect(out.status).not.toBe("SUCCEEDED");
+    await generateGamePreview(t.deps, req);
+    // The disputed fact is removed; its central story collapses and the next-best supported story is used instead (or the Game is needs_review): the disputed claim is never published.
     expect(t.saves.every((x) => !x.claims!.some((c) => c.fact_ids.includes("f1")))).toBe(true);
+    expect((t.runs[0].details as { storyAttempts: Array<{ angleId: string; outcome: string }> }).storyAttempts[0]).toMatchObject({ angleId: "a1", outcome: "collapsed" });
   });
 
   it("a provider failure in any later stage fails the run and saves nothing", async () => {
