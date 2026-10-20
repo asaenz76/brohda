@@ -91,6 +91,14 @@ export interface RunDetails {
   rewrites: number;
   effort: string;
   webSearchToolVersion: string;
+  /** Facts taken out of a story because they did not verify (disputed, unsupported, stale or ambiguous), with why; the story was kept when its central facts stood. */
+  factsRemoved: Array<{ angleId: string; factId: string; reason: string }>;
+  /** Every story that was prepared, in order: kept, or collapsed and why. The next-best supported story is tried from the research already gathered, before the Game is returned as needs_review. */
+  storyAttempts: Array<{ angleId: string; outcome: "used" | "collapsed"; reason?: string }>;
+  /** Before READY: the central story, its primary claim(s), the public primary source and the material secondary (if any). */
+  centralStory: { angleId: string; summary: string; primaryClaims: string[]; primarySource: string | null; secondarySource: string | null } | null;
+  /** Publication dates read from the page itself for the credited sources research left undated. */
+  sourceDates: Array<{ url: string; found: string | null }>;
 }
 
 /**
@@ -110,6 +118,8 @@ export interface PipelineDeps {
   now(): Date;
   /** The hooks of recent Previews, for variety. Optional. */
   recentHooks?(): Promise<string[]>;
+  /** The publication date a page itself shows (structured page metadata), or null. Optional: used only for the publicly credited sources whose date research did not capture. Never guesses. */
+  fetchPublishedDate?(url: string): Promise<string | null>;
 }
 
 export interface GenerateRequest {
@@ -149,6 +159,10 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     rewrites: 0,
     effort: config.effort,
     webSearchToolVersion: config.webSearchToolVersion,
+    factsRemoved: [],
+    storyAttempts: [],
+    centralStory: null,
+    sourceDates: [],
   };
 
   const finish = async (outcome: GenerationOutcome, previewId: string | null): Promise<GenerationOutcome> => {
@@ -222,12 +236,9 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
   // Eligible as the story's PRIMARY (publicly credited) source: trusted AND not a betting/odds/picks page. A betting page may only support a fact that is independently verified.
   const isEligiblePrimary = (f: CandidateFact) => isEligiblePrimarySource(f, teams, config.preferredDomains);
   const primaryOf = (angle: EditorialAngle) => facts.find((f) => f.id === angle.factIds[0]);
-  const hasTrustedPrimary = (angle: EditorialAngle) => {
-    const f = primaryOf(angle);
-    return Boolean(f && isEligiblePrimary(f));
-  };
-  let chosen: EditorialAngle;
-  let selectionResult: AngleSelection;
+  let chosen!: EditorialAngle;
+  /** The stories still to try, best first. The first is the chosen story; the rest are the next-best supported stories from the research already gathered. */
+  const queue: EditorialAngle[] = [];
   try {
     const proposed = await providers.angles.selectAngle(game, facts, stage, leads);
     usage = addUsage(usage, proposed.usage);
@@ -237,13 +248,12 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
       return fail("angle_selection_invalid", cleaned.problems, "REJECTED");
     }
     const { selection, dropped } = dedupeAngles(cleaned.selection);
-    selectionResult = selection;
     details.angleDuplicatesDropped = dropped;
     details.angles = selection.angles;
     details.angleBasis = Object.fromEntries(selection.angles.map((a) => [a.id, angleBasis(a, facts)]));
     details.selectedAngleId = selection.selectedId;
     details.rejectedAngles = selection.rejected;
-    // Each story's primary source is chosen among its own facts (eligible, and current-season when the story is about this season); a story with none is not publishable.
+    // Each story's public primary source is chosen among its CENTRAL facts (trusted AND readable: evidence may come from anywhere, the credit may not); a story with none is not publishable.
     const reordered: string[] = [];
     const trustedAngles: EditorialAngle[] = [];
     for (const a of selection.angles) {
@@ -253,64 +263,97 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
       trustedAngles.push(ordered);
     }
     details.primaryReordered = reordered;
-    selectionResult = { ...selection, angles: selection.angles.map((a) => trustedAngles.find((t) => t.id === a.id) ?? a) };
-    if (trustedAngles.length === 0) return fail("no_trusted_primary_source", ["No candidate story rests on a primary source from the trusted group (the approved league, ESPN, FOX Sports, established reporting or team sites)."], "REJECTED");
+    if (trustedAngles.length === 0) return fail("no_trusted_primary_source", ["No candidate story has a trusted, readable source for its central claim (the approved league, ESPN, FOX Sports, established reporting or team sites; not a data feed, a schedule PDF, a live list or a betting page)."], "REJECTED");
     const selectedStands = trustedAngles.some((a) => a.id === selection.selectedId);
-    const pick = chooseAngle({ ...selection, angles: trustedAngles, selectedId: selectedStands ? selection.selectedId : [...trustedAngles].sort((x, y) => overallScore(y.scores) - overallScore(x.scores))[0].id, selectionReason: selectedStands ? selection.selectionReason : "The first choice's primary source is not in the trusted group; the strongest story with a trusted primary source was chosen." }, config.minStoryScore, facts);
-    const completed = completeAngleFacts(pick.angle, facts);
-    chosen = completed.angle;
-    details.angleFactsAdded = completed.added;
+    const pick = chooseAngle({ ...selection, angles: trustedAngles, selectedId: selectedStands ? selection.selectedId : [...trustedAngles].sort((x, y) => overallScore(y.scores) - overallScore(x.scores))[0].id, selectionReason: selectedStands ? selection.selectionReason : "The selected story has no trusted source for its central claim; the strongest story that does was chosen." }, config.minStoryScore, facts);
     details.chosenAngleId = pick.angle.id;
     details.angleOverridden = pick.overridden || !selectedStands;
     details.selectionReason = pick.reason;
+    // Next-best stories: the other publishable stories that clear the minimum score, current-season ones before history-only ones.
+    const basisRank = (a: EditorialAngle) => (angleBasis(a, facts) === "HISTORY_ONLY" ? 1 : 0);
+    const rest = trustedAngles.filter((a) => a.id !== pick.angle.id && overallScore(a.scores) >= config.minStoryScore).sort((x, y) => basisRank(x) - basisRank(y) || overallScore(y.scores) - overallScore(x.scores));
+    queue.push(pick.angle, ...rest);
   } catch (error) {
     return fail(`angle_selection_failed: ${(error as Error).message}`);
   }
 
-  // 2b. Sanity-check the story's evidence. One trusted source that clearly says what is claimed is enough: nothing is re-researched. Only the EXCEPTIONS — a source outside the trusted group, trusted sources that disagree, a page ambiguous about season/date/team,
-  // an unusually surprising claim, no passage showing the source says it, a figure the page cannot place in the current season — are verified (evidence first, then one targeted search). A fact that does not verify takes its story with it; the next story with a
-  // trusted primary source is checked; if none stands the run is rejected. Without a verifier an exception cannot be resolved, so it rejects the story.
+  // 2b. Prepare a story: sanity-check its evidence, then keep what stands. One trusted source that clearly says what is claimed is enough: nothing is re-researched. Only the EXCEPTIONS (a source outside the trusted group, trusted sources that disagree, a page ambiguous about
+  // season/date/team, an unusually surprising claim, no passage, a figure the page cannot place in the season, a stale or undated current-state fact) are verified: evidence first, then one targeted search.
+  // A fact that does not verify is REMOVED from the story first. The story is kept when its central facts stand and a trusted, readable source still credits them; otherwise that story collapses and the next-best supported story is tried.
   const confirmed = new Set<string>();
   const dead = new Map<string, string>();
-  for (let round = 1; round <= 2; round++) {
-    const exceptions = facts
-      .filter((f) => chosen.factIds.includes(f.id) && !confirmed.has(f.id))
-      .map((f) => ({ fact: f, reasons: verificationReasons(f, isTrusted(f), freshness) }))
-      .filter((x) => x.reasons.length > 0);
-    if (exceptions.length === 0) break;
-    for (const x of exceptions) details.exceptionReasons[x.fact.id] = x.reasons;
-    if (!providers.factVerifier) return fail("story_not_verified", exceptions.map((x) => `Fact ${x.fact.id} needs verification (${x.reasons.join("; ")}) and no verifier is configured.`), "REJECTED");
-    let result;
-    try {
-      result = await providers.factVerifier.verifyFacts(game, exceptions.map((x) => x.fact), { ...stage, maxSearchCalls: Math.max(0, config.maxSearchCallsPerGame - usage.searchCalls), webSearchToolVersion: config.webSearchToolVersion, blockedDomains: config.blockedDomains });
-    } catch (error) {
-      return fail(`fact_verification_failed: ${(error as Error).message}`);
+  let lastCollapse: { code: string; problems: string[] } = { code: "no_trusted_primary_source", problems: [] };
+  let hardFailure: GenerationOutcome | null = null;
+  const prepareNextStory = async (): Promise<EditorialAngle | "failed" | null> => {
+    while (queue.length > 0) {
+      const candidate = queue.shift()!;
+      const collapse = (code: string, reason: string) => {
+        details.storyAttempts.push({ angleId: candidate.id, outcome: "collapsed", reason });
+        lastCollapse = { code, problems: [...(lastCollapse.code === code ? lastCollapse.problems : []), `${candidate.id}: ${reason}`] };
+      };
+      const alive = (a: EditorialAngle): EditorialAngle => {
+        const factIds = a.factIds.filter((id) => !dead.has(id) && facts.some((f) => f.id === id));
+        for (const id of a.factIds) if (!factIds.includes(id) && !details.factsRemoved.some((r) => r.angleId === a.id && r.factId === id)) details.factsRemoved.push({ angleId: a.id, factId: id, reason: dead.get(id) ?? "removed" });
+        return { ...a, factIds, centralFactIds: (a.centralFactIds ?? [a.factIds[0]]).filter((id) => factIds.includes(id)) };
+      };
+      let angle = alive(candidate);
+      const exceptions = facts
+        .filter((f) => angle.factIds.includes(f.id) && !confirmed.has(f.id))
+        .map((f) => ({ fact: f, reasons: verificationReasons(f, isTrusted(f), freshness) }))
+        .filter((x) => x.reasons.length > 0);
+      if (exceptions.length > 0) {
+        for (const x of exceptions) details.exceptionReasons[x.fact.id] = x.reasons;
+        if (!providers.factVerifier) {
+          for (const x of exceptions) dead.set(x.fact.id, `needs verification (${x.reasons.join("; ")}) and no verifier is configured`);
+        } else {
+          let result;
+          try {
+            result = await providers.factVerifier.verifyFacts(game, exceptions.map((x) => x.fact), { ...stage, maxSearchCalls: Math.max(0, config.maxSearchCallsPerGame - usage.searchCalls), webSearchToolVersion: config.webSearchToolVersion, blockedDomains: config.blockedDomains });
+          } catch (error) {
+            hardFailure = await fail(`fact_verification_failed: ${(error as Error).message}`);
+            return "failed";
+          }
+          usage = addUsage(usage, result.usage);
+          details.factVerification.push({ round: details.factVerification.length + 1, angleId: candidate.id, checks: result.checks });
+          const byId = new Map(result.checks.map((c) => [c.factId, c]));
+          for (const { fact } of exceptions) {
+            const check = byId.get(fact.id);
+            if (check?.status === "confirmed") confirmed.add(fact.id);
+            else dead.set(fact.id, `${check?.status ?? "unsupported"}${check?.note ? `: ${check.note}` : ""}`);
+          }
+        }
+        for (const entry of details.facts) if (dead.has(entry.id)) entry.excluded = `failed verification (${dead.get(entry.id)})`;
+        facts = facts.filter((f) => !dead.has(f.id));
+        angle = alive(candidate);
+      }
+      // Does the central story still stand without the removed facts?
+      const wantedCentral = candidate.centralFactIds && candidate.centralFactIds.length > 0 ? candidate.centralFactIds : [candidate.factIds[0]];
+      if (!wantedCentral.every((id) => angle.factIds.includes(id))) {
+        collapse("story_not_verified", `a central fact did not verify (${wantedCentral.filter((id) => !angle.factIds.includes(id)).map((id) => `${id}: ${dead.get(id) ?? "removed"}`).join("; ")})`);
+        continue;
+      }
+      const ordered = orderAnglePrimary(angle, facts, isEligiblePrimary);
+      if (!ordered) {
+        collapse("no_trusted_primary_source", "no trusted, readable source supports the central claim");
+        continue;
+      }
+      const completed = completeAngleFacts(ordered, facts);
+      details.angleFactsAdded = completed.added;
+      details.storyAttempts.push({ angleId: candidate.id, outcome: "used" });
+      if (candidate.id !== details.chosenAngleId) {
+        details.chosenAngleId = candidate.id;
+        details.angleOverridden = true;
+        details.selectionReason = `A story before it collapsed (${details.storyAttempts.filter((a) => a.outcome === "collapsed").map((a) => `${a.angleId}: ${a.reason}`).join("; ")}); the next-best supported story was used.`;
+      }
+      return completed.angle;
     }
-    usage = addUsage(usage, result.usage);
-    details.factVerification.push({ round, angleId: chosen.id, checks: result.checks });
-    const byId = new Map(result.checks.map((c) => [c.factId, c]));
-    for (const { fact } of exceptions) {
-      const check = byId.get(fact.id);
-      if (check?.status === "confirmed") confirmed.add(fact.id);
-      else dead.set(fact.id, `${check?.status ?? "unsupported"}${check?.note ? `: ${check.note}` : ""}`);
-    }
-    const failed = chosen.factIds.filter((id) => dead.has(id));
-    if (failed.length === 0) break;
-    for (const entry of details.facts) if (dead.has(entry.id)) entry.excluded = `failed verification (${dead.get(entry.id)})`;
-    facts = facts.filter((f) => !dead.has(f.id));
-    // "Remove it or choose another story": a story that lost a fact is no longer the story that was scored, so it is set aside whole.
-    const standing = selectionResult.angles.filter((a) => a.factIds.every((id) => !dead.has(id)) && hasTrustedPrimary(a));
-    if (standing.length === 0) return fail("story_not_verified", failed.map((id) => `Fact ${id} did not verify: ${dead.get(id)}`), "REJECTED");
-    const best = [...standing].sort((x, y) => overallScore(y.scores) - overallScore(x.scores))[0];
-    const pick = chooseAngle({ angles: standing, selectedId: best.id, selectionReason: "The first choice had a fact that did not verify; the strongest story whose facts stand was chosen." }, config.minStoryScore, facts);
-    chosen = completeAngleFacts(pick.angle, facts).angle;
-    details.chosenAngleId = pick.angle.id;
-    details.angleOverridden = true;
-    details.selectionReason = pick.reason;
-  }
-  {
-    const unresolved = facts.filter((f) => chosen.factIds.includes(f.id) && !confirmed.has(f.id) && verificationReasons(f, isTrusted(f), freshness).length > 0);
-    if (unresolved.length > 0) return fail("story_not_verified", unresolved.map((f) => `Fact ${f.id} was not verified.`), "REJECTED");
+    return null;
+  };
+  const startStory = async (): Promise<"ok" | "failed" | "none"> => {
+    const next = await prepareNextStory();
+    if (next === "failed") return "failed";
+    if (!next) return "none";
+    chosen = next;
     const all = details.factVerification.flatMap((v) => v.checks);
     const m = details.measurement;
     m.factsSelected = chosen.factIds.length;
@@ -325,6 +368,13 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     m.retrievalFailed = all.filter((c) => c.retrievalFailed).length;
     m.verificationSearches = usage.searchCalls - m.researchSearches;
     m.primarySource = primaryOf(chosen)?.sourceUrl ?? null;
+    return "ok";
+  };
+  const noStory = () => (lastCollapse.code === "story_not_verified" ? fail("story_not_verified", lastCollapse.problems, "REJECTED") : fail(lastCollapse.code, lastCollapse.problems, "REJECTED"));
+  {
+    const started = await startStory();
+    if (started === "failed") return hardFailure!; // fail() already recorded the run
+    if (started === "none") return noStory();
   }
 
   // 3-5. Draft → deterministic safety checks → independent read, with BLOCKING problems fed back for a rewrite. ADVISORY (editorial taste) findings never reject: if a draft is factually valid but has advisory notes, ONE rewrite may use them; the rewrite is
@@ -335,6 +385,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
   let lastProblems: string[] = [];
   let advisoryRewriteTried = false;
   let fallback: { draft: PreviewDraft; attempt: number } | null = null;
+  let writerDeclined: string | null = null;
 
   const saveDraft = async (draft: PreviewDraft, attemptNo: number, rewrite: RunDetails["advisoryRewrite"]): Promise<GenerationOutcome> => {
     // Save with provenance: the sources of exactly the cited facts, the claim → fact → source map, and the generation metadata (including what was decided).
@@ -352,19 +403,36 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
       byUrl.set(f.sourceUrl, entry);
     }
     const cited = citedFacts;
+    // Public credit: the primary source (it supports the central claim, by construction), and ONE secondary only when it materially supports the story: a trusted, readable source from a different publisher that supports at least one claim the primary does not.
+    const claimsCoveredByPrimary = (c: (typeof draft.claims)[number]) => c.factIds.some((id) => facts.find((f) => f.id === id)?.sourceUrl === primaryFact.sourceUrl);
+    const secondaryFact = citedFacts.find((f) => f.id !== primaryFact.id && isEligiblePrimary(f) && domainOf(f.sourceUrl) !== domainOf(primaryFact.sourceUrl) && draft.claims.some((c) => c.factIds.includes(f.id) && !claimsCoveredByPrimary(c)));
+    const publicSources = [primaryFact, ...(secondaryFact ? [secondaryFact] : [])];
+    const publicSourceUrls = [...new Set(publicSources.map((f) => f.sourceUrl))];
+    // A publication date research did not capture is read from the page itself (structured page metadata only; never inferred). Null stays null.
+    const dates = new Map<string, string | null>();
+    for (const f of publicSources) {
+      if (f.publishedAt || dates.has(f.sourceUrl)) continue;
+      let found: string | null = null;
+      try {
+        found = deps.fetchPublishedDate ? await deps.fetchPublishedDate(f.sourceUrl) : null;
+      } catch {
+        found = null;
+      }
+      dates.set(f.sourceUrl, found);
+      details.sourceDates.push({ url: f.sourceUrl, found });
+    }
+    const dateOf = (f: CandidateFact) => f.publishedAt ?? dates.get(f.sourceUrl) ?? null;
     const sources = [...byUrl.values()].map(({ fact: f, supports }) => ({
       url: f.sourceUrl,
       provider: f.sourceProvider,
       title: f.sourceTitle,
-      publishedAt: f.publishedAt,
+      publishedAt: dateOf(f),
       retrievedAt: f.retrievedAt,
       supports: supports.join(" ").slice(0, 500) || null,
       excerpt: f.excerpt,
     }));
-    // Public credit: the primary source, and a second only when the story materially depends on a trusted, non-betting source from a different publisher.
-    const publicSources = [primaryFact, ...citedFacts.filter((f) => f.id !== primaryFact.id && isEligiblePrimary(f) && domainOf(f.sourceUrl) !== domainOf(primaryFact.sourceUrl))].slice(0, 2);
-    const publicSourceUrls = [...new Set(publicSources.map((f) => f.sourceUrl))];
     details.measurement.publicSources = publicSourceUrls;
+    details.centralStory = { angleId: chosen.id, summary: chosen.summary, primaryClaims: (chosen.centralFactIds ?? [primaryFact.id]).map((id) => facts.find((f) => f.id === id)?.claim).filter((c): c is string => Boolean(c)), primarySource: primaryFact.sourceUrl, secondarySource: secondaryFact?.sourceUrl ?? null };
     const factById = new Map(facts.map((f) => [f.id, f]));
     const saved = await deps.save({
       fixtureId: request.fixtureId,
@@ -389,6 +457,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
         facts: cited.map((f) => ({ id: f.id, kind: f.kind, seasonScope: f.seasonScope, category: f.category, claim: f.claim, sourceUrl: f.sourceUrl })),
         primarySourceUrl: primaryFact.sourceUrl,
         publicSourceUrls,
+        centralStory: details.centralStory,
         verification: { exceptionFacts: details.measurement.exceptionFacts, exceptionVerification: details.measurement.exceptionVerification, sourceDisagreement: details.measurement.sourceDisagreement },
         researchedAt: game.asOf,
         season: game.season,
@@ -413,7 +482,21 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     }
     usage = addUsage(usage, draft.usage);
     // The writer may decide no supported story can be written: needs_review with the specific problem, never a manufactured story.
-    if (draft.status === "needs_review") return fail("needs_review: no_supported_story", [draft.reason?.trim() || "The writer could not produce a supported story from the facts."], "REJECTED");
+    if (draft.status === "needs_review") {
+      // This story collapsed at the writer: try the next-best supported story from the research already gathered (this attempt is spent; the budget is unchanged).
+      const reason = draft.reason?.trim() || "The writer could not produce a supported story from the facts.";
+      writerDeclined = `${chosen.id}: ${reason}`;
+      details.storyAttempts.push({ angleId: chosen.id, outcome: "collapsed", reason: `the writer declined (${reason})` });
+      feedback = [];
+      feedbackKind = "blocking";
+      fallback = null;
+      advisoryRewriteTried = false;
+      const next = await startStory();
+      if (next === "failed") return hardFailure!;
+      if (next === "none") return fail("needs_review: no_supported_story", [writerDeclined], "REJECTED");
+      lastProblems = [];
+      continue;
+    }
 
     const provenance = validateDraft({ draft: { hook: draft.hook, preview: draft.preview, claims: draft.claims }, facts, config });
     const editorial = validateEditorial({ draft, angle: chosen, config });
@@ -465,5 +548,6 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
   }
   attempts = config.maxAttempts;
   if (fallback) return saveDraft(fallback.draft, fallback.attempt, "kept_original");
+  if (writerDeclined && lastProblems.length === 0) return fail("needs_review: no_supported_story", [writerDeclined], "REJECTED");
   return fail("draft_rejected", lastProblems, "REJECTED");
 }

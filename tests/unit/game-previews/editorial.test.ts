@@ -163,12 +163,18 @@ describe("orderAnglePrimary — the credited source is chosen among the story's 
     expect(r.factIds).toEqual(["f3", "f1", "f2"]); // f2 is history, so the first eligible CURRENT fact (f3) leads
   });
   it("a story about this season never credits an earlier-season article, even if it is listed first and eligible", () => {
-    const hist = { ...angles[0], factIds: ["f2", "f1"] }; // f2 is HISTORICAL_CONTEXT, f1 is this season
+    const hist = { ...angles[0], factIds: ["f2", "f1"], centralFactIds: ["f2", "f1"] }; // f2 is HISTORICAL_CONTEXT, f1 is this season
     expect(orderAnglePrimary(hist, facts, ok)!.factIds).toEqual(["f1", "f2"]);
   });
   it("returns null when no fact of the story can be credited: a current story whose only current facts are ineligible, or no eligible fact at all", () => {
     expect(orderAnglePrimary(angles[0], facts, (f) => f.id === "f2")).toBeNull(); // only the historical fact is eligible: not a credit for a current story
     expect(orderAnglePrimary(angles[0], facts, () => false)).toBeNull();
+  });
+  it("(test A) the public primary is chosen among the CENTRAL facts only: an eligible source for an incidental fact is not the credit", () => {
+    const story = { ...angles[0], factIds: ["f1", "f2", "f3"], centralFactIds: ["f1"] };
+    expect(orderAnglePrimary(story, facts, (f) => f.id === "f1")!.factIds[0]).toBe("f1");
+    expect(orderAnglePrimary(story, facts, (f) => f.id === "f3")).toBeNull(); // f3 is eligible but incidental: the story has no creditable source for its central claim
+    expect(orderAnglePrimary({ ...story, centralFactIds: undefined }, facts, (f) => f.id === "f3")).toBeNull(); // no central list: the first fact is the central one
   });
   it("a history-only story may be credited to a historical source", () => {
     expect(orderAnglePrimary(angles[2], facts, ok)!.factIds).toEqual(["f2"]);

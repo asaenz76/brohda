@@ -124,11 +124,20 @@ export function unsupportedQuotes(text: string, cited: CandidateFact[]): string[
 }
 
 /**
- * A page whose purpose is betting, picks, odds or gambling advice. Such a page may never be the publicly credited PRIMARY source of a Brohda Preview, even on an otherwise trusted domain (an NBC Sports news story qualifies; NBC Sports' betting/odds/picks page does not).
- * It may support a non-betting fact only when that fact is independently verified and another eligible trusted source carries the central story.
+ * A page whose purpose is betting: odds, best bets, a sportsbook, wagering picks, prop bets, gambling advice. Such a page may never be the publicly credited PRIMARY source of a Brohda Preview, even on an otherwise trusted domain (an NBC Sports news story qualifies;
+ * NBC Sports' betting/odds page does not). It may support a non-betting fact only when that fact is independently verified and another eligible trusted source carries the central story.
+ *
+ * Decided from the page's PURPOSE, not from one editorial word: "preview", "prediction(s)" and "picks" alone are ordinary sports-editorial words ("2026-27 NBA season preview: rankings, predictions", "who we pick to win the division") and are NOT betting. They count only together with a wagering
+ * term (odds, spread, line(s), bet(s), props, parlay, sportsbook, moneyline, over/under) in the URL or the title, or when the URL itself sits in a betting section (/betting/, /odds/, /sportsbook/, /gambling/).
  */
-const BETTING_URL = /\/(betting|odds|picks|predictions?|best-bets?|sportsbook|gambling|parlays?|dfs)(\/|-|$)|(^|[-_/])(odds|picks|predictions?|best-bets?|parlays?|sportsbook|betting)([-_/.]|$)|odds-expert-picks|player-props/i;
-const BETTING_TITLE = /\b(odds|picks|predictions?|best bets?|betting|parlays?|sportsbook|moneyline|against the spread|over\/under|player props)\b/i;
+const WAGER_TERMS = "odds|spreads?|lines?|bets?|betting|props?|parlays?|sportsbooks?|moneylines?|over-under|ats|wager(?:s|ing)?|gambling|dfs";
+const BETTING_SECTION = /\/(betting|odds|sportsbooks?|gambling|best-bets?|parlays?|dfs|props|prop-bets|picks)(\/|$)/i; // "picks" only as a whole section (a picks hub), never inside an article slug
+const BETTING_SLUG = new RegExp(`(^|[-_/.])(odds|best-bets?|parlays?|sportsbooks?|betting|prop-bets?|player-props|moneyline|against-the-spread)([-_/.]|$)`, "i");
+const PICK_OR_PREDICTION = /(^|[-_/.])(picks?|predictions?|expert-picks)([-_/.]|$)/i;
+const WAGER_IN_SLUG = new RegExp(`(^|[-_/.])(${WAGER_TERMS})([-_/.]|$)`, "i");
+const BETTING_TITLE_STRONG = /\b(odds|best bets?|betting|parlays?|sportsbooks?|moneyline|against the spread|over\/under|player props|prop bets?)\b/i;
+const PICK_OR_PREDICTION_TITLE = /\b(picks?|predictions?)\b/i;
+const WAGER_IN_TITLE = /\b(odds|spreads?|lines?|bets?|betting|props?|parlays?|sportsbooks?|moneylines?|over\/under|against the spread|wagers?)\b/i;
 export function isBettingPage(url: string, title?: string | null): boolean {
   let path = url;
   try {
@@ -137,9 +146,12 @@ export function isBettingPage(url: string, title?: string | null): boolean {
   } catch {
     /* a non-URL falls through to the title check */
   }
-  return BETTING_URL.test(path) || BETTING_TITLE.test(title ?? "");
+  const t = title ?? "";
+  if (BETTING_SECTION.test(path) || BETTING_SLUG.test(path)) return true;
+  if (PICK_OR_PREDICTION.test(path) && (WAGER_IN_SLUG.test(path) || WAGER_IN_TITLE.test(t))) return true;
+  if (BETTING_TITLE_STRONG.test(t)) return true;
+  return PICK_OR_PREDICTION_TITLE.test(t) && WAGER_IN_TITLE.test(t);
 }
-
 
 /**
  * A source that can be CREDITED to a reader: a page about a story, not a data endpoint. A JSON API (`/apis/`, `site.api.`), a feed or a raw data file is evidence for a number, not "the original reporting" a Member can open and read.
@@ -154,9 +166,26 @@ export function isStoryPage(url: string): boolean {
   }
 }
 
-/** Whether a fact's source may be the story's PRIMARY (publicly credited) source: trusted, a readable page, and not a betting page. */
+/**
+ * PUBLIC CREDIT eligibility, separate from EVIDENCE eligibility. A source may be valid evidence for a fact (a JSON feed, a schedule PDF, a live injury list, a stats table, a data feed) and still be a poor thing to show a Member as "the original reporting". A creditable page is a
+ * readable page a Member can open and understand: a story page (not a data endpoint), not a betting page, not a document or data file (pdf, uploads), and not a live list or table page (injuries, schedule(s), scoreboard, standings, stats, roster, depth chart, transactions, game log).
+ * Decided on whole URL path SEGMENTS, so an article whose slug merely contains "injury-report" or "schedule" is still creditable.
+ */
+const NON_EDITORIAL_SEGMENTS = new Set(["injuries", "injury-report", "injury", "schedule", "schedules", "scoreboard", "standings", "stats", "statistics", "roster", "depth-chart", "transactions", "game-log", "gamelog", "splits", "uploads", "feed", "feeds", "api"]);
+export function isCreditablePage(url: string, title?: string | null): boolean {
+  if (!isStoryPage(url) || isBettingPage(url, title)) return false;
+  try {
+    const u = new URL(url);
+    if (/\.(pdf|docx?|xlsx?|pptx?|zip|txt)$/i.test(u.pathname)) return false;
+    return !u.pathname.toLowerCase().split("/").some((seg) => NON_EDITORIAL_SEGMENTS.has(seg));
+  } catch {
+    return false;
+  }
+}
+
+/** Whether a fact's source may be the story's PRIMARY (publicly credited) source: trusted AND creditable. Evidence eligibility is wider (any non-blocked source). */
 export function isEligiblePrimarySource(fact: Pick<CandidateFact, "sourceUrl" | "sourceTitle">, teams: string[], trustedDomains: string[]): boolean {
-  return isTrustedSource(fact.sourceUrl, teams, trustedDomains) && isStoryPage(fact.sourceUrl) && !isBettingPage(fact.sourceUrl, fact.sourceTitle);
+  return isTrustedSource(fact.sourceUrl, teams, trustedDomains) && isCreditablePage(fact.sourceUrl, fact.sourceTitle);
 }
 
 /** The Game's time frame as the freshness check needs it. */
@@ -209,6 +238,9 @@ const SEASON_QUALIFIER = /\b(this|the current) (season|year)\b|\bso far in 20\d\
 const FACT_STATES_SEASON = /\b(this|the current) (season|year)\b|\bso far in 20\d\d\b|\b2026\b/i;
 
 
+/** Words that make a status or a forecast uncertain. A hint only: the reviewer decides whether the Preview kept that uncertainty. */
+const HEDGE = /\b(unlikely|doubtful|questionable|probable|expected|projected|could|might|may|likely|day-to-day|game-time decision|hopes?|plans? to|is listed as|listed as|no guarantee|not yet cleared|has a chance)\b/g;
+
 /** Things worth a second look. NOT gates: the independent reader judges meaning; without a reader configured the pipeline falls back to treating unsupported DIGITS as blocking. */
 export function draftHints(draft: DraftToValidate, facts: CandidateFact[]): DraftHints {
   const byId = new Map(facts.map((f) => [f.id, f]));
@@ -221,7 +253,9 @@ export function draftHints(draft: DraftToValidate, facts: CandidateFact[]): Draf
   const seasonClaims = draft.claims
     .filter((c) => SEASON_QUALIFIER.test(c.text) && c.factIds.length > 0 && !c.factIds.map((id) => byId.get(id)).filter((f): f is CandidateFact => Boolean(f)).some(statesSeason))
     .map((c) => c.text);
-  return { figures, seasonClaims };
+  // Status certainty: the hedges the cited facts carry ("unlikely to play", "questionable", "expected back"). The reviewer checks that the title and caption do not state more certainty than these.
+  const hedges = [...cited.values()].flatMap((f) => [...new Set(`${f.claim} ${f.excerpt ?? ""}`.toLowerCase().match(HEDGE) ?? [])].map((h) => `${f.id}: "${h}"`));
+  return { figures, seasonClaims, hedges };
 }
 
 export function validateDraft({ draft, facts, config }: { draft: DraftToValidate; facts: CandidateFact[]; game?: GameIdentity; config: Pick<GamePreviewConfig, "maxChars" | "blockedDomains">; now?: Date }): ValidationResult {

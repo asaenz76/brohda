@@ -383,6 +383,51 @@ describe("Anthropic provider — the canonical contract inputs and outputs", () 
   });
 });
 
+describe("final hardening: status certainty, central facts and credit rules reach the prompts", () => {
+  it("(tests E, F) the reviewer is told to BLOCK status inflation, with the owner's examples, and receives the hedges found in the cited facts", async () => {
+    const c = client(msg([text({ blocking: [{ category: "status_overstated", problem: "'unlikely to play' written as 'missing'." }], advisory: [] })]));
+    const hedged = [{ ...facts[0], claim: "Parsons won't practice and is unlikely to play in Week 7; Hargrave is expected back soon.", excerpt: "unlikely to play; expected back" }];
+    const out = await new AnthropicGamePreviewProvider(c).verify(game, angles[0], { hook: "Green Bay is missing Parsons", preview: "Hargrave returns.", claims: [{ text: "x", factIds: ["f1"] }] }, hedged, { model: "m", effort: "medium" }, { figures: [], seasonClaims: [], hedges: ['f1: "unlikely"', 'f1: "expected"'] });
+    expect(out.blocking).toEqual([{ category: "status_overstated", problem: "'unlikely to play' written as 'missing'." }]);
+    const system = String(calls(c)[0].system);
+    expect(system).toMatch(/status_overstated/);
+    for (const pair of ["'unlikely to play' written as 'out'", "'questionable' as 'will play'", "'expected to return' as 'returns'", "'projected starter' as 'starter'", "'could play' as 'will play'"]) expect(system).toContain(pair);
+    expect(JSON.stringify(calls(c)[0].messages)).toContain("unlikely");
+    const schema = (calls(c)[0].output_config as { format: { schema: { properties: { blocking: { items: { properties: { category: { enum: string[] } } } } } } } }).format.schema.properties.blocking.items.properties.category.enum;
+    expect(schema).toEqual(expect.arrayContaining(["status_overstated", "central_source_mismatch"]));
+  });
+
+  it("the writer is told status certainty must match source certainty (especially in the title), and which facts are central", async () => {
+    const c = client(msg([text({ status: "ready", reason: "", title: "t", caption: "c", claims: [{ text: "x", fact_ids: ["f1"], evidence: "e" }] })]));
+    await new AnthropicGamePreviewProvider(c).write(game, { ...angles[0], centralFactIds: ["f1", "f3"] }, facts, { model: "m", effort: "medium", maxChars: 700, maxCitedFacts: 4, recentHooks: [], feedback: [] });
+    expect(String(calls(c)[0].system)).toMatch(/Status certainty must match source certainty, especially in the title/);
+    expect(JSON.stringify(calls(c)[0].messages)).toContain("Central facts (the story rests on these; cite them): f1, f3");
+  });
+
+  it("the reviewer is shown the central story and the credited primary source, so it can block a credit that supports only an incidental claim", async () => {
+    const c = client(msg([text({ blocking: [], advisory: [] })]));
+    await new AnthropicGamePreviewProvider(c).verify(game, { ...angles[0], centralFactIds: ["f1"] }, goodDraft, facts, { model: "m", effort: "medium" });
+    const user = (calls(c)[0].messages as Array<{ content: string }>)[0].content;
+    expect(user).toContain("Central story:");
+    expect(user).toContain("Credited primary source: ESPN");
+    expect(String(calls(c)[0].system)).toMatch(/central_source_mismatch/);
+  });
+
+  it("the angle stage separates the facts that establish the central story; the research asks for the trusted original of a republished story and a page-stated date", async () => {
+    const withCentral = { angles: angles.map((a) => ({ id: a.id, type: a.type, summary: a.summary, fact_ids: a.factIds, central_fact_ids: [a.factIds[0]], scores: a.scores, note: a.note })), selected_id: "a1", selection_reason: "x", rejected: [] };
+    const c = client(msg([text(withCentral)]));
+    const sel = await new AnthropicGamePreviewProvider(c).selectAngle(game, facts, { model: "m", effort: "medium" });
+    expect(sel.angles[0].centralFactIds).toEqual(["f1"]);
+    expect(String(calls(c)[0].system)).toMatch(/central_fact_ids/);
+    const r = client(msg([searchUse(), searchResult([ESPN]), text({ facts: [rawFact()] })]));
+    await new AnthropicGamePreviewProvider(r).research(game, ctx);
+    const system = String(calls(r)[0].system);
+    expect(system).toMatch(/republished on Yahoo/);
+    expect(system).toMatch(/poor sources to show a reader/);
+    expect(system).toMatch(/Never use the crawl date/);
+  });
+});
+
 describe("the real SDK accepts the research request", () => {
   it("max_tokens large enough to need streaming does not make the SDK refuse the request client-side (an explicit timeout is passed)", async () => {
     const body = { id: "m", type: "message", role: "assistant", model: "configured-model", content: [searchUse(), searchResult([ESPN]), text({ facts: [rawFact()] })], stop_reason: "end_turn", stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1, server_tool_use: { web_search_requests: 1 } } };

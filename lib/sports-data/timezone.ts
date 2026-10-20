@@ -57,6 +57,21 @@ const CITY_TIMEZONES: Record<string, string> = {
   tampa: "America/New_York",
   landover: "America/New_York",
   canton: "America/New_York",
+  // NFL venues the map was missing (found by the r111 audit: their rows silently took the platform fallback, America/Costa_Rica) and the league's international games.
+  "orchard park": "America/New_York",
+  "miami gardens": "America/New_York",
+  london: "Europe/London",
+  dublin: "Europe/Dublin",
+  paris: "Europe/Paris",
+  "saint-denis": "Europe/Paris",
+  madrid: "Europe/Madrid",
+  munich: "Europe/Berlin",
+  berlin: "Europe/Berlin",
+  frankfurt: "Europe/Berlin",
+  "mexico city": "America/Mexico_City",
+  "rio de janeiro": "America/Sao_Paulo",
+  "sao paulo": "America/Sao_Paulo",
+  melbourne: "Australia/Melbourne",
 };
 
 export function resolveVenueTimezone(
@@ -71,4 +86,18 @@ export function resolveVenueTimezone(
   }
 
   return competitionDefaultTz || fallback;
+}
+
+/** The timezone the curated map gives a venue city, or null when the city is not in it. Unlike `resolveVenueTimezone` this never falls back to a default. */
+export function mappedVenueTimezone(venueCity: string | null | undefined): string | null {
+  return venueCity ? (CITY_TIMEZONES[venueCity.trim().toLowerCase()] ?? null) : null;
+}
+
+/**
+ * The stored venue timezone, but only when it is TRUSTWORTHY: it is exactly what the curated map gives the venue's city. A row that took the platform fallback (the city was not in the map, or the provider gave no venue) carries a default that says nothing about the venue,
+ * so it must not be used to describe a local kickoff time (a Paris game labelled America/Costa_Rica reads an hour wrong). Null means "state the time in UTC".
+ */
+export function trustedVenueTimezone(venueCity: string | null | undefined, storedTimezone: string | null | undefined): string | null {
+  const mapped = mappedVenueTimezone(venueCity);
+  return mapped && storedTimezone === mapped ? mapped : null;
 }

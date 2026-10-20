@@ -193,6 +193,8 @@ export interface EditorialAngle {
   summary: string;
   /** The facts this story needs — the Preview may cite only these. */
   factIds: string[];
+  /** The one or two facts that establish the CENTRAL story (a subset of `factIds`). The public primary source is chosen among these: it must be the source that materially supports the primary claim(s), not an incidental one. */
+  centralFactIds?: string[];
   /** 1..5 each. */
   scores: AngleScores;
   /** Why this angle is (or is not) worth a Member's time. */
@@ -280,6 +282,8 @@ export const BLOCKING_CATEGORIES = [
   "source_conflict",
   "wrong_game",
   "wrong_phase",
+  "status_overstated",
+  "central_source_mismatch",
   "not_relevant_now",
   "logical_contradiction",
   "unsupported_causation",
@@ -296,6 +300,8 @@ export type AdvisoryKind = (typeof ADVISORY_KINDS)[number];
 export interface DraftHints {
   figures: string[];
   seasonClaims: string[];
+  /** The uncertainty words the cited facts carry ("f4: \"unlikely\""): the Preview must not state more certainty than its sources. */
+  hedges?: string[];
 }
 
 export interface VerificationResult {

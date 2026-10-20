@@ -1,5 +1,5 @@
 import type { GamePreviewSource, PublicPreviewSource } from "./types";
-import { domainOf, isBettingPage, isStoryPage } from "./validation";
+import { domainOf, isCreditablePage } from "./validation";
 
 /** Publisher names Members know, by domain. A team's own site reads as the team ("Chargers.com"); anything else falls back to the provider the research named, then to the domain. */
 const KNOWN: Record<string, string> = {
@@ -39,10 +39,10 @@ export function derivePublicSources(rows: Array<Pick<GamePreviewSource, "url" | 
   // A betting, odds or picks page is never the credited primary source. A Preview whose primary source is one has nothing eligible to credit and is not shown; a betting page is never listed as an "Also".
   const primaryUrl = typeof meta?.primarySourceUrl === "string" ? meta.primarySourceUrl : (recorded[0] ?? rows[0]?.url);
   const primaryRow = rows.find((r) => r.url === primaryUrl) ?? rows[0];
-  // The credit must link to the original page a Member can read: a data endpoint (a JSON scoreboard or schedule API) is not one, so such a Preview is not shown either.
-  if (primaryRow && (isBettingPage(primaryRow.url, primaryRow.title) || !isStoryPage(primaryRow.url))) return [];
+  // The credit must link to a readable page a Member can open: a data endpoint, a PDF, a live list or table page or a betting page is valid evidence but not a public credit, so a Preview whose primary source is one is not shown.
+  if (primaryRow && !isCreditablePage(primaryRow.url, primaryRow.title)) return [];
   const listed = recorded.length > 0 ? recorded.map((u) => rows.find((r) => r.url === u)).filter((r): r is NonNullable<typeof r> => Boolean(r)) : rows.slice(0, 1);
-  const chosen = listed.filter((r) => !isBettingPage(r.url, r.title) && isStoryPage(r.url));
+  const chosen = listed.filter((r) => isCreditablePage(r.url, r.title));
   const seen = new Set<string>();
   return chosen
     .filter((r) => (seen.has(r.url) ? false : (seen.add(r.url), true)))
