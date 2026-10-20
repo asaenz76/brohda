@@ -397,6 +397,14 @@ describe("final hardening: status certainty, central facts and credit rules reac
     expect(schema).toEqual(expect.arrayContaining(["status_overstated", "central_source_mismatch"]));
   });
 
+  it("the reviewer is told that a hedged announcement ('pretty sure') and an as-of statistic ('so far') must not become settled / current (Kings and Packers re-test regressions)", async () => {
+    const c = client(msg([text({ blocking: [], advisory: [] })]));
+    await new AnthropicGamePreviewProvider(c).verify(game, angles[0], goodDraft, facts, { model: "m", effort: "medium" });
+    const system = String(calls(c)[0].system);
+    expect(system).toContain("'I'm pretty sure this is my last year' written as 'his final season'");
+    expect(system).toContain("a statistic the source gives 'so far' or as of an earlier game or record presented as the current number");
+  });
+
   it("the writer is told status certainty must match source certainty (especially in the title), and which facts are central", async () => {
     const c = client(msg([text({ status: "ready", reason: "", title: "t", caption: "c", claims: [{ text: "x", fact_ids: ["f1"], evidence: "e" }] })]));
     await new AnthropicGamePreviewProvider(c).write(game, { ...angles[0], centralFactIds: ["f1", "f3"] }, facts, { model: "m", effort: "medium", maxChars: 700, maxCitedFacts: 4, recentHooks: [], feedback: [] });
