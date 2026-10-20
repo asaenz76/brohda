@@ -236,10 +236,30 @@ export interface FactVerificationResult {
   checks: FactCheck[];
   usage: ProviderUsage;
 }
+/** The trusted domains a credit lookup may search (the stored trusted list). */
+export interface CreditLookupContext extends FactVerificationContext {
+  trustedDomains: string[];
+}
+/** A page on a trusted domain that directly states a claim, found for the PUBLIC CREDIT of a story whose central claim first appeared in a lower-trust or republishing source. */
+export interface TrustedSourceHit {
+  url: string;
+  title: string;
+  provider: string;
+  /** The date the PAGE shows as published, or null. */
+  publishedAt: string | null;
+  /** The passage of the page that states the claim. */
+  excerpt: string;
+}
+export interface CreditLookupResult {
+  found: Array<{ factId: string; hit: TrustedSourceHit | null }>;
+  usage: ProviderUsage;
+}
 /** Stage 2b: after the story is chosen and before anything is written, independently verify every material fact it needs — the source supports the claim, the date and season are right, no authoritative source disagrees. */
 export interface GamePreviewFactVerifierProvider {
   readonly name: string;
   verifyFacts(game: GameIdentity, facts: CandidateFact[], ctx: FactVerificationContext): Promise<FactVerificationResult>;
+  /** Find, for each fact, a page on a trusted domain that states the same claim, so the story can be credited to a trusted, readable source. Optional: without it a story whose central claim has no trusted source is not published. */
+  findTrustedSources?(game: GameIdentity, facts: CandidateFact[], ctx: CreditLookupContext): Promise<CreditLookupResult>;
 }
 
 export interface DraftContext extends StageContext {

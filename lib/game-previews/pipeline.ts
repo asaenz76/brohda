@@ -2,7 +2,7 @@ import type { GamePreviewConfig, GamePreviewInput, GamePreviewReason, GamePrevie
 import type { GenerationRunInput } from "./repository";
 import { addUsage, emptyUsage, type AdvisoryKind, type AngleSelection, type CandidateFact, type EditorialAngle, type FactCheck, type GameIdentity, type GamePreviewProviders, type PreviewDraft, type ProviderUsage, type ReachedSource, type ResearchLead, type SourceConflict } from "./providers/types";
 import { angleBasis, chooseAngle, completeAngleFacts, dedupeAngles, orderAnglePrimary, overallScore, sanitizeAngles, validateEditorial } from "./editorial";
-import { domainOf, draftHints, isEligiblePrimarySource, isTrustedSource, reconcileSeasonScope, validateDraft, verificationReasons } from "./validation";
+import { domainMatches, domainOf, draftHints, isCreditablePage, isEligiblePrimarySource, isTrustedSource, reconcileSeasonScope, validateDraft, verificationReasons } from "./validation";
 
 /**
  * Preview generation, one Game at a time: research → candidate facts → candidate editorial angles, scored → the strongest story → a draft that tells only that story → deterministic provenance validation → deterministic editorial
@@ -99,6 +99,8 @@ export interface RunDetails {
   centralStory: { angleId: string; summary: string; primaryClaims: string[]; primarySource: string | null; secondarySource: string | null } | null;
   /** Publication dates read from the page itself for the credited sources research left undated. */
   sourceDates: Array<{ url: string; found: string | null }>;
+  /** Stories whose central claim first appeared in a lower-trust or republishing source: the search of the trusted domains for the page that carries the same claim, and what it found. */
+  creditLookups: Array<{ angleId: string; factId: string; found: string | null }>;
 }
 
 /**
@@ -163,6 +165,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     storyAttempts: [],
     centralStory: null,
     sourceDates: [],
+    creditLookups: [],
   };
 
   const finish = async (outcome: GenerationOutcome, previewId: string | null): Promise<GenerationOutcome> => {
@@ -237,6 +240,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
   const isEligiblePrimary = (f: CandidateFact) => isEligiblePrimarySource(f, teams, config.preferredDomains);
   const primaryOf = (angle: EditorialAngle) => facts.find((f) => f.id === angle.factIds[0]);
   let chosen!: EditorialAngle;
+  const basisRankOf = (a: EditorialAngle) => (angleBasis(a, facts) === "HISTORY_ONLY" ? 1 : 0);
   /** The stories still to try, best first. The first is the chosen story; the rest are the next-best supported stories from the research already gathered. */
   const queue: EditorialAngle[] = [];
   try {
@@ -253,25 +257,31 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     details.angleBasis = Object.fromEntries(selection.angles.map((a) => [a.id, angleBasis(a, facts)]));
     details.selectedAngleId = selection.selectedId;
     details.rejectedAngles = selection.rejected;
-    // Each story's public primary source is chosen among its CENTRAL facts (trusted AND readable: evidence may come from anywhere, the credit may not); a story with none is not publishable.
+    // Each story's public primary source is chosen among its CENTRAL facts (trusted AND readable: evidence may come from anywhere, the credit may not). A story whose central claim has no such source YET is kept: its trusted source may still be found (credit lookup, below).
     const reordered: string[] = [];
-    const trustedAngles: EditorialAngle[] = [];
+    const ordered: EditorialAngle[] = [];
+    const credited = new Set<string>();
     for (const a of selection.angles) {
-      const ordered = orderAnglePrimary(a, facts, isEligiblePrimary);
-      if (!ordered) continue;
-      if (ordered !== a) reordered.push(a.id);
-      trustedAngles.push(ordered);
+      const o = orderAnglePrimary(a, facts, isEligiblePrimary);
+      if (o) {
+        credited.add(a.id);
+        if (o !== a) reordered.push(a.id);
+      }
+      ordered.push(o ?? a);
     }
     details.primaryReordered = reordered;
-    if (trustedAngles.length === 0) return fail("no_trusted_primary_source", ["No candidate story has a trusted, readable source for its central claim (the approved league, ESPN, FOX Sports, established reporting or team sites; not a data feed, a schedule PDF, a live list or a betting page)."], "REJECTED");
-    const selectedStands = trustedAngles.some((a) => a.id === selection.selectedId);
-    const pick = chooseAngle({ ...selection, angles: trustedAngles, selectedId: selectedStands ? selection.selectedId : [...trustedAngles].sort((x, y) => overallScore(y.scores) - overallScore(x.scores))[0].id, selectionReason: selectedStands ? selection.selectionReason : "The selected story has no trusted source for its central claim; the strongest story that does was chosen." }, config.minStoryScore, facts);
+    const pick0 = chooseAngle({ ...selection, angles: ordered }, config.minStoryScore, facts);
+    // Prefer a story that is already creditable when it is about as strong as an uncredited one: the lookup costs searches.
+    let pick = pick0;
+    if (!credited.has(pick0.angle.id)) {
+      const alt = ordered.filter((a) => credited.has(a.id) && overallScore(a.scores) >= overallScore(pick0.angle.scores) - 0.5 && basisRankOf(a) <= basisRankOf(pick0.angle)).sort((x, y) => overallScore(y.scores) - overallScore(x.scores))[0];
+      if (alt) pick = { ...pick0, angle: alt, overridden: true, reason: `${pick0.reason} A comparably strong story with a trusted, readable source for its central claim was preferred.` };
+    }
     details.chosenAngleId = pick.angle.id;
-    details.angleOverridden = pick.overridden || !selectedStands;
+    details.angleOverridden = pick.overridden;
     details.selectionReason = pick.reason;
-    // Next-best stories: the other publishable stories that clear the minimum score, current-season ones before history-only ones.
-    const basisRank = (a: EditorialAngle) => (angleBasis(a, facts) === "HISTORY_ONLY" ? 1 : 0);
-    const rest = trustedAngles.filter((a) => a.id !== pick.angle.id && overallScore(a.scores) >= config.minStoryScore).sort((x, y) => basisRank(x) - basisRank(y) || overallScore(y.scores) - overallScore(x.scores));
+    // Next-best stories: the other stories that clear the minimum score, creditable and current-season ones first.
+    const rest = ordered.filter((a) => a.id !== pick.angle.id && overallScore(a.scores) >= config.minStoryScore).sort((x, y) => Number(credited.has(y.id)) - Number(credited.has(x.id)) || basisRankOf(x) - basisRankOf(y) || overallScore(y.scores) - overallScore(x.scores));
     queue.push(pick.angle, ...rest);
   } catch (error) {
     return fail(`angle_selection_failed: ${(error as Error).message}`);
@@ -284,6 +294,38 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
   const dead = new Map<string, string>();
   let lastCollapse: { code: string; problems: string[] } = { code: "no_trusted_primary_source", problems: [] };
   let hardFailure: GenerationOutcome | null = null;
+  /** A story with no creditable central source: one search of the trusted domains for each central claim. A trusted, readable page that states it becomes the central fact (same claim, trusted source); nothing found means the story cannot be credited. */
+  const findTrustedCredit = async (angle: EditorialAngle): Promise<EditorialAngle | null> => {
+    const finder = providers.factVerifier?.findTrustedSources;
+    const left = config.maxSearchCallsPerGame - usage.searchCalls;
+    if (!finder || left <= 0 || config.preferredDomains.length === 0) return null;
+    const central = (angle.centralFactIds ?? [angle.factIds[0]]).map((id) => facts.find((f) => f.id === id)).filter((f): f is CandidateFact => Boolean(f) && !isEligiblePrimary(f as CandidateFact));
+    if (central.length === 0) return null;
+    let result;
+    try {
+      result = await finder.call(providers.factVerifier, game, central, { ...stage, maxSearchCalls: left, webSearchToolVersion: config.webSearchToolVersion, blockedDomains: config.blockedDomains, trustedDomains: config.preferredDomains });
+    } catch {
+      return null; // a failed lookup only means this story cannot be credited; the next-best story is tried
+    }
+    usage = addUsage(usage, result.usage);
+    let factIds = [...angle.factIds];
+    let centralIds = [...(angle.centralFactIds ?? [angle.factIds[0]])];
+    let any = false;
+    for (const { factId, hit } of result.found) {
+      const orig = facts.find((f) => f.id === factId);
+      details.creditLookups.push({ angleId: angle.id, factId, found: hit?.url ?? null });
+      if (!orig || !hit || !isTrustedSource(hit.url, teams, config.preferredDomains) || !isCreditablePage(hit.url, hit.title) || domainMatches(domainOf(hit.url), config.blockedDomains)) continue;
+      if (orig.kind === "current" && hit.publishedAt && freshness.now.getTime() - new Date(hit.publishedAt).getTime() > config.currentFactMaxAgeHours * 3_600_000) continue; // an old page does not credit a current-state claim
+      const credited: CandidateFact = { ...orig, id: `${orig.id}t`, sourceUrl: hit.url, sourceProvider: hit.provider, sourceTitle: hit.title, publishedAt: hit.publishedAt, excerpt: hit.excerpt, sourceType: "article", pageContext: null, pageSeason: null, ambiguous: false, surprising: false, disputed: false };
+      facts = [...facts, credited];
+      confirmed.add(credited.id); // the claim itself was verified; this page only carries it under a trusted name
+      factIds = factIds.map((id) => (id === orig.id ? credited.id : id));
+      centralIds = centralIds.map((id) => (id === orig.id ? credited.id : id));
+      details.facts.push({ id: credited.id, kind: credited.kind, seasonScope: credited.seasonScope, category: credited.category, claim: credited.claim, excerpt: credited.excerpt, sourceType: credited.sourceType, pageContext: null, pageSeason: null, subjectTeam: credited.subjectTeam, sourceUrl: credited.sourceUrl, publishedAt: credited.publishedAt, relevance: credited.relevance } as RunDetails["facts"][number]);
+      any = true;
+    }
+    return any ? { ...angle, factIds, centralFactIds: centralIds } : null;
+  };
   const prepareNextStory = async (): Promise<EditorialAngle | "failed" | null> => {
     while (queue.length > 0) {
       const candidate = queue.shift()!;
@@ -332,9 +374,17 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
         collapse("story_not_verified", `a central fact did not verify (${wantedCentral.filter((id) => !angle.factIds.includes(id)).map((id) => `${id}: ${dead.get(id) ?? "removed"}`).join("; ")})`);
         continue;
       }
-      const ordered = orderAnglePrimary(angle, facts, isEligiblePrimary);
+      let ordered = orderAnglePrimary(angle, facts, isEligiblePrimary);
       if (!ordered) {
-        collapse("no_trusted_primary_source", "no trusted, readable source supports the central claim");
+        // The central claim first appeared in a lower-trust or republishing source. Search the trusted domains for the page that carries the same claim and credit that, before giving the story up.
+        const withTrusted = await findTrustedCredit(angle);
+        if (withTrusted) {
+          angle = withTrusted;
+          ordered = orderAnglePrimary(angle, facts, isEligiblePrimary);
+        }
+      }
+      if (!ordered) {
+        collapse("no_trusted_primary_source", "no trusted, readable source supports the central claim (the trusted domains were searched where the search budget allowed)");
         continue;
       }
       const completed = completeAngleFacts(ordered, facts);
