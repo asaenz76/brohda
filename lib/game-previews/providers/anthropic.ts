@@ -17,6 +17,8 @@ import {
   FACT_SOURCE_TYPES,
   type FactCheck,
   type FactSourceType,
+  type CreditLookupContext,
+  type CreditLookupResult,
   type FactVerificationContext,
   type FactVerificationResult,
   type GamePreviewAngleProvider,
@@ -224,6 +226,7 @@ const REVIEW_SCHEMA = {
 } as const;
 
 const EVIDENCE_CHECK_PROMPT = "You verify the facts a sports preview is about to rest on, FROM THE EVIDENCE ALREADY CAPTURED during research. Verify from captured source evidence first; do not ask for more unless it is genuinely needed. For each fact give one verdict:\n- proves: the captured evidence by itself clearly establishes the subject (player or team), the number, the season, the date/context, the team and the meaning of the claim.\n- insufficient: plausible, but the evidence does not establish it — an unclear subject or team, an unclear season, a paraphrase that changes the meaning, a number you cannot see, or a page that cannot place the figure in a season. Say in to_establish exactly what a targeted search would have to find.\n- contradicted: the captured evidence (this fact's or another listed fact's) contradicts the claim.\nSeason and date context may come from the PAGE's identity and metadata, not only from the sentence: a current-season statistics page, standings page, game log, schedule/results page or recap from a major provider (ESPN, NHL.com, NFL.com, NBA.com, the league or team's official site), retrieved this season (see page_season, page_context, source_type, published_at, retrieved_at), establishes current-season figures even when the visible row does not repeat the season. Do NOT mark a fact insufficient merely because the visible text omits a date when the page's identity establishes the season. An undated generic biography, archive article, prospect profile or historical page does NOT establish current-season context. Facts about completed past events (history) need only the right event and subject. A person must appear on the team the claim says (a page that lists both teams proves a person's team only if the excerpt shows which). Never use outside knowledge to prove a claim, and never confirm from plausibility.";
+const CREDIT_LOOKUP_PROMPT = "You find the TRUSTED page that carries a story's central claim, so the story can be credited to a source a reader can open. Each claim below was first found in a lower-trust or republishing source (a syndication, a fan site, an aggregator). Search ONLY the allowed trusted domains for a readable article or report that states the SAME claim (same people, same numbers, same season, same team). A betting page, an odds or picks page, a PDF, a schedule or injury list or stats table, or a data feed does not count. If a trusted page does not clearly state the claim, answer null for it: never stretch a page to fit and never invent a URL. Report the date the PAGE ITSELF shows as published (byline or dateline) or null; never the crawl date.\n\nReturn ONLY a JSON object: {\"results\":[{\"fact_id\":\"f1\",\"url\":\"https://...\" or null,\"title\":\"the page title\",\"provider\":\"the publisher\",\"published_at\":\"ISO date or null\",\"excerpt\":\"the passage that states the claim\"}]} with one entry per listed claim.";
 const TARGETED_CHECK_PROMPT = "You settle the claims the captured evidence could not. A verification search is available. Verify ONLY the listed claims, and search for the EXACT unresolved claim — names, numbers, season (for example 'Nathan MacKinnon 16 points 6 goals 10 assists 2026-27') — never broad news; do not restart research. Status: \"confirmed\" = you saw an authoritative source supporting the exact claim (right subject, number, season, team) and nothing contradicts it; \"disputed\" = authoritative sources disagree; \"unsupported\" = authoritative evidence contradicts it or you found no support. If you cannot retrieve a page, that is not evidence the claim is false: set retrieval_failed true, and mark it unsupported only if nothing else supports it. Never confirm from memory.\n\nReturn ONLY a JSON object: {\"checks\":[{\"fact_id\":\"f1\",\"status\":\"confirmed|unsupported|disputed\",\"note\":\"what you saw, briefly\",\"corroborating_url\":\"the source that supports it, or null\",\"retrieval_failed\":false}]} with one entry per listed claim.";
 
 const EVIDENCE_SCHEMA = {
@@ -404,6 +407,32 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
     const advisory = (parsed.advisory ?? []).filter((a) => String(a.note ?? "").trim()).map((a) => ({ kind: ((ADVISORY_KINDS as readonly string[]).includes(String(a.kind)) ? String(a.kind) : "wording_tone") as AdvisoryKind, note: String(a.note).trim() }));
     return { blocking, advisory, usage: result.usage };
   }
+  async findTrustedSources(game: GameIdentity, facts: CandidateFact[], ctx: CreditLookupContext): Promise<CreditLookupResult> {
+    if (facts.length === 0 || ctx.maxSearchCalls <= 0 || ctx.trustedDomains.length === 0) return { found: facts.map((f) => ({ factId: f.id, hit: null })), usage: emptyUsage() };
+    const tool: Record<string, unknown> = { type: ctx.webSearchToolVersion, name: "web_search", max_uses: Math.min(ctx.maxSearchCalls, 2), allowed_domains: ctx.trustedDomains };
+    const claims = facts.map((f) => ({ fact_id: f.id, claim: f.claim, found_at: f.sourceUrl }));
+    const result = await call(
+      this.client,
+      { model: ctx.model, max_tokens: RESEARCH_MAX_TOKENS, system: CREDIT_LOOKUP_PROMPT, output_config: outputConfig(ctx.effort), tools: [tool as unknown as Anthropic.Messages.ToolUnion], messages: [{ role: "user", content: `${describeGame(game)}\n\nClaims to find a trusted page for:\n${JSON.stringify(claims)}` }] },
+      true,
+    );
+    // Only pages the search actually reached on an allowed domain count.
+    const reached = new Set<string>();
+    for (const block of result.blocks) if (block.type === "web_search_tool_result" && Array.isArray(block.content)) for (const r of block.content) reached.add(normUrl(r.url));
+    const parsed = extractJson<{ results?: Array<{ fact_id?: string; url?: string | null; title?: string; provider?: string; published_at?: string | null; excerpt?: string }> }>(result.text, "credit lookup");
+    const byId = new Map((parsed.results ?? []).map((r) => [String(r.fact_id ?? ""), r]));
+    return {
+      found: facts.map((f) => {
+        const r = byId.get(f.id);
+        const url = r?.url ? String(r.url) : "";
+        if (!r || !url || !reached.has(normUrl(url)) || !domainMatches(domainOf(url), ctx.trustedDomains) || !String(r.excerpt ?? "").trim()) return { factId: f.id, hit: null };
+        const published = r.published_at ? new Date(String(r.published_at)) : null;
+        return { factId: f.id, hit: { url, title: String(r.title ?? "").trim() || domainOf(url), provider: String(r.provider ?? "").trim() || domainOf(url), publishedAt: published && !Number.isNaN(published.getTime()) ? published.toISOString() : null, excerpt: String(r.excerpt).trim().slice(0, 1500) } };
+      }),
+      usage: result.usage,
+    };
+  }
+
   async verifyFacts(game: GameIdentity, facts: CandidateFact[], ctx: FactVerificationContext): Promise<FactVerificationResult> {
     // STEP 1 — evidence first: judge every fact from the evidence research already captured (no search). What the captured evidence proves needs no second lookup.
     const material = facts.map((f) => ({ fact_id: f.id, claim: f.claim, excerpt: f.excerpt, source_url: f.sourceUrl, source_title: f.sourceTitle, source_type: f.sourceType, page_context: f.pageContext, page_season: f.pageSeason, subject_team: f.subjectTeam, published_at: f.publishedAt, retrieved_at: f.retrievedAt, kind: f.kind, season_scope: f.seasonScope }));

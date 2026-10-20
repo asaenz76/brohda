@@ -284,7 +284,7 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
     expect((t2.runs[0].details as { angleOverridden: boolean }).angleOverridden).toBe(true);
     const allBlogs = { name: "fake", research: async () => ({ facts: facts.map(blog), sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) };
     const t3 = setup({ providers: { research: allBlogs } });
-    expect(await generateGamePreview(t3.deps, req)).toMatchObject({ status: "REJECTED", error: "no_trusted_primary_source" });
+    expect(await generateGamePreview(t3.deps, req)).toMatchObject({ status: "REJECTED", error: "story_not_verified" });
     expect(t3.write).not.toHaveBeenCalled();
   });
 
@@ -441,7 +441,7 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
     expect(t1.write.mock.calls[0][1].factIds[0]).toBe("f3"); // never the betting page
     expect((t1.saves[0]?.meta as { primarySourceUrl: string } | undefined)?.primarySourceUrl ?? facts[2].sourceUrl).toBe(facts[2].sourceUrl);
     const t2 = setup({ providers: { research: { name: "fake", research: async () => ({ facts: facts.map(betting), sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) } } });
-    expect(await generateGamePreview(t2.deps, req)).toMatchObject({ status: "REJECTED", error: "no_trusted_primary_source" });
+    expect(await generateGamePreview(t2.deps, req)).toMatchObject({ status: "REJECTED", error: "story_not_verified" });
   });
 
   it("a betting page that supports a non-primary fact is an exception that must be verified, and is never credited publicly", async () => {
@@ -628,6 +628,68 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
     expect(absent.saves[0].sources.find((x) => x.url === ESPN_STORY)?.publishedAt ?? null).toBeNull();
     const throws = make(async () => { throw new Error("blocked"); });
     expect((await generateGamePreview(throws.deps, req)).status).toBe("SUCCEEDED"); // a failed lookup never fails the run
+  });
+
+  describe("credit lookup: a story whose central claim first appeared in a lower-trust source is credited to the trusted page that carries it", () => {
+    const yahoo = (over = {}) => fact({ id: "f1", sourceUrl: "https://sports.yahoo.com/articles/titans-winless-123.html", sourceProvider: "Yahoo Sports", sourceTitle: "Titans winless", ...over });
+    const story = { ...selection, angles: [{ ...selection.angles[0], factIds: ["f1"], centralFactIds: ["f1"], summary: "A winless team." }], selectedId: "a1" };
+    const hit = { url: "https://www.espn.com/nfl/story/_/id/77/titans-fall-to-0-5", title: "Titans fall to 0-5", provider: "ESPN", publishedAt: "2026-10-12T10:00:00.000Z", excerpt: "Tennessee fell to 0-5 with a 26-3 loss to Houston." };
+    const verifierWith = (found: (id: string) => typeof hit | null, calls: { lookup: number } = { lookup: 0 }) => ({
+      name: "fake",
+      verifyFacts: verifierOf(() => "confirmed"),
+      findTrustedSources: vi.fn(async (_g: unknown, fs: Array<{ id: string }>) => {
+        calls.lookup++;
+        return { found: fs.map((f) => ({ factId: f.id, hit: found(f.id) })), usage: usage({ searchCalls: 1, modelCalls: 1 }) };
+      }),
+    });
+    const citesStoryFacts = vi.fn<GamePreviewWriterProvider["write"]>(async (_g, angle) => draftOf({ claims: [{ text: "Tennessee is 0-5 after a 26-3 loss to Houston.", factIds: [angle.factIds[0]] }] }));
+    const build = (verifier: ReturnType<typeof verifierWith> | null, extra: Partial<typeof config> = {}) =>
+      setup({ providers: { writer: { name: "fake", write: citesStoryFacts }, research: { name: "fake", research: async () => ({ facts: [yahoo()], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...story, usage: usage({ modelCalls: 1 }) }) }, factVerifier: verifier as never }, config: { maxSearchCallsPerGame: 8, ...extra } });
+
+    it("the trusted page becomes the central fact and the public credit; the Yahoo page stays valid evidence", async () => {
+      const t = build(verifierWith(() => hit));
+      expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+      const [, angleArg, factsArg] = citesStoryFacts.mock.calls[0];
+      expect(angleArg.factIds).toEqual(["f1t"]);
+      expect(factsArg.find((f) => f.id === "f1t")?.sourceUrl).toBe(hit.url);
+      expect((t.saves[0].meta as { primarySourceUrl: string; publicSourceUrls: string[] }).publicSourceUrls).toEqual([hit.url]);
+      expect(t.saves[0].sources.find((x) => x.url === hit.url)?.publishedAt).toBe(hit.publishedAt);
+      expect((t.runs[0].details as { creditLookups: unknown[] }).creditLookups).toEqual([{ angleId: "a1", factId: "f1", found: hit.url }]);
+    });
+
+    it("no trusted page found: that story cannot be credited and the Game is not published (no_trusted_primary_source)", async () => {
+      const t = build(verifierWith(() => null));
+      expect(await generateGamePreview(t.deps, req)).toMatchObject({ status: "REJECTED", error: "no_trusted_primary_source" });
+      expect(t.saves).toHaveLength(0);
+    });
+
+    it("a page the lookup returns that is not trusted, not readable, a betting page or an old page for a current-state claim is not used", async () => {
+      for (const bad of [{ ...hit, url: "https://random-blog.example/titans" }, { ...hit, url: "https://www.espn.com/nfl/team/injuries/_/name/ten/tennessee-titans" }, { ...hit, url: "https://www.espn.com/betting/nfl/titans-odds-picks" }]) {
+        const t = build(verifierWith(() => bad));
+        expect(await generateGamePreview(t.deps, req)).toMatchObject({ status: "REJECTED", error: "no_trusted_primary_source" });
+      }
+      const current = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [yahoo({ kind: "current", publishedAt: "2026-10-17T12:00:00.000Z" })], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...story, usage: usage({ modelCalls: 1 }) }) }, factVerifier: verifierWith(() => ({ ...hit, publishedAt: "2026-10-01T00:00:00.000Z" })) as never }, config: { maxSearchCallsPerGame: 8 } });
+      expect(await generateGamePreview(current.deps, req)).toMatchObject({ status: "REJECTED", error: "no_trusted_primary_source" });
+    });
+
+    it("the lookup only runs when the search ceiling has room, and not at all for a story that already has a creditable central source", async () => {
+      const calls = { lookup: 0 };
+      const noRoom = build(verifierWith(() => hit, calls), { maxSearchCallsPerGame: 3 }); // research already used 3
+      expect(await generateGamePreview(noRoom.deps, req)).toMatchObject({ status: "REJECTED" });
+      expect(calls.lookup).toBe(0);
+      const credited = setup({ providers: { factVerifier: verifierWith(() => hit, calls) as never } });
+      await generateGamePreview(credited.deps, req);
+      expect(calls.lookup).toBe(0);
+    });
+
+    it("a comparably strong story that is already creditable is preferred to one that needs a lookup", async () => {
+      const calls = { lookup: 0 };
+      const two = { ...selection, angles: [{ ...selection.angles[0], id: "a1", factIds: ["f1"], centralFactIds: ["f1"], summary: "Needs a lookup." }, { ...selection.angles[0], id: "a2", type: "HOT_VS_COLD" as const, factIds: ["f3"], centralFactIds: ["f3"], summary: "Already creditable." }], selectedId: "a1" };
+      const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [yahoo(), facts[2]], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...two, usage: usage({ modelCalls: 1 }) }) }, factVerifier: verifierWith(() => hit, calls) as never }, config: { maxSearchCallsPerGame: 8 } });
+      await generateGamePreview(t.deps, req);
+      expect(t.write.mock.calls[0][1].id).toBe("a2");
+      expect(calls.lookup).toBe(0);
+    });
   });
 
   it("provenance: one saved Preview per successful generation, with claim evidence, season, phase and the research time", async () => {

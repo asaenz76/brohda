@@ -428,6 +428,28 @@ describe("final hardening: status certainty, central facts and credit rules reac
   });
 });
 
+describe("credit lookup: searching the trusted domains for the page that carries a claim", () => {
+  const lookupCtx = { model: "m", effort: "medium", maxSearchCalls: 3, webSearchToolVersion: "web_search_20250305", blockedDomains: ["reddit.com"], trustedDomains: ["espn.com", "nfl.com"] };
+  it("restricts the search to the trusted domains and returns only a page the search reached on one of them, with its excerpt", async () => {
+    const good = "https://www.espn.com/nfl/story/_/id/77/titans-fall-to-0-5";
+    const c = client(msg([searchUse(), searchResult([good, "https://random-blog.example/x"]), text({ results: [{ fact_id: "f1", url: good, title: "Titans fall to 0-5", provider: "ESPN", published_at: "2026-10-12T10:00:00Z", excerpt: "Tennessee fell to 0-5." }, { fact_id: "f2", url: "https://random-blog.example/x", title: "x", provider: "x", published_at: null, excerpt: "y" }, { fact_id: "f3", url: "https://www.espn.com/never-reached", title: "n", provider: "ESPN", published_at: null, excerpt: "z" }] })]));
+    const out = await new AnthropicGamePreviewProvider(c).findTrustedSources(game, facts, lookupCtx);
+    const tool = (calls(c)[0].tools as Array<Record<string, unknown>>)[0];
+    expect(tool.allowed_domains).toEqual(["espn.com", "nfl.com"]);
+    expect(tool.blocked_domains).toBeUndefined(); // the API accepts one of the two
+    expect(out.found[0]).toEqual({ factId: "f1", hit: { url: good, title: "Titans fall to 0-5", provider: "ESPN", publishedAt: "2026-10-12T10:00:00.000Z", excerpt: "Tennessee fell to 0-5." } });
+    expect(out.found[1].hit).toBeNull(); // not a trusted domain
+    expect(out.found[2].hit).toBeNull(); // never reached by the search
+    expect(String(calls(c)[0].system)).toMatch(/Search ONLY the allowed trusted domains/);
+  });
+  it("makes no call when there is nothing to search with", async () => {
+    const c = client();
+    const out = await new AnthropicGamePreviewProvider(c).findTrustedSources(game, facts, { ...lookupCtx, maxSearchCalls: 0 });
+    expect(out.found.every((f) => f.hit === null)).toBe(true);
+    expect(calls(c)).toHaveLength(0);
+  });
+});
+
 describe("the real SDK accepts the research request", () => {
   it("max_tokens large enough to need streaming does not make the SDK refuse the request client-side (an explicit timeout is passed)", async () => {
     const body = { id: "m", type: "message", role: "assistant", model: "configured-model", content: [searchUse(), searchResult([ESPN]), text({ facts: [rawFact()] })], stop_reason: "end_turn", stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1, server_tool_use: { web_search_requests: 1 } } };
