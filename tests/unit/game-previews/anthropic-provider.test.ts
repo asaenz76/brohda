@@ -3,8 +3,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
-import { AnthropicGamePreviewProvider, PREVIEW_PROMPT_VERSION, extractJson } from "@/lib/game-previews/providers/anthropic";
+import { AnthropicGamePreviewProvider, PREVIEW_PROMPT_VERSION, extractJson, parseJsonWithRetry } from "@/lib/game-previews/providers/anthropic";
 import { createGamePreviewProviders } from "@/lib/game-previews/providers";
+import { StructuredOutputError } from "@/lib/game-previews/providers/types";
 import { angles, config, facts, game, goodDraft } from "./fixtures";
 
 const ESPN = "https://www.espn.com/nfl/game/_/gameId/401872984";
@@ -91,7 +92,7 @@ describe("Anthropic provider — research", () => {
     await expect(run(msg([searchUse(), { type: "web_search_tool_result", tool_use_id: "s1", content: { type: "web_search_tool_result_error", error_code: "unavailable" } }, text({ facts: [] })]))).rejects.toThrow(/web_search_error: unavailable/);
     await expect(run(msg([text("no")], { stop_reason: "refusal" }))).rejects.toThrow(/anthropic_refusal/);
     await expect(run(msg([text("{")], { stop_reason: "max_tokens" }))).rejects.toThrow(/anthropic_max_tokens/);
-    await expect(run(msg([searchUse(), searchResult([ESPN]), text("I could not find anything.")]))).rejects.toThrow(/no JSON/);
+    await expect(new AnthropicGamePreviewProvider(client(msg([searchUse(), searchResult([ESPN]), text("I could not find anything.")]), msg([text("Still nothing to report.")]))).research(game, ctx)).rejects.toThrow(/not valid JSON, and the one format retry did not recover it/);
   });
 
   it("an unavailable model fails with the API's own error and NO fallback to another model", async () => {
@@ -702,6 +703,112 @@ describe("current player status: research, confirmation, reviewer and writer (pr
     const c = client(msg([text({ verdicts: [{ fact_id: "f1", verdict: "proves", note: "x", to_establish: "" }] })]));
     await new AnthropicGamePreviewProvider(c).verifyFacts(game, [facts[0]], { model: "m", effort: "medium", maxSearchCalls: 0, webSearchToolVersion: "web_search_20250305", blockedDomains: [] });
     expect(String(calls(c)[0].system)).toMatch(/proven only by an official league or team report, or by a trusted outlet's report that shows its own publication date/);
+  });
+});
+
+describe("JSON reliability: one bounded format retry for the search stages that ask for JSON in the prompt", () => {
+  const vctx = { model: "configured-model", effort: "medium", maxSearchCalls: 2, webSearchToolVersion: "web_search_20250305", blockedDomains: ["reddit.com"] };
+  const insufficient = msg([text({ verdicts: [{ fact_id: "f1", verdict: "insufficient", note: "cut off", to_establish: "the full claim" }] })]);
+  const targeted = (t: unknown) => msg([searchUse(), searchResult([ESPN]), text(t)]);
+  const MALFORMED = '{"checks":[{"fact_id":"f1","status":"confirmed","note":"Syndicated copy says \'still recovering\' citing "multiple sources" and';
+  const goodChecks = (status = "confirmed") => ({ checks: [{ fact_id: "f1", status, note: "seen", corroborating_url: ESPN, retrieval_failed: false, passage: "Tennessee fell to 0-5." }] });
+  const retryUsage = { input_tokens: 40, output_tokens: 25 };
+
+  it("(A) a valid first answer needs no retry: three calls never happen, and no recovery is recorded", async () => {
+    const c = client(insufficient, targeted(goodChecks()));
+    const out = await new AnthropicGamePreviewProvider(c).verifyFacts(game, [facts[0]], vctx);
+    expect(out.checks[0]).toMatchObject({ status: "confirmed", basis: "targeted_search" });
+    expect(calls(c)).toHaveLength(2);
+    expect(out.parseRecoveries).toEqual([]);
+  });
+
+  it("(B) a malformed targeted-check answer is retried once; the recovered answer continues the generation, and the recovery is recorded with stage, model and first error", async () => {
+    const c = client(insufficient, targeted(MALFORMED), msg([text(goodChecks())], { usage: retryUsage }));
+    const out = await new AnthropicGamePreviewProvider(c).verifyFacts(game, [facts[0]], vctx);
+    expect(out.checks[0]).toMatchObject({ factId: "f1", status: "confirmed", basis: "targeted_search", passage: "Tennessee fell to 0-5." });
+    expect(calls(c)).toHaveLength(3);
+    expect(out.parseRecoveries).toEqual([{ stage: "fact_check_targeted", model: "configured-model", firstError: expect.stringMatching(/not valid JSON/), retried: true, recovered: true }]);
+    expect(JSON.stringify(out.parseRecoveries)).not.toContain("multiple sources"); // the malformed answer itself is never logged
+  });
+
+  it("(C) malformed twice is a controlled failure: a StructuredOutputError naming the format retry, carrying the recovery record, with nothing confirmed", async () => {
+    const c = client(insufficient, targeted(MALFORMED), msg([text("Sorry, here it is: not json")]));
+    const err = await new AnthropicGamePreviewProvider(c).verifyFacts(game, [facts[0]], vctx).catch((e) => e);
+    expect(err).toBeInstanceOf(StructuredOutputError);
+    expect(String(err.message)).toMatch(/targeted check answer was not valid JSON, and the one format retry did not recover it/);
+    expect(err.recovery).toMatchObject({ stage: "fact_check_targeted", model: "configured-model", retried: true, recovered: false });
+  });
+
+  it("(D) the retry is a pure format request: no tools, so it cannot search, and no web search is counted for it", async () => {
+    const c = client(insufficient, targeted(MALFORMED), msg([text(goodChecks())], { usage: { ...retryUsage, server_tool_use: { web_search_requests: 3 } } }));
+    const out = await new AnthropicGamePreviewProvider(c).verifyFacts(game, [facts[0]], vctx);
+    const [, search, retry] = calls(c);
+    expect(search.tools).toBeDefined();
+    expect(retry).not.toHaveProperty("tools");
+    expect(retry.model).toBe("configured-model");
+    const sent = retry.messages as Array<{ role: string; content: string }>;
+    expect(sent.map((m) => m.role)).toEqual(["user", "assistant", "user"]); // the original request, the model's own answer, the format instruction
+    expect(sent[1].content).toBe(MALFORMED);
+    expect(sent[2].content).toMatch(/Do not search/);
+    expect(out.usage.searchCalls).toBe(2); // the search call only; the retry added none even if the API reported some
+    expect(out.usage.modelCalls).toBe(3); // evidence check + targeted search + the format retry (counted)
+    expect(out.usage.inputTokens).toBeGreaterThanOrEqual(retryUsage.input_tokens);
+  });
+
+  it("(E) the retry count never exceeds one, however many malformed answers are queued", async () => {
+    const c = client(insufficient, targeted(MALFORMED), msg([text("{bad")]), msg([text("{bad")]), msg([text("{bad")]), msg([text(goodChecks())]));
+    await expect(new AnthropicGamePreviewProvider(c).verifyFacts(game, [facts[0]], vctx)).rejects.toBeInstanceOf(StructuredOutputError);
+    expect(calls(c)).toHaveLength(3); // evidence check, targeted search, ONE retry
+  });
+
+  it("(F) a recovered answer is held to the normal schema: an unrecognised status is not confirmed, and a fact the answer omits is unsupported", async () => {
+    const c = client(
+      msg([text({ verdicts: [{ fact_id: "f1", verdict: "insufficient", note: "", to_establish: "a" }, { fact_id: "f2", verdict: "insufficient", note: "", to_establish: "b" }] })]),
+      targeted("not json at all"),
+      msg([text({ checks: [{ fact_id: "f1", status: "definitely-true", note: "x" }] })]),
+    );
+    const out = await new AnthropicGamePreviewProvider(c).verifyFacts(game, [facts[0], facts[1]], vctx);
+    expect(out.checks.map((k) => [k.factId, k.status])).toEqual([["f1", "unsupported"], ["f2", "unsupported"]]);
+  });
+
+  it("(G) a malformed answer cannot bypass factual validation: a retry that 'recovers' research is still limited to pages the search reached", async () => {
+    const c = client(msg([searchUse(), searchResult([ESPN]), text('{"facts":[{"claim":"x" "oops"')]), msg([text({ facts: [rawFact(), rawFact({ source_url: "https://never-reached.example/a", claim: "Invented by the retry." })] })], { usage: retryUsage }));
+    const out = await new AnthropicGamePreviewProvider(c).research(game, ctx);
+    expect(out.facts.map((f) => f.claim)).toEqual(["Tennessee lost 26-3 to Houston."]);
+    expect(out.parseRecoveries).toEqual([{ stage: "research", model: "configured-model", firstError: expect.any(String), retried: true, recovered: true }]);
+    expect(out.usage.searchCalls).toBe(2);
+    expect(calls(c)[1]).not.toHaveProperty("tools");
+  });
+
+  it("the other search stages (credit lookup, number refresh, player status) recover the same way, and the retry never searches", async () => {
+    const good = "https://www.espn.com/nfl/story/_/id/77/titans-fall-to-0-5";
+    const lookup = client(msg([searchUse(), searchResult([good]), text("{oops")]), msg([text({ results: [{ fact_id: "f1", url: good, title: "t", provider: "ESPN", published_at: null, excerpt: "Tennessee fell to 0-5." }] })]));
+    const found = await new AnthropicGamePreviewProvider(lookup).findTrustedSources(game, [facts[0]], { ...vctx, trustedDomains: ["espn.com"] });
+    expect(found.found[0].hit?.url).toBe(good);
+    expect(found.parseRecoveries?.[0]).toMatchObject({ stage: "credit_lookup", recovered: true });
+    const refresh = client(msg([searchUse(), searchResult([ESPN]), text("{oops")]), msg([text({ results: [{ fact_id: "f1", status: "confirmed", note: "same" }] })]));
+    const refreshed = await new AnthropicGamePreviewProvider(refresh).refreshNumbers(game, [facts[0]], vctx);
+    expect(refreshed.results[0].status).toBe("confirmed");
+    expect(refreshed.parseRecoveries?.[0]).toMatchObject({ stage: "number_refresh", recovered: true });
+    const status = client(msg([searchUse(), searchResult([ESPN]), text("{oops")]), msg([text({ results: [{ fact_id: "f1", status: "unavailable", note: "none" }] })]));
+    const checked = await new AnthropicGamePreviewProvider(status).confirmPlayerStatus(game, [facts[0]], vctx);
+    expect(checked.results[0].status).toBe("unavailable");
+    expect(checked.parseRecoveries?.[0]).toMatchObject({ stage: "player_status", recovered: true });
+    for (const c of [lookup, refresh, status]) expect(calls(c)[1]).not.toHaveProperty("tools");
+  });
+
+  it("the schema-guaranteed stages (angles, writer, reviewer, evidence check) are not wrapped: a bad answer there still fails at once, with one call", async () => {
+    const c = client(msg([text("not json")]));
+    await expect(new AnthropicGamePreviewProvider(c).selectAngle(game, facts, { model: "m", effort: "medium" })).rejects.toThrow(/no JSON/);
+    expect(calls(c)).toHaveLength(1);
+  });
+
+  it("parseJsonWithRetry is a no-op for a valid answer and replays only the request it was given", async () => {
+    const c = client();
+    const done = { text: '{"a":1}', blocks: [], usage: { searchCalls: 1, modelCalls: 1, inputTokens: 1, outputTokens: 1 }, stopReason: "end_turn", request: { model: "m", max_tokens: 10, system: "s", messages: [{ role: "user" as const, content: "u" }] } };
+    const out = await parseJsonWithRetry<{ a: number }>(c, done, "x", "stage");
+    expect(out).toEqual({ value: { a: 1 }, usage: { searchCalls: 0, modelCalls: 0, inputTokens: 0, outputTokens: 0 }, recovery: null });
+    expect(calls(c)).toHaveLength(0);
   });
 });
 
