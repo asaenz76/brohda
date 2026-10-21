@@ -81,6 +81,8 @@ export interface CandidateFact {
   /** For a story republished on an aggregator (for example Yahoo): who published it originally, as the page states ("Originally appeared on ..."). The evidence URL stays the aggregator's. */
   originalPublisher?: string | null;
   originalUrl?: string | null;
+  /** Other evidence for the SAME claim, kept when the claim's public credit moved to a trusted page found by the credit lookup: the original page and its passage stay available to the writer and the reviewer. The lookup enriches provenance; it never replaces the evidence that supported the claim. */
+  alsoSupportedBy?: Array<{ url: string; provider: string; title: string; excerpt: string | null; publishedAt: string | null }>;
 }
 export const NUMBER_KINDS = ["CURRENT_STATE", "FIXED", "NONE"] as const;
 export type NumberKind = (typeof NUMBER_KINDS)[number];
@@ -330,6 +332,7 @@ export const BLOCKING_CATEGORIES = [
   "wrong_phase",
   "status_overstated",
   "central_source_mismatch",
+  "subject_mismatch",
   "not_relevant_now",
   "logical_contradiction",
   "unsupported_causation",

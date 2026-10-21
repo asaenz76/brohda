@@ -537,6 +537,54 @@ describe("release gate: figure freshness, number classification and syndication 
   });
 });
 
+describe("final blockers: subject integrity and evidence preservation reach the reviewer (D1, D2)", () => {
+  it("D1: the reviewer must check the subject of every public sentence against the source-backed claim; subject_mismatch is a blocking category; awkward prose with the right subject is advisory", async () => {
+    const c = client(msg([text({ blocking: [{ category: "subject_mismatch", problem: "'The team was hired' but the fact says Sean Sweeney, the coach, was hired." }], advisory: [] })]));
+    const draft = { hook: "New coach", preview: "The team was hired to build on its elite defense.", claims: [{ text: "The Magic hired Sweeney to build on the defense.", factIds: ["f1"] }] };
+    const out = await new AnthropicGamePreviewProvider(c).verify(game, angles[0], draft, facts, { model: "m", effort: "medium" });
+    expect(out.blocking).toEqual([{ category: "subject_mismatch", problem: expect.stringContaining("Sean Sweeney") }]);
+    const system = String(calls(c)[0].system);
+    expect(system).toContain("subject_mismatch");
+    expect(system).toContain("'The team was hired to build on its defense' when the coach was hired");
+    expect(system).toContain("a player's injury given to a teammate or to the whole team");
+    expect(system).toContain("Team A's statistic credited to Team B");
+    expect(system).toMatch(/For EVERY sentence of the title and the caption/);
+    expect(system).toMatch(/clumsy prose is wording_tone \(advisory\), never blocking/);
+    const user = (calls(c)[0].messages as Array<{ content: string }>)[0].content;
+    expect(user).toContain("Claims the writer says the text rests on");
+    expect(user).toContain("The Magic hired Sweeney");
+    const schema = (calls(c)[0].output_config as { format: { schema: { properties: { blocking: { items: { properties: { category: { enum: string[] } } } } } } } }).format.schema.properties.blocking.items.properties.category.enum;
+    expect(schema).toContain("subject_mismatch");
+  });
+
+  it("D1: the writer is told to keep each sentence's subject faithful to its fact", async () => {
+    const c = client(msg([text({ status: "ready", reason: "", title: "t", caption: "c", claims: [{ text: "x", fact_ids: ["f1"], evidence: "e" }] })]));
+    await new AnthropicGamePreviewProvider(c).write(game, angles[0], facts, { model: "m", effort: "medium", maxChars: 700, maxCitedFacts: 4, recentHooks: [], feedback: [] });
+    expect(String(calls(c)[0].system)).toContain("never give a person's action to a team or one team's number to the other");
+  });
+
+  it("D2: for a claim enriched by the credit lookup the reviewer and the writer see BOTH the trusted passage and the original evidence", async () => {
+    const enriched = { ...facts[0], id: "f1t", excerpt: "Dybantsa has an ankle sprain and will be day-to-day.", alsoSupportedBy: [{ url: "https://bulletsforever.com/x", provider: "Bullets Forever", title: "x", excerpt: "Dybantsa will miss Wednesday's game against Milwaukee with an ankle sprain.", publishedAt: "2026-10-20T00:00:00.000Z" }] };
+    const draft = { hook: "t", preview: "He will miss the opener.", claims: [{ text: "He will miss the opener.", factIds: ["f1t"] }] };
+    const rev = client(msg([text({ blocking: [], advisory: [] })]));
+    await new AnthropicGamePreviewProvider(rev).verify(game, { ...angles[0], factIds: ["f1t"], centralFactIds: ["f1t"] }, draft, [enriched], { model: "m", effort: "medium" });
+    const user = (calls(rev)[0].messages as Array<{ content: string }>)[0].content;
+    expect(user).toContain("will be day-to-day"); // the trusted page's passage
+    expect(user).toContain("will miss Wednesday's game against Milwaukee"); // the original passage, still visible
+    expect(user).toContain("also_supported_by");
+    const w = client(msg([text({ status: "ready", reason: "", title: "t", caption: "c", claims: [{ text: "x", fact_ids: ["f1t"], evidence: "e" }] })]));
+    await new AnthropicGamePreviewProvider(w).write(game, { ...angles[0], factIds: ["f1t"], centralFactIds: ["f1t"] }, [enriched], { model: "m", effort: "medium", maxChars: 700, maxCitedFacts: 4, recentHooks: [], feedback: [] });
+    expect(JSON.stringify(calls(w)[0].messages)).toContain("will miss Wednesday's game against Milwaukee");
+  });
+
+  it("D2: the credit lookup asks for the FULL supporting passage, not a fragment", async () => {
+    const good = "https://www.espn.com/nfl/story/_/id/77/titans-fall-to-0-5";
+    const c = client(msg([searchUse(), searchResult([good]), text({ results: [{ fact_id: "f1", url: good, title: "t", provider: "ESPN", published_at: null, excerpt: "Tennessee fell to 0-5." }] })]));
+    await new AnthropicGamePreviewProvider(c).findTrustedSources(game, [facts[0]], { model: "m", effort: "medium", maxSearchCalls: 3, webSearchToolVersion: "web_search_20250305", blockedDomains: [], trustedDomains: ["espn.com"] });
+    expect(String(calls(c)[0].system)).toContain("FULL passage of the trusted page that states the claim");
+  });
+});
+
 describe("the real SDK accepts the research request", () => {
   it("max_tokens large enough to need streaming does not make the SDK refuse the request client-side (an explicit timeout is passed)", async () => {
     const body = { id: "m", type: "message", role: "assistant", model: "configured-model", content: [searchUse(), searchResult([ESPN]), text({ facts: [rawFact()] })], stop_reason: "end_turn", stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1, server_tool_use: { web_search_requests: 1 } } };

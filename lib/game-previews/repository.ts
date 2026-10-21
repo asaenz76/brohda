@@ -45,6 +45,31 @@ export async function getGamePreviewConfig(): Promise<GamePreviewConfig> {
  * The saved Preview the Post shows. A plain read of stored text: nothing is researched, generated or called at render time. Null when there is no published Preview for the Game (the Post then shows the Game and its conversation
  * without a Preview block — it never disappears or errors because editorial content is not ready).
  */
+/**
+ * The CANONICAL stored state of a Game's Preview, for Admin decisions: it does not go through the public getter, which hides a Preview whose public credit is not eligible. Public visibility and existence are separate questions.
+ * `status` is the stored row's status (null: no row); `visible` is whether Members can see it.
+ */
+export interface GamePreviewAdminState {
+  exists: boolean;
+  status: "PUBLISHED" | "WITHDRAWN" | null;
+  visible: boolean;
+}
+export async function getGamePreviewAdminState(fixtureId: string): Promise<GamePreviewAdminState> {
+  const { data } = await createAdminClient().from("game_previews").select("status").eq("fixture_id", fixtureId).maybeSingle();
+  if (!data) return { exists: false, status: null, visible: false };
+  const status = data.status as "PUBLISHED" | "WITHDRAWN";
+  const visible = status === "PUBLISHED" ? (await getGamePreviewForFixture(fixtureId)) !== null : false;
+  return { exists: true, status, visible };
+}
+
+/**
+ * The write reason an Admin Generate / Regenerate must use for the stored state (the database rules: MISSING only when no row or a withdrawn one exists, anything else needs a PUBLISHED row): no Preview or a withdrawn one -> MISSING;
+ * a published one, visible or hidden -> MANUAL_ADMIN_REQUEST (the normal canonical regeneration path; never a duplicate insert).
+ */
+export function adminGenerationReason(state: Pick<GamePreviewAdminState, "status">): "MISSING" | "MANUAL_ADMIN_REQUEST" {
+  return state.status === "PUBLISHED" ? "MANUAL_ADMIN_REQUEST" : "MISSING";
+}
+
 export async function getGamePreviewForFixture(fixtureId: string): Promise<GamePreview | null> {
   const admin = createAdminClient();
   const { data } = await admin.from("game_previews").select("id, fixture_id, hook, body, generated_at, checked_at, frozen_at, generation_meta").eq("fixture_id", fixtureId).eq("status", "PUBLISHED").maybeSingle();
