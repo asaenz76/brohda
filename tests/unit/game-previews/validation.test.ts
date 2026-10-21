@@ -260,6 +260,11 @@ describe("(tests B, C, D) evidence eligibility is not public-credit eligibility"
   it("D: a live injury list, stats table, standings or roster page is not the preferred credit", () => {
     for (const url of ["https://www.espn.com/nfl/team/injuries/_/name/gb/green-bay-packers", "https://www.espn.com/nfl/standings", "https://www.espn.com/nba/team/stats/_/name/bos", "https://www.espn.com/nfl/team/roster/_/name/kc", "https://www.espn.com/nfl/team/schedule/_/name/ind/season/2025"]) expect(credit(url), url).toBe(false);
   });
+  it("live player profile / player-stats pages are valid evidence but not the public credit (ESPN, NFL.com, NBA.com, CBS, PFR, FOX patterns)", () => {
+    for (const url of ["https://www.espn.com/nfl/player/_/id/3916387/lamar-jackson", "https://www.espn.com/nba/player/stats/_/id/1/x", "https://www.nfl.com/players/lamar-jackson/", "https://www.nba.com/player/1629029/luka-doncic", "https://www.cbssports.com/nfl/players/123/lamar-jackson/", "https://www.pro-football-reference.com/players/J/JackLa00.htm", "https://www.foxsports.com/nfl/micah-parsons-player", "https://www.espn.com/nfl/player/gamelog/_/id/1/x"]) expect(credit(url), url).toBe(false);
+    // a reported story ABOUT a player stays creditable
+    for (const url of ["https://www.espn.com/nfl/story/_/id/50221818/packers-josh-jacobs-practice-wednesday-play-sunday", "https://www.nbcsports.com/fantasy/football/player-news/2026-10-17/optimism-baker-mayfield", "https://www.cbssports.com/fantasy/football/news/vikings-jordan-mason-ready-to-practice/", "https://www.nba.com/news/andre-drummond-joins-knicks-media-day"]) expect(credit(url), url).toBe(true);
+  });
   it("readable editorial pages stay creditable, including articles whose slug mentions an injury report or a schedule", () => {
     for (const url of ["https://www.nhl.com/devils/news/preview-2026020142", "https://www.espn.com/nfl/story/_/id/401/chiefs-injury-report-schedule-notes", "https://sports.yahoo.com/articles/celtics-announce-injury-report-ahead-193847873.html", "https://www.nba.com/news/andre-drummond-joins-knicks-media-day", "https://www.espn.com/nfl/preview/_/gameId/401892543"]) expect(credit(url), url).toBe(true);
   });

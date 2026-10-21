@@ -190,16 +190,19 @@ export function isStoryPage(url: string): boolean {
 
 /**
  * PUBLIC CREDIT eligibility, separate from EVIDENCE eligibility. A source may be valid evidence for a fact (a JSON feed, a schedule PDF, a live injury list, a stats table, a data feed) and still be a poor thing to show a Member as "the original reporting". A creditable page is a
- * readable page a Member can open and understand: a story page (not a data endpoint), not a betting page, not a document or data file (pdf, uploads), and not a live list or table page (injuries, schedule(s), scoreboard, standings, stats, roster, depth chart, transactions, game log).
+ * readable page a Member can open and understand: a story page (not a data endpoint), not a betting page, not a document or data file (pdf, uploads), and not a live list, table or profile page (injuries, schedule(s), scoreboard, standings, stats, roster, depth chart, transactions, game log, player profile / player stats pages).
  * Decided on whole URL path SEGMENTS, so an article whose slug merely contains "injury-report" or "schedule" is still creditable.
  */
-const NON_EDITORIAL_SEGMENTS = new Set(["injuries", "injury-report", "injury", "schedule", "schedules", "scoreboard", "standings", "stats", "statistics", "roster", "depth-chart", "transactions", "game-log", "gamelog", "splits", "uploads", "feed", "feeds", "api"]);
+const NON_EDITORIAL_SEGMENTS = new Set(["injuries", "injury-report", "injury", "schedule", "schedules", "scoreboard", "standings", "stats", "statistics", "roster", "depth-chart", "transactions", "game-log", "gamelog", "splits", "uploads", "feed", "feeds", "api", "player", "players", "profile", "profiles", "athlete", "athletes", "dashboard"]);
+/** A live player page whose slug ends "-player" (fox sports: /nfl/micah-parsons-player): a profile and stats page, not a story. */
+const PLAYER_PAGE_SLUG = /-player$/;
 export function isCreditablePage(url: string, title?: string | null): boolean {
   if (!isStoryPage(url) || isBettingPage(url, title)) return false;
   try {
     const u = new URL(url);
     if (/\.(pdf|docx?|xlsx?|pptx?|zip|txt)$/i.test(u.pathname)) return false;
-    return !u.pathname.toLowerCase().split("/").some((seg) => NON_EDITORIAL_SEGMENTS.has(seg));
+    const segments = u.pathname.toLowerCase().split("/").filter(Boolean);
+    return !segments.some((seg) => NON_EDITORIAL_SEGMENTS.has(seg)) && !PLAYER_PAGE_SLUG.test(segments[segments.length - 1] ?? "");
   } catch {
     return false;
   }
