@@ -1,8 +1,8 @@
 import type { GamePreviewConfig, GamePreviewInput, GamePreviewReason, GamePreviewWriteOutcome } from "./types";
 import type { GenerationRunInput } from "./repository";
-import { addUsage, emptyUsage, type NumberRefresh, type AdvisoryKind, type AngleSelection, type CandidateFact, type EditorialAngle, type FactCheck, type GameIdentity, type GamePreviewProviders, type PreviewDraft, type ProviderUsage, type ReachedSource, type ResearchLead, type SourceConflict } from "./providers/types";
+import { addUsage, emptyUsage, FACT_SOURCE_TYPES, type NumberRefresh, type AdvisoryKind, type AngleSelection, type CandidateFact, type EditorialAngle, type FactCheck, type GameIdentity, type GamePreviewProviders, type PreviewDraft, type ProviderUsage, type ReachedSource, type ResearchLead, type SourceConflict, type StatusConfirmation } from "./providers/types";
 import { angleBasis, chooseAngle, completeAngleFacts, dedupeAngles, orderAnglePrimary, overallScore, sanitizeAngles, validateEditorial } from "./editorial";
-import { claimAppearsInText, excerptIssues, domainMatches, domainOf, draftHints, isCreditablePage, isEligiblePrimarySource, isSyndicationHost, isTrustedFactSource, isTrustedSource, reconcileSeasonScope, staleNumberCandidates, validateDraft, verificationReasons } from "./validation";
+import { claimAppearsInText, excerptIssues, domainMatches, domainOf, draftHints, hasPageDate, isCreditablePage, isCurrentPlayerStatus, isEligiblePrimarySource, isSyndicationHost, isTrustedFactSource, isTrustedSource, reconcileSeasonScope, staleNumberCandidates, statusEvidenceIssues, statusMayBeSuperseded, validateDraft, verificationReasons } from "./validation";
 
 /**
  * Preview generation, one Game at a time: research → candidate facts → candidate editorial angles, scored → the strongest story → a draft that tells only that story → deterministic provenance validation → deterministic editorial
@@ -107,6 +107,8 @@ export interface RunDetails {
   staleCandidates: Array<{ angleId: string; factId: string; reason: string; outcome?: "confirmed" | "updated" | "removed"; note?: string }>;
   /** Numbers that were replaced by their current value: the old and new claim and the source of the new one. */
   numberRefreshes: Array<{ factId: string; from: string; to: string; source: string }>;
+  /** CURRENT PLAYER STATUS gate: every status claim a story rested on, whether its own source qualified (official/trusted AND dated), and what the newest-status search did: qualified (no search needed), confirmed, updated (a newer qualifying report replaced it), removed (unsupported: the designation is not published). */
+  statusChecks: Array<{ angleId: string; factId: string; claim: string; source: string; publishedAt: string | null; qualifies: boolean; issues: string[]; outcome: "qualified" | "confirmed" | "updated" | "removed" | "left_to_verification"; note?: string; newSource?: string; newPublishedAt?: string | null }>;
 }
 
 /**
@@ -177,6 +179,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     staleCandidates: [],
     numberRefreshes: [],
     creditReserve: [],
+    statusChecks: [],
   };
 
   const finish = async (outcome: GenerationOutcome, previewId: string | null): Promise<GenerationOutcome> => {
@@ -305,6 +308,8 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
   const confirmed = new Set<string>();
   const dead = new Map<string, string>();
   const freshNumbers = new Set<string>();
+  /** Current-player-status facts whose source has been shown to qualify (official/trusted AND dated), directly or through the newest-status search. */
+  const statusSettled = new Set<string>();
   let lastCollapse: { code: string; problems: string[] } = { code: "no_trusted_primary_source", problems: [] };
   let hardFailure: GenerationOutcome | null = null;
   /** A story with no creditable central source: one search of the trusted domains for each central claim. A trusted, readable page that states it becomes the central fact (same claim, trusted source); nothing found means the story cannot be credited. */
@@ -342,6 +347,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
         sourceProvider: hit.provider,
         sourceTitle: hit.title,
         publishedAt: hit.publishedAt,
+        dateSource: hit.publishedAt ? "page" : undefined, // the lookup reports the date the PAGE shows
         excerpt: hit.excerpt,
         sourceType: "article",
         pageContext: null,
@@ -432,6 +438,89 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
         facts = facts.filter((f) => !dead.has(f.id));
         angle = alive(candidate);
       }
+      // CURRENT PLAYER STATUS. "Out", "questionable", "expected to return", "starting" ... are true NOW or not, and change by the day: a status claim needs a CURRENT, DATED, TRUSTED source (an official league/team report or a dated report from a trusted outlet).
+      // An undated list, a betting page, a live profile page, an untrusted or syndicated copy cannot establish it alone: it is a LEAD. The newest qualifying report is searched for; what it states replaces the claim (confirmed or updated), and a designation no qualifying source
+      // states is REMOVED (the story is kept when it stands without it, otherwise the next story is tried). A qualifying but older (more than a day) report is also checked for a newer status when a search is left.
+      const statusFacts = facts.filter((f) => angle.factIds.includes(f.id) && !statusSettled.has(f.id) && isCurrentPlayerStatus(f));
+      if (statusFacts.length > 0) {
+        const log = (f: CandidateFact, issues: string[], outcome: RunDetails["statusChecks"][number]["outcome"], extra: { note?: string; newSource?: string; newPublishedAt?: string | null } = {}) =>
+          details.statusChecks.push({ angleId: candidate.id, factId: f.id, claim: f.claim, source: f.sourceUrl, publishedAt: f.publishedAt, qualifies: issues.length === 0, issues, outcome, ...extra });
+        const open: Array<{ fact: CandidateFact; issues: string[] }> = [];
+        for (const f of statusFacts) {
+          const issues = statusEvidenceIssues(f, teams, config.preferredDomains);
+          if (issues.length === 0 && !statusMayBeSuperseded(f, freshness.now, config.currentFactMaxAgeHours)) {
+            statusSettled.add(f.id);
+            log(f, [], "qualified");
+          } else open.push({ fact: f, issues });
+        }
+        let results: StatusConfirmation[] = [];
+        const confirmer = providers.factVerifier?.confirmPlayerStatus;
+        if (open.length > 0 && confirmer && config.maxSearchCallsPerGame - usage.searchCalls > 0) {
+          try {
+            const res = await confirmer.call(providers.factVerifier, game, open.map((x) => x.fact), { ...stage, maxSearchCalls: stageBudget(), webSearchToolVersion: config.webSearchToolVersion, blockedDomains: config.blockedDomains });
+            usage = addUsage(usage, res.usage);
+            results = res.results;
+          } catch (error) {
+            for (const x of open) log(x.fact, x.issues, "left_to_verification", { note: `status search failed: ${(error as Error).message.slice(0, 200)}` });
+          }
+        }
+        for (const { fact: f, issues } of open) {
+          const r = results.find((x) => x.factId === f.id);
+          if ((r?.status === "confirmed" || r?.status === "updated") && r.fact) {
+            const next: CandidateFact = {
+              ...f,
+              claim: r.fact.claim,
+              excerpt: r.fact.excerpt,
+              sourceUrl: r.fact.sourceUrl,
+              sourceTitle: r.fact.sourceTitle,
+              sourceProvider: r.fact.sourceProvider,
+              publishedAt: r.fact.publishedAt,
+              dateSource: "page",
+              sourceType: r.fact.sourceType && (FACT_SOURCE_TYPES as readonly string[]).includes(r.fact.sourceType) ? r.fact.sourceType : "article",
+              pageContext: null,
+              pageSeason: null,
+              retrievedAt: game.asOf,
+              originalPublisher: null,
+              originalUrl: null,
+              alsoSupportedBy: undefined,
+              ambiguous: false,
+              surprising: false,
+              disputed: false,
+              statusKind: "CURRENT_PLAYER_STATUS",
+            };
+            const nextIssues = [...statusEvidenceIssues(next, teams, config.preferredDomains), ...(domainMatches(domainOf(next.sourceUrl), config.blockedDomains) ? ["the source is on the blocked list"] : [])];
+            if (nextIssues.length === 0) {
+              // Never trade a qualifying dated report for an OLDER one: the newest credible status wins.
+              const older = issues.length === 0 && hasPageDate(f) && new Date(next.publishedAt as string).getTime() < new Date(f.publishedAt as string).getTime();
+              if (older) {
+                statusSettled.add(f.id);
+                log(f, [], "confirmed", { note: "no newer qualifying report found" });
+              } else {
+                facts = facts.map((x) => (x.id === f.id ? next : x));
+                for (const entry of details.facts) if (entry.id === f.id) Object.assign(entry, { claim: next.claim, excerpt: next.excerpt, sourceUrl: next.sourceUrl, publishedAt: next.publishedAt, sourceType: next.sourceType });
+                confirmed.add(f.id);
+                statusSettled.add(f.id);
+                log(f, issues, r.status, { note: r.note, newSource: next.sourceUrl, newPublishedAt: next.publishedAt });
+              }
+              continue;
+            }
+            if (issues.length === 0) {
+              log(f, [], "left_to_verification", { note: `the newer report does not qualify (${nextIssues[0]})` });
+              continue;
+            }
+            issues.push(`the confirming source does not qualify (${nextIssues[0]})`);
+          }
+          if (issues.length > 0) {
+            dead.set(f.id, `current player status not supported: ${issues[0]}${r?.note ? `; ${r.note}` : ""}`);
+            log(f, issues, "removed", { note: r?.note });
+          } else {
+            log(f, [], "left_to_verification", { note: r?.note || "no newer report found; the report is dated and trusted" });
+          }
+        }
+        for (const entry of details.facts) if (dead.has(entry.id) && !entry.excluded) entry.excluded = `not a supported current status (${dead.get(entry.id)})`;
+        facts = facts.filter((f) => !dead.has(f.id));
+        angle = alive(candidate);
+      }
       const exceptions = facts
         .filter((f) => angle.factIds.includes(f.id) && !confirmed.has(f.id))
         .map((f) => ({ fact: f, reasons: verificationReasons(f, isTrusted(f), freshness) }))
@@ -471,7 +560,8 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
       // Does the central story still stand without the removed facts?
       const wantedCentral = candidate.centralFactIds && candidate.centralFactIds.length > 0 ? candidate.centralFactIds : [candidate.factIds[0]];
       if (!wantedCentral.every((id) => angle.factIds.includes(id))) {
-        collapse("story_not_verified", `a central fact did not verify (${wantedCentral.filter((id) => !angle.factIds.includes(id)).map((id) => `${id}: ${dead.get(id) ?? "removed"}`).join("; ")})`);
+        const lost = wantedCentral.filter((id) => !angle.factIds.includes(id));
+        collapse(lost.some((id) => dead.get(id)?.startsWith("current player status not supported")) ? "current_status_not_supported" : "story_not_verified", `a central fact did not verify (${lost.map((id) => `${id}: ${dead.get(id) ?? "removed"}`).join("; ")})`);
         continue;
       }
       let ordered = orderAnglePrimary(angle, facts, isEligiblePrimary);
@@ -492,7 +582,8 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
         const upgraded = await findTrustedCredit({ ...ordered, centralFactIds: [ordered.factIds[0]] }, true);
         if (upgraded) ordered = orderAnglePrimary({ ...upgraded, centralFactIds: upgraded.factIds.slice(0, 1) }, facts, isEligiblePrimary) ?? ordered;
       }
-      const completed = completeAngleFacts(ordered, facts);
+      // A fact added only because it holds a figure must not smuggle in a current-status claim that never passed the status gate.
+      const completed = completeAngleFacts(ordered, facts.filter((f) => !isCurrentPlayerStatus(f) || statusSettled.has(f.id) || ordered!.factIds.includes(f.id)));
       details.angleFactsAdded = completed.added;
       details.storyAttempts.push({ angleId: candidate.id, outcome: "used" });
       if (candidate.id !== details.chosenAngleId) {
@@ -659,6 +750,15 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     const editorial = validateEditorial({ draft, angle: chosen, config });
     const hints = draftHints({ hook: draft.hook, preview: draft.preview, claims: draft.claims }, facts);
     hints.conflicts = details.sourceConflicts.map((c) => ({ topic: c.topic, kind: c.kind ?? "TRUE_CONFLICT", note: c.note }));
+    // Status evidence of every cited fact, so the reviewer can see publisher, type, date, trust and whether the source can establish a current status; a status claim whose own source cannot is also a deterministic problem.
+    const citedFactIds = new Set(draft.claims.flatMap((c) => c.factIds));
+    hints.statusEvidence = facts
+      .filter((f) => citedFactIds.has(f.id))
+      .map((f) => {
+        const issues = statusEvidenceIssues(f, teams, config.preferredDomains);
+        return { factId: f.id, statusClaim: isCurrentPlayerStatus(f), publisher: f.sourceProvider, sourceType: f.sourceType, publishedAt: f.publishedAt, trusted: isTrusted(f), qualifies: issues.length === 0, issues };
+      });
+    for (const e of hints.statusEvidence) if (e.statusClaim && !e.qualifies) { provenance.ok = false; provenance.problems.push(`[status_source_ineligible] Fact ${e.factId} states a player's current status but its source (${e.publisher}) cannot establish one: ${e.issues.join("; ")}. Remove the status or state only what a dated, trusted source supports.`); }
     const reviewerBlocking: string[] = [];
     const reviewerAdvisory: Array<{ kind: AdvisoryKind; note: string }> = [];
     if (provenance.ok && editorial.blocking.length === 0 && providers.verifier) {

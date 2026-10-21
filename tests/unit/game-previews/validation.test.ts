@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { excerptIssues, claimAppearsInText, claimedFigures, isTrustedFactSource, originalPublisherDomain, staleNumberCandidates, domainMatches, domainOf, draftHints, isBettingPage, isEligiblePrimarySource, isCreditablePage, isStoryPage, isTrustedSource, teamSiteLabels, reconcileSeasonScope, styleProblems, unsupportedQuotes, validateDraft, verificationReasons } from "@/lib/game-previews/validation";
+import { isCurrentPlayerStatus, statusEvidenceIssues, statusMayBeSuperseded, hasPageDate, excerptIssues, claimAppearsInText, claimedFigures, isTrustedFactSource, originalPublisherDomain, staleNumberCandidates, domainMatches, domainOf, draftHints, isBettingPage, isEligiblePrimarySource, isCreditablePage, isStoryPage, isTrustedSource, teamSiteLabels, reconcileSeasonScope, styleProblems, unsupportedQuotes, validateDraft, verificationReasons } from "@/lib/game-previews/validation";
 import { competitionPhase, currentSeasonStart } from "@/lib/game-previews/identity";
 import { config, fact, facts, game, goodDraft, NOW } from "./fixtures";
 
@@ -398,3 +398,53 @@ describe("truncated research evidence is detected structurally (tests A-E)", () 
   });
 });
 
+
+describe("current player status: which sources can establish it", () => {
+  const teams = ["Indianapolis Colts", "Tennessee Titans"];
+  const trusted = ["espn.com", "nfl.com", "nbcsports.com"];
+  const DATED = "2026-10-17T16:00:00.000Z";
+  const src = (over: Record<string, unknown> = {}) => ({ sourceUrl: "https://www.espn.com/nfl/story/_/id/77/titans-qb-practice", sourceTitle: "Titans QB practices", excerpt: "The quarterback is questionable.", publishedAt: DATED as string | null, dateSource: undefined as "page" | "search_age" | undefined, originalPublisher: null, originalUrl: null, ...over });
+  const issues = (over: Record<string, unknown> = {}) => statusEvidenceIssues(src(over), teams, trusted);
+
+  it("a dated story on a trusted outlet qualifies; so does a dated report on an official team site and a dated injury-report page", () => {
+    expect(issues()).toEqual([]);
+    expect(issues({ sourceUrl: "https://www.colts.com/news/friday-injury-report" })).toEqual([]);
+    expect(issues({ sourceUrl: "https://www.nfl.com/injuries/", sourceTitle: "Injury report" })).toEqual([]);
+  });
+  it("a betting, odds or picks page never qualifies, even on a trusted host and even when dated", () => {
+    expect(issues({ sourceUrl: "https://www.si.com/betting/titans-colts-odds", sourceTitle: "Titans vs. Colts prediction, odds, spread" }).join(" ")).toMatch(/betting/);
+    expect(issues({ sourceUrl: "https://www.nbcsports.com/betting/nfl/news/week-6-picks", sourceTitle: "Week 6 picks and odds" }).join(" ")).toMatch(/betting/);
+  });
+  it("an undated page never qualifies: no date, a search-result age, or an unparseable date", () => {
+    expect(issues({ publishedAt: null }).join(" ")).toMatch(/no reliable publication/);
+    expect(issues({ dateSource: "search_age" }).join(" ")).toMatch(/no reliable publication/);
+    expect(issues({ publishedAt: "not a date" }).join(" ")).toMatch(/no reliable publication/);
+    expect(hasPageDate({ publishedAt: DATED, dateSource: "page" })).toBe(true);
+    expect(hasPageDate({ publishedAt: DATED, dateSource: "search_age" })).toBe(false);
+  });
+  it("a live profile, roster, statistics or schedule page, a data feed and a document never qualify", () => {
+    for (const url of ["https://www.espn.com/nfl/player/_/id/123/baker-mayfield", "https://www.espn.com/nfl/team/roster/_/name/ind", "https://www.espn.com/nfl/team/stats/_/name/ind", "https://www.foxsports.com/nfl/baker-mayfield-player", "https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries", "https://www.nfl.com/uploads/injury-report.pdf"]) expect(issues({ sourceUrl: url }).length, url).toBeGreaterThan(0);
+  });
+  it("a source outside the trusted group never qualifies; a syndicated copy qualifies only through an already trusted original publisher", () => {
+    expect(issues({ sourceUrl: "https://bleacherreport.com/articles/1-mayfield-practice" }).join(" ")).toMatch(/outside the trusted group/);
+    expect(issues({ sourceUrl: "https://sports.yahoo.com/articles/mayfield-practice-123.html" }).join(" ")).toMatch(/syndicated copy with no trusted original/);
+    expect(issues({ sourceUrl: "https://sports.yahoo.com/articles/mayfield-practice-123.html", originalPublisher: "ESPN" })).toEqual([]);
+  });
+  it("no passage, no support", () => {
+    expect(issues({ excerpt: "  " }).join(" ")).toMatch(/no passage/);
+  });
+  it("classification: an explicit CURRENT_PLAYER_STATUS or NONE wins; an unclassified current injury fact is treated as a status claim; history is not", () => {
+    expect(isCurrentPlayerStatus({ statusKind: "CURRENT_PLAYER_STATUS", kind: "historical", category: "result" })).toBe(true);
+    expect(isCurrentPlayerStatus({ statusKind: "NONE", kind: "current", category: "injury" })).toBe(false);
+    expect(isCurrentPlayerStatus({ kind: "current", category: "injury" })).toBe(true);
+    expect(isCurrentPlayerStatus({ kind: "historical", category: "injury" })).toBe(false);
+    expect(isCurrentPlayerStatus({ kind: "current", category: "record" })).toBe(false);
+  });
+  it("a dated report older than a day (or the configured window, if shorter) may have been superseded; a fresh one has not; an undated one is not even a candidate", () => {
+    const now = new Date("2026-10-17T20:00:00.000Z");
+    expect(statusMayBeSuperseded({ publishedAt: "2026-10-17T16:00:00.000Z" }, now, 72)).toBe(false);
+    expect(statusMayBeSuperseded({ publishedAt: "2026-10-16T10:00:00.000Z" }, now, 72)).toBe(true);
+    expect(statusMayBeSuperseded({ publishedAt: "2026-10-17T16:00:00.000Z" }, now, 2)).toBe(true);
+    expect(statusMayBeSuperseded({ publishedAt: null }, now, 72)).toBe(false);
+  });
+});
