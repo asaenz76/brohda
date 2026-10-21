@@ -1029,3 +1029,134 @@ describe("D2: the credit lookup enriches provenance and never replaces the evide
   });
 });
 
+describe("last blockers: superseded evidence is not a current conflict (Broncos case)", () => {
+  const nbc = fact({ id: "f1", kind: "current", sourceUrl: "https://www.espn.com/nfl/story/_/id/1/pelissero-nfl-reinstates-cooper", sourceProvider: "ESPN", claim: "The NFL reinstated Jonathon Cooper from the commissioner's exempt list.", excerpt: "Pelissero reports the NFL has reinstated Cooper from the commissioner's exempt list. An earlier item said he was on the list.", publishedAt: "2026-10-16T19:44:00.000Z" });
+  const story = { ...selection, angles: [{ ...selection.angles[0], factIds: ["f1"], centralFactIds: ["f1"], summary: "A reinstatement." }], selectedId: "a1" };
+  const draftOfText = (preview: string) => draftOf({ hook: "Cooper is back", preview, claims: [{ text: "The NFL reinstated Cooper.", factIds: ["f1"] }] });
+  const run = async (drafts: string[], review: (d: { preview: string }, conflicts: Array<{ kind: string }> | undefined) => Array<{ category: "stale_conflict"; problem: string }>, conflicts: Array<{ topic: string; note: string; kind: "TRUE_CONFLICT" | "SUPERSEDED" | "HISTORICAL_DIFFERENCE" }>) => {
+    let i = 0;
+    const write = vi.fn<GamePreviewWriterProvider["write"]>(async () => draftOfText(drafts[Math.min(i++, drafts.length - 1)]));
+    const verify = vi.fn<GamePreviewVerifierProvider["verify"]>(async (_g, _a, d, _f, _c, hints) => ({ blocking: review(d, hints?.conflicts), advisory: [], usage: usage({ modelCalls: 1 }) }));
+    const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [nbc], sources, conflicts, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...story, usage: usage({ modelCalls: 1 }) }) }, writer: { name: "fake", write }, verifier: { name: "fake", verify } } });
+    return { out: await generateGamePreview(t.deps, req), t, write, verify };
+  };
+  const superseded = [{ topic: "Cooper's status", note: "Oct 16 NFL.com/NBC: reinstated; an older item listed him as exempt", kind: "SUPERSEDED" as const }];
+  // The reviewer is a model; the fake applies the rule it is given: an "unsettled / another report still says" claim is blocked unless the disagreement is a TRUE_CONFLICT.
+  const rule = (d: { preview: string }, conflicts: Array<{ kind: string }> | undefined) => (/unsettled|still (lists|says|describes)/i.test(d.preview) && !(conflicts ?? []).some((c) => c.kind === "TRUE_CONFLICT") ? [{ category: "stale_conflict" as const, problem: "the 'still says' item is older than the reinstatement report" }] : []);
+
+  it("(A) 'His status is unsettled because another report still lists him as exempt' is BLOCKED when the disagreement is SUPERSEDED, and the writer is told why", async () => {
+    const { out, t, write, verify } = await run(["His status is unsettled because another report still lists him as exempt.", "The NFL reinstated Cooper, who had been on the exempt list."], rule, superseded);
+    expect(out.status).toBe("SUCCEEDED");
+    expect(write.mock.calls[1][3].feedback.join(" ")).toMatch(/stale_conflict\]/);
+    expect(t.saves[0].body).toMatch(/reinstated Cooper/);
+    expect(verify.mock.calls[0][5]?.conflicts).toEqual([{ topic: "Cooper's status", kind: "SUPERSEDED", note: expect.any(String) }]); // the classification reaches the reviewer
+    expect((t.runs[0].details as { blockingCounts: { reviewerByCategory: Record<string, number> } }).blockingCounts.reviewerByCategory.stale_conflict).toBe(1);
+  });
+
+  it("(B) 'He was reinstated after previously being on the exempt list' is allowed", async () => {
+    const { out, t } = await run(["He was reinstated after previously being on the exempt list."], rule, superseded);
+    expect(out.status).toBe("SUCCEEDED");
+    expect(t.saves[0].body).toMatch(/reinstated after previously/);
+  });
+
+  it("(C) a genuine same-day disagreement (TRUE_CONFLICT) may be reported cautiously", async () => {
+    const { out } = await run(["Two reports disagree on his status, so it is unsettled."], rule, [{ topic: "Cooper's status", note: "two Oct 20 sources disagree", kind: "TRUE_CONFLICT" }]);
+    expect(out.status).toBe("SUCCEEDED");
+  });
+});
+
+describe("last blockers: a cut-off stored passage is expanded before it is trusted", () => {
+  const CUT = "Sunday's game will be the first time Trey Hendrickson gets his chance at Joe Burrow. Brown said when asked if Hendrickson would have extra motivation.";
+  const FULLP = `${CUT} "I imagine he will have a little something extra to play for."`;
+  const f = () => fact({ id: "f1", sourceUrl: "https://www.espn.com/nfl/story/_/id/2/revenge-game-orlando-brown-jr", sourceProvider: "ESPN", claim: "Orlando Brown Jr. says Hendrickson should have extra motivation against his former team.", excerpt: CUT, kind: "current", publishedAt: "2026-10-20T10:00:00.000Z" });
+  const story = { ...selection, angles: [{ ...selection.angles[0], factIds: ["f1"], centralFactIds: ["f1"], summary: "A revenge game." }], selectedId: "a1" };
+  const build = (verifyFacts: ReturnType<typeof vi.fn>, write?: ReturnType<typeof vi.fn>) => setup({ providers: { research: { name: "fake", research: async () => ({ facts: [f()], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...story, usage: usage({ modelCalls: 1 }) }) }, factVerifier: { name: "fake", verifyFacts } as never, ...(write ? { writer: { name: "fake", write: write as never } } : {}) } });
+  const checks = (status: "confirmed" | "unsupported", passage: string | null) => vi.fn(async (_g: unknown, fs: Array<{ id: string }>) => ({ checks: fs.map((x) => ({ factId: x.id, status, basis: "targeted_search" as const, retrievalFailed: false, note: "n", corroboratingUrl: null, passage })), usage: usage({ searchCalls: 1, modelCalls: 1 }) }));
+
+  it("(A, B) the cut-off passage makes the fact an exception; the complete passage the targeted search found replaces it, so the writer and reviewer see the answer", async () => {
+    const write = vi.fn(async (...args: [unknown, { factIds: string[] }, unknown]) => draftOf({ preview: "Brown says Hendrickson should have extra motivation.", claims: [{ text: "Brown says Hendrickson should have extra motivation.", factIds: [args[1].factIds[0]] }] }));
+    const t = build(checks("confirmed", FULLP), write);
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect((t.runs[0].details as { exceptionReasons: Record<string, string[]> }).exceptionReasons.f1.join(" ")).toMatch(/stored passage looks cut off/);
+    const sent = (write.mock.calls[0][2] as ReturnType<typeof fact>[]).find((x) => x.id === "f1")!;
+    expect(sent.excerpt).toBe(FULLP);
+  });
+
+  it("(C) if the passage cannot be expanded, it stays unsupported: the fact is dropped, never trusted", async () => {
+    const t = build(checks("unsupported", null));
+    expect(await generateGamePreview(t.deps, req)).toMatchObject({ status: "REJECTED" });
+    expect(t.saves).toHaveLength(0);
+  });
+
+  it("(E) a concise passage that is complete is NOT sent for extra verification", async () => {
+    const verifyFacts = checks("confirmed", null);
+    const done = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [{ ...f(), kind: "historical", excerpt: 'Asked whether Hendrickson would have extra motivation, Brown said: "I imagine he will have a little something extra to play for."' }], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...story, usage: usage({ modelCalls: 1 }) }) }, factVerifier: { name: "fake", verifyFacts } as never } });
+    await generateGamePreview(done.deps, req);
+    expect(verifyFacts).not.toHaveBeenCalled();
+  });
+});
+
+describe("last blockers: one search is held for the trusted public-credit lookup only when it is needed", () => {
+  const YAHOO = "https://sports.yahoo.com/articles/mayfield-thumb-1.html";
+  const hit = { url: "https://www.nfl.com/news/mayfield-thumb-update", title: "Mayfield thumb update", provider: "NFL.com", publishedAt: "2026-10-20T15:00:00.000Z", excerpt: "Bowles said Tampa Bay is planning as if Daniels starts; this is an evaluation week for Mayfield's thumb." };
+  const afterGame = [{ team: "Tampa Bay Buccaneers", completedUtc: "2026-10-18T22:00:00.000Z" }];
+  const stat = (url: string, over = {}) => fact({ id: "f1", kind: "current", numberKind: "CURRENT_STATE", subjectTeam: "Tampa Bay Buccaneers", sourceUrl: url, sourceProvider: "Yahoo Sports", claim: "Tampa Bay is 1-5 and Mayfield has been out since Week 3.", excerpt: "Tampa Bay (1-5) is planning as if Daniels starts.", publishedAt: "2026-10-16T12:00:00.000Z", ...over });
+  const story = { ...selection, angles: [{ ...selection.angles[0], factIds: ["f1"], centralFactIds: ["f1"], summary: "A QB question." }], selectedId: "a1" };
+  type Ctx = { maxSearchCalls: number };
+  const build = (central: ReturnType<typeof fact>, o: { researchSearches?: number; found?: typeof hit | null; ceiling?: number } = {}) => {
+    const seen: { refresh: number[]; verify: number[]; lookup: number } = { refresh: [], verify: [], lookup: 0 };
+    const factVerifier = {
+      name: "fake",
+      verifyFacts: vi.fn(async (_g: unknown, fs: Array<{ id: string }>, ctx: Ctx) => { seen.verify.push(ctx.maxSearchCalls); return { checks: fs.map((x) => ({ factId: x.id, status: "confirmed" as const, basis: "targeted_search" as const, retrievalFailed: false, note: "n", corroboratingUrl: null })), usage: usage({ searchCalls: 1, modelCalls: 1 }) }; }),
+      refreshNumbers: vi.fn(async (_g: unknown, fs: Array<{ id: string }>, ctx: Ctx) => { seen.refresh.push(ctx.maxSearchCalls); return { results: fs.map((x) => ({ factId: x.id, status: "confirmed" as const, note: "still 1-5" })), usage: usage({ searchCalls: 1, modelCalls: 1 }) }; }),
+      findTrustedSources: vi.fn(async (_g: unknown, fs: Array<{ id: string }>) => { seen.lookup++; return { found: fs.map((x) => ({ factId: x.id, hit: o.found === undefined ? hit : o.found })), usage: usage({ searchCalls: 1, modelCalls: 1 }) }; }),
+    };
+    const t = setup({
+      loadGame: async () => ({ ...game, lastCompleted: afterGame }),
+      providers: {
+        research: { name: "fake", research: async () => ({ facts: [central], sources, usage: usage({ searchCalls: o.researchSearches ?? 5, modelCalls: 1 }) }) },
+        angles: { name: "fake", selectAngle: async () => ({ ...story, usage: usage({ modelCalls: 1 }) }) },
+        factVerifier: factVerifier as never,
+        writer: { name: "fake", write: async (_g, a) => draftOf({ preview: "Tampa Bay is planning as if Daniels starts.", claims: [{ text: "Tampa Bay is planning as if Daniels starts.", factIds: [a.factIds[0]] }] }) },
+      },
+      config: { maxSearchCallsPerGame: o.ceiling ?? 8 },
+    });
+    return { t, seen, factVerifier };
+  };
+
+  it("a supported story that lacks an eligible public primary holds ONE search: freshness and verification cannot take it, so the lookup runs and succeeds", async () => {
+    const { t, seen } = build(stat(YAHOO)); // research used 5 of 8; 3 remain
+    const out = await generateGamePreview(t.deps, req);
+    expect(out.status).toBe("SUCCEEDED");
+    expect(seen.refresh).toEqual([2]); // 3 left minus the reserve
+    expect(seen.verify).toEqual([1]); // 2 left after the refresh, minus the reserve
+    expect(seen.lookup).toBe(1);
+    expect((t.saves[0].meta as { publicSourceUrls: string[] }).publicSourceUrls).toEqual([hit.url]);
+    expect((t.runs[0].details as { creditReserve: Array<{ held: boolean }> }).creditReserve).toEqual([{ angleId: "a1", held: true }]);
+  });
+
+  it("a story that already has an eligible trusted public source holds nothing back: the full remaining ceiling is available", async () => {
+    const { t, seen } = build(stat("https://www.nfl.com/news/bucs-mayfield-thumb", { sourceProvider: "NFL.com" }));
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(seen.refresh).toEqual([3]);
+    expect(seen.lookup).toBe(0);
+    expect((t.runs[0].details as { creditReserve: Array<{ held: boolean }> }).creditReserve).toEqual([{ angleId: "a1", held: false }]);
+  });
+
+  it("factual safety wins: with a single search left, verification may take it; the story is then not credited and the Game is needs_review", async () => {
+    const { t, seen } = build(stat(YAHOO), { researchSearches: 7 }); // 1 left
+    const out = await generateGamePreview(t.deps, req);
+    expect(seen.refresh).toEqual([1]);
+    expect(seen.lookup).toBe(0);
+    expect(out).toMatchObject({ status: "REJECTED", error: "no_trusted_primary_source" });
+    expect(t.saves).toHaveLength(0);
+  });
+
+  it("if the reserved lookup finds no eligible trusted page the Game is needs_review (no_trusted_primary_source); it does not keep searching to force a save", async () => {
+    const { t, seen } = build(stat(YAHOO), { found: null });
+    expect(await generateGamePreview(t.deps, req)).toMatchObject({ status: "REJECTED", error: "no_trusted_primary_source" });
+    expect(seen.lookup).toBe(1);
+    expect(t.saves).toHaveLength(0);
+  });
+});
+

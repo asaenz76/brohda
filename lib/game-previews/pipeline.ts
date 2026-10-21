@@ -2,7 +2,7 @@ import type { GamePreviewConfig, GamePreviewInput, GamePreviewReason, GamePrevie
 import type { GenerationRunInput } from "./repository";
 import { addUsage, emptyUsage, type NumberRefresh, type AdvisoryKind, type AngleSelection, type CandidateFact, type EditorialAngle, type FactCheck, type GameIdentity, type GamePreviewProviders, type PreviewDraft, type ProviderUsage, type ReachedSource, type ResearchLead, type SourceConflict } from "./providers/types";
 import { angleBasis, chooseAngle, completeAngleFacts, dedupeAngles, orderAnglePrimary, overallScore, sanitizeAngles, validateEditorial } from "./editorial";
-import { claimAppearsInText, domainMatches, domainOf, draftHints, isCreditablePage, isEligiblePrimarySource, isSyndicationHost, isTrustedFactSource, isTrustedSource, reconcileSeasonScope, staleNumberCandidates, validateDraft, verificationReasons } from "./validation";
+import { claimAppearsInText, excerptIssues, domainMatches, domainOf, draftHints, isCreditablePage, isEligiblePrimarySource, isSyndicationHost, isTrustedFactSource, isTrustedSource, reconcileSeasonScope, staleNumberCandidates, validateDraft, verificationReasons } from "./validation";
 
 /**
  * Preview generation, one Game at a time: research → candidate facts → candidate editorial angles, scored → the strongest story → a draft that tells only that story → deterministic provenance validation → deterministic editorial
@@ -102,6 +102,8 @@ export interface RunDetails {
   /** Stories whose central claim first appeared in a lower-trust or republishing source: the search of the trusted domains for the page that carries the same claim, and what it found. */
   creditLookups: Array<{ angleId: string; factId: string; found: string | null; note?: string }>;
   /** Current-state numbers the deterministic freshness check flagged (a relevant Game was completed after their evidence) and what happened to each: confirmed, updated, removed. */
+  /** Per story: whether one search was held back for the trusted public-credit lookup (only when the story is supported but lacks an eligible trusted public primary), and whether that search was needed. */
+  creditReserve: Array<{ angleId: string; held: boolean }>;
   staleCandidates: Array<{ angleId: string; factId: string; reason: string; outcome?: "confirmed" | "updated" | "removed"; note?: string }>;
   /** Numbers that were replaced by their current value: the old and new claim and the source of the new one. */
   numberRefreshes: Array<{ factId: string; from: string; to: string; source: string }>;
@@ -174,6 +176,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     creditLookups: [],
     staleCandidates: [],
     numberRefreshes: [],
+    creditReserve: [],
   };
 
   const finish = async (outcome: GenerationOutcome, previewId: string | null): Promise<GenerationOutcome> => {
@@ -372,6 +375,15 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
         return { ...a, factIds, centralFactIds: (a.centralFactIds ?? [a.factIds[0]]).filter((id) => factIds.includes(id)) };
       };
       let angle = alive(candidate);
+      // CREDIT RESERVE. A story that is supported but has no eligible trusted public primary source needs a trusted-credit lookup; hold ONE search for it so research, freshness and verification cannot spend the whole ceiling first. No reserve when the story already has an eligible
+      // public primary (the full ceiling stays available), and factual safety wins: verification may always use the last search, in which case the story is returned as needs_review if no lookup is possible afterwards.
+      const needsCredit = orderAnglePrimary(angle, facts, isEligiblePrimary) === null && Boolean(providers.factVerifier?.findTrustedSources) && config.preferredDomains.length > 0;
+      const reserve = needsCredit ? 1 : 0;
+      details.creditReserve.push({ angleId: candidate.id, held: needsCredit });
+      const stageBudget = () => {
+        const remaining = Math.max(0, config.maxSearchCallsPerGame - usage.searchCalls);
+        return Math.max(remaining - reserve, Math.min(remaining, 1));
+      };
       // FRESHNESS. A current-state number is a STALE_CANDIDATE when a relevant Game was completed after its evidence. It is refreshed (confirmed, updated to the current value) or removed; a story whose central fact cannot be refreshed collapses, and the next-best story is tried.
       const stale = staleNumberCandidates(facts.filter((f) => angle.factIds.includes(f.id) && !freshNumbers.has(f.id)), game);
       if (stale.length > 0) {
@@ -386,7 +398,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
         let results: NumberRefresh[] = [];
         if (refresher && left > 0) {
           try {
-            const res = await refresher.call(providers.factVerifier, game, staleFacts, { ...stage, maxSearchCalls: left, webSearchToolVersion: config.webSearchToolVersion, blockedDomains: config.blockedDomains });
+            const res = await refresher.call(providers.factVerifier, game, staleFacts, { ...stage, maxSearchCalls: stageBudget(), webSearchToolVersion: config.webSearchToolVersion, blockedDomains: config.blockedDomains });
             usage = addUsage(usage, res.usage);
             results = res.results;
           } catch (error) {
@@ -431,7 +443,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
         } else {
           let result;
           try {
-            result = await providers.factVerifier.verifyFacts(game, exceptions.map((x) => x.fact), { ...stage, maxSearchCalls: Math.max(0, config.maxSearchCallsPerGame - usage.searchCalls), webSearchToolVersion: config.webSearchToolVersion, blockedDomains: config.blockedDomains });
+            result = await providers.factVerifier.verifyFacts(game, exceptions.map((x) => x.fact), { ...stage, maxSearchCalls: stageBudget(), webSearchToolVersion: config.webSearchToolVersion, blockedDomains: config.blockedDomains });
           } catch (error) {
             hardFailure = await fail(`fact_verification_failed: ${(error as Error).message}`);
             return "failed";
@@ -439,6 +451,13 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
           usage = addUsage(usage, result.usage);
           details.factVerification.push({ round: details.factVerification.length + 1, angleId: candidate.id, checks: result.checks });
           const byId = new Map(result.checks.map((c) => [c.factId, c]));
+          // A stored passage that was cut off is replaced by the complete passage the targeted search found, so the writer and the reviewer see the support itself.
+          for (const c of result.checks) {
+            if (c.status === "confirmed" && c.passage && c.passage.trim()) {
+              const full = c.passage.trim();
+              facts = facts.map((f) => (f.id === c.factId && excerptIssues(f.excerpt).length > 0 ? { ...f, excerpt: full } : f));
+            }
+          }
           for (const { fact } of exceptions) {
             const check = byId.get(fact.id);
             if (check?.status === "confirmed") confirmed.add(fact.id);
@@ -639,6 +658,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     const provenance = validateDraft({ draft: { hook: draft.hook, preview: draft.preview, claims: draft.claims }, facts, config });
     const editorial = validateEditorial({ draft, angle: chosen, config });
     const hints = draftHints({ hook: draft.hook, preview: draft.preview, claims: draft.claims }, facts);
+    hints.conflicts = details.sourceConflicts.map((c) => ({ topic: c.topic, kind: c.kind ?? "TRUE_CONFLICT", note: c.note }));
     const reviewerBlocking: string[] = [];
     const reviewerAdvisory: Array<{ kind: AdvisoryKind; note: string }> = [];
     if (provenance.ok && editorial.blocking.length === 0 && providers.verifier) {
