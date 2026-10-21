@@ -409,13 +409,27 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
   }
   async findTrustedSources(game: GameIdentity, facts: CandidateFact[], ctx: CreditLookupContext): Promise<CreditLookupResult> {
     if (facts.length === 0 || ctx.maxSearchCalls <= 0 || ctx.trustedDomains.length === 0) return { found: facts.map((f) => ({ factId: f.id, hit: null })), usage: emptyUsage() };
-    const tool: Record<string, unknown> = { type: ctx.webSearchToolVersion, name: "web_search", max_uses: Math.min(ctx.maxSearchCalls, 2), allowed_domains: ctx.trustedDomains };
     const claims = facts.map((f) => ({ fact_id: f.id, claim: f.claim, found_at: f.sourceUrl }));
-    const result = await call(
-      this.client,
-      { model: ctx.model, max_tokens: RESEARCH_MAX_TOKENS, system: CREDIT_LOOKUP_PROMPT, output_config: outputConfig(ctx.effort), tools: [tool as unknown as Anthropic.Messages.ToolUnion], messages: [{ role: "user", content: `${describeGame(game)}\n\nClaims to find a trusted page for:\n${JSON.stringify(claims)}` }] },
-      true,
-    );
+    // The API refuses an allowed_domains list that contains a domain its crawler cannot access (for example apnews.com, reuters.com, theathletic.com): the error names them. Search the rest instead of failing the whole lookup.
+    let domains = [...ctx.trustedDomains];
+    let result: Awaited<ReturnType<typeof call>> | null = null;
+    for (let tries = 0; tries < 2 && !result; tries++) {
+      const tool: Record<string, unknown> = { type: ctx.webSearchToolVersion, name: "web_search", max_uses: Math.min(ctx.maxSearchCalls, 2), allowed_domains: domains };
+      try {
+        result = await call(
+          this.client,
+          { model: ctx.model, max_tokens: RESEARCH_MAX_TOKENS, system: CREDIT_LOOKUP_PROMPT, output_config: outputConfig(ctx.effort), tools: [tool as unknown as Anthropic.Messages.ToolUnion], messages: [{ role: "user", content: `${describeGame(game)}\n\nClaims to find a trusted page for:\n${JSON.stringify(claims)}` }] },
+          true,
+        );
+      } catch (error) {
+        const message = (error as Error).message;
+        const inaccessible = /not accessible to our user agent/i.test(message) ? [...(message.match(/\[([^\]]+)\]/)?.[1] ?? "").matchAll(/['"]([^'"]+)['"]/g)].map((m) => m[1].toLowerCase()) : [];
+        const rest = domains.filter((d) => !inaccessible.includes(d.toLowerCase()));
+        if (tries === 0 && inaccessible.length > 0 && rest.length > 0 && rest.length < domains.length) domains = rest;
+        else throw error;
+      }
+    }
+    if (!result) return { found: facts.map((f) => ({ factId: f.id, hit: null })), usage: emptyUsage() };
     // Only pages the search actually reached on an allowed domain count.
     const reached = new Set<string>();
     for (const block of result.blocks) if (block.type === "web_search_tool_result" && Array.isArray(block.content)) for (const r of block.content) reached.add(normUrl(r.url));
@@ -425,7 +439,7 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
       found: facts.map((f) => {
         const r = byId.get(f.id);
         const url = r?.url ? String(r.url) : "";
-        if (!r || !url || !reached.has(normUrl(url)) || !domainMatches(domainOf(url), ctx.trustedDomains) || !String(r.excerpt ?? "").trim()) return { factId: f.id, hit: null };
+        if (!r || !url || !reached.has(normUrl(url)) || !domainMatches(domainOf(url), domains) || !String(r.excerpt ?? "").trim()) return { factId: f.id, hit: null };
         const published = r.published_at ? new Date(String(r.published_at)) : null;
         return { factId: f.id, hit: { url, title: String(r.title ?? "").trim() || domainOf(url), provider: String(r.provider ?? "").trim() || domainOf(url), publishedAt: published && !Number.isNaN(published.getTime()) ? published.toISOString() : null, excerpt: String(r.excerpt).trim().slice(0, 1500) } };
       }),
