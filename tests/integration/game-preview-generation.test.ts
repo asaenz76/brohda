@@ -249,3 +249,34 @@ describe("who asked for a manual generation: the acting Admin is recorded and au
     expect((await admin.from("game_preview_runs").select("id").eq("fixture_id", g.fixtureId)).data).toHaveLength(0);
   });
 });
+
+describe("the latest completed Games of each team before a fixture (freshness cutoff)", () => {
+  const seed = async (over: Row) => {
+    const { data, error } = await admin.from("fixtures").insert({ provider: "api_nfl", external_fixture_id: `fresh-${randomUUID()}`, sport: "american_football", competition_external_id: "1", season: "2026", home_team_name: "Seed Home", away_team_name: "Seed Away", home_team_external_id: "100", away_team_external_id: "200", internal_status: "COMPLETED", ...over }).select("id").single();
+    if (error) throw error;
+    return data!.id as string;
+  };
+  const at = (daysFromNow: number) => new Date(Date.now() + daysFromNow * 86_400_000).toISOString();
+  const target = (over: Row = {}) => ({ provider: "api_nfl", competition_external_id: "1", season: "2026", scheduled_start_utc: at(3), home_team_name: "Seed Home", away_team_name: "Seed Away", home_team_external_id: "100", away_team_external_id: "200", ...over });
+
+  it("returns each team's own most recent COMPLETED earlier Game (start + 3h), and ignores later, unfinished, other-season and other-competition Games", async () => {
+    const { latestCompletedGames } = await import("@/lib/game-previews/completed-games");
+    const older = at(-10), recent = at(-2), awayLatest = at(-5);
+    await seed({ scheduled_start_utc: older, home_team_external_id: "100", away_team_external_id: "300", home_team_name: "Seed Home", away_team_name: "Other A" });
+    await seed({ scheduled_start_utc: recent, home_team_external_id: "400", away_team_external_id: "100", home_team_name: "Other B", away_team_name: "Seed Home" }); // Seed Home's latest
+    await seed({ scheduled_start_utc: awayLatest, home_team_external_id: "200", away_team_external_id: "500", home_team_name: "Seed Away", away_team_name: "Other C" }); // Seed Away's latest
+    await seed({ scheduled_start_utc: at(-1), internal_status: "NOT_STARTED" }); // not completed
+    await seed({ scheduled_start_utc: at(-1), season: "2025" }); // another season
+    await seed({ scheduled_start_utc: at(-1), competition_external_id: "9" }); // another competition
+    await seed({ scheduled_start_utc: at(5) }); // after the fixture
+    const out = await latestCompletedGames(target());
+    expect(out.map((x) => x.team).sort()).toEqual(["Seed Away", "Seed Home"]);
+    expect(out.find((x) => x.team === "Seed Home")!.completedUtc).toBe(new Date(new Date(recent).getTime() + 3 * 3_600_000).toISOString());
+    expect(out.find((x) => x.team === "Seed Away")!.completedUtc).toBe(new Date(new Date(awayLatest).getTime() + 3 * 3_600_000).toISOString());
+  });
+
+  it("an opener (no earlier completed Game for either team) returns nothing: known none, not unknown", async () => {
+    const { latestCompletedGames } = await import("@/lib/game-previews/completed-games");
+    expect(await latestCompletedGames(target({ home_team_external_id: "901", away_team_external_id: "902", home_team_name: "New A", away_team_name: "New B" }))).toEqual([]);
+  });
+});

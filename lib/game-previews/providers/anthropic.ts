@@ -161,7 +161,11 @@ function describeGame(game: GameIdentity): string {
     `Season identifier: ${game.season ?? "not supplied"}`,
     `Competition phase: ${game.phase.replace("_", " ")}`,
     `Scheduled start: ${describeStart(game.kickoffUtc, game.timezone)}`,
-    ...((game.lastCompleted ?? []).length > 0 ? [`Latest completed Games before this one: ${(game.lastCompleted ?? []).map((c) => `${c.team} (${c.completedUtc.slice(0, 16)}Z)`).join("; ")}. A current-state number (season record, average, total, rank, streak) is current only if its evidence includes these Games.`] : ["Latest completed Games before this one: none (a season opener for these teams)."]),
+    game.lastCompleted === undefined
+      ? "Latest completed Games before this one: not available. Treat every current-state number (season record, average, total, rank, streak) as unverified unless its evidence is dated today."
+      : game.lastCompleted.length > 0
+        ? `Latest completed Games before this one: ${game.lastCompleted.map((c) => `${c.team} (${c.completedUtc.slice(0, 16)}Z)`).join("; ")}. A current-state number (season record, average, total, rank, streak) is current only if its evidence includes these Games.`
+        : "No completed Game of these teams before this one is recorded in the schedule data.",
     `Today (UTC): ${game.asOf}`,
   ].join("\n");
 }
