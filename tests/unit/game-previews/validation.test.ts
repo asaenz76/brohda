@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claimedFigures, domainMatches, domainOf, draftHints, isBettingPage, isEligiblePrimarySource, isCreditablePage, isStoryPage, isTrustedSource, teamSiteLabels, reconcileSeasonScope, styleProblems, unsupportedQuotes, validateDraft, verificationReasons } from "@/lib/game-previews/validation";
+import { claimAppearsInText, claimedFigures, isTrustedFactSource, originalPublisherDomain, staleNumberCandidates, domainMatches, domainOf, draftHints, isBettingPage, isEligiblePrimarySource, isCreditablePage, isStoryPage, isTrustedSource, teamSiteLabels, reconcileSeasonScope, styleProblems, unsupportedQuotes, validateDraft, verificationReasons } from "@/lib/game-previews/validation";
 import { competitionPhase, currentSeasonStart } from "@/lib/game-previews/identity";
 import { config, fact, facts, game, goodDraft, NOW } from "./fixtures";
 
@@ -283,6 +283,85 @@ describe("betting pages are never the credited primary source", () => {
     expect(isEligiblePrimarySource({ sourceUrl: "https://www.nbcsports.com/nfl/news/purdy-leads-49ers", sourceTitle: "Purdy leads 49ers" }, teams, trusted)).toBe(true);
     expect(isEligiblePrimarySource({ sourceUrl: "https://www.nbcsports.com/betting/nfl/news/49ers-vs-commanders-odds-expert-picks", sourceTitle: "49ers vs Commanders Odds, expert picks" }, teams, trusted)).toBe(false);
     expect(isEligiblePrimarySource({ sourceUrl: "https://random-blog.example/x", sourceTitle: "x" }, teams, trusted)).toBe(false);
+  });
+});
+
+describe("(tests A, C, D, F) the deterministic freshness signal for current-state numbers", () => {
+  const lions = { homeTeam: "Detroit Lions", awayTeam: "Green Bay Packers", lastCompleted: [{ team: "Green Bay Packers", completedUtc: "2026-10-19T03:00:00.000Z" }, { team: "Detroit Lions", completedUtc: "2026-10-11T20:00:00.000Z" }] };
+  const num = (over = {}) => fact({ id: "n1", kind: "current", numberKind: "CURRENT_STATE", subjectTeam: "Green Bay Packers", claim: "Green Bay averages 60.4 rushing yards per game through five games.", publishedAt: "2026-10-12T10:00:00.000Z", ...over });
+  it("A: a current-state number whose evidence predates the team's latest completed Game is a STALE_CANDIDATE (not false: it must be refreshed)", () => {
+    const out = staleNumberCandidates([num()], lions);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ factId: "n1" });
+    expect(out[0].reason).toMatch(/Game was completed .* after this number's evidence/);
+  });
+  it("the figure's own as-of date is the evidence date when the page gives one", () => {
+    expect(staleNumberCandidates([num({ publishedAt: "2026-10-20T10:00:00.000Z", asOf: "2026-10-12T00:00:00.000Z" })], lions)).toHaveLength(1); // a fresh page quoting an old figure
+    expect(staleNumberCandidates([num({ publishedAt: "2026-10-12T10:00:00.000Z", asOf: "2026-10-19T12:00:00.000Z" })], lions)).toEqual([]);
+  });
+  it("C: a FIXED number (a specific completed game, last season, entering the season) is never stale, however many Games have been played since", () => {
+    for (const claim of ["He gained 118 yards against Chicago on Oct. 5.", "Ovechkin entered the season with 929 career goals.", "The Packers won the 2025 series 2-0."]) expect(staleNumberCandidates([num({ numberKind: "FIXED", claim })], lions)).toEqual([]);
+    expect(staleNumberCandidates([num({ numberKind: "NONE" }), num({ numberKind: undefined })], lions)).toEqual([]); // unclassified or no figure: no gate
+  });
+  it("F: a current source published after the latest completed Game is not flagged", () => {
+    expect(staleNumberCandidates([num({ publishedAt: "2026-10-19T14:00:00.000Z" })], lions)).toEqual([]);
+  });
+  it("the cutoff is the team's own latest Game: the Lions' number from Oct. 12 is fresh after their Oct. 11 Game, the Packers' is not after theirs on Oct. 19", () => {
+    expect(staleNumberCandidates([num({ subjectTeam: "Detroit Lions", publishedAt: "2026-10-12T10:00:00.000Z" })], lions)).toEqual([]);
+    expect(staleNumberCandidates([num({ subjectTeam: "Green Bay Packers" })], lions)).toHaveLength(1);
+    expect(staleNumberCandidates([num({ subjectTeam: null })], lions)).toHaveLength(1); // no team named: either team's latest Game counts
+  });
+  it("a date with no time of day covers that whole day; no evidence date at all is a candidate; an opener has nothing to be stale against", () => {
+    expect(staleNumberCandidates([num({ publishedAt: "2026-10-19T00:00:00.000Z" })], lions)).toEqual([]);
+    expect(staleNumberCandidates([num({ publishedAt: null, asOf: null })], lions)).toHaveLength(1);
+    expect(staleNumberCandidates([num({ publishedAt: null })], { ...lions, lastCompleted: [] })).toEqual([]);
+    expect(staleNumberCandidates([num()], { ...lions, lastCompleted: undefined })).toEqual([]);
+  });
+  it("D: the hints tell the reviewer which cited figures are FIXED ('entering the season') and which are current-state, with what they are current through", () => {
+    const fixed = fact({ id: "g1", numberKind: "FIXED", asOfLabel: "entering the season", claim: "Ovechkin entered the season with 929 career goals." });
+    const cur = num({ id: "n2", asOfLabel: "through 5 games" });
+    const d = { hook: "t", preview: "Ovechkin already has 929.", claims: [{ text: "He has 929.", factIds: ["g1"] }, { text: "Packers average 60.4.", factIds: ["n2"] }] };
+    const hints = draftHints(d, [fixed, cur]);
+    expect(hints.fixedNumbers).toEqual(["g1: entering the season"]);
+    expect(hints.staleNumbers).toEqual(["n2: current through through 5 games"]);
+  });
+});
+
+describe("(test N) a claim counts as public only if it is stated in the title or caption", () => {
+  const text = "Davante Adams ruptured his hamstring in the Rams' 18-16 loss to Arizona and will miss 6 to 10 weeks. He won't play at Las Vegas on Sunday.";
+  it("a claim kept only in the research metadata (a kickoff time never mentioned) is not public", () => {
+    expect(claimAppearsInText("The Rams play at the Raiders in Week 7 on Oct. 25 at 1:25 p.m. at Allegiant Stadium.", text)).toBe(false);
+  });
+  it("a claim the caption states (numbers and most distinctive words present) is public", () => {
+    expect(claimAppearsInText("Davante Adams ruptured his hamstring in the Rams' 18-16 loss to Arizona.", text)).toBe(true);
+    expect(claimAppearsInText("Adams ruptured his hamstring against Arizona and will miss 6 to 10 weeks.", text)).toBe(true);
+    expect(claimAppearsInText("Adams has 30 catches for 480 yards.", text)).toBe(false);
+  });
+});
+
+describe("Yahoo policy: hosting never makes a story trusted; the original publisher decides, only if already trusted", () => {
+  const trusted = ["espn.com", "si.com", "nfl.com"];
+  const teams = ["Seattle Seahawks", "Kansas City Chiefs"];
+  const yahoo = "https://sports.yahoo.com/articles/walker-returns-123.html";
+  it("a Yahoo page with no identified original publisher is NOT trusted", () => {
+    expect(isTrustedFactSource({ sourceUrl: yahoo }, teams, trusted)).toBe(false);
+  });
+  it("a Yahoo page whose original publisher (by URL or by a known name) is already trusted IS trusted; an untrusted original stays untrusted", () => {
+    expect(isTrustedFactSource({ sourceUrl: yahoo, originalUrl: "https://www.si.com/nfl/seahawks/onsi/x" }, teams, trusted)).toBe(true);
+    expect(isTrustedFactSource({ sourceUrl: yahoo, originalPublisher: "Sports Illustrated" }, teams, trusted)).toBe(true);
+    expect(isTrustedFactSource({ sourceUrl: yahoo, originalPublisher: "Chiefs Wire", originalUrl: "https://chiefswire.usatoday.com/x" }, teams, trusted)).toBe(false);
+    expect(isTrustedFactSource({ sourceUrl: yahoo, originalPublisher: "The Sporting News" }, teams, trusted)).toBe(false);
+    expect(isTrustedFactSource({ sourceUrl: yahoo, originalPublisher: "Sports Illustrated" }, teams, ["espn.com"])).toBe(false); // SI is not on THIS trusted list: nothing is added automatically
+  });
+  it("an unknown publisher name is never guessed into a domain, and an aggregator URL is not an original", () => {
+    expect(originalPublisherDomain({ originalPublisher: "Seattle Seahawks On SI" })).toBeNull();
+    expect(originalPublisherDomain({ originalUrl: "https://sports.yahoo.com/other" })).toBeNull();
+    expect(originalPublisherDomain({ originalPublisher: "ESPN" })).toBe("espn.com");
+  });
+  it("trusted by original publisher AND readable makes the syndicated page an eligible public primary; the evidence URL is the page actually used", () => {
+    const f = { sourceUrl: yahoo, sourceTitle: "Walker returns to Lumen Field", originalPublisher: "Sports Illustrated" };
+    expect(isEligiblePrimarySource(f, teams, trusted)).toBe(true);
+    expect(isEligiblePrimarySource({ ...f, originalPublisher: "The Sporting News" }, teams, trusted)).toBe(false);
   });
 });
 

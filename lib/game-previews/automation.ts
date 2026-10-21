@@ -19,12 +19,13 @@ async function loadGame(fixtureId: string): Promise<GameIdentity | null> {
 export type RunResult = { configured: true; outcome: GenerationOutcome } | { configured: false; error: string };
 
 /** One explicit run for one Game (the admin's Generate / Regenerate): allowed whether or not automatic generation is on, but it still needs a provider with credentials and a configured model. */
-export async function runGamePreviewGenerationFor(fixtureId: string, reason: GamePreviewReason, trigger: "AUTOMATIC" | "ADMIN"): Promise<RunResult> {
+export async function runGamePreviewGenerationFor(fixtureId: string, reason: GamePreviewReason, trigger: "AUTOMATIC" | "ADMIN", actorId: string | null = null): Promise<RunResult> {
   const config = await getGamePreviewConfig();
   const providers = createGamePreviewProviders(config);
   if (!providers) return { configured: false, error: "No credentials are configured for the selected provider." };
   const deps: PipelineDeps = { config, providers, loadGame, save: saveGamePreview, recordRun: recordGenerationRun, now: () => new Date(), recentHooks: () => listRecentHooks(), fetchPublishedDate: (url) => fetchPublishedDate(url) };
-  return { configured: true, outcome: await generateGamePreview(deps, { fixtureId, reason, trigger }) };
+  // The actor is the authenticated Admin passed by the server action, never anything from a client payload; an automatic run has none.
+  return { configured: true, outcome: await generateGamePreview(deps, { fixtureId, reason, trigger, actorId: trigger === "ADMIN" ? actorId : null }) };
 }
 
 export interface AutomationReport {

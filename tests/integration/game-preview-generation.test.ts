@@ -196,3 +196,56 @@ describe("automatic generation is OFF unless explicitly on and configured", () =
     expect(randomUUID()).toBeTruthy();
   });
 });
+
+describe("who asked for a manual generation: the acting Admin is recorded and audited (migration 209)", () => {
+  const runInput = (fixtureId: string, over: Row = {}) => ({ fixtureId, trigger: "ADMIN" as const, reason: "MISSING", status: "SUCCEEDED" as const, provider: "anthropic", model: "test-model", attempts: 1, searchCalls: 5, modelCalls: 3, inputTokens: 1000, outputTokens: 400, factsFound: 8, error: null, previewId: null, startedAt: new Date(Date.now() - 60_000).toISOString(), effort: "medium", toolVersion: "web_search_20250305", details: {}, ...over });
+  const lastRun = async (fixtureId: string) => (await admin.from("game_preview_runs").select("id, actor_id, trigger, status").eq("fixture_id", fixtureId).order("started_at", { ascending: false }).limit(1).single()).data!;
+  const auditFor = async (runId: string) => (await admin.from("audit_logs").select("actor_id, action, entity_type, entity_id, after").eq("entity_id", runId).eq("action", "game_preview.generate")).data ?? [];
+
+  it("an ADMIN run records the actor and writes a game_preview.generate audit event tied to the Game and the run", async () => {
+    const actor = await superAdmin();
+    const g = await game();
+    await recordGenerationRun(runInput(g.fixtureId, { actorId: actor }));
+    const row = await lastRun(g.fixtureId);
+    expect(row).toMatchObject({ actor_id: actor, trigger: "ADMIN" });
+    const events = await auditFor(row.id);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ actor_id: actor, entity_type: "game_preview_runs", entity_id: row.id });
+    expect(events[0].after).toMatchObject({ fixture_id: g.fixtureId, run_id: row.id, trigger: "ADMIN", status: "SUCCEEDED" });
+  });
+
+  it("the audit event carries the result of a failed run too", async () => {
+    const actor = await superAdmin();
+    const g = await game();
+    await recordGenerationRun(runInput(g.fixtureId, { actorId: actor, status: "REJECTED", error: "no_trusted_primary_source" }));
+    const row = await lastRun(g.fixtureId);
+    expect((await auditFor(row.id))[0].after).toMatchObject({ status: "REJECTED", error: "no_trusted_primary_source" });
+  });
+
+  it("an ADMIN run without an actor (older callers) stays unattributed and writes no audit event: unknown is never guessed", async () => {
+    const g = await game();
+    await recordGenerationRun(runInput(g.fixtureId));
+    const row = await lastRun(g.fixtureId);
+    expect(row.actor_id).toBeNull();
+    expect(await auditFor(row.id)).toHaveLength(0);
+  });
+
+  it("an AUTOMATIC run never carries a human actor, even if one is passed", async () => {
+    const actor = await superAdmin();
+    const g = await game();
+    await recordGenerationRun(runInput(g.fixtureId, { trigger: "AUTOMATIC", actorId: actor }));
+    const row = await lastRun(g.fixtureId);
+    expect(row).toMatchObject({ actor_id: null, trigger: "AUTOMATIC" });
+    expect(await auditFor(row.id)).toHaveLength(0);
+    // And the database itself refuses the combination.
+    const { error } = await admin.from("game_preview_runs").insert({ fixture_id: g.fixtureId, trigger: "AUTOMATIC", reason: "MISSING", status: "FAILED", provider: "anthropic", model: "m", actor_id: actor });
+    expect(error?.message ?? "").toMatch(/game_preview_runs_actor_only_admin|violates check/);
+  });
+
+  it("a user who is not a Super Admin cannot be recorded as the actor", async () => {
+    const player = await seedUser("gg-player");
+    const g = await game();
+    await expect(recordGenerationRun(runInput(g.fixtureId, { actorId: player }))).rejects.toThrow(/actor_not_admin/);
+    expect((await admin.from("game_preview_runs").select("id").eq("fixture_id", g.fixtureId)).data).toHaveLength(0);
+  });
+});

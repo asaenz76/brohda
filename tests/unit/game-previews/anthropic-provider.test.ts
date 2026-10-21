@@ -475,6 +475,60 @@ describe("credit lookup: searching the trusted domains for the page that carries
   });
 });
 
+describe("release gate: figure freshness, number classification and syndication reach the provider", () => {
+  it("research asks for number_kind / as_of / original_publisher, and parses them; a syndicated page is credited under its original publisher", async () => {
+    const yahoo = "https://sports.yahoo.com/articles/walker-returns-123.html";
+    const c = client(msg([searchUse(), searchResult([ESPN, yahoo]), text({ facts: [rawFact({ number_kind: "CURRENT_STATE", as_of: "2026-10-12T00:00:00Z", as_of_label: "through 5 games" }), rawFact({ claim: "B", source_url: yahoo, source_provider: "Yahoo Sports", original_publisher: "Sports Illustrated", original_url: "https://www.si.com/nfl/seahawks/onsi/x", number_kind: "FIXED", as_of_label: "entering the season" }), rawFact({ claim: "C", number_kind: "WEIRD" })] })]));
+    const out = await new AnthropicGamePreviewProvider(c).research(game, ctx);
+    expect(out.facts[0]).toMatchObject({ numberKind: "CURRENT_STATE", asOf: "2026-10-12T00:00:00.000Z", asOfLabel: "through 5 games" });
+    expect(out.facts[1]).toMatchObject({ numberKind: "FIXED", sourceUrl: yahoo, sourceProvider: "Sports Illustrated", originalPublisher: "Sports Illustrated", originalUrl: "https://www.si.com/nfl/seahawks/onsi/x" });
+    expect(out.facts[2].numberKind).toBeUndefined(); // an unknown class is no class: no gate
+    const system = String(calls(c)[0].system);
+    expect(system).toMatch(/number_kind/);
+    expect(system).toMatch(/Do not treat the words 'so far' as proof the figure is current/);
+    expect(system).toMatch(/Originally appeared on/);
+  });
+
+  it("every stage is told the latest completed Games before this one", async () => {
+    const c = client(msg([searchUse(), searchResult([ESPN]), text({ facts: [rawFact()] })]));
+    await new AnthropicGamePreviewProvider(c).research({ ...game, lastCompleted: [{ team: "Green Bay Packers", completedUtc: "2026-10-19T03:00:00.000Z" }] }, ctx);
+    expect(JSON.stringify(calls(c)[0].messages)).toContain("Green Bay Packers (2026-10-19T03:00Z)");
+    const opener = client(msg([searchUse(), searchResult([ESPN]), text({ facts: [rawFact()] })]));
+    await new AnthropicGamePreviewProvider(opener).research({ ...game, lastCompleted: [] }, ctx);
+    expect(JSON.stringify(calls(opener)[0].messages)).toContain("none (a season opener");
+  });
+
+  it("the reviewer is told a TRUE number from an older source can be stale, and receives the scope hints", async () => {
+    const c = client(msg([text({ blocking: [], advisory: [] })]));
+    await new AnthropicGamePreviewProvider(c).verify(game, angles[0], goodDraft, facts, { model: "m", effort: "medium" }, { figures: [], seasonClaims: [], staleNumbers: ["f1: current through through 5 games"], fixedNumbers: ["f2: entering the season"] });
+    const system = String(calls(c)[0].system);
+    expect(system).toContain("a TRUE number from an older source can still be stale");
+    expect(system).toContain("must not be written as the current figure");
+    const user = (calls(c)[0].messages as Array<{ content: string }>)[0].content;
+    expect(user).toContain("staleNumbers");
+    expect(user).toContain("entering the season");
+  });
+
+  it("number refresh: confirmed / updated (only a page the search reached) / unavailable, with the old source never confirming itself", async () => {
+    const fresh = "https://www.espn.com/nfl/story/_/id/9/titans-run-game";
+    const c = client(msg([searchUse(), searchResult([fresh]), text({ results: [
+      { fact_id: "f1", status: "updated", note: "ESPN through Game 6", claim: "Tennessee averages 59.8 rushing yards per game through six games.", excerpt: "59.8 per game", source_url: fresh, source_title: "Titans run game", source_provider: "ESPN", published_at: "2026-10-19T14:00:00Z", as_of: "2026-10-18T06:00:00Z", as_of_label: "through 6 games" },
+      { fact_id: "f2", status: "updated", note: "x", claim: "Made up.", excerpt: "x", source_url: "https://never-reached.example/x", source_title: "x", source_provider: "x", published_at: null, as_of: null, as_of_label: null },
+      { fact_id: "f3", status: "confirmed", note: "still 2-3" },
+    ] })]));
+    const out = await new AnthropicGamePreviewProvider(c).refreshNumbers(game, facts, { model: "m", effort: "medium", maxSearchCalls: 3, webSearchToolVersion: "web_search_20250305", blockedDomains: ["reddit.com"] });
+    expect(out.results[0]).toMatchObject({ factId: "f1", status: "updated", fact: { claim: expect.stringContaining("59.8"), sourceUrl: fresh, asOfLabel: "through 6 games" } });
+    expect(out.results[1].status).toBe("unavailable"); // a page the search never reached is not evidence
+    expect(out.results[2]).toMatchObject({ factId: "f3", status: "confirmed" });
+    expect(String(calls(c)[0].system)).toMatch(/never reuse the old source to confirm itself/i);
+    expect((calls(c)[0].tools as Array<Record<string, unknown>>)[0].max_uses).toBe(2);
+    const none = client();
+    const skipped = await new AnthropicGamePreviewProvider(none).refreshNumbers(game, facts, { model: "m", effort: "medium", maxSearchCalls: 0, webSearchToolVersion: "x", blockedDomains: [] });
+    expect(skipped.results.every((r) => r.status === "unavailable")).toBe(true);
+    expect(calls(none)).toHaveLength(0);
+  });
+});
+
 describe("the real SDK accepts the research request", () => {
   it("max_tokens large enough to need streaming does not make the SDK refuse the request client-side (an explicit timeout is passed)", async () => {
     const body = { id: "m", type: "message", role: "assistant", model: "configured-model", content: [searchUse(), searchResult([ESPN]), text({ facts: [rawFact()] })], stop_reason: "end_turn", stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1, server_tool_use: { web_search_requests: 1 } } };

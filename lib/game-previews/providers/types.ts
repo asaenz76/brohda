@@ -23,6 +23,8 @@ export interface GameIdentity {
   phase: CompetitionPhase;
   /** The venue's timezone when known, so the scheduled start can be stated in local time. */
   timezone: string | null;
+  /** The most recent COMPLETED Game of each team before this one (null: none yet, an opener). A current-state number must include these Games to be current. */
+  lastCompleted?: Array<{ team: string; completedUtc: string }>;
   /** "Now" for the run: the research must be about the time before this Game, as of this instant. */
   asOf: string;
 }
@@ -70,7 +72,18 @@ export interface CandidateFact {
   ambiguous: boolean;
   surprising: boolean;
   disputed: boolean;
+  /** What kind of figure the fact carries, classified by research: CURRENT_STATE (a season record, average, total, rank, streak or "so far" count that changes with each Game), FIXED (a number about a completed, specific event or period: a score, last season's total, "entering the season", a founding year) or NONE. Unclassified = no freshness gate. */
+  numberKind?: NumberKind;
+  /** The date the figure is current THROUGH, when the page says ("through five games", "as of Oct. 5"); null when only the page date is known. */
+  asOf?: string | null;
+  /** The page's own words for the scope of the figure ("through 5 games", "entering the season"). */
+  asOfLabel?: string | null;
+  /** For a story republished on an aggregator (for example Yahoo): who published it originally, as the page states ("Originally appeared on ..."). The evidence URL stays the aggregator's. */
+  originalPublisher?: string | null;
+  originalUrl?: string | null;
 }
+export const NUMBER_KINDS = ["CURRENT_STATE", "FIXED", "NONE"] as const;
+export type NumberKind = (typeof NUMBER_KINDS)[number];
 
 export interface ProviderUsage {
   searchCalls: number;
@@ -260,6 +273,19 @@ export interface GamePreviewFactVerifierProvider {
   verifyFacts(game: GameIdentity, facts: CandidateFact[], ctx: FactVerificationContext): Promise<FactVerificationResult>;
   /** Find, for each fact, a page on a trusted domain that states the same claim, so the story can be credited to a trusted, readable source. Optional: without it a story whose central claim has no trusted source is not published. */
   findTrustedSources?(game: GameIdentity, facts: CandidateFact[], ctx: CreditLookupContext): Promise<CreditLookupResult>;
+  /** For current-state numbers that may be stale (a Game was completed after their evidence): look for the CURRENT value through the latest completed Game, preferring official league/team statistics. Optional: without it a stale candidate is removed. */
+  refreshNumbers?(game: GameIdentity, facts: CandidateFact[], ctx: FactVerificationContext): Promise<NumberRefreshResult>;
+}
+export interface NumberRefresh {
+  factId: string;
+  /** "confirmed": the same value is current through the latest completed Game. "updated": the value changed (`fact` carries the refreshed claim and source). "unavailable": no current evidence found. */
+  status: "confirmed" | "updated" | "unavailable";
+  note: string;
+  fact?: { claim: string; excerpt: string; sourceUrl: string; sourceTitle: string; sourceProvider: string; publishedAt: string | null; asOf: string | null; asOfLabel: string | null };
+}
+export interface NumberRefreshResult {
+  results: NumberRefresh[];
+  usage: ProviderUsage;
 }
 
 export interface DraftContext extends StageContext {
@@ -322,6 +348,10 @@ export interface DraftHints {
   seasonClaims: string[];
   /** The uncertainty words the cited facts carry ("f4: \"unlikely\""): the Preview must not state more certainty than its sources. */
   hedges?: string[];
+  /** Current-state numbers the deterministic freshness check flagged (a Game was completed after their evidence), and any that were refreshed. */
+  staleNumbers?: string[];
+  /** Cited figures that are FIXED to an earlier point or event ("entering the season", "last season", a specific game): they must not be written as the current figure ("already has", "now has"). */
+  fixedNumbers?: string[];
 }
 
 export interface VerificationResult {
