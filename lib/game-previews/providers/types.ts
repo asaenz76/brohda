@@ -125,9 +125,13 @@ export interface ReachedSource {
 }
 
 /** Two authoritative sources that disagree: recorded for review; the disputed figure is not used when the story can be told without it. */
+/** How two reports about the same current fact relate. Only a TRUE_CONFLICT (two contemporaneous credible sources disagree) is current uncertainty; a SUPERSEDED older state or a HISTORICAL_DIFFERENCE (both true at different times) is context and must never be written as an unsettled status. */
+export const CONFLICT_KINDS = ["TRUE_CONFLICT", "SUPERSEDED", "HISTORICAL_DIFFERENCE"] as const;
+export type ConflictKind = (typeof CONFLICT_KINDS)[number];
 export interface SourceConflict {
   topic: string;
   note: string;
+  kind?: ConflictKind;
 }
 
 /** What research noticed is going on around the Game, before any angle is chosen: hints for the angle stage (never a constraint), tied to facts by id. */
@@ -240,6 +244,8 @@ export interface FactCheck {
   retrievalFailed: boolean;
   note: string;
   corroboratingUrl: string | null;
+  /** The complete passage a targeted search found that proves the claim, when the stored passage was cut off. */
+  passage?: string | null;
 }
 export interface FactVerificationContext extends StageContext {
   /** Searches left in this generation's ceiling (0 = judge from the retrieved excerpts only). */
@@ -333,6 +339,7 @@ export const BLOCKING_CATEGORIES = [
   "status_overstated",
   "central_source_mismatch",
   "subject_mismatch",
+  "stale_conflict",
   "not_relevant_now",
   "logical_contradiction",
   "unsupported_causation",
@@ -355,6 +362,8 @@ export interface DraftHints {
   staleNumbers?: string[];
   /** Cited figures that are FIXED to an earlier point or event ("entering the season", "last season", a specific game): they must not be written as the current figure ("already has", "now has"). */
   fixedNumbers?: string[];
+  /** What research found when sources disagreed, classified: only a TRUE_CONFLICT may be written as current uncertainty. */
+  conflicts?: Array<{ topic: string; kind: string; note: string }>;
 }
 
 export interface VerificationResult {

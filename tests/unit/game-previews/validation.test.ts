@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claimAppearsInText, claimedFigures, isTrustedFactSource, originalPublisherDomain, staleNumberCandidates, domainMatches, domainOf, draftHints, isBettingPage, isEligiblePrimarySource, isCreditablePage, isStoryPage, isTrustedSource, teamSiteLabels, reconcileSeasonScope, styleProblems, unsupportedQuotes, validateDraft, verificationReasons } from "@/lib/game-previews/validation";
+import { excerptIssues, claimAppearsInText, claimedFigures, isTrustedFactSource, originalPublisherDomain, staleNumberCandidates, domainMatches, domainOf, draftHints, isBettingPage, isEligiblePrimarySource, isCreditablePage, isStoryPage, isTrustedSource, teamSiteLabels, reconcileSeasonScope, styleProblems, unsupportedQuotes, validateDraft, verificationReasons } from "@/lib/game-previews/validation";
 import { competitionPhase, currentSeasonStart } from "@/lib/game-previews/identity";
 import { config, fact, facts, game, goodDraft, NOW } from "./fixtures";
 
@@ -368,6 +368,33 @@ describe("Yahoo policy: hosting never makes a story trusted; the original publis
     const f = { sourceUrl: yahoo, sourceTitle: "Walker returns to Lumen Field", originalPublisher: "Sports Illustrated" };
     expect(isEligiblePrimarySource(f, teams, trusted)).toBe(true);
     expect(isEligiblePrimarySource({ ...f, originalPublisher: "The Sporting News" }, teams, trusted)).toBe(false);
+  });
+});
+
+describe("truncated research evidence is detected structurally (tests A-E)", () => {
+  const setup = "Sunday's game will be the first time Trey Hendrickson gets his chance at Joe Burrow and the Bengals. Brown said when asked if Hendrickson would have extra motivation.";
+  it("A: an excerpt that ends on the setup of a quote, before the answer, is flagged as cut off", () => {
+    expect(excerptIssues(setup).join(" ")).toMatch(/setup of a quote/);
+    expect(excerptIssues("A reporter asked whether he will play. Will Jackson practice Wednesday?").join(" ")).toMatch(/question or the setup/);
+  });
+  it("B: the expanded passage with the answer is not flagged", () => {
+    expect(excerptIssues(`${setup} "I imagine he will have a little something extra to play for," Brown said.`)).toEqual([]);
+    expect(excerptIssues('When asked if Hendrickson would have extra motivation, Brown said: "I imagine he will have a little something extra to play for."')).toEqual([]);
+  });
+  it("C: an excerpt cut off mid-sentence (ellipsis, colon, or an open quotation) is flagged", () => {
+    expect(excerptIssues("He recorded eight pressures and a sack in the game and then...").join(" ")).toMatch(/ellipsis/);
+    expect(excerptIssues("Brown said:").join(" ")).toMatch(/colon/);
+    expect(excerptIssues('Brown said, "I imagine he will have a little').join(" ")).toMatch(/quotation is left open/);
+    expect(excerptIssues("Brown said, \u201CI imagine he will have a little").join(" ")).toMatch(/quotation is left open/);
+  });
+  it("D, E: a complete sentence, a short table line or a concise passage that fully proves the claim is not flagged", () => {
+    for (const ok of ["Tennessee lost 26-3 to Houston on Oct. 11, falling to 0-5.", "Colts 41, Titans 20 (Sept. 21, 2025)", "Nathan MacKinnon | GP 8 | G 6 | A 10 | PTS 16", "Coach Jesse Minter said Lamar Jackson is day-to-day."]) expect(excerptIssues(ok), ok).toEqual([]);
+    expect(excerptIssues(null)).toEqual([]);
+  });
+  it("a cut-off passage makes its fact an exception that must be verified (never silently trusted)", () => {
+    const f = fact({ excerpt: setup });
+    expect(verificationReasons(f, true).join(" ")).toMatch(/stored passage looks cut off/);
+    expect(verificationReasons(fact({ excerpt: "Tennessee lost 26-3 to Houston." }), true)).toEqual([]);
   });
 });
 

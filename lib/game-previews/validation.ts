@@ -285,6 +285,24 @@ export function claimAppearsInText(claim: string, text: string): boolean {
   return present / words.length >= 0.6;
 }
 
+/**
+ * Whether a stored evidence passage looks CUT OFF before it proves anything: it ends in an ellipsis or a colon, a quotation is left open, or it ends on the setup of a quote ("when asked ...", a question) before the answer. Structural cues only; whether a passage
+ * actually proves a claim is the verifier's and the reviewer's judgement. A passage with no issue may still be insufficient; a passage with an issue is never silently trusted.
+ */
+export function excerptIssues(excerpt: string | null | undefined): string[] {
+  const t = (excerpt ?? "").trim();
+  if (!t) return [];
+  const issues: string[] = [];
+  if (/(\.\.\.|\u2026|:)$/.test(t)) issues.push("ends in an ellipsis or a colon");
+  const straight = (t.match(/"/g) ?? []).length;
+  const opens = (t.match(/\u201C/g) ?? []).length;
+  const closes = (t.match(/\u201D/g) ?? []).length;
+  if (straight % 2 === 1 || opens !== closes) issues.push("a quotation is left open");
+  const last = t.split(/(?<=[.!?])\s+/).pop() ?? "";
+  if (/\?["'\u201D]?$/.test(last) || (/\b(when|if|as|after|before) (he was |she was |they were |being )?asked\b|\bwas asked\b|\bwere asked\b/i.test(last) && !/["\u201C]/.test(last))) issues.push("ends on a question or the setup of a quote, before its answer");
+  return issues;
+}
+
 /** The Game's time frame as the freshness check needs it. */
 export interface FreshnessContext {
   now: Date;
@@ -304,6 +322,7 @@ export function verificationReasons(fact: CandidateFact, trusted: boolean, fresh
   if (fact.ambiguous) reasons.push("the page is ambiguous about season, date or team");
   if (fact.surprising) reasons.push("the claim is unusually surprising or consequential");
   if (!fact.excerpt || !fact.excerpt.trim()) reasons.push("no passage shows that the source says it");
+  else if (excerptIssues(fact.excerpt).length > 0) reasons.push(`the stored passage looks cut off (${excerptIssues(fact.excerpt)[0]})`);
   const undatedPage = ["profile", "archive", "reference", "other"].includes(fact.sourceType) && !fact.pageSeason && !fact.publishedAt;
   if (fact.seasonScope === "CURRENT_SEASON" && undatedPage) reasons.push("the page cannot place the figure in the current season");
   if (freshness && fact.kind === "current") {

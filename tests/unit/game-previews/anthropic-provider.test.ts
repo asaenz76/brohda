@@ -239,7 +239,7 @@ describe("Anthropic provider — story-first research and fact verification", ()
     const out = await new AnthropicGamePreviewProvider(c).research(game, ctx);
     expect(out.facts.map((f) => f.id)).toEqual(["f1", "f2"]);
     expect(out.leads).toEqual([{ summary: "Winless Tennessee meets a Colts team that owned it.", factIds: ["f1", "f2"] }]);
-    expect(out.conflicts).toEqual([{ topic: "Colts sacks", note: "ESPN says 3, KCSN says 4" }]);
+    expect(out.conflicts).toEqual([{ topic: "Colts sacks", note: "ESPN says 3, KCSN says 4", kind: "TRUE_CONFLICT" }]); // an unclassified disagreement is treated as a true one
   });
 
   const vctx = { model: "configured-model", effort: "medium", maxSearchCalls: 2, webSearchToolVersion: "web_search_20250305", blockedDomains: ["reddit.com"] };
@@ -582,6 +582,54 @@ describe("final blockers: subject integrity and evidence preservation reach the 
     const c = client(msg([searchUse(), searchResult([good]), text({ results: [{ fact_id: "f1", url: good, title: "t", provider: "ESPN", published_at: null, excerpt: "Tennessee fell to 0-5." }] })]));
     await new AnthropicGamePreviewProvider(c).findTrustedSources(game, [facts[0]], { model: "m", effort: "medium", maxSearchCalls: 3, webSearchToolVersion: "web_search_20250305", blockedDomains: [], trustedDomains: ["espn.com"] });
     expect(String(calls(c)[0].system)).toContain("FULL passage of the trusted page that states the claim");
+  });
+});
+
+describe("last release blockers: superseded evidence, complete evidence (provider)", () => {
+  it("research classifies disagreements (TRUE_CONFLICT / SUPERSEDED / HISTORICAL_DIFFERENCE) and is told to report the newer state as current", async () => {
+    const c = client(msg([searchUse(), searchResult([ESPN]), text({ facts: [rawFact()], conflicts: [{ topic: "Cooper's status", kind: "SUPERSEDED", note: "Oct 16 NFL.com reinstated him; an older NBC item listed him as exempt" }, { topic: "Starter", kind: "TRUE_CONFLICT", note: "x" }, { topic: "Odd", kind: "NOPE", note: "y" }] })]));
+    const out = await new AnthropicGamePreviewProvider(c).research(game, ctx);
+    expect(out.conflicts?.map((x) => x.kind)).toEqual(["SUPERSEDED", "TRUE_CONFLICT", "TRUE_CONFLICT"]);
+    const system = String(calls(c)[0].system);
+    expect(system).toMatch(/SUPERSEDED \(a newer credible report updates or replaces an older state/);
+    expect(system).toMatch(/report the newer state as current/);
+  });
+
+  it("the reviewer blocks stale_conflict (an older item written as a current contradiction) and receives the classified disagreements", async () => {
+    const c = client(msg([text({ blocking: [{ category: "stale_conflict", problem: "the 'still on the list' item is older than the reinstatement report" }], advisory: [] })]));
+    const out = await new AnthropicGamePreviewProvider(c).verify(game, angles[0], goodDraft, facts, { model: "m", effort: "medium" }, { figures: [], seasonClaims: [], conflicts: [{ topic: "Cooper's status", kind: "SUPERSEDED", note: "older item superseded" }] });
+    expect(out.blocking[0].category).toBe("stale_conflict");
+    const system = String(calls(c)[0].system);
+    expect(system).toContain("stale_conflict");
+    expect(system).toMatch(/OLDER than, or clearly superseded by, a newer credible report/);
+    expect(system).toMatch(/an older item is context, not a contradiction/);
+    expect((calls(c)[0].messages as Array<{ content: string }>)[0].content).toContain("SUPERSEDED");
+    const schema = (calls(c)[0].output_config as { format: { schema: { properties: { blocking: { items: { properties: { category: { enum: string[] } } } } } } } }).format.schema.properties.blocking.items.properties.category.enum;
+    expect(schema).toContain("stale_conflict");
+  });
+
+  it("the writer is told not to call a status unsettled because an older report differs from a newer one", async () => {
+    const c = client(msg([text({ status: "ready", reason: "", title: "t", caption: "c", claims: [{ text: "x", fact_ids: ["f1"], evidence: "e" }] })]));
+    await new AnthropicGamePreviewProvider(c).write(game, angles[0], facts, { model: "m", effort: "medium", maxChars: 700, maxCitedFacts: 4, recentHooks: [], feedback: [] });
+    expect(String(calls(c)[0].system)).toContain("Never call a status unsettled, unclear or in conflict because an OLDER report differs from a newer one");
+  });
+
+  it("research must store COMPLETE evidence: question and answer together, never an excerpt cut off at the setup, and a self-check before returning a fact", async () => {
+    const c = client(msg([searchUse(), searchResult([ESPN]), text({ facts: [rawFact()] })]));
+    await new AnthropicGamePreviewProvider(c).research(game, ctx);
+    const system = String(calls(c)[0].system);
+    expect(system).toMatch(/EVIDENCE MUST BE COMPLETE/);
+    expect(system).toMatch(/question AND the answer/);
+    expect(system).toMatch(/does the stored passage actually contain the support for what I extracted\?/);
+    expect(system).toMatch(/up to about 900 characters/);
+  });
+
+  it("the evidence check treats a cut-off passage as insufficient, and the targeted check returns the complete passage it found", async () => {
+    const c = client(msg([text({ verdicts: [{ fact_id: "f1", verdict: "insufficient", note: "ends on the question", to_establish: "Brown's answer" }] })]), msg([searchUse(), searchResult([ESPN]), text({ checks: [{ fact_id: "f1", status: "confirmed", note: "found", corroborating_url: ESPN, retrieval_failed: false, passage: "Asked whether Hendrickson would have extra motivation, Brown said: \"I imagine he will have a little something extra to play for.\"" }] })]));
+    const out = await new AnthropicGamePreviewProvider(c).verifyFacts(game, [facts[0]], { model: "m", effort: "medium", maxSearchCalls: 2, webSearchToolVersion: "web_search_20250305", blockedDomains: [] });
+    expect(String(calls(c)[0].system)).toMatch(/CUT OFF before the support/);
+    expect(out.checks[0]).toMatchObject({ status: "confirmed", basis: "targeted_search", passage: expect.stringContaining("little something extra") });
+    expect(String(calls(c)[1].system)).toMatch(/complete passage you saw that proves the claim/);
   });
 });
 
