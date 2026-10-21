@@ -1,4 +1,4 @@
--- Who asked for a manually triggered Game Preview generation (r116).
+-- Who asked for a manually triggered Game Preview generation (PR #114).
 --
 -- game_preview_runs gains `actor_id`: the authenticated Admin behind an ADMIN-triggered run. It is NULL for AUTOMATIC runs (automation never pretends to be a person) and for every run recorded before this migration
 -- (the attribution of those is unknown and is deliberately not guessed). A DB-level rule keeps it honest: only an ADMIN run may carry an actor, and the actor must be a Super Admin.
