@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { generateGamePreview, verificationReserve, type PipelineDeps } from "@/lib/game-previews/pipeline";
-import { addUsage, emptyUsage, type FactCheck, type GamePreviewAngleProvider, type GamePreviewFactVerifierProvider, type GamePreviewProviders, type GamePreviewResearchProvider, type GamePreviewVerifierProvider, type GamePreviewWriterProvider, type PreviewDraft } from "@/lib/game-previews/providers/types";
+import { addUsage, emptyUsage, type NumberRefresh, type FactCheck, type GamePreviewAngleProvider, type GamePreviewFactVerifierProvider, type GamePreviewProviders, type GamePreviewResearchProvider, type GamePreviewVerifierProvider, type GamePreviewWriterProvider, type PreviewDraft } from "@/lib/game-previews/providers/types";
 import type { GenerationRunInput } from "@/lib/game-previews/repository";
 import type { GamePreviewInput } from "@/lib/game-previews/types";
 import { config, fact, facts, game, goodDraft, NOW, selection } from "./fixtures";
@@ -759,3 +759,172 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
     expect(addUsage(usage({ searchCalls: 1, modelCalls: 2 }), usage({ searchCalls: 3, inputTokens: 5 }))).toEqual({ searchCalls: 4, modelCalls: 2, inputTokens: 5, outputTokens: 0 });
   });
 });
+
+describe("generation attribution: the run record carries the actor only for an ADMIN run", () => {
+  it("passes the actor of an ADMIN request to the run record, and never for an AUTOMATIC one", async () => {
+    const admin = setup();
+    await generateGamePreview(admin.deps, { ...req, actorId: "11111111-2222-4333-8444-555555555555" });
+    expect(admin.runs[0].actorId).toBe("11111111-2222-4333-8444-555555555555");
+    const automatic = setup();
+    await generateGamePreview(automatic.deps, { fixtureId: game.fixtureId, reason: "MISSING", trigger: "AUTOMATIC", actorId: "11111111-2222-4333-8444-555555555555" });
+    expect(automatic.runs[0].actorId).toBeNull();
+    const unknown = setup();
+    await generateGamePreview(unknown.deps, req);
+    expect(unknown.runs[0].actorId).toBeNull();
+  });
+});
+
+const verifierOf = (status: (id: string) => FactCheck["status"], basis: "stored_evidence" | "targeted_search" = "stored_evidence", searches = 0) =>
+  vi.fn<GamePreviewFactVerifierProvider["verifyFacts"]>(async (_g, fs) => ({ checks: fs.map((f) => ({ factId: f.id, status: status(f.id), basis, retrievalFailed: false, note: `note ${f.id}`, corroboratingUrl: null })), usage: usage({ searchCalls: searches, modelCalls: 1 }) }));
+
+describe("current-number freshness: flag, refresh, update or remove, salvage", () => {
+  const ESPN_STORY = "https://www.espn.com/nfl/story/_/id/1/titans-winless";
+  const withGames = (completed: Array<{ team: string; completedUtc: string }>) => async () => ({ ...game, lastCompleted: completed });
+  // Tennessee played Game 6 on Oct. 18; the number's evidence is from Oct. 12 (after Game 5).
+  const afterGame6 = [{ team: "Tennessee Titans", completedUtc: "2026-10-18T03:00:00.000Z" }, { team: "Indianapolis Colts", completedUtc: "2026-10-12T21:00:00.000Z" }];
+  const stat = (over = {}) => fact({ id: "f1", kind: "current", numberKind: "CURRENT_STATE", subjectTeam: "Tennessee Titans", sourceUrl: ESPN_STORY, claim: "Tennessee averages 60.4 rushing yards per game through five games.", excerpt: "Tennessee: 60.4 rushing yards per game through 5 games", publishedAt: "2026-10-12T10:00:00.000Z", asOfLabel: "through 5 games", ...over });
+  const story = (factIds = ["f1"], central = ["f1"]) => ({ ...selection, angles: [{ ...selection.angles[0], factIds, centralFactIds: central, summary: "Tennessee cannot run." }], selectedId: "a1" });
+  const refresher = (r: (f: { id: string }) => NumberRefresh) => vi.fn(async (_g: unknown, fs: Array<{ id: string }>) => ({ results: fs.map(r), usage: usage({ searchCalls: 1, modelCalls: 1 }) }));
+  const build = (opts: { facts: ReturnType<typeof fact>[]; refresh?: ReturnType<typeof refresher> | null; angles?: ReturnType<typeof story>; completed?: typeof afterGame6; write?: ReturnType<typeof vi.fn> }) => {
+    const verifier = opts.refresh === null ? null : ({ name: "fake", verifyFacts: verifierOf(() => "confirmed"), ...(opts.refresh ? { refreshNumbers: opts.refresh } : {}) } as never);
+    return setup({ loadGame: withGames(opts.completed ?? afterGame6), providers: { research: { name: "fake", research: async () => ({ facts: opts.facts, sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...(opts.angles ?? story()), usage: usage({ modelCalls: 1 }) }) }, factVerifier: verifier, ...(opts.write ? { writer: { name: "fake", write: opts.write as never } } : {}) }, config: { maxSearchCallsPerGame: 8 } });
+  };
+  const draftCiting = (ids: string[], text = "Tennessee averages 60.4 rushing yards per game.") => vi.fn<GamePreviewWriterProvider["write"]>(async (_g, a) => draftOf({ preview: text, claims: ids.filter((i) => a.factIds.includes(i)).map((i) => ({ text, factIds: [i] })) }));
+
+  it("(tests A, B) the 60.4 figure is flagged, refreshed, and the CURRENT value (59.8, through Game 6) replaces it before the writer sees it", async () => {
+    const refresh = refresher((f) => ({ factId: f.id, status: "updated", note: "ESPN stats through Game 6", fact: { claim: "Tennessee averages 59.8 rushing yards per game through six games.", excerpt: "Tennessee: 59.8 rushing yards per game through 6 games", sourceUrl: "https://www.espn.com/nfl/story/_/id/9/titans-run-game", sourceTitle: "Titans run game", sourceProvider: "ESPN", publishedAt: "2026-10-19T14:00:00.000Z", asOf: "2026-10-18T06:00:00.000Z", asOfLabel: "through 6 games" } }));
+    const write = draftCiting(["f1"], "Tennessee averages 59.8 rushing yards per game.");
+    const t = build({ facts: [stat()], refresh, write });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    const sent = write.mock.calls[0][2].find((f: { id: string }) => f.id === "f1")!;
+    expect(sent.claim).toMatch(/59\.8/);
+    expect(JSON.stringify(write.mock.calls[0][2])).not.toContain("60.4");
+    const d = t.runs[0].details as { staleCandidates: Array<{ factId: string; outcome?: string }>; numberRefreshes: Array<{ from: string; to: string }> };
+    expect(d.staleCandidates).toEqual([expect.objectContaining({ factId: "f1", outcome: "updated" })]);
+    expect(d.numberRefreshes[0]).toMatchObject({ from: expect.stringContaining("60.4"), to: expect.stringContaining("59.8") });
+  });
+
+  it("the same value confirmed current through the latest Game is allowed", async () => {
+    const write = draftCiting(["f1"]);
+    const t = build({ facts: [stat()], refresh: refresher((f) => ({ factId: f.id, status: "confirmed", note: "still 60.4 through Game 6" })), write });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(JSON.stringify(write.mock.calls[0][2])).toContain("60.4");
+    expect((t.runs[0].details as { staleCandidates: Array<{ outcome?: string }> }).staleCandidates[0].outcome).toBe("confirmed");
+  });
+
+  it("an update whose own evidence still predates the latest Game is not accepted: the number is removed", async () => {
+    const refresh = refresher((f) => ({ factId: f.id, status: "updated", note: "x", fact: { claim: "Tennessee averages 61.2 yards through four games.", excerpt: "61.2", sourceUrl: "https://www.espn.com/nfl/story/_/id/8/older", sourceTitle: "older", sourceProvider: "ESPN", publishedAt: "2026-10-05T10:00:00.000Z", asOf: null, asOfLabel: "through 4 games" } }));
+    const t = build({ facts: [stat()], refresh });
+    expect(await generateGamePreview(t.deps, req)).toMatchObject({ status: "REJECTED", error: "story_not_verified" });
+    expect((t.runs[0].details as { staleCandidates: Array<{ outcome?: string }> }).staleCandidates[0].outcome).toBe("removed");
+  });
+
+  it("(test C) a FIXED number is never refreshed or removed, however many Games came after it", async () => {
+    const fixed = stat({ numberKind: "FIXED", claim: "Tennessee gained 118 rushing yards against Chicago on Oct. 5.", asOfLabel: null });
+    const refresh = refresher((f) => ({ factId: f.id, status: "unavailable", note: "should never be called" }));
+    const write = draftCiting(["f1"], "Tennessee gained 118 rushing yards against Chicago on Oct. 5.");
+    const t = build({ facts: [fixed], refresh, write });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(refresh).not.toHaveBeenCalled();
+    expect((t.runs[0].details as { staleCandidates: unknown[] }).staleCandidates).toEqual([]);
+  });
+
+  it("(test F) a current source published after the latest completed Game is not flagged", async () => {
+    const refresh = refresher((f) => ({ factId: f.id, status: "unavailable", note: "x" }));
+    const t = build({ facts: [stat({ publishedAt: "2026-10-18T20:00:00.000Z" })], refresh, write: draftCiting(["f1"]) });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("an opener (no completed Game yet) has nothing to be stale against", async () => {
+    const t = build({ facts: [stat({ publishedAt: "2026-09-01T10:00:00.000Z" })], completed: [], refresh: refresher((f) => ({ factId: f.id, status: "unavailable", note: "x" })), write: draftCiting(["f1"]) });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+  });
+
+  it("salvage: a stale PERIPHERAL number that cannot be refreshed is removed and the story is kept without it", async () => {
+    const central = fact({ id: "f3", sourceUrl: "https://www.nfl.com/news/colts-steelers-recap" });
+    const refresh = refresher((f) => ({ factId: f.id, status: "unavailable", note: "no current value" }));
+    const write = draftCiting(["f3"], "Indianapolis is 2-3.");
+    const t = build({ facts: [central, stat()], angles: story(["f3", "f1"], ["f3"]), refresh, write });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(write.mock.calls[0][1].factIds).toEqual(["f3"]);
+    expect((t.runs[0].details as { factsRemoved: Array<{ factId: string }> }).factsRemoved.some((r) => r.factId === "f1")).toBe(true);
+  });
+
+  it("a stale CENTRAL number that cannot be refreshed drops the story; the next-best story is used (attempts unchanged)", async () => {
+    const fallback = fact({ id: "f3", sourceUrl: "https://www.nfl.com/news/colts-steelers-recap" });
+    const two = { ...selection, angles: [{ ...selection.angles[0], id: "a1", factIds: ["f1"], centralFactIds: ["f1"], summary: "A rushing slump." }, { ...selection.angles[0], id: "a2", type: "HOT_VS_COLD" as const, factIds: ["f3"], centralFactIds: ["f3"], summary: "A recap." }], selectedId: "a1" };
+    const write = draftCiting(["f3"], "Indianapolis is 2-3.");
+    const t = build({ facts: [stat(), fallback], angles: two, refresh: refresher((f) => ({ factId: f.id, status: "unavailable", note: "none" })), write });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(write.mock.calls[0][1].id).toBe("a2");
+    expect((t.runs[0].details as { storyAttempts: Array<{ angleId: string; outcome: string }> }).storyAttempts[0]).toMatchObject({ angleId: "a1", outcome: "collapsed" });
+  });
+
+  it("without any refresh capability a stale number is removed, never published as current", async () => {
+    const t = build({ facts: [stat()], refresh: undefined });
+    expect(await generateGamePreview(t.deps, req)).toMatchObject({ status: "REJECTED" });
+    expect(t.saves).toHaveLength(0);
+  });
+
+  it("(tests D, E) a FIXED 'entering the season' figure written as the current one is blocked by the reviewer (which is told it is fixed); written as entering-season history it is allowed", async () => {
+    const entering = fact({ id: "f1", sourceUrl: ESPN_STORY, numberKind: "FIXED", asOfLabel: "entering the season", claim: "Ovechkin entered the season with 929 career goals.", excerpt: "Ovechkin enters the season with 929 career goals", publishedAt: "2026-10-05T10:00:00.000Z" });
+    const already = draftOf({ hook: "Ovechkin already has 929", preview: "Ovechkin already has 929 goals. Can he add one tonight?", claims: [{ text: "Ovechkin has 929 goals.", factIds: ["f1"] }] });
+    const honest = draftOf({ hook: "Ovechkin entered the season with 929", preview: "Ovechkin entered the season with 929 career goals. Can he add one tonight?", claims: [{ text: "Ovechkin entered the season with 929 career goals.", factIds: ["f1"] }] });
+    const write = vi.fn<GamePreviewWriterProvider["write"]>(async (_g, _a, _f, ctx) => (ctx.feedback.length === 0 ? already : honest));
+    const verify = vi.fn<GamePreviewVerifierProvider["verify"]>(async (_g, _a, d, _f, _c, hints) => ({ blocking: /already has/i.test(d.preview) && (hints?.fixedNumbers?.length ?? 0) > 0 ? [{ category: "stale_current" as const, problem: "929 was the entering-season total, written as the current total." }] : [], advisory: [], usage: usage({ modelCalls: 1 }) }));
+    const t = setup({ loadGame: withGames(afterGame6), providers: { research: { name: "fake", research: async () => ({ facts: [entering], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...story(), usage: usage({ modelCalls: 1 }) }) }, writer: { name: "fake", write }, verifier: { name: "fake", verify } } });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(t.saves[0].hook).toBe(honest.hook);
+    expect(verify.mock.calls[0][5]?.fixedNumbers?.join(" ")).toMatch(/entering the season/);
+  });
+});
+
+describe("syndication, credit identity and secondary materiality", () => {
+  const YAHOO = "https://sports.yahoo.com/articles/walker-returns-123.html";
+  const syndicated = (over = {}) => fact({ id: "f1", sourceUrl: YAHOO, sourceProvider: "ESPN", sourceTitle: "Walker returns", originalPublisher: "ESPN", ...over });
+  const only = { ...selection, angles: [{ ...selection.angles[0], factIds: ["f1"], centralFactIds: ["f1"], summary: "A return." }], selectedId: "a1" };
+  const buildOne = (f: ReturnType<typeof fact>, extra: Parameters<typeof setup>[0] = {}) => setup({ providers: { research: { name: "fake", research: async () => ({ facts: [f], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...only, usage: usage({ modelCalls: 1 }) }) }, writer: { name: "fake", write: async (_g, a) => draftOf({ claims: [{ text: "Tennessee is 0-5 after a 26-3 loss to Houston.", factIds: [a.factIds[0]] }] }) }, ...(extra.providers ?? {}) }, config: { maxSearchCallsPerGame: 8 } });
+
+  it("a Yahoo page whose original publisher is already trusted satisfies the trust requirement, credited as that publisher with the actual URL kept", async () => {
+    const t = buildOne(syndicated());
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(t.saves[0].sources[0]).toMatchObject({ url: YAHOO, provider: "ESPN" });
+    expect((t.saves[0].meta as { publicSourceUrls: string[] }).publicSourceUrls).toEqual([YAHOO]);
+  });
+
+  it("a Yahoo page with an untrusted or unidentified original publisher stays untrusted (no credit lookup available: not published)", async () => {
+    for (const original of ["Chiefs Wire", null]) {
+      const t = buildOne(syndicated({ originalPublisher: original, sourceProvider: original ?? "Yahoo Sports" }));
+      expect(await generateGamePreview(t.deps, req)).toMatchObject({ status: "REJECTED" });
+      expect(t.saves).toHaveLength(0);
+    }
+  });
+
+  it("the original publisher's own readable page is preferred for the public link when the approved lookup finds it", async () => {
+    const original = { url: "https://www.espn.com/nfl/story/_/id/5/walker-returns", title: "Walker returns", provider: "ESPN", publishedAt: "2026-10-19T12:00:00.000Z", excerpt: "Walker returns to Lumen Field." };
+    const findTrustedSources = vi.fn(async (_g: unknown, fs: Array<{ id: string }>) => ({ found: fs.map((f) => ({ factId: f.id, hit: original })), usage: usage({ searchCalls: 1, modelCalls: 1 }) }));
+    const t = buildOne(syndicated(), { providers: { factVerifier: { name: "fake", verifyFacts: verifierOf(() => "confirmed"), findTrustedSources } as never } });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(findTrustedSources).toHaveBeenCalledOnce();
+    expect((t.saves[0].meta as { publicSourceUrls: string[] }).publicSourceUrls).toEqual([original.url]);
+    expect(t.saves[0].sources.map((x) => x.url)).toEqual(expect.arrayContaining([original.url]));
+  });
+
+  it("(test N) a secondary source backing only a claim that is NOT in the public title or caption is not shown; the same source is shown when the caption states its claim", async () => {
+    const primary = fact({ id: "f1", sourceUrl: "https://www.espn.com/nfl/story/_/id/1/titans-winless" });
+    const schedule = fact({ id: "f3", category: "context", claim: "The game is Sunday, Oct. 25 at 1:25 p.m. at Allegiant Stadium.", excerpt: "Oct. 25, 1:25 p.m., Allegiant Stadium", sourceUrl: "https://www.nfl.com/news/schedule-release-notes", sourceProvider: "NFL.com", sourceTitle: "Schedule release notes" });
+    const story = { ...selection, angles: [{ ...selection.angles[0], factIds: ["f1", "f3"], centralFactIds: ["f1"], summary: "A winless team." }], selectedId: "a1" };
+    const run = async (preview: string) => {
+      const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [primary, schedule], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...story, usage: usage({ modelCalls: 1 }) }) }, writer: { name: "fake", write: async () => draftOf({ hook: "Zero wins in five.", preview, claims: [{ text: "Tennessee is 0-5 after a 26-3 loss to Houston.", factIds: ["f1"] }, { text: "The game is Sunday, Oct. 25 at 1:25 p.m. at Allegiant Stadium.", factIds: ["f3"] }] }) } } });
+      await generateGamePreview(t.deps, req);
+      return { pub: (t.saves[0].meta as { publicSourceUrls: string[] }).publicSourceUrls, stored: t.saves[0].sources.map((x) => x.url) };
+    };
+    const hidden = await run("Tennessee is 0-5 after a 26-3 loss to Houston. Does it end in Indianapolis?");
+    expect(hidden.pub).toEqual([primary.sourceUrl]);
+    expect(hidden.stored).toContain(schedule.sourceUrl); // internal provenance keeps it
+    const shown = await run("Tennessee is 0-5 after a 26-3 loss to Houston. The game is Sunday, Oct. 25 at 1:25 p.m. at Allegiant Stadium.");
+    expect(shown.pub).toEqual([primary.sourceUrl, schedule.sourceUrl]);
+  });
+});
+

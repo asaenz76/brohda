@@ -79,11 +79,11 @@ export async function setGamePreviewConfigAction(_prev: GamePreviewAdminResult |
  * validation, verification, provenance — and never touches a Game that has started. The result says plainly what happened.
  */
 export async function generateGamePreviewAction(_prev: GamePreviewAdminResult | null, formData: FormData): Promise<GamePreviewAdminResult> {
-  await requireSuperAdmin();
+  const admin = await requireSuperAdmin(); // the actor comes from the authenticated server session, never from the form
   const fixtureId = String(formData.get("fixture_id") ?? "");
   if (!isUuid(fixtureId)) return fail("That Game wasn't found.");
   const existing = await getGamePreviewForFixture(fixtureId);
-  const result = await runGamePreviewGenerationFor(fixtureId, existing ? "MANUAL_ADMIN_REQUEST" : "MISSING", "ADMIN");
+  const result = await runGamePreviewGenerationFor(fixtureId, existing ? "MANUAL_ADMIN_REQUEST" : "MISSING", "ADMIN", admin.id);
   revalidatePath("/admin/game-previews");
   revalidatePath("/feed");
   if (!result.configured) return fail(result.error);

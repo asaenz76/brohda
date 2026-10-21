@@ -202,6 +202,8 @@ export interface GenerationRunInput {
   toolVersion?: string;
   /** What the run found and decided: sources, facts, angles, rejections. */
   details?: Record<string, unknown>;
+  /** The authenticated Admin who asked for an ADMIN run; null for AUTOMATIC runs (and for runs recorded before attribution existed). */
+  actorId?: string | null;
 }
 
 /** One row per automated or admin-triggered attempt: what it cost and how it ended, so usage and quality are observable from the first run. */
@@ -209,6 +211,7 @@ export async function recordGenerationRun(run: GenerationRunInput): Promise<void
   const { error } = await createAdminClient().from("game_preview_runs").insert({
     fixture_id: run.fixtureId, trigger: run.trigger, reason: run.reason, status: run.status, provider: run.provider, model: run.model, attempts: run.attempts, search_calls: run.searchCalls, model_calls: run.modelCalls,
     input_tokens: run.inputTokens, output_tokens: run.outputTokens, facts_found: run.factsFound, error: run.error ? run.error.slice(0, 1000) : null, preview_id: run.previewId, started_at: run.startedAt, effort: run.effort ?? null, tool_version: run.toolVersion ?? null, details: run.details ?? {},
+    actor_id: run.trigger === "ADMIN" ? (run.actorId ?? null) : null,
   });
   if (error) throw error;
 }

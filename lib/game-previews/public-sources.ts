@@ -1,28 +1,10 @@
 import type { GamePreviewSource, PublicPreviewSource } from "./types";
+import { KNOWN_PUBLISHERS } from "./publishers";
 import { domainOf, isCreditablePage } from "./validation";
-
-/** Publisher names Members know, by domain. A team's own site reads as the team ("Chargers.com"); anything else falls back to the provider the research named, then to the domain. */
-const KNOWN: Record<string, string> = {
-  "espn.com": "ESPN",
-  "nfl.com": "NFL.com",
-  "nhl.com": "NHL.com",
-  "nba.com": "NBA.com",
-  "mlb.com": "MLB.com",
-  "foxsports.com": "FOX Sports",
-  "cbssports.com": "CBS Sports",
-  "nbcsports.com": "NBC Sports",
-  "apnews.com": "Associated Press",
-  "reuters.com": "Reuters",
-  "theathletic.com": "The Athletic",
-  "si.com": "Sports Illustrated",
-  "pro-football-reference.com": "Pro Football Reference",
-  "hockey-reference.com": "Hockey Reference",
-  "basketball-reference.com": "Basketball Reference",
-};
 
 export function sourceDisplayName(url: string, provider: string | null | undefined): string {
   const host = domainOf(url);
-  const known = Object.entries(KNOWN).find(([d]) => host === d || host.endsWith(`.${d}`));
+  const known = Object.entries(KNOWN_PUBLISHERS).find(([d]) => host === d || host.endsWith(`.${d}`));
   if (known) return known[1];
   const named = (provider ?? "").trim();
   if (named && named.toLowerCase() !== host) return named;

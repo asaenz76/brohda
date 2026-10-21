@@ -1,6 +1,7 @@
 import type { GamePreviewClaim, GamePreviewConfig } from "./types";
 import type { CandidateFact, DraftHints, GameIdentity } from "./providers/types";
 import { currentSeasonStart } from "./identity";
+import { publisherDomainFromName, SYNDICATION_HOSTS } from "./publishers";
 
 /**
  * The deterministic gate between a drafted Preview and a saved one: ONLY facts code can decide. Everything that needs to understand meaning (is this number right, is this claim current, is the logic sound, does it belong to this Game now) is the independent reader's job
@@ -204,9 +205,79 @@ export function isCreditablePage(url: string, title?: string | null): boolean {
   }
 }
 
-/** Whether a fact's source may be the story's PRIMARY (publicly credited) source: trusted AND creditable. Evidence eligibility is wider (any non-blocked source). */
-export function isEligiblePrimarySource(fact: Pick<CandidateFact, "sourceUrl" | "sourceTitle">, teams: string[], trustedDomains: string[]): boolean {
-  return isTrustedSource(fact.sourceUrl, teams, trustedDomains) && isCreditablePage(fact.sourceUrl, fact.sourceTitle);
+/** Whether a URL is on an aggregator that republishes other publishers' stories (Yahoo, MSN, AOL). */
+export const isSyndicationHost = (url: string): boolean => domainMatches(domainOf(url), SYNDICATION_HOSTS);
+
+/**
+ * The domain of the ORIGINAL publisher of a syndicated page, when the page reliably identifies it: the original URL it names, or the name of a publisher Brohda knows ("Originally appeared on Sports Illustrated"). Null otherwise: nothing is guessed.
+ */
+export function originalPublisherDomain(fact: Pick<CandidateFact, "originalPublisher" | "originalUrl">): string | null {
+  const fromUrl = fact.originalUrl ? domainOf(fact.originalUrl) : "";
+  if (fromUrl && !domainMatches(fromUrl, SYNDICATION_HOSTS)) return fromUrl;
+  return publisherDomainFromName(fact.originalPublisher);
+}
+
+/**
+ * Whether a fact's source is trusted. A page on an aggregator is trusted ONLY if it identifies an original publisher that is already trusted; hosting on Yahoo is never trust on its own, and nothing is added to the trusted list.
+ */
+export function isTrustedFactSource(fact: Pick<CandidateFact, "sourceUrl" | "originalPublisher" | "originalUrl">, teams: string[], trustedDomains: string[]): boolean {
+  if (isSyndicationHost(fact.sourceUrl)) {
+    const original = originalPublisherDomain(fact);
+    return original ? isTrustedSource(`https://${original}/`, teams, trustedDomains) : false;
+  }
+  return isTrustedSource(fact.sourceUrl, teams, trustedDomains);
+}
+
+/** Whether a fact's source may be the story's PRIMARY (publicly credited) source: trusted (by its original publisher when syndicated) AND creditable. Evidence eligibility is wider (any non-blocked source). */
+export function isEligiblePrimarySource(fact: Pick<CandidateFact, "sourceUrl" | "sourceTitle" | "originalPublisher" | "originalUrl">, teams: string[], trustedDomains: string[]): boolean {
+  return isTrustedFactSource(fact, teams, trustedDomains) && isCreditablePage(fact.sourceUrl, fact.sourceTitle);
+}
+
+/** Current-state numbers and the Games that came after their evidence. */
+const DAY = 86_400_000;
+const evidenceTime = (iso: string | null | undefined): number | null => {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return null;
+  // A date with no time of day ("2026-10-19T00:00:00Z") covers that whole day.
+  return /T00:00:00(\.000)?Z$/.test(iso) ? t + DAY - 1 : t;
+};
+export interface StaleCandidate {
+  factId: string;
+  reason: string;
+}
+/**
+ * The deterministic freshness signal. Only a CURRENT_STATE number (season record, average, total, rank, streak, "so far") is checked, never a FIXED one (a specific score, last season's total, "entering the season").
+ * It is a STALE_CANDIDATE when a relevant Game was COMPLETED after the number's evidence: the evidence date is the figure's own as-of date when the page gives one, otherwise the page date. No evidence date at all is also a candidate (freshness cannot be shown).
+ * A candidate is not false: it must be refreshed (confirmed, updated or removed) before it can be published as current. "Relevant" = the most recent completed Game of the fact's own team, or of either team when the fact names none. An opener has no earlier Game, so nothing is stale.
+ */
+export function staleNumberCandidates(facts: CandidateFact[], game: Pick<GameIdentity, "lastCompleted" | "homeTeam" | "awayTeam">): StaleCandidate[] {
+  const completed = game.lastCompleted ?? [];
+  if (completed.length === 0) return [];
+  const out: StaleCandidate[] = [];
+  for (const f of facts) {
+    if (f.numberKind !== "CURRENT_STATE") continue;
+    const own = f.subjectTeam ? completed.filter((c) => f.subjectTeam!.toLowerCase().includes(c.team.toLowerCase().split(" ").pop() ?? "") || c.team.toLowerCase().includes(f.subjectTeam!.toLowerCase())) : [];
+    const relevant = own.length > 0 ? own : completed;
+    const latest = Math.max(...relevant.map((c) => new Date(c.completedUtc).getTime()));
+    const at = evidenceTime(f.asOf) ?? evidenceTime(f.publishedAt);
+    if (at === null) out.push({ factId: f.id, reason: "a current-state number whose evidence has no date: freshness cannot be shown" });
+    else if (at < latest) out.push({ factId: f.id, reason: `a Game was completed (${new Date(latest).toISOString().slice(0, 16)}Z) after this number's evidence (${new Date(at).toISOString().slice(0, 16)}Z)` });
+  }
+  return out;
+}
+
+/**
+ * Whether a claim is actually stated in the PUBLIC title or caption: every number in the claim, and most of its distinctive words, appear in the text. A claim kept only in internal research metadata does not count (so a source that backs only such a claim is not shown publicly).
+ */
+export function claimAppearsInText(claim: string, text: string): boolean {
+  const t = text.toLowerCase();
+  const numbers = claim.match(/\d+(?:[.,:]\d+)?/g) ?? [];
+  if (numbers.some((n) => !t.includes(n.toLowerCase()))) return false;
+  const words = [...new Set((claim.toLowerCase().match(/[a-z]{5,}/g) ?? []))];
+  if (words.length === 0) return numbers.length > 0;
+  const present = words.filter((w) => t.includes(w.slice(0, Math.max(5, w.length - 2)))).length;
+  return present / words.length >= 0.6;
 }
 
 /** The Game's time frame as the freshness check needs it. */
@@ -276,7 +347,10 @@ export function draftHints(draft: DraftToValidate, facts: CandidateFact[]): Draf
     .map((c) => c.text);
   // Status certainty: the hedges the cited facts carry ("unlikely to play", "questionable", "expected back"). The reviewer checks that the title and caption do not state more certainty than these.
   const hedges = [...cited.values()].flatMap((f) => [...new Set(`${f.claim} ${f.excerpt ?? ""}`.toLowerCase().match(HEDGE) ?? [])].map((h) => `${f.id}: "${h}"`));
-  return { figures, seasonClaims, hedges };
+  // Figures by scope: current-state numbers say what they are current THROUGH; fixed ones must not be written as the current figure ("already has 929" when 929 was the entering-season total).
+  const staleNumbers = [...cited.values()].filter((f) => f.numberKind === "CURRENT_STATE").map((f) => `${f.id}: current through ${f.asOfLabel ?? f.asOf?.slice(0, 10) ?? f.publishedAt?.slice(0, 10) ?? "an unknown date"}`);
+  const fixedNumbers = [...cited.values()].filter((f) => f.numberKind === "FIXED" && /\d/.test(f.claim)).map((f) => `${f.id}: ${f.asOfLabel ?? f.claim.slice(0, 70)}`);
+  return { figures, seasonClaims, hedges, staleNumbers, fixedNumbers };
 }
 
 export function validateDraft({ draft, facts, config }: { draft: DraftToValidate; facts: CandidateFact[]; game?: GameIdentity; config: Pick<GamePreviewConfig, "maxChars" | "blockedDomains">; now?: Date }): ValidationResult {
