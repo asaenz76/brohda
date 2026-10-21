@@ -650,7 +650,7 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
       const t = build(verifierWith(() => hit));
       expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
       const [, angleArg, factsArg] = citesStoryFacts.mock.calls[0];
-      expect(angleArg.factIds).toEqual(["f1t"]);
+      expect(angleArg.factIds).toEqual(["f1t", "f1"]); // the trusted page leads; the original evidence stays in the story
       expect(factsArg.find((f) => f.id === "f1t")?.sourceUrl).toBe(hit.url);
       expect((t.saves[0].meta as { primarySourceUrl: string; publicSourceUrls: string[] }).publicSourceUrls).toEqual([hit.url]);
       expect(t.saves[0].sources.find((x) => x.url === hit.url)?.publishedAt).toBe(hit.publishedAt);
@@ -925,6 +925,107 @@ describe("syndication, credit identity and secondary materiality", () => {
     expect(hidden.stored).toContain(schedule.sourceUrl); // internal provenance keeps it
     const shown = await run("Tennessee is 0-5 after a 26-3 loss to Houston. The game is Sunday, Oct. 25 at 1:25 p.m. at Allegiant Stadium.");
     expect(shown.pub).toEqual([primary.sourceUrl, schedule.sourceUrl]);
+  });
+});
+
+describe("D1: subject integrity is a blocking finding handled like any other blocker", () => {
+  const sweeney = fact({ id: "f1", sourceUrl: "https://www.espn.com/nba/story/_/id/1/magic-new-coach", claim: "Sean Sweeney was hired as the Orlando Magic head coach to build on the defense and unlock the scoring.", excerpt: "The Magic hired Sean Sweeney to replace Jamahl Mosley." });
+  const story = { ...selection, angles: [{ ...selection.angles[0], factIds: ["f1"], centralFactIds: ["f1"], summary: "A new coach." }], selectedId: "a1" };
+  const draftWith = (text: string) => draftOf({ hook: "New coach in Orlando", preview: text, claims: [{ text: "Sean Sweeney was hired as the Magic head coach.", factIds: ["f1"] }] });
+  // The reviewer is a model; the fake stands in for its semantic call and records what the pipeline does with it.
+  const run = async (drafts: string[], reviewer: (d: { preview: string }) => { blocking: Array<{ category: "subject_mismatch"; problem: string }>; advisory: Array<{ kind: "wording_tone"; note: string }> }) => {
+    let i = 0;
+    const write = vi.fn<GamePreviewWriterProvider["write"]>(async () => draftWith(drafts[Math.min(i++, drafts.length - 1)]));
+    const verify = vi.fn<GamePreviewVerifierProvider["verify"]>(async (_g, _a, d) => ({ ...reviewer(d), usage: usage({ modelCalls: 1 }) }));
+    const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [sweeney], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...story, usage: usage({ modelCalls: 1 }) }) }, writer: { name: "fake", write }, verifier: { name: "fake", verify } } });
+    const out = await generateGamePreview(t.deps, req);
+    return { out, t, write };
+  };
+  const none = { blocking: [], advisory: [] };
+
+  it("(A) 'The team was hired...' for a coach's hiring is BLOCKED, the writer is told why, and the corrected sentence (B) is saved", async () => {
+    const { out, t, write } = await run(["The team was hired to improve the offense.", "Sweeney was hired to help improve Orlando's offense."], (d) => (/^The team was hired/.test(d.preview) ? { blocking: [{ category: "subject_mismatch", problem: "'The team was hired' but the fact says Sean Sweeney, the coach, was hired." }], advisory: [] } : none));
+    expect(out.status).toBe("SUCCEEDED");
+    expect(write.mock.calls[1][3].feedback.join(" ")).toMatch(/subject_mismatch\] 'The team was hired'/);
+    expect(t.saves[0].body).toMatch(/^Sweeney was hired/);
+    expect((t.runs[0].details as { blockingCounts: { reviewerByCategory: Record<string, number> } }).blockingCounts.reviewerByCategory.subject_mismatch).toBe(1);
+  });
+
+  it("(C) one player's injury attributed to another is BLOCKED on every attempt it appears in: nothing is saved", async () => {
+    const { out, t } = await run(["Bosa is out with a hamstring injury and Samuel has a calf strain."], () => ({ blocking: [{ category: "subject_mismatch", problem: "The hamstring injury belongs to Deebo Samuel, not Nick Bosa." }], advisory: [] }));
+    expect(out).toMatchObject({ status: "REJECTED", error: "draft_rejected" });
+    expect(t.saves).toHaveLength(0);
+  });
+
+  it("(D) the right subject in awkward prose is advisory at most: it is saved (after at most one polish rewrite) and never rejected", async () => {
+    const { out, t } = await run(["Sweeney, hired by Orlando, being the one who was brought in to fix the offense, is the new coach."], () => ({ blocking: [], advisory: [{ kind: "wording_tone", note: "Clumsy sentence, correct subject." }] }));
+    expect(out.status).toBe("SUCCEEDED");
+    expect(t.saves).toHaveLength(1);
+    expect((t.runs[0].details as { blockingCounts: { reviewer: number } }).blockingCounts.reviewer).toBe(0);
+  });
+});
+
+describe("D2: the credit lookup enriches provenance and never replaces the evidence that supported the claim", () => {
+  const YAHOO = "https://sports.yahoo.com/articles/dybantsa-out-1.html";
+  const FULL = "Wizards rookie AJ Dybantsa will miss Wednesday night's season opener against Milwaukee with a mild ankle sprain suffered in Friday's preseason finale.";
+  const orig = () => fact({ id: "f1", sourceUrl: YAHOO, sourceProvider: "Yahoo Sports", sourceTitle: "Dybantsa out", claim: "AJ Dybantsa will miss Wednesday's season opener with an ankle sprain.", excerpt: FULL });
+  const hit = { url: "https://www.espn.com/nba/story/_/id/50229436/wizards-aj-dybantsa-ankle-miss-season-opener", title: "Dybantsa to miss opener", provider: "ESPN", publishedAt: "2026-10-20T17:10:00.000Z", excerpt: "Dybantsa has a mild ankle sprain and will be day-to-day." };
+  const story = { ...selection, angles: [{ ...selection.angles[0], factIds: ["f1"], centralFactIds: ["f1"], summary: "A debut delayed." }], selectedId: "a1" };
+  const build = (lookup: ((fs: Array<{ id: string }>) => Array<{ factId: string; hit: typeof hit | null }>) | null, check: FactCheck["status"] = "confirmed", write?: ReturnType<typeof vi.fn>, verify?: ReturnType<typeof vi.fn>) => {
+    const findTrustedSources = vi.fn(async (_g: unknown, fs: Array<{ id: string }>) => ({ found: lookup ? lookup(fs) : [], usage: usage({ searchCalls: 1, modelCalls: 1 }) }));
+    const t = setup({
+      providers: {
+        research: { name: "fake", research: async () => ({ facts: [orig()], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) },
+        angles: { name: "fake", selectAngle: async () => ({ ...story, usage: usage({ modelCalls: 1 }) }) },
+        factVerifier: { name: "fake", verifyFacts: verifierOf(() => check), findTrustedSources } as never,
+        writer: { name: "fake", write: (write ?? vi.fn(async (_g: unknown, a: { factIds: string[] }) => draftOf({ preview: "Dybantsa will miss the opener.", claims: a.factIds.map((id) => ({ text: "Dybantsa will miss the opener.", factIds: [id] })) }))) as never },
+        ...(verify ? { verifier: { name: "fake", verify: verify as never } } : {}),
+      },
+      config: { maxSearchCallsPerGame: 8 },
+    });
+    return { t, findTrustedSources };
+  };
+
+  it("(A, E) the original passage is preserved and attached to the trusted fact; the canonical claim text and the original fact are not mutated", async () => {
+    const write = vi.fn(async (...args: [unknown, { factIds: string[] }, unknown]) => draftOf({ preview: "Dybantsa will miss the opener.", claims: args[1].factIds.map((id) => ({ text: "Dybantsa will miss the opener.", factIds: [id] })) }));
+    const { t } = build((fs) => fs.map((f) => ({ factId: f.id, hit })), "confirmed", write);
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    const sent = write.mock.calls[0][2] as ReturnType<typeof fact>[];
+    const trusted = sent.find((f) => f.id === "f1t")!;
+    const original = sent.find((f) => f.id === "f1")!;
+    expect(trusted.excerpt).toBe(hit.excerpt); // the shorter trusted passage
+    expect(trusted.alsoSupportedBy?.[0]).toMatchObject({ url: YAHOO, provider: "Yahoo Sports", excerpt: FULL }); // the original passage preserved
+    expect(trusted.claim).toBe(orig().claim); // canonical claim text untouched
+    expect(original).toMatchObject({ id: "f1", sourceUrl: YAHOO, excerpt: FULL, claim: orig().claim }); // the original fact stays as it was
+    expect((write.mock.calls[0][1] as { factIds: string[] }).factIds).toEqual(["f1t", "f1"]); // trusted page first (public credit), original still in the story
+  });
+
+  it("(B) both are stored as provenance when both are cited, and the trusted page is the public credit", async () => {
+    const { t } = build((fs) => fs.map((f) => ({ factId: f.id, hit })));
+    await generateGamePreview(t.deps, req);
+    expect(t.saves[0].sources.map((x) => x.url)).toEqual(expect.arrayContaining([hit.url, YAHOO]));
+    expect((t.saves[0].meta as { publicSourceUrls: string[] }).publicSourceUrls).toEqual([hit.url]);
+  });
+
+  it("(C) a trusted page that does not show the exact sentence does not cost the claim its support: the reviewer is given the facts that carry the original passage too", async () => {
+    const verify = vi.fn<GamePreviewVerifierProvider["verify"]>(async () => ({ blocking: [], advisory: [], usage: usage({ modelCalls: 1 }) }));
+    const { t } = build((fs) => fs.map((f) => ({ factId: f.id, hit })), "confirmed", undefined, verify);
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    const facts = verify.mock.calls[0][3] as ReturnType<typeof fact>[];
+    expect(facts.find((f) => f.id === "f1t")?.alsoSupportedBy?.[0].excerpt).toBe(FULL);
+    expect(facts.some((f) => f.id === "f1" && f.excerpt === FULL)).toBe(true);
+  });
+
+  it("(D) when the original evidence does not support the claim and the lookup cannot either, the story is still not used", async () => {
+    const { t, findTrustedSources } = build((fs) => fs.map((f) => ({ factId: f.id, hit: null })), "unsupported");
+    expect(await generateGamePreview(t.deps, req)).toMatchObject({ status: "REJECTED" });
+    expect(findTrustedSources).not.toHaveBeenCalled(); // an unsupported claim is dropped before any credit is looked for
+    expect(t.saves).toHaveLength(0);
+  });
+
+  it("a lookup that finds nothing leaves the original evidence untouched and the story is not credited", async () => {
+    const { t } = build((fs) => fs.map((f) => ({ factId: f.id, hit: null })));
+    expect(await generateGamePreview(t.deps, req)).toMatchObject({ status: "REJECTED", error: "no_trusted_primary_source" });
   });
 });
 

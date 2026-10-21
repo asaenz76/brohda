@@ -7,7 +7,11 @@ vi.mock("server-only", () => ({}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({ requireSuperAdmin: (...a: unknown[]) => requireSuperAdmin(...a) }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({}) }));
-vi.mock("@/lib/game-previews/repository", () => ({ getGamePreviewForFixture: vi.fn(async () => null) }));
+const adminState = vi.fn();
+vi.mock("@/lib/game-previews/repository", () => ({
+  getGamePreviewAdminState: (...a: unknown[]) => adminState(...a),
+  adminGenerationReason: (state: { status: string | null }) => (state.status === "PUBLISHED" ? "MANUAL_ADMIN_REQUEST" : "MISSING"),
+}));
 vi.mock("@/lib/game-previews/automation", () => ({ runGamePreviewGenerationFor: (...a: unknown[]) => runGeneration(...a) }));
 
 import { generateGamePreviewAction } from "@/lib/actions/game-previews-admin";
@@ -24,6 +28,8 @@ describe("Admin Generate: the actor is the authenticated server session, never t
   beforeEach(() => {
     requireSuperAdmin.mockReset();
     runGeneration.mockReset();
+    adminState.mockReset();
+    adminState.mockResolvedValue({ exists: false, status: null, visible: false });
     runGeneration.mockResolvedValue({ configured: false, error: "No credentials are configured for the selected provider." });
   });
 
@@ -45,3 +51,31 @@ describe("Admin Generate: the actor is the authenticated server session, never t
     expect(runGeneration).not.toHaveBeenCalled();
   });
 });
+
+describe("Admin Generate / Regenerate decide from the canonical stored Preview, not the public getter", () => {
+  beforeEach(() => {
+    requireSuperAdmin.mockReset();
+    runGeneration.mockReset();
+    adminState.mockReset();
+    requireSuperAdmin.mockResolvedValue({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" });
+    runGeneration.mockResolvedValue({ configured: false, error: "No credentials are configured for the selected provider." });
+  });
+  const reasonFor = async (state: { exists: boolean; status: string | null; visible: boolean }) => {
+    adminState.mockResolvedValue(state);
+    await generateGamePreviewAction(null, form());
+    return runGeneration.mock.calls.at(-1)![1];
+  };
+  it("(A) no stored Preview -> MISSING (create)", async () => {
+    expect(await reasonFor({ exists: false, status: null, visible: false })).toBe("MISSING");
+  });
+  it("(B) a visible published Preview -> MANUAL_ADMIN_REQUEST (regenerate, never a second insert)", async () => {
+    expect(await reasonFor({ exists: true, status: "PUBLISHED", visible: true })).toBe("MANUAL_ADMIN_REQUEST");
+  });
+  it("(C) a published Preview hidden from Members (its credit became ineligible) -> MANUAL_ADMIN_REQUEST: the Bengals @ Ravens failure", async () => {
+    expect(await reasonFor({ exists: true, status: "PUBLISHED", visible: false })).toBe("MANUAL_ADMIN_REQUEST");
+  });
+  it("(E) a withdrawn Preview -> MISSING (the database replaces a withdrawn row only through MISSING)", async () => {
+    expect(await reasonFor({ exists: true, status: "WITHDRAWN", visible: false })).toBe("MISSING");
+  });
+});
+

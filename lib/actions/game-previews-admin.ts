@@ -5,7 +5,7 @@ import { requireSuperAdmin } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isUuid } from "@/lib/messaging/share";
 import { runGamePreviewGenerationFor } from "@/lib/game-previews/automation";
-import { getGamePreviewForFixture } from "@/lib/game-previews/repository";
+import { adminGenerationReason, getGamePreviewAdminState } from "@/lib/game-previews/repository";
 
 export interface GamePreviewAdminResult {
   success: boolean;
@@ -82,8 +82,9 @@ export async function generateGamePreviewAction(_prev: GamePreviewAdminResult | 
   const admin = await requireSuperAdmin(); // the actor comes from the authenticated server session, never from the form
   const fixtureId = String(formData.get("fixture_id") ?? "");
   if (!isUuid(fixtureId)) return fail("That Game wasn't found.");
-  const existing = await getGamePreviewForFixture(fixtureId);
-  const result = await runGamePreviewGenerationFor(fixtureId, existing ? "MANUAL_ADMIN_REQUEST" : "MISSING", "ADMIN", admin.id);
+  // The reason comes from the canonical STORED state, not the public getter (which hides a Preview whose credit is no longer eligible): a hidden Preview is regenerated, never re-inserted.
+  const state = await getGamePreviewAdminState(fixtureId);
+  const result = await runGamePreviewGenerationFor(fixtureId, adminGenerationReason(state), "ADMIN", admin.id);
   revalidatePath("/admin/game-previews");
   revalidatePath("/feed");
   if (!result.configured) return fail(result.error);

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { getTestAdminClient, getTestAnonClient } from "./helpers/test-env";
 import { seedGame, seedUser, setFixture } from "./helpers/game-seed";
-import { getGamePreviewConfig, getGamePreviewForFixture, getGenerationUsageSummary, listGamePreviewsForAdmin, listRecentGenerationRuns, recordGenerationRun, saveGamePreview } from "@/lib/game-previews/repository";
+import { adminGenerationReason, getGamePreviewAdminState, getGamePreviewConfig, getGamePreviewForFixture, getGenerationUsageSummary, listGamePreviewsForAdmin, listRecentGenerationRuns, recordGenerationRun, saveGamePreview } from "@/lib/game-previews/repository";
 import { runGamePreviewAutomation } from "@/lib/game-previews/automation";
 
 const admin = getTestAdminClient();
@@ -280,3 +280,56 @@ describe("the latest completed Games of each team before a fixture (freshness cu
     expect(await latestCompletedGames(target({ home_team_external_id: "901", away_team_external_id: "902", home_team_name: "New A", away_team_name: "New B" }))).toEqual([]);
   });
 });
+
+describe("Admin existence is the canonical stored state, separate from public visibility (D3)", () => {
+  const rows = async (fixtureId: string) => (await admin.from("game_previews").select("id, status").eq("fixture_id", fixtureId)).data ?? [];
+  const profileSource = () => source({ url: "https://www.espn.com/nfl/player/_/id/3916387/lamar-jackson", title: "Lamar Jackson" }); // a live player page: valid evidence, not an eligible public credit
+
+  it("(A, F) no Preview: state says none and a MISSING write creates exactly one row", async () => {
+    const g = await game();
+    expect(await getGamePreviewAdminState(g.fixtureId)).toEqual({ exists: false, status: null, visible: false });
+    expect(adminGenerationReason(await getGamePreviewAdminState(g.fixtureId))).toBe("MISSING");
+    expect((await saveGamePreview(input(g.fixtureId))).outcome).toBe("created");
+    expect(await rows(g.fixtureId)).toHaveLength(1);
+  });
+
+  it("(B, F) a visible Preview: state says visible, Generate must use MANUAL_ADMIN_REQUEST; a MISSING insert is refused and no duplicate row appears", async () => {
+    const g = await game();
+    await saveGamePreview(input(g.fixtureId));
+    const state = await getGamePreviewAdminState(g.fixtureId);
+    expect(state).toEqual({ exists: true, status: "PUBLISHED", visible: true });
+    expect(adminGenerationReason(state)).toBe("MANUAL_ADMIN_REQUEST");
+    expect((await saveGamePreview(input(g.fixtureId, { reason: "MISSING" }))).outcome).toBe("already_exists");
+    expect(await rows(g.fixtureId)).toHaveLength(1);
+  });
+
+  it("(C, D, F) a Preview hidden because its credit is ineligible: the public getter returns null, the Admin state still sees it, and regeneration replaces it through the normal path with one row", async () => {
+    const g = await game();
+    expect((await saveGamePreview(input(g.fixtureId, { sources: [profileSource()], claims: [{ text: "Tennessee is 0-5.", fact_ids: ["f1"], source_urls: [profileSource().url] }] }))).outcome).toBe("created");
+    expect(await getGamePreviewForFixture(g.fixtureId)).toBeNull(); // hidden from Members
+    const state = await getGamePreviewAdminState(g.fixtureId);
+    expect(state).toEqual({ exists: true, status: "PUBLISHED", visible: false }); // but it exists
+    expect(adminGenerationReason(state)).toBe("MANUAL_ADMIN_REQUEST");
+    expect((await saveGamePreview(input(g.fixtureId, { reason: "MISSING" }))).outcome).toBe("already_exists"); // the old Admin behavior: refused
+    const regenerated = await saveGamePreview(input(g.fixtureId, { reason: "MANUAL_ADMIN_REQUEST", hook: "A readable source now." }));
+    expect(regenerated.outcome).toBe("refreshed");
+    expect(await rows(g.fixtureId)).toHaveLength(1);
+    expect((await getGamePreviewForFixture(g.fixtureId))?.hook).toBe("A readable source now."); // visible again once it has an eligible credit
+  });
+
+  it("(E, F) a withdrawn Preview: state says withdrawn, Generate uses MISSING, a MANUAL_ADMIN_REQUEST is refused, and the row is replaced in place", async () => {
+    const actor = await superAdmin();
+    const g = await game();
+    await saveGamePreview(input(g.fixtureId));
+    const { error } = await admin.rpc("admin_withdraw_game_preview", { p_admin_id: actor, p_fixture_id: g.fixtureId, p_reason: "test withdrawal" });
+    expect(error).toBeNull();
+    const state = await getGamePreviewAdminState(g.fixtureId);
+    expect(state).toEqual({ exists: true, status: "WITHDRAWN", visible: false });
+    expect(adminGenerationReason(state)).toBe("MISSING");
+    expect((await saveGamePreview(input(g.fixtureId, { reason: "MANUAL_ADMIN_REQUEST" }))).outcome).toBe("no_existing_preview");
+    expect((await saveGamePreview(input(g.fixtureId, { reason: "MISSING" }))).outcome).toBe("refreshed"); // the withdrawn row is replaced in place
+    expect(await rows(g.fixtureId)).toHaveLength(1);
+    expect((await getGamePreviewAdminState(g.fixtureId)).status).toBe("PUBLISHED");
+  });
+});
+

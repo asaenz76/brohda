@@ -331,10 +331,28 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
       details.creditLookups.push({ angleId: angle.id, factId, found: hit?.url ?? null });
       if (!orig || !hit || !isTrustedSource(hit.url, teams, config.preferredDomains) || !isCreditablePage(hit.url, hit.title) || domainMatches(domainOf(hit.url), config.blockedDomains)) continue;
       if (orig.kind === "current" && hit.publishedAt && freshness.now.getTime() - new Date(hit.publishedAt).getTime() > config.currentFactMaxAgeHours * 3_600_000) continue; // an old page does not credit a current-state claim
-      const credited: CandidateFact = { ...orig, id: `${orig.id}t`, sourceUrl: hit.url, sourceProvider: hit.provider, sourceTitle: hit.title, publishedAt: hit.publishedAt, excerpt: hit.excerpt, sourceType: "article", pageContext: null, pageSeason: null, ambiguous: false, surprising: false, disputed: false };
+      // The lookup ENRICHES provenance, it never replaces the evidence that supported the claim: the claim text is the original's, the trusted page is added with its own passage, and the original page and passage stay attached (and the original fact stays in the story) so the writer and the reviewer see both.
+      const credited: CandidateFact = {
+        ...orig,
+        id: `${orig.id}t`,
+        sourceUrl: hit.url,
+        sourceProvider: hit.provider,
+        sourceTitle: hit.title,
+        publishedAt: hit.publishedAt,
+        excerpt: hit.excerpt,
+        sourceType: "article",
+        pageContext: null,
+        pageSeason: null,
+        ambiguous: false,
+        surprising: false,
+        disputed: false,
+        originalPublisher: null,
+        originalUrl: null,
+        alsoSupportedBy: [{ url: orig.sourceUrl, provider: orig.sourceProvider, title: orig.sourceTitle, excerpt: orig.excerpt, publishedAt: orig.publishedAt }, ...(orig.alsoSupportedBy ?? [])],
+      };
       facts = [...facts, credited];
       confirmed.add(credited.id); // the claim itself was verified; this page only carries it under a trusted name
-      factIds = factIds.map((id) => (id === orig.id ? credited.id : id));
+      factIds = factIds.flatMap((id) => (id === orig.id ? [credited.id, orig.id] : [id]));
       centralIds = centralIds.map((id) => (id === orig.id ? credited.id : id));
       details.facts.push({ id: credited.id, kind: credited.kind, seasonScope: credited.seasonScope, category: credited.category, claim: credited.claim, excerpt: credited.excerpt, sourceType: credited.sourceType, pageContext: null, pageSeason: null, subjectTeam: credited.subjectTeam, sourceUrl: credited.sourceUrl, publishedAt: credited.publishedAt, relevance: credited.relevance } as RunDetails["facts"][number]);
       any = true;
