@@ -495,7 +495,15 @@ describe("release gate: figure freshness, number classification and syndication 
     expect(JSON.stringify(calls(c)[0].messages)).toContain("Green Bay Packers (2026-10-19T03:00Z)");
     const opener = client(msg([searchUse(), searchResult([ESPN]), text({ facts: [rawFact()] })]));
     await new AnthropicGamePreviewProvider(opener).research({ ...game, lastCompleted: [] }, ctx);
-    expect(JSON.stringify(calls(opener)[0].messages)).toContain("none (a season opener");
+    expect(JSON.stringify(calls(opener)[0].messages)).toContain("No completed Game of these teams before this one is recorded");
+  });
+
+  it("when the completed Games could not be read the prompt says so and does not claim an opener", async () => {
+    const c = client(msg([searchUse(), searchResult([ESPN]), text({ facts: [rawFact()] })]));
+    await new AnthropicGamePreviewProvider(c).research({ ...game, lastCompleted: undefined }, ctx);
+    const user = JSON.stringify(calls(c)[0].messages);
+    expect(user).toContain("not available");
+    expect(user).not.toContain("opener");
   });
 
   it("the reviewer is told a TRUE number from an older source can be stale, and receives the scope hints", async () => {

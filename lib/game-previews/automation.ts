@@ -2,6 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { competitionPhase } from "./identity";
 import { fetchPublishedDate } from "./source-dates";
+import { latestCompletedGames } from "./completed-games";
 import { trustedVenueTimezone } from "@/lib/sports-data/timezone";
 import { generateGamePreview, type GenerationOutcome, type PipelineDeps } from "./pipeline";
 import { createGamePreviewProviders } from "./providers";
@@ -11,9 +12,16 @@ import type { GameIdentity } from "./providers/types";
 
 /** The canonical identity of a Game that is still eligible for a Preview (published Post, not started), or null. */
 async function loadGame(fixtureId: string): Promise<GameIdentity | null> {
-  const { data: f } = await createAdminClient().from("fixtures").select("id, sport, competition_name, home_team_name, away_team_name, scheduled_start_utc, internal_status, season, round, venue_city, venue_timezone").eq("id", fixtureId).maybeSingle();
+  const { data: f } = await createAdminClient().from("fixtures").select("id, sport, competition_name, home_team_name, away_team_name, scheduled_start_utc, internal_status, season, round, venue_city, venue_timezone, provider, competition_external_id, home_team_external_id, away_team_external_id").eq("id", fixtureId).maybeSingle();
   if (!f || f.internal_status !== "NOT_STARTED" || new Date(f.scheduled_start_utc).getTime() <= Date.now()) return null;
-  return { fixtureId: f.id, sport: f.sport, competition: f.competition_name, homeTeam: f.home_team_name, awayTeam: f.away_team_name, kickoffUtc: f.scheduled_start_utc, season: f.season ?? null, phase: competitionPhase(f.round), timezone: trustedVenueTimezone(f.venue_city, f.venue_timezone), asOf: new Date().toISOString() };
+  // The latest COMPLETED Game of each team before this one: a current-state number is current only if its evidence includes them. If the schedule data cannot be read the answer is UNKNOWN (undefined), which the freshness check treats as "cannot be shown", never as "an opener".
+  let lastCompleted: GameIdentity["lastCompleted"];
+  try {
+    lastCompleted = await latestCompletedGames(f);
+  } catch {
+    lastCompleted = undefined;
+  }
+  return { fixtureId: f.id, sport: f.sport, competition: f.competition_name, homeTeam: f.home_team_name, awayTeam: f.away_team_name, kickoffUtc: f.scheduled_start_utc, season: f.season ?? null, phase: competitionPhase(f.round), timezone: trustedVenueTimezone(f.venue_city, f.venue_timezone), lastCompleted, asOf: new Date().toISOString() };
 }
 
 export type RunResult = { configured: true; outcome: GenerationOutcome } | { configured: false; error: string };

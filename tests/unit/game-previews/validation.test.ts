@@ -315,7 +315,8 @@ describe("(tests A, C, D, F) the deterministic freshness signal for current-stat
     expect(staleNumberCandidates([num({ publishedAt: "2026-10-19T00:00:00.000Z" })], lions)).toEqual([]);
     expect(staleNumberCandidates([num({ publishedAt: null, asOf: null })], lions)).toHaveLength(1);
     expect(staleNumberCandidates([num({ publishedAt: null })], { ...lions, lastCompleted: [] })).toEqual([]);
-    expect(staleNumberCandidates([num()], { ...lions, lastCompleted: undefined })).toEqual([]);
+    // Unknown is NOT "none": if the schedule data was unavailable, freshness cannot be shown for any current-state number.
+    expect(staleNumberCandidates([num({ publishedAt: "2026-10-20T10:00:00.000Z" }), num({ id: "n3", numberKind: "FIXED" })], { ...lions, lastCompleted: undefined }).map((c) => c.factId)).toEqual(["n1"]);
   });
   it("D: the hints tell the reviewer which cited figures are FIXED ('entering the season') and which are current-state, with what they are current through", () => {
     const fixed = fact({ id: "g1", numberKind: "FIXED", asOfLabel: "entering the season", claim: "Ovechkin entered the season with 929 career goals." });

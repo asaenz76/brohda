@@ -252,7 +252,9 @@ export interface StaleCandidate {
  * A candidate is not false: it must be refreshed (confirmed, updated or removed) before it can be published as current. "Relevant" = the most recent completed Game of the fact's own team, or of either team when the fact names none. An opener has no earlier Game, so nothing is stale.
  */
 export function staleNumberCandidates(facts: CandidateFact[], game: Pick<GameIdentity, "lastCompleted" | "homeTeam" | "awayTeam">): StaleCandidate[] {
-  const completed = game.lastCompleted ?? [];
+  // Unknown (the schedule data was not available) is not "none": freshness cannot be shown for any current-state number. Known-none (an opener) leaves nothing to be stale against.
+  if (game.lastCompleted === undefined) return facts.filter((f) => f.numberKind === "CURRENT_STATE").map((f) => ({ factId: f.id, reason: "the latest completed Games are not known, so freshness cannot be shown" }));
+  const completed = game.lastCompleted;
   if (completed.length === 0) return [];
   const out: StaleCandidate[] = [];
   for (const f of facts) {
