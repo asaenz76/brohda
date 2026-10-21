@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { generateGamePreview, verificationReserve, type PipelineDeps } from "@/lib/game-previews/pipeline";
-import { addUsage, emptyUsage, type NumberRefresh, type FactCheck, type GamePreviewAngleProvider, type GamePreviewFactVerifierProvider, type GamePreviewProviders, type GamePreviewResearchProvider, type GamePreviewVerifierProvider, type GamePreviewWriterProvider, type PreviewDraft } from "@/lib/game-previews/providers/types";
+import { addUsage, emptyUsage, type StatusConfirmation, type NumberRefresh, type FactCheck, type GamePreviewAngleProvider, type GamePreviewFactVerifierProvider, type GamePreviewProviders, type GamePreviewResearchProvider, type GamePreviewVerifierProvider, type GamePreviewWriterProvider, type PreviewDraft } from "@/lib/game-previews/providers/types";
 import type { GenerationRunInput } from "@/lib/game-previews/repository";
 import type { GamePreviewInput } from "@/lib/game-previews/types";
 import { config, fact, facts, game, goodDraft, NOW, selection } from "./fixtures";
@@ -114,7 +114,7 @@ describe("generateGamePreview — research, then a story, then a draft", () => {
   };
 
   it("(test M) an undated or stale current-state fact is NOT silently excluded: it stays in the pool, and a story that rests on it must verify first", async () => {
-    const { injury, story } = withFact4();
+    const { injury, story } = withFact4({ statusKind: "NONE" });
     const verifyFacts = vi.fn<GamePreviewFactVerifierProvider["verifyFacts"]>(async (_g, fs) => ({ checks: fs.map((f) => ({ factId: f.id, status: "confirmed" as const, basis: "stored_evidence" as const, retrievalFailed: false, note: "ok", corroboratingUrl: null })), usage: usage({ modelCalls: 1 }) }));
     const selectAngle = vi.fn<GamePreviewAngleProvider["selectAngle"]>(async () => ({ ...story, usage: usage({ modelCalls: 1 }) }));
     const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [...facts, injury], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle }, factVerifier: { name: "fake", verifyFacts } } });
@@ -1160,3 +1160,173 @@ describe("last blockers: one search is held for the trusted public-credit lookup
   });
 });
 
+
+describe("current player status: current, dated, trusted evidence (the Buccaneers regression)", () => {
+  const BETTING = "https://www.si.com/betting/titans-vs-colts-prediction-odds-spread-injuries-trends-for-nfl-week-6-2026";
+  const ESPN_REPORT = "https://www.espn.com/nfl/story/_/id/77/titans-quarterback-practice-report";
+  const TEAM_REPORT = "https://www.colts.com/news/injury-report-friday";
+  const NEWEST = "2026-10-17T16:00:00.000Z"; // 4 hours before NOW
+  const QUESTIONABLE = "The Titans quarterback is questionable for Sunday.";
+  // The one status fact of the story: by default, "questionable" from an UNDATED injury list on a betting page.
+  const status = (over = {}) =>
+    fact({ id: "f4", kind: "current", category: "injury", statusKind: "CURRENT_PLAYER_STATUS", claim: "SI's injury list shows the Titans quarterback as questionable.", excerpt: "Titans Injury Report. Quarterback - Questionable.", sourceUrl: BETTING, sourceProvider: "SI", sourceTitle: "Titans vs. Colts prediction, odds, spread, injuries", sourceType: "preview", publishedAt: null, subjectTeam: "Tennessee Titans", ...over });
+  const withStatus = (central = false) => ({ ...selection, angles: selection.angles.map((a) => (a.id === "a1" ? { ...a, factIds: ["f1", "f3", "f4"], centralFactIds: central ? ["f4"] : ["f1", "f3"] } : a)) });
+  const confirmer = (r: (f: { id: string }) => StatusConfirmation) => vi.fn(async (_g: unknown, fs: Array<{ id: string }>) => ({ results: fs.map(r), usage: usage({ searchCalls: 1, modelCalls: 1 }) }));
+  const newest = (claim: string, url = ESPN_REPORT, over = {}) => ({ claim, excerpt: `${claim} (full passage)`, sourceUrl: url, sourceTitle: "Titans QB report", sourceProvider: "ESPN", publishedAt: NEWEST, sourceType: "article" as const, ...over });
+  const writerOf = () =>
+    vi.fn<GamePreviewWriterProvider["write"]>(async (_g, angle, fs) => {
+      const st = fs.find((f) => f.id === "f4" && angle.factIds.includes("f4"));
+      return draftOf({ claims: [...goodDraft.claims.filter((c) => c.factIds.every((id) => angle.factIds.includes(id))), ...(st ? [{ text: st.claim, factIds: ["f4"] }] : [])] });
+    });
+  function build(opts: { facts?: ReturnType<typeof fact>[]; story?: ReturnType<typeof withStatus>; confirm?: ReturnType<typeof confirmer> | null; researchSearches?: number; status?: ReturnType<typeof status>; extraVerifier?: Record<string, unknown> } = {}) {
+    const st = opts.status ?? status();
+    const verifier = { name: "fake", verifyFacts: verifierOf(() => "confirmed"), ...(opts.confirm ? { confirmPlayerStatus: opts.confirm } : {}), ...opts.extraVerifier } as never;
+    const write = writerOf();
+    const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts: opts.facts ?? [...facts, st], sources, usage: usage({ searchCalls: opts.researchSearches ?? 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...(opts.story ?? withStatus()), usage: usage({ modelCalls: 1 }) }) }, writer: { name: "fake", write }, factVerifier: verifier } });
+    return { t, write };
+  }
+  const checks = (t: ReturnType<typeof setup>) => (t.runs[0].details as { statusChecks: Array<{ factId: string; outcome: string; qualifies: boolean; issues: string[]; newSource?: string }> }).statusChecks;
+  const sentFact = (write: ReturnType<typeof writerOf>, id: string) => write.mock.calls[0]?.[2].find((f) => f.id === id);
+
+  it("(A) an undated betting-page 'questionable' cannot establish a current status: a newest-status search is run, it finds nothing, and the designation is REMOVED (the story stands without it)", async () => {
+    const confirm = confirmer((f) => ({ factId: f.id, status: "unavailable", note: "no dated trusted report states any designation" }));
+    const { t, write } = build({ confirm });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(confirm.mock.calls[0][1].map((f) => f.id)).toEqual(["f4"]);
+    expect(sentFact(write, "f4")).toBeUndefined(); // the writer never sees the unsupported designation
+    expect(JSON.stringify(t.saves[0].claims)).not.toMatch(/questionable/i);
+    expect(checks(t)).toMatchObject([{ factId: "f4", outcome: "removed", qualifies: false }]);
+    expect(checks(t)[0].issues.join(" ")).toMatch(/betting/);
+    expect((t.runs[0].details as { factsRemoved: Array<{ factId: string }> }).factsRemoved.map((r) => r.factId)).toContain("f4");
+  });
+
+  it("(A) with no way to search for a qualifying source at all (no confirmation available, or no search left), the undated betting status is removed, never published", async () => {
+    const none = build({ confirm: null });
+    expect((await generateGamePreview(none.t.deps, req)).status).toBe("SUCCEEDED");
+    expect(sentFact(none.write, "f4")).toBeUndefined();
+    const confirm = confirmer((f) => ({ factId: f.id, status: "confirmed", note: "x", fact: newest(QUESTIONABLE) }));
+    const spent = build({ confirm, researchSearches: 8 });
+    expect((await generateGamePreview(spent.t.deps, req)).status).toBe("SUCCEEDED");
+    expect(confirm).not.toHaveBeenCalled();
+    expect(sentFact(spent.write, "f4")).toBeUndefined();
+  });
+
+  it("(B) a dated official team report that says 'questionable' qualifies on its own: no search is spent, and the status is allowed", async () => {
+    const confirm = confirmer((f) => ({ factId: f.id, status: "unavailable", note: "unused" }));
+    const { t, write } = build({ confirm, status: status({ claim: QUESTIONABLE, excerpt: "Quarterback (shoulder): questionable.", sourceUrl: TEAM_REPORT, sourceProvider: "Colts", sourceTitle: "Friday injury report", sourceType: "injury_report", publishedAt: NEWEST }) });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(confirm).not.toHaveBeenCalled();
+    expect(sentFact(write, "f4")?.claim).toBe(QUESTIONABLE);
+    expect(checks(t)).toMatchObject([{ factId: "f4", outcome: "qualified", qualifies: true }]);
+  });
+
+  it("(C) a dated trusted article (ESPN) that says 'questionable' qualifies: allowed", async () => {
+    const confirm = confirmer((f) => ({ factId: f.id, status: "unavailable", note: "unused" }));
+    const { t, write } = build({ confirm, status: status({ claim: QUESTIONABLE, excerpt: "The quarterback is questionable.", sourceUrl: ESPN_REPORT, sourceProvider: "ESPN", sourceTitle: "Titans QB report", sourceType: "article", publishedAt: NEWEST }) });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(confirm).not.toHaveBeenCalled();
+    expect(sentFact(write, "f4")?.claim).toBe(QUESTIONABLE);
+  });
+
+  it("(D) the betting page says questionable; the dated official source gives a different state: the betting designation does not publish, the official state replaces it", async () => {
+    const confirm = confirmer((f) => ({ factId: f.id, status: "updated", note: "the team report gives no designation", fact: newest("The Titans quarterback was a full participant in practice and has no injury designation.", TEAM_REPORT, { sourceProvider: "Colts", sourceType: "injury_report" }) }));
+    const { t, write } = build({ confirm });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(sentFact(write, "f4")?.claim).toMatch(/no injury designation/);
+    expect(sentFact(write, "f4")?.claim).not.toMatch(/questionable/i);
+    expect(JSON.stringify(t.saves[0].claims)).not.toContain(BETTING);
+    expect(t.saves[0].sources.map((x) => x.url)).not.toContain(BETTING);
+    expect(checks(t)).toMatchObject([{ factId: "f4", outcome: "updated", newSource: TEAM_REPORT }]);
+  });
+
+  it("(D) a 'confirming' source that itself does not qualify (undated, betting, untrusted) does not rescue the designation", async () => {
+    for (const bad of [newest(QUESTIONABLE, ESPN_REPORT, { publishedAt: null }), newest(QUESTIONABLE, BETTING), newest(QUESTIONABLE, "https://www.randomblog.net/titans-qb-update")]) {
+      const confirm = confirmer((f) => ({ factId: f.id, status: "confirmed", note: "x", fact: bad }));
+      const { t, write } = build({ confirm });
+      expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+      expect(sentFact(write, "f4")).toBeUndefined();
+      expect(checks(t)[0].outcome).toBe("removed");
+    }
+  });
+
+  it("(E) a HISTORICAL fact ('was questionable before Week 3') is not a current status: the gate does not apply, and it is framed as history", async () => {
+    const hist = status({ id: "f4", kind: "historical", statusKind: "NONE", claim: "The Titans quarterback was questionable before Week 3 and played.", excerpt: "He was questionable before Week 3.", sourceUrl: ESPN_REPORT, sourceProvider: "ESPN", sourceType: "recap", publishedAt: "2026-09-20T12:00:00.000Z" });
+    const confirm = confirmer((f) => ({ factId: f.id, status: "unavailable", note: "unused" }));
+    const { t, write } = build({ confirm, status: hist });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(confirm).not.toHaveBeenCalled();
+    expect(sentFact(write, "f4")?.claim).toMatch(/was questionable before Week 3/);
+    expect(checks(t)).toEqual([]);
+    // Same, even from a betting page: history is not gated as a status (it is an exception that is verified like any other).
+    const fromBetting = build({ confirm, status: { ...hist, sourceUrl: BETTING, sourceType: "preview" } });
+    expect((await generateGamePreview(fromBetting.t.deps, req)).status).toBe("SUCCEEDED");
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("(F) an older trusted 'questionable' and a newer trusted 'cleared': the newest credible status wins, and the older one is never written", async () => {
+    const OLD = "2026-10-15T14:00:00.000Z";
+    const confirm = confirmer((f) => ({ factId: f.id, status: "updated", note: "ESPN, 4 hours ago, says he was cleared", fact: newest("The Titans quarterback has been cleared and is expected to start.") }));
+    const { t, write } = build({ confirm, status: status({ claim: QUESTIONABLE, excerpt: "Quarterback questionable.", sourceUrl: "https://www.nfl.com/news/titans-qb-questionable", sourceProvider: "NFL.com", sourceTitle: "Titans QB questionable", sourceType: "article", publishedAt: OLD }) });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(confirm).toHaveBeenCalledOnce(); // a qualifying but older report is checked for a newer status
+    expect(sentFact(write, "f4")?.claim).toMatch(/cleared/);
+    expect(JSON.stringify(t.saves[0].claims)).not.toMatch(/questionable/i);
+    expect(checks(t)[0]).toMatchObject({ outcome: "updated", qualifies: true });
+  });
+
+  it("(F) the newest-status search never replaces a qualifying report with an OLDER one", async () => {
+    const OLD = "2026-10-15T14:00:00.000Z";
+    const confirm = confirmer((f) => ({ factId: f.id, status: "updated", note: "found an older report", fact: newest("The Titans quarterback was limited.", ESPN_REPORT, { publishedAt: "2026-10-14T10:00:00.000Z" }) }));
+    const { t, write } = build({ confirm, status: status({ claim: QUESTIONABLE, excerpt: "Quarterback questionable.", sourceUrl: "https://www.nfl.com/news/titans-qb-questionable", sourceProvider: "NFL.com", sourceTitle: "Titans QB questionable", sourceType: "article", publishedAt: OLD }) });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(sentFact(write, "f4")?.claim).toBe(QUESTIONABLE);
+  });
+
+  it("(G) an unsupported status that is not central is removed and the story is SALVAGED: same story, supported wording, no new story needed", async () => {
+    const confirm = confirmer((f) => ({ factId: f.id, status: "unavailable", note: "nothing qualifying" }));
+    const { t } = build({ confirm });
+    const out = await generateGamePreview(t.deps, req);
+    expect(out.status).toBe("SUCCEEDED");
+    const d = t.runs[0].details as { storyAttempts: Array<{ angleId: string; outcome: string }>; chosenAngleId: string };
+    expect(d.storyAttempts).toEqual([{ angleId: "a1", outcome: "used" }]);
+    expect(d.chosenAngleId).toBe("a1");
+  });
+
+  it("(H) an unsupported status that IS the central fact collapses its story; with no supported alternative the Game is needs_review (current_status_not_supported)", async () => {
+    const only = { ...selection, angles: [{ ...selection.angles[0], factIds: ["f4", "f1"], centralFactIds: ["f4"], summary: "The Titans quarterback's status decides the game." }], selectedId: "a1", rejected: [] };
+    const confirm = confirmer((f) => ({ factId: f.id, status: "unavailable", note: "nothing qualifying" }));
+    const { t } = build({ confirm, story: only as never });
+    const out = await generateGamePreview(t.deps, req);
+    expect(out).toMatchObject({ status: "REJECTED", error: "current_status_not_supported" });
+    expect(t.saves).toHaveLength(0);
+  });
+
+  it("(H) with a supported alternative story, the next-best story is used instead of the one that rested on the unsupported status", async () => {
+    const two = { ...selection, angles: [{ ...selection.angles[0], id: "a1", factIds: ["f4", "f1"], centralFactIds: ["f4"], summary: "The Titans quarterback's status decides the game." }, { ...selection.angles[0], id: "a2", type: "STREAK_ON_THE_LINE" as const, factIds: ["f1", "f3"], centralFactIds: ["f1"], summary: "Tennessee is winless." }], selectedId: "a1", rejected: [] };
+    const confirm = confirmer((f) => ({ factId: f.id, status: "unavailable", note: "nothing qualifying" }));
+    const { t } = build({ confirm, story: two as never });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    // The status story has no creditable primary (a betting page), so the supported story is preferred outright; either way the unsupported designation is never written.
+    expect((t.runs[0].details as { storyAttempts: Array<{ angleId: string; outcome: string }> }).storyAttempts.map((a) => `${a.angleId}:${a.outcome}`)).toContain("a2:used");
+    expect(JSON.stringify(t.saves[0].claims)).not.toMatch(/questionable/i);
+  });
+
+  it("the reviewer receives, for every cited fact, whether it is a status claim, its publisher, type, date, trust and whether it qualifies", async () => {
+    const confirm = confirmer((f) => ({ factId: f.id, status: "unavailable", note: "unused" }));
+    const { t } = build({ confirm, status: status({ claim: QUESTIONABLE, excerpt: "The quarterback is questionable.", sourceUrl: ESPN_REPORT, sourceProvider: "ESPN", sourceTitle: "Titans QB report", sourceType: "article", publishedAt: NEWEST }) });
+    await generateGamePreview(t.deps, req);
+    const hints = t.verify.mock.calls[0][5]!;
+    expect(hints.statusEvidence).toContainEqual({ factId: "f4", statusClaim: true, publisher: "ESPN", sourceType: "article", publishedAt: NEWEST, trusted: true, qualifies: true, issues: [] });
+    expect(hints.statusEvidence!.find((e) => e.factId === "f1")).toMatchObject({ statusClaim: false });
+  });
+
+  it("a search-result age is not a publication date: a fact dated only by the search tool cannot qualify, however recent", async () => {
+    const confirm = confirmer((f) => ({ factId: f.id, status: "unavailable", note: "nothing qualifying" }));
+    const { t, write } = build({ confirm, status: status({ claim: QUESTIONABLE, excerpt: "The quarterback is questionable.", sourceUrl: ESPN_REPORT, sourceProvider: "ESPN", sourceTitle: "Titans QB report", sourceType: "article", publishedAt: NEWEST, dateSource: "search_age" }) });
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(sentFact(write, "f4")).toBeUndefined();
+    expect(checks(t)[0].issues.join(" ")).toMatch(/no reliable publication/);
+  });
+});

@@ -236,6 +236,50 @@ export function isEligiblePrimarySource(fact: Pick<CandidateFact, "sourceUrl" | 
   return isTrustedFactSource(fact, teams, trustedDomains) && isCreditablePage(fact.sourceUrl, fact.sourceTitle);
 }
 
+/**
+ * CURRENT PLAYER STATUS. A claim that a player is out, questionable, doubtful, probable, expected to play or return, cleared, active, starting, limited, day-to-day, on or off injured reserve, suspended ... is true NOW or it is not, and changes by the day. It needs CURRENT, DATED, TRUSTED evidence:
+ * an official league/team report or a dated report from a trusted outlet. An undated injury list, a betting or picks page, a live profile / roster / statistics page, a data feed, a syndicated copy with no trusted original, a source outside the trusted group and a search-result age
+ * cannot establish it on their own. They remain useful as research leads (they trigger a search for a qualifying source) and as internal evidence for facts that are NOT current-status claims. This is about FACT SUPPORT; whether a page may be shown as a public credit is `isCreditablePage`.
+ */
+export function isCurrentPlayerStatus(fact: Pick<CandidateFact, "statusKind" | "kind" | "category">): boolean {
+  if (fact.statusKind) return fact.statusKind === "CURRENT_PLAYER_STATUS";
+  // Unclassified (an older run, or a model that skipped the field): a current-kind injury fact is treated as a status claim.
+  return fact.kind === "current" && fact.category === "injury";
+}
+/** Live, list and profile pages never establish a status, even on a trusted host. An injury report is allowed here (it is exactly the official source) but only when dated. */
+const STATUS_INELIGIBLE_SEGMENTS = new Set([...NON_EDITORIAL_SEGMENTS].filter((seg) => !["injuries", "injury-report", "injury"].includes(seg)));
+/** A publication date the page itself shows. The search tool's page age is a crawl-side signal and is never used to date a status, and neither is a retrieval time or a URL. */
+export const hasPageDate = (fact: Pick<CandidateFact, "publishedAt" | "dateSource">): boolean => Boolean(fact.publishedAt) && Number.isFinite(new Date(fact.publishedAt as string).getTime()) && fact.dateSource !== "search_age";
+/**
+ * Why a fact's own source cannot establish a CURRENT status (empty = it can). Qualifying = trusted (an original trusted publisher when syndicated) AND dated by the page AND a report or story page (not betting, not a data endpoint or document, not a live roster / profile / statistics page)
+ * AND a passage that shows it.
+ */
+export function statusEvidenceIssues(fact: Pick<CandidateFact, "sourceUrl" | "sourceTitle" | "excerpt" | "publishedAt" | "dateSource" | "originalPublisher" | "originalUrl">, teams: string[], trustedDomains: string[]): string[] {
+  const issues: string[] = [];
+  if (!isTrustedFactSource(fact, teams, trustedDomains)) issues.push(isSyndicationHost(fact.sourceUrl) ? "a syndicated copy with no trusted original publisher" : "the source is outside the trusted group");
+  if (isBettingPage(fact.sourceUrl, fact.sourceTitle)) issues.push("a betting, odds or picks page cannot establish a current status");
+  if (!isStoryPage(fact.sourceUrl)) issues.push("a data feed or endpoint is not a report of the status");
+  else {
+    try {
+      const segments = new URL(fact.sourceUrl).pathname.toLowerCase().split("/").filter(Boolean);
+      if (/\.(pdf|docx?|xlsx?|pptx?|zip|txt)$/i.test(segments[segments.length - 1] ?? "")) issues.push("a document or file is not a dated report of the status");
+      else if (segments.some((seg) => STATUS_INELIGIBLE_SEGMENTS.has(seg)) || PLAYER_PAGE_SLUG.test(segments[segments.length - 1] ?? "")) issues.push("a live roster, profile, schedule or statistics page does not establish a status");
+    } catch {
+      issues.push("the source URL is unusable");
+    }
+  }
+  if (!hasPageDate(fact)) issues.push("the page shows no reliable publication or update date");
+  if (!fact.excerpt || !fact.excerpt.trim()) issues.push("no passage shows that the source says it");
+  return issues;
+}
+/** A dated status source is older than the status window: later reporting may have changed the status, so the newest status is looked for before it is used. */
+export const STATUS_MAX_AGE_HOURS = 24;
+export function statusMayBeSuperseded(fact: Pick<CandidateFact, "publishedAt" | "dateSource">, now: Date, maxAgeHours: number): boolean {
+  if (!hasPageDate(fact)) return false; // an undated source does not qualify in the first place
+  const window = Math.min(maxAgeHours, STATUS_MAX_AGE_HOURS) * 3_600_000;
+  return now.getTime() - new Date(fact.publishedAt as string).getTime() > window;
+}
+
 /** Current-state numbers and the Games that came after their evidence. */
 const DAY = 86_400_000;
 const evidenceTime = (iso: string | null | undefined): number | null => {

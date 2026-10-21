@@ -83,9 +83,21 @@ export interface CandidateFact {
   originalUrl?: string | null;
   /** Other evidence for the SAME claim, kept when the claim's public credit moved to a trusted page found by the credit lookup: the original page and its passage stay available to the writer and the reviewer. The lookup enriches provenance; it never replaces the evidence that supported the claim. */
   alsoSupportedBy?: Array<{ url: string; provider: string; title: string; excerpt: string | null; publishedAt: string | null }>;
+  /** CURRENT_PLAYER_STATUS when the claim asserts a player's current availability/status (see STATUS_KINDS). Unclassified (undefined) falls back to: a current-kind fact in the injury category. */
+  statusKind?: StatusKind;
+  /** Where `publishedAt` came from. Unset = the page's own date (as before). */
+  dateSource?: DateSource;
 }
 export const NUMBER_KINDS = ["CURRENT_STATE", "FIXED", "NONE"] as const;
 export type NumberKind = (typeof NUMBER_KINDS)[number];
+/**
+ * Whether a fact asserts a player's CURRENT availability or status (out, questionable, doubtful, probable, available, expected to play or return, cleared, active, inactive, starting, likely starter, limited, full participant, did not practice, day-to-day, week-to-week,
+ * placed on or activated from IR, reinstated, suspended, cleared protocol). Classified by research from the meaning of the claim, never from a word list: "Mayfield missed Week 3 with a thumb injury" is a completed event (NONE). Such a fact needs CURRENT, DATED, TRUSTED evidence.
+ */
+export const STATUS_KINDS = ["CURRENT_PLAYER_STATUS", "NONE"] as const;
+export type StatusKind = (typeof STATUS_KINDS)[number];
+/** Where a fact's publication date came from: "page" = the date the page itself shows (byline, dateline, update stamp); "search_age" = the age the search tool reported, which is a crawl-side signal and is never enough to date a current-status claim. */
+export type DateSource = "page" | "search_age";
 
 export interface ProviderUsage {
   searchCalls: number;
@@ -283,6 +295,20 @@ export interface GamePreviewFactVerifierProvider {
   findTrustedSources?(game: GameIdentity, facts: CandidateFact[], ctx: CreditLookupContext): Promise<CreditLookupResult>;
   /** For current-state numbers that may be stale (a Game was completed after their evidence): look for the CURRENT value through the latest completed Game, preferring official league/team statistics. Optional: without it a stale candidate is removed. */
   refreshNumbers?(game: GameIdentity, facts: CandidateFact[], ctx: FactVerificationContext): Promise<NumberRefreshResult>;
+  /** For CURRENT_PLAYER_STATUS facts whose own source cannot establish a current status: search for an official league/team report or a dated trusted report of the newest status. Optional: without it such a fact is removed from its story. */
+  confirmPlayerStatus?(game: GameIdentity, facts: CandidateFact[], ctx: FactVerificationContext): Promise<StatusConfirmationResult>;
+}
+/** The newest qualifying report of a player's CURRENT status, found for a status fact that its own source cannot establish (undated list, betting page, untrusted or syndicated copy) or that may have been superseded by later reporting. */
+export interface StatusConfirmation {
+  factId: string;
+  /** "confirmed": a qualifying source states the SAME status. "updated": a qualifying source states a different (newer) status: `fact` carries it. "unavailable": no qualifying source states any status; the designation must be removed. */
+  status: "confirmed" | "updated" | "unavailable";
+  note: string;
+  fact?: { claim: string; excerpt: string; sourceUrl: string; sourceTitle: string; sourceProvider: string; publishedAt: string | null; sourceType?: FactSourceType };
+}
+export interface StatusConfirmationResult {
+  results: StatusConfirmation[];
+  usage: ProviderUsage;
 }
 export interface NumberRefresh {
   factId: string;
@@ -340,6 +366,7 @@ export const BLOCKING_CATEGORIES = [
   "central_source_mismatch",
   "subject_mismatch",
   "stale_conflict",
+  "status_source_ineligible",
   "not_relevant_now",
   "logical_contradiction",
   "unsupported_causation",
@@ -364,6 +391,8 @@ export interface DraftHints {
   fixedNumbers?: string[];
   /** What research found when sources disagreed, classified: only a TRUE_CONFLICT may be written as current uncertainty. */
   conflicts?: Array<{ topic: string; kind: string; note: string }>;
+  /** For every cited fact: whether it asserts a current player status, its publisher, type and date, whether the source is trusted, and whether it qualifies to establish a current status (official/trusted AND dated AND a story or report page, not a betting, data, roster or profile page). */
+  statusEvidence?: Array<{ factId: string; statusClaim: boolean; publisher: string; sourceType: string; publishedAt: string | null; trusted: boolean; qualifies: boolean; issues: string[] }>;
 }
 
 export interface VerificationResult {

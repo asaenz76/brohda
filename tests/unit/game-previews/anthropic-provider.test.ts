@@ -633,6 +633,78 @@ describe("last release blockers: superseded evidence, complete evidence (provide
   });
 });
 
+describe("current player status: research, confirmation, reviewer and writer (provider)", () => {
+  const statusCtx = { model: "m", effort: "medium", maxSearchCalls: 3, webSearchToolVersion: "web_search_20250305", blockedDomains: ["reddit.com"] };
+  const REPORT = "https://www.espn.com/nfl/story/_/id/77/titans-qb-practice";
+
+  it("research classifies status claims, tells the model that a betting page or undated list is only a lead, and parses status_kind and where each date came from", async () => {
+    const aged = { type: "web_search_tool_result", tool_use_id: "s1", content: [{ type: "web_search_result", url: REPORT, title: "T", page_age: "2026-10-17", encrypted_content: "x" }] };
+    const c = client(msg([searchUse(), aged, text({ facts: [rawFact({ source_url: REPORT, status_kind: "CURRENT_PLAYER_STATUS", published_at: null }), rawFact({ claim: "Indianapolis is 2-3.", source_url: REPORT, published_at: "2026-10-17T10:00:00Z", status_kind: "NONE" }), rawFact({ claim: "x", source_url: REPORT, status_kind: "bogus" })] })]));
+    const out = await new AnthropicGamePreviewProvider(c).research(game, ctx);
+    const system = String(calls(c)[0].system);
+    expect(system).toMatch(/needs a CURRENT, DATED, TRUSTED source/);
+    expect(system).toMatch(/betting, odds or picks page, an undated injury list/);
+    expect(system).toMatch(/status_kind: CURRENT_PLAYER_STATUS/);
+    expect(system).toMatch(/not from keywords/);
+    expect(out.facts[0]).toMatchObject({ statusKind: "CURRENT_PLAYER_STATUS", dateSource: "search_age", publishedAt: "2026-10-17T00:00:00.000Z" }); // a search-result age is recorded as such, never as the page's date
+    expect(out.facts[1]).toMatchObject({ statusKind: "NONE", dateSource: "page" });
+    expect(out.facts[2].statusKind).toBeUndefined();
+  });
+
+  it("confirmPlayerStatus searches for the newest official / dated trusted report and returns only a page the search reached, with the date the page shows", async () => {
+    const c = client(msg([searchUse(), searchResult([REPORT]), text({ results: [{ fact_id: "f1", status: "updated", note: "cleared", claim: "The quarterback was cleared.", excerpt: "The quarterback was cleared Friday.", source_url: REPORT, source_title: "QB cleared", source_provider: "ESPN", published_at: "2026-10-17T16:00:00Z", source_type: "article" }, { fact_id: "f2", status: "confirmed", note: "x", claim: "c", excerpt: "e", source_url: "https://never-reached.example/x", source_provider: "X", published_at: "2026-10-17T16:00:00Z" }, { fact_id: "f3", status: "confirmed", note: "no date", claim: "c", excerpt: "e", source_url: REPORT, source_provider: "ESPN", published_at: null }] })]));
+    const out = await new AnthropicGamePreviewProvider(c).confirmPlayerStatus(game, [facts[0], facts[1], facts[2]], statusCtx);
+    const body = calls(c)[0];
+    expect(String(body.system)).toMatch(/Treat the listed claim as a LEAD, never as evidence/);
+    expect(String(body.system)).toMatch(/official league or team injury or practice report/);
+    expect(String(body.system)).toMatch(/must show its own publication or update date/i);
+    expect(String(body.system)).toMatch(/do not combine an older report with a newer one/);
+    expect(body.tools).toEqual([{ type: "web_search_20250305", name: "web_search", max_uses: 2, blocked_domains: ["reddit.com"] }]);
+    expect(out.results[0]).toEqual({ factId: "f1", status: "updated", note: "cleared", fact: { claim: "The quarterback was cleared.", excerpt: "The quarterback was cleared Friday.", sourceUrl: REPORT, sourceTitle: "QB cleared", sourceProvider: "ESPN", publishedAt: "2026-10-17T16:00:00.000Z", sourceType: "article" } });
+    expect(out.results[1].status).toBe("unavailable"); // a page the search never reached
+    expect(out.results[2].status).toBe("unavailable"); // a page that shows no date
+    expect(out.usage.searchCalls).toBe(2);
+  });
+  it("confirmPlayerStatus makes no call when there is nothing to search with", async () => {
+    const c = client();
+    const out = await new AnthropicGamePreviewProvider(c).confirmPlayerStatus(game, [facts[0]], { ...statusCtx, maxSearchCalls: 0 });
+    expect(out.results).toEqual([{ factId: "f1", status: "unavailable", note: expect.any(String) }]);
+    expect(calls(c)).toHaveLength(0);
+  });
+
+  it("the reviewer has a distinct BLOCKING category for it, the rules (qualifying sources, history is fine, old+new combined), and each cited fact's status evidence", async () => {
+    const evidence = [{ factId: "f1", statusClaim: true, publisher: "SI", sourceType: "preview", publishedAt: null, trusted: true, qualifies: false, issues: ["a betting, odds or picks page cannot establish a current status"] }];
+    const c = client(msg([text({ blocking: [{ category: "status_source_ineligible", problem: "questionable rests on an undated betting page" }], advisory: [] })]));
+    const out = await new AnthropicGamePreviewProvider(c).verify(game, angles[0], goodDraft, facts, { model: "m", effort: "medium" }, { figures: [], seasonClaims: [], statusEvidence: evidence });
+    expect(out.blocking).toEqual([{ category: "status_source_ineligible", problem: "questionable rests on an undated betting page" }]);
+    const system = String(calls(c)[0].system);
+    expect(system).toContain("status_source_ineligible");
+    expect(system).toMatch(/an official league or team report, or a dated report from a trusted outlet/);
+    expect(system).toMatch(/'he was questionable before Week 3'\) is not a current status/);
+    expect(system).toMatch(/older report and a newer one were combined/);
+    expect(JSON.stringify(calls(c)[0].messages)).toContain("a betting, odds or picks page cannot establish a current status");
+    const schema = (calls(c)[0].output_config as { format: { schema: { properties: { blocking: { items: { properties: { category: { enum: string[] } } } } } } } }).format.schema.properties.blocking.items.properties.category.enum;
+    expect(schema).toContain("status_source_ineligible");
+    expect(JSON.stringify(calls(c)[0].messages)).toContain("status_claim");
+  });
+
+  it("the writer may state a current status only from a status fact with a dated trusted source, as that source states it, dated when old", async () => {
+    const c = client(msg([text({ status: "ready", reason: "", title: "t", caption: "c", claims: [{ text: "x", fact_ids: ["f1"], evidence: "e" }] })]));
+    await new AnthropicGamePreviewProvider(c).write(game, angles[0], facts, { model: "m", effort: "medium", maxChars: 700, maxCitedFacts: 4, recentHooks: [], feedback: [] });
+    const system = String(calls(c)[0].system);
+    expect(system).toMatch(/may be written only from a fact marked status_claim whose source is dated and trusted/);
+    expect(system).toMatch(/never name a designation \(such as 'questionable'\) that the fact itself does not state/);
+    expect(system).toMatch(/combine an older report and a newer one into a stronger status/);
+    expect(PREVIEW_PROMPT_VERSION).toBe("game-preview-canonical-2026-10-v6");
+  });
+
+  it("the evidence check no longer lets a stored passage prove a current status that its source cannot establish", async () => {
+    const c = client(msg([text({ verdicts: [{ fact_id: "f1", verdict: "proves", note: "x", to_establish: "" }] })]));
+    await new AnthropicGamePreviewProvider(c).verifyFacts(game, [facts[0]], { model: "m", effort: "medium", maxSearchCalls: 0, webSearchToolVersion: "web_search_20250305", blockedDomains: [] });
+    expect(String(calls(c)[0].system)).toMatch(/proven only by an official league or team report, or by a trusted outlet's report that shows its own publication date/);
+  });
+});
+
 describe("the real SDK accepts the research request", () => {
   it("max_tokens large enough to need streaming does not make the SDK refuse the request client-side (an explicit timeout is passed)", async () => {
     const body = { id: "m", type: "message", role: "assistant", model: "configured-model", content: [searchUse(), searchResult([ESPN]), text({ facts: [rawFact()] })], stop_reason: "end_turn", stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1, server_tool_use: { web_search_requests: 1 } } };
