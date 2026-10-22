@@ -51,6 +51,7 @@ vi.mock("@/lib/game-previews/housekeeping", () => ({
     return previewsResult();
   },
 }));
+// Generation is NOT part of this job any more (it has its own route): if the housekeeping route ever imports it again, this mock records the call.
 vi.mock("@/lib/game-previews/automation", () => ({
   runGamePreviewAutomation: () => {
     generationCalls();
@@ -109,7 +110,6 @@ describe("prune-provider-request-log cron route", () => {
       confidence: { enabled: false, rounds: 0, processed: 0, remaining: 0 },
       confidenceSettlement: { settled: 0 },
       gamePreviews: { frozen: 0, missing: 0, stale: 0 },
-      gamePreviewGeneration: { enabled: false, configured: false, attempted: 0, succeeded: 0, failed: 0 },
       failures: [],
     });
   });
@@ -222,17 +222,12 @@ describe("Game Preview housekeeping on the same path", () => {
   });
 });
 
-describe("Game Preview generation on the same path", () => {
-  it("reports what the automation did (off by default), and its failure skips nothing else", async () => {
+describe("Game Preview generation is NOT on the every-5-minutes housekeeping path", () => {
+  it("never starts a generation run from housekeeping: the scheduled automation has its own route and its own (daily) scheduler entry", async () => {
     generationResult = async () => ({ enabled: true, configured: true, attempted: 2, succeeded: 1, failed: 1 });
-    expect((await (await GET(request("Bearer test-secret"))).json()).gamePreviewGeneration).toEqual({ enabled: true, configured: true, attempted: 2, succeeded: 1, failed: 1 });
-    generationResult = async () => {
-      throw new Error("provider down");
-    };
     const body = await (await GET(request("Bearer test-secret"))).json();
-    expect(body.gamePreviewGeneration).toBeNull();
-    expect(body.failures).toEqual([{ step: "game_preview_generation", error: "provider down" }]);
-    expect(settlementCalls).toHaveBeenCalled();
-    expect(previewsCalls).toHaveBeenCalled();
+    expect(generationCalls).not.toHaveBeenCalled();
+    expect(body).not.toHaveProperty("gamePreviewGeneration");
+    expect(previewsCalls).toHaveBeenCalled(); // the freeze of started Games' Previews stays here
   });
 });

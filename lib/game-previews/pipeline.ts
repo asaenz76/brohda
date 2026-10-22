@@ -13,8 +13,8 @@ import { claimAppearsInText, excerptIssues, domainMatches, domainOf, draftHints,
  * attempts); nothing unsupported or story-less is saved; a failed run leaves the Post exactly as it was; every run, successful or not, is recorded with its usage AND with what it found and decided, so the editorial quality can be reviewed.
  */
 export type GenerationOutcome =
-  | { status: "SUCCEEDED"; previewId: string; write: "created" | "refreshed"; hook: string; preview: string; usage: ProviderUsage; attempts: number; details: RunDetails }
-  | { status: "FAILED" | "REJECTED"; error: string; problems: string[]; usage: ProviderUsage; attempts: number; details: RunDetails };
+  | { status: "SUCCEEDED"; previewId: string; write: "created" | "refreshed"; hook: string; preview: string; usage: ProviderUsage; attempts: number; details: RunDetails; runId?: string }
+  | { status: "FAILED" | "REJECTED"; error: string; problems: string[]; usage: ProviderUsage; attempts: number; details: RunDetails; runId?: string };
 
 export interface AttemptLog {
   attempt: number;
@@ -110,6 +110,8 @@ export interface RunDetails {
   /** CURRENT PLAYER STATUS gate: every status claim a story rested on, whether its own source qualified (official/trusted AND dated), and what the newest-status search did: qualified (no search needed), confirmed, updated (a newer qualifying report replaced it), removed (unsupported: the designation is not published). */
   /** Structured model answers that were unparseable and needed the one format retry (never a search): the stage, the model, the first parse error, and whether the retry recovered it. */
   parseRecoveries: ParseRecovery[];
+  /** The scheduler invocation that asked for this run (null: an Admin run). */
+  invocation: { id: string; kind: "INITIAL" | "REFRESH" } | null;
   statusChecks: Array<{ angleId: string; factId: string; claim: string; source: string; publishedAt: string | null; qualifies: boolean; issues: string[]; outcome: "qualified" | "confirmed" | "updated" | "removed" | "left_to_verification"; note?: string; newSource?: string; newPublishedAt?: string | null }>;
 }
 
@@ -126,7 +128,7 @@ export interface PipelineDeps {
   providers: GamePreviewProviders;
   loadGame(fixtureId: string): Promise<GameIdentity | null>;
   save(input: GamePreviewInput): Promise<{ outcome: GamePreviewWriteOutcome; previewId?: string }>;
-  recordRun(run: GenerationRunInput): Promise<void>;
+  recordRun(run: GenerationRunInput): Promise<string | void>;
   now(): Date;
   /** The hooks of recent Previews, for variety. Optional. */
   recentHooks?(): Promise<string[]>;
@@ -140,6 +142,8 @@ export interface GenerateRequest {
   trigger: "AUTOMATIC" | "ADMIN";
   /** The authenticated Admin who asked for this run (server context only). Always null for an AUTOMATIC run: automation never pretends to be a person. */
   actorId?: string | null;
+  /** The scheduler invocation that asked for this run (scheduled runs only): recorded in the run details so a run can be tied to its invocation. */
+  invocation?: { id: string; kind: "INITIAL" | "REFRESH" };
 }
 
 export async function generateGamePreview(deps: PipelineDeps, request: GenerateRequest): Promise<GenerationOutcome> {
@@ -183,6 +187,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     creditReserve: [],
     statusChecks: [],
     parseRecoveries: [],
+    invocation: request.invocation ?? null,
   };
 
   /** A stage that failed after its one format retry still records what happened. */
@@ -191,7 +196,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     if (recovery) details.parseRecoveries.push(recovery);
   };
   const finish = async (outcome: GenerationOutcome, previewId: string | null): Promise<GenerationOutcome> => {
-    await deps
+    const runId = await deps
       .recordRun({
         fixtureId: request.fixtureId,
         trigger: request.trigger,
@@ -214,7 +219,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
         details: outcome.details as unknown as Record<string, unknown>,
       })
       .catch(() => undefined); // observability must never turn a finished run into a failure
-    return outcome;
+    return typeof runId === "string" ? { ...outcome, runId } : outcome;
   };
   const fail = (error: string, problems: string[] = [], status: "FAILED" | "REJECTED" = "FAILED") => finish({ status, error, problems, usage, attempts, details }, null);
   const stage = { model: config.model, effort: config.effort };
@@ -700,6 +705,11 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     details.measurement.publicSources = publicSourceUrls;
     details.centralStory = { angleId: chosen.id, summary: chosen.summary, primaryClaims: (chosen.centralFactIds ?? [primaryFact.id]).map((id) => facts.find((f) => f.id === id)?.claim).filter((c): c is string => Boolean(c)), primarySource: primaryFact.sourceUrl, secondarySource: secondaryFact?.sourceUrl ?? null };
     const factById = new Map(facts.map((f) => [f.id, f]));
+    // Current player status the Preview states, and when it was last established: the scheduler refreshes a status-bearing Preview as that ages. "As of" is the time the newest-status search confirmed it, or else the date of its dated source.
+    const citedStatusFacts = citedFacts.filter((f) => isCurrentPlayerStatus(f));
+    const verifiedNewest = new Set(details.statusChecks.filter((c) => c.outcome === "confirmed" || c.outcome === "updated").map((c) => c.factId));
+    const statusDates = citedStatusFacts.map((f) => (verifiedNewest.has(f.id) ? deps.now().toISOString() : f.publishedAt)).filter((d): d is string => Boolean(d));
+    const statusMeta = { hasStatusClaim: citedStatusFacts.length > 0, asOf: statusDates.length === citedStatusFacts.length && statusDates.length > 0 ? statusDates.sort()[0] : null, claims: citedStatusFacts.map((f) => ({ factId: f.id, claim: f.claim.slice(0, 300), sourceUrl: f.sourceUrl, publishedAt: f.publishedAt, verifiedNewest: verifiedNewest.has(f.id) })) };
     const saved = await deps.save({
       fixtureId: request.fixtureId,
       hook: draft.hook,
@@ -724,6 +734,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
         primarySourceUrl: primaryFact.sourceUrl,
         publicSourceUrls,
         centralStory: details.centralStory,
+        status: statusMeta,
         verification: { exceptionFacts: details.measurement.exceptionFacts, exceptionVerification: details.measurement.exceptionVerification, sourceDisagreement: details.measurement.sourceDisagreement },
         researchedAt: game.asOf,
         season: game.season,

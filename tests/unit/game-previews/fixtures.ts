@@ -37,6 +37,11 @@ export const config: GamePreviewConfig = {
   webSearchToolVersion: "web_search_20250305",
   maxCitedFacts: 4,
   minStoryScore: 3,
+  automationCompetitions: ["NFL", "NBA", "NHL"],
+  automationRetryHours: 24,
+  automationTechnicalRetryHours: 6,
+  statusRefreshEnabled: true,
+  statusRefreshWindowHours: 24,
 };
 
 export const fact = (over: Partial<CandidateFact> = {}): CandidateFact => ({

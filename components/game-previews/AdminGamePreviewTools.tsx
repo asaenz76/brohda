@@ -19,6 +19,9 @@ const NUMBERS: Array<{ name: string; key: keyof GamePreviewConfig; label: string
   { name: "max_search_calls_per_game", key: "maxSearchCallsPerGame", label: "Web searches per Game", help: "A hard ceiling on research effort (and cost) for one Game.", min: 1, max: 50 },
   { name: "current_fact_max_age_hours", key: "currentFactMaxAgeHours", label: "How recent a “current” source must be (hours)", help: "A claim about the present state (form, injury, lineup) needs a source published within this window; history can use older sources.", min: 1, max: 8760 },
   { name: "max_cited_facts", key: "maxCitedFacts", label: "Most facts one Preview may cite", help: "One Game, one story: a draft citing more is sent back to be cut down.", min: 1, max: 10 },
+  { name: "automation_retry_hours", key: "automationRetryHours", label: "Hours before a needs-review Game is retried automatically", help: "Automation never hammers a Game the checks rejected: it tries again after this long (24 = once a day).", min: 1, max: 720 },
+  { name: "automation_technical_retry_hours", key: "automationTechnicalRetryHours", label: "Hours before a technical failure is retried automatically", help: "The same for a run that failed technically (provider outage, malformed output).", min: 1, max: 720 },
+  { name: "status_refresh_window_hours", key: "statusRefreshWindowHours", label: "Refresh a status-bearing Preview when the Game is within (hours)", help: "A Preview that states a player status is re-checked through the normal pipeline once its status is older than “Stale after”, only this close to the Game.", min: 1, max: 168 },
 ];
 
 function Status({ state }: { state: GamePreviewAdminResult | null }) {
@@ -100,6 +103,18 @@ export function GamePreviewConfigForm({ config, credentialsConfigured }: { confi
             Web search
             <span className="block text-xs font-normal text-text-muted">Research is mandatory: with this off nothing is generated.</span>
           </span>
+        </label>
+        <label className="flex items-start gap-2 text-sm font-medium text-text-primary">
+          <input type="checkbox" name="status_refresh_enabled" defaultChecked={config.statusRefreshEnabled} className="mt-0.5 size-4" />
+          <span>
+            Refresh Previews that state a player status
+            <span className="block text-xs font-normal text-text-muted">Player status ages. A scheduled run re-checks such a Preview before its Game, and hides it if the status cannot be confirmed. Previews without a status are never refreshed automatically.</span>
+          </span>
+        </label>
+        <label className="space-y-1 text-xs font-medium text-text-secondary">
+          Competitions the scheduled job covers
+          <textarea name="automation_competitions" defaultValue={config.automationCompetitions.join("\n")} rows={2} className={area} />
+          <span className="block font-normal text-text-muted">As stored on the Game (NFL, NBA, NHL), one per line. You can always generate for any Game by hand.</span>
         </label>
         <label className="flex items-start gap-2 text-sm font-medium text-text-primary">
           <input type="checkbox" name="verify_with_model" defaultChecked={config.verifyWithModel} className="mt-0.5 size-4" />

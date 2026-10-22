@@ -1,7 +1,7 @@
 import { requireSuperAdmin } from "@/lib/auth/session";
 import { LocalDateTime } from "@/components/LocalDateTime";
 import { EditPreviewForm, GamePreviewConfigForm, GeneratePreviewForm, WithdrawPreviewForm } from "@/components/game-previews/AdminGamePreviewTools";
-import { getGamePreviewConfig, getGenerationUsageSummary, listGamePreviewCandidates, listGamePreviewsForAdmin, listRecentGenerationRuns, listStartedGamePreviewsForAdmin, listUpcomingGamesForAdmin } from "@/lib/game-previews/repository";
+import { getAutomationUsageReport, getGamePreviewConfig, getGenerationUsageSummary, listAutomationJobRuns, listGamePreviewCandidates, listGamePreviewsForAdmin, listRecentGenerationRuns, listStartedGamePreviewsForAdmin, listUpcomingGamesForAdmin } from "@/lib/game-previews/repository";
 
 export const dynamic = "force-dynamic";
 // Generating a Preview researches the web and writes with a model, which can take minutes: the explicit Generate action runs inside this page's route.
@@ -13,7 +13,7 @@ const SHOW_DAYS = 14;
 
 export default async function AdminGamePreviewsPage() {
   await requireSuperAdmin();
-  const [config, candidates, usage, runs] = await Promise.all([getGamePreviewConfig(), listGamePreviewCandidates(), getGenerationUsageSummary(), listRecentGenerationRuns(8)]);
+  const [config, candidates, usage, runs, automationWeek, automationJobs] = await Promise.all([getGamePreviewConfig(), listGamePreviewCandidates(), getGenerationUsageSummary(), listRecentGenerationRuns(8), getAutomationUsageReport({ days: 7 }), listAutomationJobRuns(7)]);
   // Presence only — the key itself is never read into the page.
   const credentialsConfigured = config.provider === "anthropic" && Boolean(process.env.ANTHROPIC_API_KEY);
   const games = await listUpcomingGamesForAdmin(SHOW_DAYS);
@@ -35,6 +35,31 @@ export default async function AdminGamePreviewsPage() {
           Next {SHOW_DAYS} days: <strong className="text-text-primary">{games.length}</strong> published Games · <strong className="text-text-primary">{games.filter((g) => previews.get(g.fixtureId)?.status === "PUBLISHED").length}</strong> with a Preview ·{" "}
           <strong className="text-text-primary">{candidates.length}</strong> need one now (starting within {config.leadHours}h and missing or stale).
         </p>
+      </section>
+
+      <section className="space-y-2" aria-label="Scheduled automation" data-slot="automation-report">
+        <h2 className="text-sm font-semibold text-text-primary">Scheduled automation, last 7 days</h2>
+        <p className="text-sm text-text-secondary">
+          Automatic generation is <strong className="text-text-primary">{config.generationEnabled ? "ON" : "OFF"}</strong> (the kill switch is the setting below). {automationWeek.attempted} automatic runs · {automationWeek.ready} Previews written ({automationWeek.initialRuns} new, {automationWeek.refreshRuns} refresh runs) ·{" "}
+          {automationWeek.needsReview} needs review · {automationWeek.failed} technical failures · {automationWeek.searchCalls} web searches · {automationWeek.modelCalls} model calls · {automationWeek.parseRecoveries} format retries · {automationWeek.statusBlocks} status-evidence blocks ·{" "}
+          {automationWeek.staleCurrentBlocks} stale-current blocks · {automationWeek.statusClaimsRemoved} unsupported status claims removed · {automationWeek.creditLookupRuns} runs used a credit lookup.
+        </p>
+        {automationJobs.length > 0 ? (
+          <ul className="space-y-1 text-xs text-text-muted" data-slot="automation-invocations">
+            {automationJobs.map((j) => {
+              const r = (j.result ?? {}) as { enabled?: boolean; considered?: number; eligible?: number; selected?: number; attempted?: number; succeeded?: number; needsReview?: number; failed?: number; refreshed?: number; hidden?: number; halted?: string | null; refreshBacklog?: number };
+              return (
+                <li key={j.startedAt}>
+                  {new Date(j.startedAt).toUTCString()} · {j.status} ·{" "}
+                  {r.enabled === false ? "generation off, nothing ran" : `${r.considered ?? 0} considered, ${r.eligible ?? 0} eligible, ${r.selected ?? 0} selected, ${r.attempted ?? 0} run: ${r.succeeded ?? 0} written, ${r.needsReview ?? 0} needs review, ${r.failed ?? 0} failed, ${r.refreshed ?? 0} refreshed, ${r.hidden ?? 0} hidden${r.refreshBacklog ? `, ${r.refreshBacklog} refreshes waiting` : ""}${r.halted ? `, stopped: ${r.halted}` : ""}`}
+                  {j.error && <> — {j.error}</>}
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="text-xs text-text-muted">The scheduled job has not run yet.</p>
+        )}
       </section>
 
       <section className="space-y-2" aria-label="Generation usage" data-slot="generation-usage">

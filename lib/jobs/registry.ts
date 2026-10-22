@@ -52,6 +52,15 @@ export const JOB_REGISTRY: readonly JobDefinition[] = [
     expectedCadenceMinutes: 5,
   },
   {
+    // Scheduled Game Preview automation (docs/architecture/game-previews.md). Its own route and external scheduler entry: ONE run a day at the initial rollout. A no-op until game_preview_config.generation_enabled is on.
+    id: "game-previews",
+    displayName: "Generate Game Previews",
+    route: "/api/cron/game-previews",
+    category: "brohda-social",
+    criticality: "standard",
+    expectedCadenceMinutes: 1440,
+  },
+  {
     id: "prune-provider-request-log",
     displayName: "Prune provider request log",
     route: "/api/cron/prune-provider-request-log",

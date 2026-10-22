@@ -61,6 +61,16 @@ export interface GamePreviewConfig {
   maxCitedFacts: number;
   /** A candidate story must average at least this (1-5) to be chosen over the season-record fallback. */
   minStoryScore: number;
+  /** Competitions the SCHEDULED automation covers (an Admin can generate for any Game). */
+  automationCompetitions: string[];
+  /** A Game whose automatic run ended needs_review is not retried automatically before this many hours (default 24: once a day). */
+  automationRetryHours: number;
+  /** The same, after a technical failure. */
+  automationTechnicalRetryHours: number;
+  /** Refresh a published Preview that states a current player status, before its Game (through the normal pipeline). */
+  statusRefreshEnabled: boolean;
+  /** Only when the Game starts within this many hours. */
+  statusRefreshWindowHours: number;
 }
 
 /** Why a Preview is being written: it is missing, it went stale, material new information appeared, or an admin asked. The database refuses a write that has no valid reason, and honours the stale window and the minimum refresh interval. */

@@ -26,6 +26,9 @@ const NUMBER_FIELDS = [
   ["max_search_calls_per_game", "Web searches per Game", 1, 50],
   ["current_fact_max_age_hours", "How recent a 'current' source must be (hours)", 1, 8760],
   ["max_cited_facts", "Most facts one Preview may cite", 1, 10],
+  ["automation_retry_hours", "Hours before a needs-review Game is retried automatically", 1, 720],
+  ["automation_technical_retry_hours", "Hours before a technical failure is retried automatically", 1, 720],
+  ["status_refresh_window_hours", "Refresh a status-bearing Preview when the Game is within (hours)", 1, 168],
 ] as const;
 
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
@@ -65,6 +68,8 @@ export async function setGamePreviewConfigAction(_prev: GamePreviewAdminResult |
   config.generation_enabled = formData.get("generation_enabled") === "on";
   config.web_search_enabled = formData.get("web_search_enabled") === "on";
   config.verify_with_model = formData.get("verify_with_model") === "on";
+  config.status_refresh_enabled = formData.get("status_refresh_enabled") === "on";
+  config.automation_competitions = domains(formData.get("automation_competitions")).map((c) => c.toUpperCase());
   if (config.generation_enabled && !model) return fail("Set a model before turning automatic generation on.");
   config.preferred_domains = domains(formData.get("preferred_domains"));
   config.blocked_domains = domains(formData.get("blocked_domains"));
@@ -88,6 +93,8 @@ export async function generateGamePreviewAction(_prev: GamePreviewAdminResult | 
   revalidatePath("/admin/game-previews");
   revalidatePath("/feed");
   if (!result.configured) return fail(result.error);
+  // A scheduled (or another Admin) run is generating this Game right now: the two never race. Try again once it has finished.
+  if ("busy" in result) return fail("A Preview is already being generated for this Game. Try again in a few minutes.");
   const o = result.outcome;
   if (o.status === "SUCCEEDED") return { success: true, error: null, message: `Saved: “${o.hook}” (${o.usage.searchCalls} searches, ${o.usage.modelCalls} model calls).` };
   const detail = o.problems.length ? ` ${o.problems.slice(0, 3).join(" ")}` : "";

@@ -117,7 +117,7 @@ local dev and CI both work today with no Sentry account at all.
 
 ## 5. Cron jobs (cron-job.org, not Vercel Cron)
 
-The app exposes **11** cron-secret-gated routes under `app/api/cron/*`,
+The app exposes **12** cron-secret-gated routes under `app/api/cron/*`,
 all meant to be scheduled — 4 pre-existing (legacy pools + provider
 hygiene), 3 added for Brohda 2.0's sports-prediction-network (R1-R4:
 market ingestion, Post publication, Community distribution), and 3 added
@@ -176,6 +176,7 @@ can never stack, and one job's lock never affects another job's.
 | `/api/cron/process-results` | none (DB-only) | No | `processAwaitingResults` | Every 1 minute |
 | `/api/cron/sync-fixtures-nfl` | api_nfl | Yes — one request per tick regardless of season size | `runNflFixtureSync` | Every 5 minutes |
 | `/api/cron/prune-provider-request-log` | none (DB-only) | No | `runProviderRequestLogRetention`, `runBackgroundJobsRetention` (cron run-history retention, below) **and** `runMessagingRetention` (Messaging retention — a no-op until `platform_settings.messaging_retention_purge_enabled` is switched on) — one route, one scheduler entry | Every 5 minutes |
+| `/api/cron/game-previews` | Anthropic (only when `game_preview_config.generation_enabled` is on) | **Yes, but only while ON.** OFF: no candidate query, no provider call, no search, no write | `runGamePreviewAutomation` — scheduled Game Preview generation and status refresh (`docs/architecture/game-previews.md`, "Scheduled automation"). Own route and own scheduler entry; `maxDuration` 300 s, time-budgeted (a Game is started only if its ~100-140 s still fits; optional env `GAME_PREVIEW_RUN_BUDGET_SECONDS`, default 270); overlap lock `game-previews` (15 min) plus a per-Game lease | **Once a day** at the initial rollout (**add this cron-job.org entry**; until it exists Job Health shows "never run", and nothing generates) |
 | `/api/cron/ingest-nfl-markets` | api_nfl | Yes | `runNflMarketIngestion` — no-ops unless `platform_settings.market_ingestion_enabled` | **Every 15 minutes** (owner-confirmed 2026-10-13; the incident note below describes the earlier once-daily decision, since superseded) |
 | `/api/cron/publish-posts` | none (DB-only) | No | `runPostPublication` — no-ops unless `platform_settings.post_publication_enabled` | Every 5 minutes (recommended) |
 | `/api/cron/distribute-posts` | none (DB-only) | No | `runCommunityDistribution` — no-ops unless `platform_settings.community_distribution_enabled` | Every 5-15 minutes (recommended). Still reconciles every published Post, but only the ones missing a Community link cost any work (`posts_needing_distribution`, migration 195) |

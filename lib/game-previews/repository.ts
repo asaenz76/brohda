@@ -9,10 +9,11 @@ const DEFAULT_CONFIG: GamePreviewConfig = {
   generationEnabled: false, provider: "openai", model: "", webSearchEnabled: true, verifyWithModel: true,
   maxAttempts: 2, maxGamesPerRun: 3, maxSearchCallsPerGame: 3, currentFactMaxAgeHours: 72, preferredDomains: [], blockedDomains: [],
   effort: "medium", webSearchToolVersion: "web_search_20250305", maxCitedFacts: 4, minStoryScore: 3,
+  automationCompetitions: ["NFL", "NBA", "NHL"], automationRetryHours: 24, automationTechnicalRetryHours: 6, statusRefreshEnabled: true, statusRefreshWindowHours: 24,
 };
 
 const CONFIG_COLUMNS =
-  "max_chars, hook_max_chars, lead_hours, stale_after_hours, min_refresh_interval_hours, generation_enabled, provider, model, web_search_enabled, verify_with_model, max_attempts, max_games_per_run, max_search_calls_per_game, current_fact_max_age_hours, preferred_domains, blocked_domains, effort, web_search_tool_version, max_cited_facts, min_story_score";
+  "max_chars, hook_max_chars, lead_hours, stale_after_hours, min_refresh_interval_hours, generation_enabled, provider, model, web_search_enabled, verify_with_model, max_attempts, max_games_per_run, max_search_calls_per_game, current_fact_max_age_hours, preferred_domains, blocked_domains, effort, web_search_tool_version, max_cited_facts, min_story_score, automation_competitions, automation_retry_hours, automation_technical_retry_hours, status_refresh_enabled, status_refresh_window_hours";
 
 export async function getGamePreviewConfig(): Promise<GamePreviewConfig> {
   const { data } = await createAdminClient().from("game_preview_config").select(CONFIG_COLUMNS).eq("id", true).maybeSingle();
@@ -38,6 +39,11 @@ export async function getGamePreviewConfig(): Promise<GamePreviewConfig> {
     webSearchToolVersion: data.web_search_tool_version,
     maxCitedFacts: data.max_cited_facts,
     minStoryScore: Number(data.min_story_score),
+    automationCompetitions: data.automation_competitions ?? ["NFL", "NBA", "NHL"],
+    automationRetryHours: data.automation_retry_hours ?? 24,
+    automationTechnicalRetryHours: data.automation_technical_retry_hours ?? 6,
+    statusRefreshEnabled: data.status_refresh_enabled ?? true,
+    statusRefreshWindowHours: data.status_refresh_window_hours ?? 24,
   };
 }
 
@@ -232,13 +238,14 @@ export interface GenerationRunInput {
 }
 
 /** One row per automated or admin-triggered attempt: what it cost and how it ended, so usage and quality are observable from the first run. */
-export async function recordGenerationRun(run: GenerationRunInput): Promise<void> {
-  const { error } = await createAdminClient().from("game_preview_runs").insert({
+export async function recordGenerationRun(run: GenerationRunInput): Promise<string | void> {
+  const { data, error } = await createAdminClient().from("game_preview_runs").insert({
     fixture_id: run.fixtureId, trigger: run.trigger, reason: run.reason, status: run.status, provider: run.provider, model: run.model, attempts: run.attempts, search_calls: run.searchCalls, model_calls: run.modelCalls,
     input_tokens: run.inputTokens, output_tokens: run.outputTokens, facts_found: run.factsFound, error: run.error ? run.error.slice(0, 1000) : null, preview_id: run.previewId, started_at: run.startedAt, effort: run.effort ?? null, tool_version: run.toolVersion ?? null, details: run.details ?? {},
     actor_id: run.trigger === "ADMIN" ? (run.actorId ?? null) : null,
-  });
+  }).select("id").single();
   if (error) throw error;
+  return (data as { id: string } | null)?.id;
 }
 
 export interface GenerationUsageSummary {
@@ -282,4 +289,82 @@ export interface GenerationRunRow {
 export async function listRecentGenerationRuns(limit = 10): Promise<GenerationRunRow[]> {
   const { data } = await createAdminClient().from("game_preview_runs").select("id, fixture_id, trigger, reason, status, model, search_calls, model_calls, error, started_at, effort, tool_version, details").order("started_at", { ascending: false }).limit(limit);
   return (data ?? []).map((r) => ({ id: r.id, fixtureId: r.fixture_id, trigger: r.trigger, reason: r.reason, status: r.status, model: r.model, searchCalls: r.search_calls, modelCalls: r.model_calls, error: r.error, startedAt: r.started_at, effort: r.effort, toolVersion: r.tool_version, details: r.details ?? {} }));
+}
+
+/** One Game inside the generation lead window and what the scheduler may do with it. `skipReason` null = a candidate; otherwise why the scheduler leaves it alone (see game_preview_automation_candidates). */
+export interface AutomationCandidate {
+  fixtureId: string;
+  postId: string;
+  homeTeamName: string;
+  awayTeamName: string;
+  competitionName: string | null;
+  scheduledStartUtc: string;
+  /** INITIAL: no Preview (or one automation itself hid). REFRESH: a status-bearing Preview that may have gone stale. */
+  kind: "INITIAL" | "REFRESH";
+  reason: "MISSING" | "MATERIAL_NEW_INFORMATION";
+  skipReason: string | null;
+}
+
+export async function listAutomationCandidates(fixtureId: string | null = null): Promise<AutomationCandidate[]> {
+  const { data, error } = await createAdminClient().rpc("game_preview_automation_candidates", { p_fixture_id: fixtureId });
+  if (error) throw error;
+  type Row = { fixture_id: string; post_id: string; home_team_name: string; away_team_name: string; competition_name: string | null; scheduled_start_utc: string; kind: string; reason: string; skip_reason: string | null };
+  return ((data ?? []) as Row[]).map((r) => ({
+    fixtureId: r.fixture_id,
+    postId: r.post_id,
+    homeTeamName: r.home_team_name,
+    awayTeamName: r.away_team_name,
+    competitionName: r.competition_name,
+    scheduledStartUtc: r.scheduled_start_utc,
+    kind: r.kind as AutomationCandidate["kind"],
+    reason: r.reason as AutomationCandidate["reason"],
+    skipReason: r.skip_reason,
+  }));
+}
+
+/** Withdraw (never delete) a status-bearing Preview whose status could not be re-established. Audited with no human actor. */
+export async function hideGamePreviewForAutomation(fixtureId: string, reason: string): Promise<boolean> {
+  const { data, error } = await createAdminClient().rpc("automation_hide_game_preview", { p_fixture_id: fixtureId, p_reason: reason });
+  if (error) throw error;
+  return (data as { outcome?: string } | null)?.outcome === "hidden";
+}
+
+export interface AutomationUsageReport {
+  since: string;
+  attempted: number;
+  ready: number;
+  needsReview: number;
+  failed: number;
+  initialRuns: number;
+  refreshRuns: number;
+  searchCalls: number;
+  modelCalls: number;
+  parseRecoveries: number;
+  statusBlocks: number;
+  staleCurrentBlocks: number;
+  statusClaimsRemoved: number;
+  creditLookupRuns: number;
+}
+
+/** The first-week monitoring numbers for AUTOMATIC runs since a moment, derived from the run records. */
+export async function getAutomationUsageReport(since: Date | { days: number }): Promise<AutomationUsageReport> {
+  const from = since instanceof Date ? since : new Date(Date.now() - since.days * 86_400_000);
+  const { data, error } = await createAdminClient().rpc("game_preview_automation_report", { p_since: from.toISOString() });
+  if (error) throw error;
+  return data as AutomationUsageReport;
+}
+
+export interface AutomationJobRun {
+  startedAt: string;
+  status: string;
+  durationMs: number;
+  /** The scheduler invocation's own report (Games considered, eligible, selected, results, usage, halted reason). */
+  result: Record<string, unknown> | null;
+  error: string | null;
+}
+
+/** The latest invocations of the scheduled job (one row per invocation in background_jobs, the existing cron run history). */
+export async function listAutomationJobRuns(limit = 8): Promise<AutomationJobRun[]> {
+  const { data } = await createAdminClient().from("background_jobs").select("started_at, status, duration_ms, result, error").eq("job_name", "game-previews").order("started_at", { ascending: false }).limit(limit);
+  return (data ?? []).map((r) => ({ startedAt: r.started_at, status: r.status, durationMs: r.duration_ms, result: (r.result as Record<string, unknown> | null) ?? null, error: r.error }));
 }
