@@ -1330,3 +1330,44 @@ describe("current player status: current, dated, trusted evidence (the Buccaneer
     expect(checks(t)[0].issues.join(" ")).toMatch(/no reliable publication/);
   });
 });
+
+describe("JSON reliability at the pipeline: a recovered format retry continues the run and is recorded; a terminal one fails cleanly", () => {
+  const recovery = { stage: "fact_check_targeted", model: "test-model", firstError: "The targeted check answer was not valid JSON.", retried: true, recovered: true };
+  const withExceptionFact = () => {
+    const injury = fact({ id: "f4", kind: "current", statusKind: "NONE", category: "record", claim: "Indianapolis is 3-3.", publishedAt: null });
+    const story = { ...selection, angles: selection.angles.map((a) => (a.id === "a1" ? { ...a, factIds: ["f1", "f4"] } : a)) };
+    return { injury, story };
+  };
+  const buildWith = (verifyFacts: GamePreviewFactVerifierProvider["verifyFacts"]) => {
+    const { injury, story } = withExceptionFact();
+    return setup({ providers: { research: { name: "fake", research: async () => ({ facts: [...facts, injury], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...story, usage: usage({ modelCalls: 1 }) }) }, factVerifier: { name: "fake", verifyFacts } } });
+  };
+
+  it("a recovered format retry does not stop the generation: the Preview is saved and the recovery is in the run record", async () => {
+    const t = buildWith(async (_g, fs) => ({ checks: fs.map((f) => ({ factId: f.id, status: "confirmed" as const, basis: "targeted_search" as const, retrievalFailed: false, note: "ok", corroboratingUrl: null })), usage: usage({ searchCalls: 1, modelCalls: 3 }), parseRecoveries: [recovery] }));
+    expect((await generateGamePreview(t.deps, req)).status).toBe("SUCCEEDED");
+    expect((t.runs[0].details as { parseRecoveries: unknown[] }).parseRecoveries).toEqual([recovery]);
+    expect(t.runs[0].searchCalls).toBe(4); // research 3 + the one verification search: the retry added none
+  });
+
+  it("a format retry that also fails is the existing controlled failure (fact_verification_failed), with nothing saved and the failed recovery recorded", async () => {
+    const failed = { ...recovery, recovered: false, retryError: "no JSON" };
+    const t = buildWith(async () => {
+      throw Object.assign(new Error("The targeted check answer was not valid JSON, and the one format retry did not recover it."), { recovery: failed });
+    });
+    const out = await generateGamePreview(t.deps, req);
+    expect(out).toMatchObject({ status: "FAILED" });
+    expect((out as { error: string }).error).toMatch(/^fact_verification_failed: .*one format retry did not recover it/);
+    expect(t.saves).toHaveLength(0);
+    expect((t.runs[0].details as { parseRecoveries: unknown[] }).parseRecoveries).toEqual([failed]);
+  });
+
+  it("an unrecovered answer confirms nothing: a fact whose check never parsed is not treated as verified", async () => {
+    const t = buildWith(async () => {
+      throw Object.assign(new Error("not valid JSON"), { recovery: { ...recovery, recovered: false } });
+    });
+    await generateGamePreview(t.deps, req);
+    expect(t.saves).toHaveLength(0);
+    expect(t.write).not.toHaveBeenCalled();
+  });
+});

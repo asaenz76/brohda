@@ -99,6 +99,29 @@ export type StatusKind = (typeof STATUS_KINDS)[number];
 /** Where a fact's publication date came from: "page" = the date the page itself shows (byline, dateline, update stamp); "search_age" = the age the search tool reported, which is a crawl-side signal and is never enough to date a current-status claim. */
 export type DateSource = "page" | "search_age";
 
+/**
+ * A structured model answer that could not be parsed, and the single format retry that followed. Observability only: the stage, the model, the first parse error (a short description, never the answer), and whether the one retry recovered it. The retry never searches.
+ */
+export interface ParseRecovery {
+  stage: string;
+  model: string;
+  firstError: string;
+  retried: boolean;
+  recovered: boolean;
+  /** Why the retry did not recover it (absent when it did). */
+  retryError?: string;
+}
+/** A structured answer that stayed unparseable after the one format retry. Carries the recovery record so the run can still show what happened. */
+export class StructuredOutputError extends Error {
+  constructor(
+    message: string,
+    readonly recovery: ParseRecovery,
+  ) {
+    super(message);
+    this.name = "StructuredOutputError";
+  }
+}
+
 export interface ProviderUsage {
   searchCalls: number;
   modelCalls: number;
@@ -168,6 +191,8 @@ export interface ResearchResult {
   /** Every source the search reached, with whether any fact from it was accepted (and why not, if rejected). */
   sources: ReachedSource[];
   usage: ProviderUsage;
+  /** Structured answers that needed the one format retry. */
+  parseRecoveries?: ParseRecovery[];
 }
 /** Stage 1: find verified, sourced facts about this exact matchup. Web research is mandatory: an implementation must actually search, and must return only facts whose source it really reached. */
 export interface GamePreviewResearchProvider {
@@ -268,6 +293,8 @@ export interface FactVerificationContext extends StageContext {
 export interface FactVerificationResult {
   checks: FactCheck[];
   usage: ProviderUsage;
+  /** Structured answers that needed the one format retry. */
+  parseRecoveries?: ParseRecovery[];
 }
 /** The trusted domains a credit lookup may search (the stored trusted list). */
 export interface CreditLookupContext extends FactVerificationContext {
@@ -286,6 +313,8 @@ export interface TrustedSourceHit {
 export interface CreditLookupResult {
   found: Array<{ factId: string; hit: TrustedSourceHit | null }>;
   usage: ProviderUsage;
+  /** Structured answers that needed the one format retry. */
+  parseRecoveries?: ParseRecovery[];
 }
 /** Stage 2b: after the story is chosen and before anything is written, independently verify every material fact it needs — the source supports the claim, the date and season are right, no authoritative source disagrees. */
 export interface GamePreviewFactVerifierProvider {
@@ -309,6 +338,8 @@ export interface StatusConfirmation {
 export interface StatusConfirmationResult {
   results: StatusConfirmation[];
   usage: ProviderUsage;
+  /** Structured answers that needed the one format retry. */
+  parseRecoveries?: ParseRecovery[];
 }
 export interface NumberRefresh {
   factId: string;
@@ -320,6 +351,8 @@ export interface NumberRefresh {
 export interface NumberRefreshResult {
   results: NumberRefresh[];
   usage: ProviderUsage;
+  /** Structured answers that needed the one format retry. */
+  parseRecoveries?: ParseRecovery[];
 }
 
 export interface DraftContext extends StageContext {

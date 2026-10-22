@@ -1,6 +1,6 @@
 import type { GamePreviewConfig, GamePreviewInput, GamePreviewReason, GamePreviewWriteOutcome } from "./types";
 import type { GenerationRunInput } from "./repository";
-import { addUsage, emptyUsage, FACT_SOURCE_TYPES, type NumberRefresh, type AdvisoryKind, type AngleSelection, type CandidateFact, type EditorialAngle, type FactCheck, type GameIdentity, type GamePreviewProviders, type PreviewDraft, type ProviderUsage, type ReachedSource, type ResearchLead, type SourceConflict, type StatusConfirmation } from "./providers/types";
+import { addUsage, emptyUsage, FACT_SOURCE_TYPES, type NumberRefresh, type AdvisoryKind, type AngleSelection, type CandidateFact, type EditorialAngle, type FactCheck, type GameIdentity, type GamePreviewProviders, type PreviewDraft, type ProviderUsage, type ParseRecovery, type ReachedSource, type ResearchLead, type SourceConflict, type StatusConfirmation } from "./providers/types";
 import { angleBasis, chooseAngle, completeAngleFacts, dedupeAngles, orderAnglePrimary, overallScore, sanitizeAngles, validateEditorial } from "./editorial";
 import { claimAppearsInText, excerptIssues, domainMatches, domainOf, draftHints, hasPageDate, isCreditablePage, isCurrentPlayerStatus, isEligiblePrimarySource, isSyndicationHost, isTrustedFactSource, isTrustedSource, reconcileSeasonScope, staleNumberCandidates, statusEvidenceIssues, statusMayBeSuperseded, validateDraft, verificationReasons } from "./validation";
 
@@ -108,6 +108,8 @@ export interface RunDetails {
   /** Numbers that were replaced by their current value: the old and new claim and the source of the new one. */
   numberRefreshes: Array<{ factId: string; from: string; to: string; source: string }>;
   /** CURRENT PLAYER STATUS gate: every status claim a story rested on, whether its own source qualified (official/trusted AND dated), and what the newest-status search did: qualified (no search needed), confirmed, updated (a newer qualifying report replaced it), removed (unsupported: the designation is not published). */
+  /** Structured model answers that were unparseable and needed the one format retry (never a search): the stage, the model, the first parse error, and whether the retry recovered it. */
+  parseRecoveries: ParseRecovery[];
   statusChecks: Array<{ angleId: string; factId: string; claim: string; source: string; publishedAt: string | null; qualifies: boolean; issues: string[]; outcome: "qualified" | "confirmed" | "updated" | "removed" | "left_to_verification"; note?: string; newSource?: string; newPublishedAt?: string | null }>;
 }
 
@@ -180,8 +182,14 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     numberRefreshes: [],
     creditReserve: [],
     statusChecks: [],
+    parseRecoveries: [],
   };
 
+  /** A stage that failed after its one format retry still records what happened. */
+  const noteParseFailure = (error: unknown) => {
+    const recovery = (error as { recovery?: ParseRecovery }).recovery;
+    if (recovery) details.parseRecoveries.push(recovery);
+  };
   const finish = async (outcome: GenerationOutcome, previewId: string | null): Promise<GenerationOutcome> => {
     await deps
       .recordRun({
@@ -223,6 +231,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
   try {
     const research = await providers.research.research(game, { ...stage, maxSearchCalls: config.maxSearchCallsPerGame - verificationReserve(config.maxSearchCallsPerGame, Boolean(providers.factVerifier)), webSearchToolVersion: config.webSearchToolVersion, preferredDomains: config.preferredDomains, blockedDomains: config.blockedDomains });
     usage = addUsage(usage, research.usage);
+    details.parseRecoveries.push(...(research.parseRecoveries ?? []));
     facts = research.facts;
     leads = research.leads ?? [];
     // Contract: verify the supplied Game against an official source. A conflict is needs_review with the specific conflict; the system never silently switches Games.
@@ -233,6 +242,7 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     details.sourceConflicts = research.conflicts ?? [];
     details.sources = { reached: research.sources.length, accepted: research.sources.filter((s) => s.status === "accepted").length, rejected: research.sources.filter((s) => s.status === "rejected").length, list: research.sources.slice(0, 40) };
   } catch (error) {
+    noteParseFailure(error);
     return fail(`research_failed: ${(error as Error).message}`);
   }
   facts = reconcileSeasonScope(facts, game); // a report published before the season began (by the SUPPLIED season identifier) is last season's news
@@ -327,10 +337,12 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
     try {
       result = await finder.call(providers.factVerifier, game, central, { ...stage, maxSearchCalls: left, webSearchToolVersion: config.webSearchToolVersion, blockedDomains: config.blockedDomains, trustedDomains: config.preferredDomains });
     } catch (error) {
+      noteParseFailure(error);
       details.creditLookups.push({ angleId: angle.id, factId: "*", found: null, note: `lookup failed: ${(error as Error).message.slice(0, 300)}` });
       return null; // a failed lookup only means this story cannot be credited; the next-best story is tried
     }
     usage = addUsage(usage, result.usage);
+    details.parseRecoveries.push(...(result.parseRecoveries ?? []));
     let factIds = [...angle.factIds];
     let centralIds = [...(angle.centralFactIds ?? [angle.factIds[0]])];
     let any = false;
@@ -406,8 +418,10 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
           try {
             const res = await refresher.call(providers.factVerifier, game, staleFacts, { ...stage, maxSearchCalls: stageBudget(), webSearchToolVersion: config.webSearchToolVersion, blockedDomains: config.blockedDomains });
             usage = addUsage(usage, res.usage);
+            details.parseRecoveries.push(...(res.parseRecoveries ?? []));
             results = res.results;
           } catch (error) {
+            noteParseFailure(error);
             for (const f of staleFacts) note(f.id, "removed", `refresh failed: ${(error as Error).message.slice(0, 200)}`);
           }
         }
@@ -459,8 +473,10 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
           try {
             const res = await confirmer.call(providers.factVerifier, game, open.map((x) => x.fact), { ...stage, maxSearchCalls: stageBudget(), webSearchToolVersion: config.webSearchToolVersion, blockedDomains: config.blockedDomains });
             usage = addUsage(usage, res.usage);
+            details.parseRecoveries.push(...(res.parseRecoveries ?? []));
             results = res.results;
           } catch (error) {
+            noteParseFailure(error);
             for (const x of open) log(x.fact, x.issues, "left_to_verification", { note: `status search failed: ${(error as Error).message.slice(0, 200)}` });
           }
         }
@@ -534,10 +550,12 @@ export async function generateGamePreview(deps: PipelineDeps, request: GenerateR
           try {
             result = await providers.factVerifier.verifyFacts(game, exceptions.map((x) => x.fact), { ...stage, maxSearchCalls: stageBudget(), webSearchToolVersion: config.webSearchToolVersion, blockedDomains: config.blockedDomains });
           } catch (error) {
+            noteParseFailure(error);
             hardFailure = await fail(`fact_verification_failed: ${(error as Error).message}`);
             return "failed";
           }
           usage = addUsage(usage, result.usage);
+          details.parseRecoveries.push(...(result.parseRecoveries ?? []));
           details.factVerification.push({ round: details.factVerification.length + 1, angleId: candidate.id, checks: result.checks });
           const byId = new Map(result.checks.map((c) => [c.factId, c]));
           // A stored passage that was cut off is replaced by the complete passage the targeted search found, so the writer and the reviewer see the support itself.

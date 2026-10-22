@@ -42,6 +42,8 @@ import {
   type GamePreviewWriterProvider,
   type PreviewDraft,
   type ProviderUsage,
+  type ParseRecovery,
+  StructuredOutputError,
   type ReachedSource,
   type ResearchContext,
   type ResearchResult,
@@ -83,6 +85,8 @@ interface CallResult {
   blocks: Block[];
   usage: ProviderUsage;
   stopReason: string | null;
+  /** The request that produced this answer, without its tools: what a format retry replays. */
+  request: Omit<Anthropic.Messages.MessageCreateParamsNonStreaming, "stream" | "tools">;
 }
 
 /** An API failure becomes a plain error: status and the API's own message, never request headers or the key. */
@@ -121,7 +125,9 @@ async function call(client: MessagesClient, params: Omit<Anthropic.Messages.Mess
     .filter((b): b is Anthropic.Messages.TextBlock => b.type === "text")
     .map((b) => b.text)
     .join("");
-  return { text, blocks, usage, stopReason: last.stop_reason };
+  const request: CallResult["request"] & { tools?: unknown } = { ...params };
+  delete request.tools;
+  return { text, blocks, usage, stopReason: last.stop_reason, request };
 }
 
 /** The first balanced JSON object in a model answer (models sometimes wrap it in prose or a code fence, or follow it with commentary containing braces). */
@@ -150,6 +156,37 @@ export function extractJson<T>(text: string, what: string): T {
     }
   }
   throw new Error(`The ${what} answer was not valid JSON. It began: ${text.slice(start, start + 160).replace(/\s+/g, " ")}`);
+}
+
+
+/**
+ * The stages that ask for JSON in the prompt and search the web (research, credit lookup, number refresh, player status, the targeted fact check) cannot use schema-guaranteed output, so a model answer is sometimes unparseable. ONE bounded format retry recovers it: the model is shown
+ * its own answer and asked to return the same findings as one valid JSON object, with NO tools (so the retry can never search and never spends the search ceiling). The recovered answer goes through exactly the same checks as any other (reached pages, schema normalisation, factual verification);
+ * nothing is repaired by code, guessed or invented. If the retry is also unparseable the stage fails cleanly with a StructuredOutputError. The stages that use schema-guaranteed structured output (angles, writer, reviewer, evidence check) do not need it and are not wrapped.
+ */
+const FORMAT_RETRY_INSTRUCTION = "Your previous answer could not be parsed as JSON. Return the SAME answer again as ONE valid JSON object that follows the schema given in the instructions, and nothing else: no commentary, no code fence. Do not search, and do not add, change, remove or invent any finding; if the previous answer contained no findings, return the schema with empty lists.";
+/** What went wrong with an answer, without the answer: the parser's own message minus the "It began: ..." excerpt, so a recovery record never carries model output. */
+const parseFailureReason = (error: unknown): string => String((error as Error).message ?? error).split(" It began:")[0].slice(0, 200);
+export async function parseJsonWithRetry<T>(client: MessagesClient, result: CallResult, what: string, stage: string): Promise<{ value: T; usage: ProviderUsage; recovery: ParseRecovery | null }> {
+  try {
+    return { value: extractJson<T>(result.text, what), usage: emptyUsage(), recovery: null };
+  } catch (first) {
+    const firstError = parseFailureReason(first);
+    const model = String(result.request.model);
+    let retry: CallResult;
+    try {
+      retry = await call(client, { ...result.request, messages: [...result.request.messages, { role: "assistant", content: result.text.trim() || "(no answer)" }, { role: "user", content: FORMAT_RETRY_INSTRUCTION }] }, false);
+    } catch (error) {
+      const retryError = parseFailureReason(error);
+      throw new StructuredOutputError(`The ${what} answer was not valid JSON and the one format retry failed (${retryError}). First error: ${firstError}`, { stage, model, firstError, retried: true, recovered: false, retryError });
+    }
+    try {
+      return { value: extractJson<T>(retry.text, what), usage: retry.usage, recovery: { stage, model, firstError, retried: true, recovered: true } };
+    } catch (second) {
+      const retryError = parseFailureReason(second);
+      throw new StructuredOutputError(`The ${what} answer was not valid JSON, and the one format retry did not recover it. First error: ${firstError}`, { stage, model, firstError, retried: true, recovered: false, retryError });
+    }
+  }
 }
 
 const normUrl = (url: string): string => {
@@ -302,7 +339,8 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
       if (block.type === "text") for (const c of block.citations ?? []) if (c.type === "web_search_result_location" && !reached.has(normUrl(c.url))) reached.set(normUrl(c.url), { url: c.url, title: c.title ?? c.url, pageAge: null });
     }
 
-    const parsed = extractJson<{ game_check?: { confirmed?: boolean; conflict?: string | null }; facts?: Array<Record<string, unknown>>; leads?: Array<{ summary?: string; fact_numbers?: unknown[] }>; conflicts?: Array<{ topic?: string; note?: string; kind?: string }> }>(result.text, "research");
+    const structuredAnswer = await parseJsonWithRetry<{ game_check?: { confirmed?: boolean; conflict?: string | null }; facts?: Array<Record<string, unknown>>; leads?: Array<{ summary?: string; fact_numbers?: unknown[] }>; conflicts?: Array<{ topic?: string; note?: string; kind?: string }> }>(this.client, result, "research", "research");
+    const parsed = structuredAnswer.value;
     const facts: CandidateFact[] = [];
     const usedUrls = new Set<string>();
     const rejectedReasons = new Map<string, { url: string; reason: string }>();
@@ -371,7 +409,7 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
     const sources: ReachedSource[] = [...reached.entries()].map(([key, r]) => (usedUrls.has(key) ? { url: r.url, title: r.title, status: "accepted" as const } : { url: r.url, title: r.title, status: "rejected" as const, reason: rejectedReasons.get(key)?.reason ?? "no usable fact taken from it" }));
     for (const [key, r] of rejectedReasons) if (!reached.has(key)) sources.push({ url: r.url, title: r.url, status: "rejected", reason: r.reason });
     const gameCheck = parsed.game_check && parsed.game_check.confirmed === false ? { confirmed: false, conflict: String(parsed.game_check.conflict ?? "").trim() || "The sources do not match the Game's schedule, season or phase." } : { confirmed: true, conflict: null };
-    return { gameCheck, facts, sources, conflicts, leads, usage: result.usage };
+    return { gameCheck, facts, sources, conflicts, leads, usage: addUsage(result.usage, structuredAnswer.usage), parseRecoveries: structuredAnswer.recovery ? [structuredAnswer.recovery] : [] };
   }
 
   async selectAngle(game: GameIdentity, facts: CandidateFact[], ctx: StageContext, leads: ResearchLead[] = []): Promise<AngleSelection> {
@@ -462,7 +500,8 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
     // Only pages the search actually reached on an allowed domain count.
     const reached = new Set<string>();
     for (const block of result.blocks) if (block.type === "web_search_tool_result" && Array.isArray(block.content)) for (const r of block.content) reached.add(normUrl(r.url));
-    const parsed = extractJson<{ results?: Array<{ fact_id?: string; url?: string | null; title?: string; provider?: string; published_at?: string | null; excerpt?: string }> }>(result.text, "credit lookup");
+    const structuredAnswer = await parseJsonWithRetry<{ results?: Array<{ fact_id?: string; url?: string | null; title?: string; provider?: string; published_at?: string | null; excerpt?: string }> }>(this.client, result, "credit lookup", "credit_lookup");
+    const parsed = structuredAnswer.value;
     const byId = new Map((parsed.results ?? []).map((r) => [String(r.fact_id ?? ""), r]));
     return {
       found: facts.map((f) => {
@@ -472,7 +511,8 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
         const published = r.published_at ? new Date(String(r.published_at)) : null;
         return { factId: f.id, hit: { url, title: String(r.title ?? "").trim() || domainOf(url), provider: String(r.provider ?? "").trim() || domainOf(url), publishedAt: published && !Number.isNaN(published.getTime()) ? published.toISOString() : null, excerpt: String(r.excerpt).trim().slice(0, 1500) } };
       }),
-      usage: result.usage,
+      usage: addUsage(result.usage, structuredAnswer.usage),
+      parseRecoveries: structuredAnswer.recovery ? [structuredAnswer.recovery] : [],
     };
   }
 
@@ -488,7 +528,8 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
     );
     const reached = new Set<string>();
     for (const block of result.blocks) if (block.type === "web_search_tool_result" && Array.isArray(block.content)) for (const r of block.content) reached.add(normUrl(r.url));
-    const parsed = extractJson<{ results?: Array<Record<string, unknown>> }>(result.text, "number refresh");
+    const structuredAnswer = await parseJsonWithRetry<{ results?: Array<Record<string, unknown>> }>(this.client, result, "number refresh", "number_refresh");
+    const parsed = structuredAnswer.value;
     const byId = new Map((parsed.results ?? []).map((r) => [String(r.fact_id ?? ""), r]));
     const iso = (v: unknown) => (v && !Number.isNaN(new Date(String(v)).getTime()) ? new Date(String(v)).toISOString() : null);
     const results: NumberRefresh[] = facts.map((f) => {
@@ -501,7 +542,7 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
       }
       return { factId: f.id, status: "unavailable" as const, note: note || "no current value was found" };
     });
-    return { results, usage: result.usage };
+    return { results, usage: addUsage(result.usage, structuredAnswer.usage), parseRecoveries: structuredAnswer.recovery ? [structuredAnswer.recovery] : [] };
   }
 
   async confirmPlayerStatus(game: GameIdentity, facts: CandidateFact[], ctx: FactVerificationContext): Promise<StatusConfirmationResult> {
@@ -516,7 +557,8 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
     );
     const reached = new Set<string>();
     for (const block of result.blocks) if (block.type === "web_search_tool_result" && Array.isArray(block.content)) for (const r of block.content) reached.add(normUrl(r.url));
-    const parsed = extractJson<{ results?: Array<Record<string, unknown>> }>(result.text, "player status");
+    const structuredAnswer = await parseJsonWithRetry<{ results?: Array<Record<string, unknown>> }>(this.client, result, "player status", "player_status");
+    const parsed = structuredAnswer.value;
     const byId = new Map((parsed.results ?? []).map((r) => [String(r.fact_id ?? ""), r]));
     const iso = (v: unknown) => (v && !Number.isNaN(new Date(String(v)).getTime()) ? new Date(String(v)).toISOString() : null);
     const results: StatusConfirmation[] = facts.map((f) => {
@@ -531,7 +573,7 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
       }
       return { factId: f.id, status: "unavailable" as const, note: note || "no dated, trusted report of the status was found" };
     });
-    return { results, usage: result.usage };
+    return { results, usage: addUsage(result.usage, structuredAnswer.usage), parseRecoveries: structuredAnswer.recovery ? [structuredAnswer.recovery] : [] };
   }
 
   async verifyFacts(game: GameIdentity, facts: CandidateFact[], ctx: FactVerificationContext): Promise<FactVerificationResult> {
@@ -543,6 +585,7 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
       false,
     );
     let usage = first.usage;
+    const recoveries: ParseRecovery[] = [];
     const parsed = extractJson<{ verdicts?: Array<{ fact_id?: string; verdict?: string; note?: string; to_establish?: string }> }>(first.text, "evidence check");
     const byId = new Map((parsed.verdicts ?? []).map((v) => [String(v.fact_id ?? ""), v]));
     const checks = new Map<string, FactCheck>();
@@ -566,7 +609,10 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
         true,
       );
       usage = addUsage(usage, second.usage);
-      const parsed2 = extractJson<{ checks?: Array<{ fact_id?: string; status?: string; note?: string; corroborating_url?: string | null; retrieval_failed?: boolean; passage?: string | null }> }>(second.text, "targeted check");
+      const structured2 = await parseJsonWithRetry<{ checks?: Array<{ fact_id?: string; status?: string; note?: string; corroborating_url?: string | null; retrieval_failed?: boolean; passage?: string | null }> }>(this.client, second, "targeted check", "fact_check_targeted");
+      usage = addUsage(usage, structured2.usage);
+      if (structured2.recovery) recoveries.push(structured2.recovery);
+      const parsed2 = structured2.value;
       const byId2 = new Map((parsed2.checks ?? []).map((c) => [String(c.fact_id ?? ""), c]));
       for (const u of unresolved) {
         const c = byId2.get(u.fact.id);
@@ -577,7 +623,7 @@ export class AnthropicGamePreviewProvider implements GamePreviewResearchProvider
       // Nothing settled it and nothing is left to search with: not confirmed — but never silently dropped.
       for (const u of unresolved) checks.set(u.fact.id, { factId: u.fact.id, status: "unsupported", basis: "none", retrievalFailed: false, note: `The captured evidence does not establish it${u.note ? ` (${u.note})` : ""}, and no verification search was available.`.slice(0, 500), corroboratingUrl: null });
     }
-    return { checks: facts.map((f) => checks.get(f.id)!), usage };
+    return { checks: facts.map((f) => checks.get(f.id)!), usage, parseRecoveries: recoveries };
   }
 
 }
