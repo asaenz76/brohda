@@ -1371,3 +1371,79 @@ describe("JSON reliability at the pipeline: a recovered format retry continues t
     expect(t.write).not.toHaveBeenCalled();
   });
 });
+
+describe("scheduled (AUTOMATIC) runs use exactly the same pipeline, with their own identity and provenance", () => {
+  const auto = { ...req, trigger: "AUTOMATIC" as const, actorId: "11111111-aaaa-4aaa-8aaa-111111111111", invocation: { id: "inv-123", kind: "REFRESH" as const } };
+
+  it("(O) an automatic run never carries a human actor, even if one is passed, is recorded as AUTOMATIC with its scheduler invocation, and its outcome carries the run id", async () => {
+    const t = setup();
+    t.deps.recordRun = async (run) => {
+      t.runs.push(run);
+      return "run-abc";
+    };
+    const out = await generateGamePreview(t.deps, auto);
+    expect(out.status).toBe("SUCCEEDED");
+    expect(t.runs[0]).toMatchObject({ trigger: "AUTOMATIC", actorId: null });
+    expect((t.runs[0].details as { invocation: unknown }).invocation).toEqual({ id: "inv-123", kind: "REFRESH" });
+    expect(out.runId).toBe("run-abc");
+    expect(t.saves[0].meta).toMatchObject({ trigger: "AUTOMATIC" });
+  });
+
+  it("an Admin run has no invocation (so the two kinds of run stay distinguishable)", async () => {
+    const t = setup();
+    await generateGamePreview(t.deps, req);
+    expect((t.runs[0].details as { invocation: unknown }).invocation).toBeNull();
+  });
+
+  it("(U) the per-Game search ceiling is the stored one for a scheduled run too: research is handed it, nothing raises it", async () => {
+    const t = setup();
+    await generateGamePreview(t.deps, auto);
+    expect(t.research.mock.calls[0][1].maxSearchCalls).toBe(config.maxSearchCallsPerGame);
+    expect(config.maxSearchCallsPerGame).toBe(8);
+  });
+
+  it("(V) a scheduled run cannot publish without an eligible public primary source: the same rule as an Admin run", async () => {
+    const betting = facts.map((f, i) => (i === 0 ? { ...f, sourceUrl: "https://www.si.com/betting/titans-colts-odds", sourceTitle: "Titans vs. Colts odds" } : f));
+    const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts: betting, sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...selection, angles: selection.angles.map((a) => (a.id === "a1" ? { ...a, factIds: ["f1"], centralFactIds: ["f1"] } : { ...a, scores: { tension: 1, surprise: 1, specificity: 1, humanInterest: 1, conversation: 1, recency: 1 } })), usage: usage({ modelCalls: 1 }) }) } } });
+    const out = await generateGamePreview(t.deps, auto);
+    expect(out.status).toBe("REJECTED");
+    expect((out as { error: string }).error).toMatch(/no_trusted_primary_source|no_public_source|story_not_verified/);
+    expect(t.saves).toHaveLength(0);
+  });
+
+  it("(T) the PR #120 JSON format retry behaves identically for a scheduled run: a recovered answer continues and is recorded, an unrecovered one is the same controlled failure", async () => {
+    const recovery = { stage: "fact_check_targeted", model: "test-model", firstError: "not valid JSON", retried: true, recovered: true };
+    const injury = fact({ id: "f4", kind: "current", statusKind: "NONE", category: "record", claim: "Indianapolis is 3-3.", publishedAt: null });
+    const story = { ...selection, angles: selection.angles.map((a) => (a.id === "a1" ? { ...a, factIds: ["f1", "f4"] } : a)) };
+    const build = (verifyFacts: GamePreviewFactVerifierProvider["verifyFacts"]) => setup({ providers: { research: { name: "fake", research: async () => ({ facts: [...facts, injury], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...story, usage: usage({ modelCalls: 1 }) }) }, factVerifier: { name: "fake", verifyFacts } } });
+    const good = build(async (_g, fs) => ({ checks: fs.map((f) => ({ factId: f.id, status: "confirmed" as const, basis: "targeted_search" as const, retrievalFailed: false, note: "ok", corroboratingUrl: null })), usage: usage({ searchCalls: 1, modelCalls: 3 }), parseRecoveries: [recovery] }));
+    expect((await generateGamePreview(good.deps, auto)).status).toBe("SUCCEEDED");
+    expect((good.runs[0].details as { parseRecoveries: unknown[] }).parseRecoveries).toEqual([recovery]);
+    const bad = build(async () => {
+      throw Object.assign(new Error("The targeted check answer was not valid JSON, and the one format retry did not recover it."), { recovery: { ...recovery, recovered: false } });
+    });
+    const out = await generateGamePreview(bad.deps, auto);
+    expect(out).toMatchObject({ status: "FAILED" });
+    expect(bad.saves).toHaveLength(0);
+  });
+
+  it("a reviewer block is a rejection for a scheduled run exactly as for an Admin run: nothing is saved, whatever the trigger", async () => {
+    const verify = vi.fn<GamePreviewVerifierProvider["verify"]>(async () => ({ blocking: [{ category: "unsupported_claim" as const, problem: "no support" }], advisory: [], usage: usage({ modelCalls: 1 }) }));
+    const t = setup({ providers: { verifier: { name: "fake", verify } }, config: { maxAttempts: 2 } });
+    const out = await generateGamePreview(t.deps, auto);
+    expect(out.status).toBe("REJECTED");
+    expect(t.saves).toHaveLength(0);
+  });
+
+  it("(J) the stored Preview says whether it states a current player status and when that status was last established, so the scheduler knows when it ages", async () => {
+    const st = fact({ id: "f4", kind: "current", category: "injury", statusKind: "CURRENT_PLAYER_STATUS", claim: "The Titans quarterback is questionable.", excerpt: "The quarterback is questionable.", sourceUrl: "https://www.espn.com/nfl/story/_/id/77/titans-qb-report", sourceProvider: "ESPN", sourceTitle: "Titans QB report", sourceType: "article", publishedAt: "2026-10-17T16:00:00.000Z" });
+    const story = { ...selection, angles: selection.angles.map((a) => (a.id === "a1" ? { ...a, factIds: ["f1", "f3", "f4"], centralFactIds: ["f1", "f3"] } : a)) };
+    const write = vi.fn<GamePreviewWriterProvider["write"]>(async () => draftOf({ claims: [...goodDraft.claims.filter((c) => c.factIds[0] !== "f2"), { text: st.claim, factIds: ["f4"] }] }));
+    const t = setup({ providers: { research: { name: "fake", research: async () => ({ facts: [...facts, st], sources, usage: usage({ searchCalls: 3, modelCalls: 1 }) }) }, angles: { name: "fake", selectAngle: async () => ({ ...story, usage: usage({ modelCalls: 1 }) }) }, writer: { name: "fake", write } } });
+    expect((await generateGamePreview(t.deps, auto)).status).toBe("SUCCEEDED");
+    expect((t.saves[0].meta as { status: Record<string, unknown> }).status).toMatchObject({ hasStatusClaim: true, asOf: "2026-10-17T16:00:00.000Z", claims: [{ factId: "f4", sourceUrl: st.sourceUrl, verifiedNewest: false }] });
+    const plain = setup();
+    await generateGamePreview(plain.deps, auto);
+    expect((plain.saves[0].meta as { status: Record<string, unknown> }).status).toMatchObject({ hasStatusClaim: false, asOf: null, claims: [] });
+  });
+});

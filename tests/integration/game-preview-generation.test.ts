@@ -8,6 +8,7 @@ import { getTestAdminClient, getTestAnonClient } from "./helpers/test-env";
 import { seedGame, seedUser, setFixture } from "./helpers/game-seed";
 import { adminGenerationReason, getGamePreviewAdminState, getGamePreviewConfig, getGamePreviewForFixture, getGenerationUsageSummary, listGamePreviewsForAdmin, listRecentGenerationRuns, recordGenerationRun, saveGamePreview } from "@/lib/game-previews/repository";
 import { runGamePreviewAutomation } from "@/lib/game-previews/automation";
+import { emptyAutomationReport } from "@/lib/game-previews/scheduler";
 
 const admin = getTestAdminClient();
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -175,7 +176,7 @@ describe("automatic generation is OFF unless explicitly on and configured", () =
   it("does nothing by default — no candidates are touched, no run is recorded, nothing external is called", async () => {
     await game(6 * 60);
     const before = await getGenerationUsageSummary(null);
-    expect(await runGamePreviewAutomation()).toEqual({ enabled: false, configured: false, attempted: 0, succeeded: 0, failed: 0 });
+    expect(await runGamePreviewAutomation()).toEqual(emptyAutomationReport());
     expect((await getGenerationUsageSummary(null)).runs).toBe(before.runs);
   });
 

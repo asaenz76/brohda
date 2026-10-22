@@ -79,3 +79,18 @@ describe("Admin Generate / Regenerate decide from the canonical stored Preview, 
   });
 });
 
+describe("Admin Generate and a scheduled run never race on the same Game", () => {
+  beforeEach(() => {
+    requireSuperAdmin.mockReset();
+    runGeneration.mockReset();
+    adminState.mockReset();
+    adminState.mockResolvedValue({ exists: false, status: null, visible: false });
+    requireSuperAdmin.mockResolvedValue({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" });
+  });
+
+  it("(P) when the Game's generation lease is held, Generate says so plainly, saves nothing and invents no result", async () => {
+    runGeneration.mockResolvedValue({ configured: true, busy: true });
+    const result = await generateGamePreviewAction(null, form());
+    expect(result).toEqual({ success: false, error: "A Preview is already being generated for this Game. Try again in a few minutes." });
+  });
+});

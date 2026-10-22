@@ -5,7 +5,6 @@ import { runMessagingRetention } from "@/lib/messaging/retention";
 import { runConfidenceBootstrap } from "@/lib/confidence/bootstrap";
 import { runConfidenceSettlementSweep } from "@/lib/confidence/settlement";
 import { runGamePreviewHousekeeping } from "@/lib/game-previews/housekeeping";
-import { runGamePreviewAutomation } from "@/lib/game-previews/automation";
 import { recordJobRun } from "@/lib/jobs/record";
 import { errorMessage } from "@/lib/utils/error-message";
 
@@ -46,12 +45,8 @@ export async function GET(request: Request) {
       failures.push({ step: "game_previews", error: errorMessage(error) });
       return null;
     });
-    // Automatic Preview generation: a no-op (and no external call) unless the stored switch is on and a provider is configured. Its failure never skips the rest.
-    const gamePreviewGeneration = await runGamePreviewAutomation().catch((error) => {
-      failures.push({ step: "game_preview_generation", error: errorMessage(error) });
-      return null;
-    });
-    return { ...(providerRequestLog ?? { batchesRun: 0, rowsDeleted: 0 }), backgroundJobs, messaging, confidence, confidenceSettlement, gamePreviews, gamePreviewGeneration, failures };
+    // Preview GENERATION is not part of this every-5-minutes job: it has its own route and scheduler entry (/api/cron/game-previews). Housekeeping only freezes started Games' Previews and reports what still needs one.
+    return { ...(providerRequestLog ?? { batchesRun: 0, rowsDeleted: 0 }), backgroundJobs, messaging, confidence, confidenceSettlement, gamePreviews, failures };
   });
   return NextResponse.json(result);
 }
