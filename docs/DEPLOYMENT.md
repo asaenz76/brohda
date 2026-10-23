@@ -49,6 +49,23 @@ sourced from `.env.example`):
 | `NEXT_PUBLIC_SENTRY_DSN` | Optional — see Sentry setup below. Leave unset to disable error monitoring entirely |
 | `SENTRY_ORG` / `SENTRY_PROJECT` / `SENTRY_AUTH_TOKEN` | Optional, build-time only — enables source-map upload for readable stack traces |
 
+### 2.1 Environments, secrets and Preview isolation (security rule)
+
+Three Vercel environment scopes exist on the production project; they must never be mixed:
+
+| Scope | What it may hold |
+|---|---|
+| **Production** | The production Supabase URL/anon/service-role key, the production `CRON_SECRET`, every provider/payment/e-mail/Anthropic key, `SUPABASE_ACCESS_TOKEN`, `APP_URL`, the Sentry DSN. |
+| **Preview** (every pull-request deployment) | **Only** the *staging* Supabase URL/anon/service-role key, a Preview-only `CRON_SECRET`, `API_*_ENABLED=false`, and harmless settings (`DEFAULT_TIMEZONE`). **Never** a production secret, the production service-role key, `SUPABASE_ACCESS_TOKEN`, a provider key, an e-mail key or a payment/webhook secret. Anything absent here makes the feature fail closed in a Preview. |
+| **Development** | Nothing (local development uses `.env.local` / the local Supabase CLI). |
+
+Why: the service-role key bypasses RLS and the cron secret opens every job route. A Preview runs unreviewed code, so it must not be able to write to production. (Found and fixed in the M1 release gate: Preview used to inherit all of Production's variables.)
+When adding a variable in Vercel, choose its scopes deliberately; a variable that is added to "Production, Preview" at once is the mistake this rule exists to prevent. Rotate any secret that has ever been printed or pasted anywhere.
+
+The staging environment (a separate Supabase project and a separate Vercel project, `brohda-staging`) is where release rehearsals run; it holds staging-only secrets, no e-mail key, no provider keys, and registration disabled. Apply new migrations to staging first.
+
+`main` is protected: pull request required, the CI jobs (`Lint, typecheck, unit tests`, `Production build`, `Integration tests`, `End-to-end tests`) required to pass, no force-push, no deletion.
+
 ## 3. Email delivery (Resend)
 
 Supabase's built-in email sending is capped at 2/hour, which is enough for

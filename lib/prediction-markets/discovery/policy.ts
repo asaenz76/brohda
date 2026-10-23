@@ -33,11 +33,10 @@ const FALLBACK_FRESHNESS_POLICY: FreshnessPolicy = { freshWithinMinutes: 60, sta
  * lib/prediction-markets/discovery/repository.ts) already uses the admin
  * client uniformly for exactly this reason — a repository function should
  * be callable from a script, a future background job, or a test, not only
- * from inside a live HTTP request. `platform_settings` is public-readable
- * regardless (20260101000050_platform_settings.sql's own RLS policy), so
- * this isn't a privilege escalation — it's fixing an accidental,
- * unnecessary request-context dependency this function should never have
- * had.
+ * from inside a live HTTP request. `platform_settings` is NOT readable by client
+ * sessions (only the narrow public_platform_settings view is), which is exactly why this reads it
+ * with the service role — fixing an accidental, unnecessary request-context
+ * dependency this function should never have had.
  */
 export async function getFreshnessPolicy(): Promise<FreshnessPolicy> {
   const supabase = createAdminClient();
