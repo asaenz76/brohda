@@ -1,6 +1,8 @@
 import { requireSuperAdmin } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { LocalDateTime } from "@/components/LocalDateTime";
+import { ConfidenceOptionalPicksCard } from "@/components/confidence/ConfidenceOptionalPicksCard";
+import { getConfidenceSettingsForAdmin } from "@/lib/confidence/config";
 import { AdjustConfidenceForm, ReverseEntryButton } from "@/components/confidence/AdminConfidenceTools";
 import { describeEntry, describeEntryChange, formatConfidence, formatSignedConfidence } from "@/lib/confidence/format";
 
@@ -46,6 +48,10 @@ interface Capacity {
   unableToPredict: number;
   legacyPicks: { total: number; graded: number; open: number; openAndEditable: number };
   backedPicks: number;
+  optionalPicksEnabled?: boolean;
+  optionalFirstEnabledAt?: string | null;
+  eras?: { legacy: { picks: number; unstaked: number }; mandatory: { picks: number; unstaked: number }; optional: { picks: number; unstaked: number; staked: number } };
+  optionalMetrics?: { unstakedPickEdits: number; pickChangedExpiries: number; attachedAfterPick: number };
 }
 
 const fmt = (n: number | null | undefined) => (n === null || n === undefined ? "—" : Number(n).toLocaleString("en-US", { maximumFractionDigits: 2 }));
@@ -58,6 +64,7 @@ export default async function AdminConfidencePage({ searchParams }: { searchPara
   const o = data as Overview | null;
   const { data: capacityData } = await admin.rpc("confidence_prediction_capacity");
   const capacity = capacityData as Capacity | null;
+  const settings = await getConfidenceSettingsForAdmin().catch(() => null);
 
   let lookup: { id: string; displayName: string; username: string | null; available: number | null; reserved: number; entries: Array<Record<string, any>> } | null = null; // eslint-disable-line @typescript-eslint/no-explicit-any
   let lookupMissing = false;
@@ -77,6 +84,7 @@ export default async function AdminConfidencePage({ searchParams }: { searchPara
   return (
     <div className="space-y-4" data-slot="admin-confidence">
       <h1 className="text-lg font-semibold text-text-primary">Confidence</h1>
+      {settings && <ConfidenceOptionalPicksCard optionalPicksEnabled={settings.optionalPicksEnabled} optionalFirstEnabledAt={settings.optionalFirstEnabledAt} twoStepComposerEnabled={settings.twoStepComposerEnabled} />}
       {!o ? (
         <p role="alert" className="text-sm text-warning-muted">The economy figures couldn&apos;t be read.</p>
       ) : (
@@ -137,6 +145,20 @@ export default async function AdminConfidencePage({ searchParams }: { searchPara
                   ["Earlier picks without Confidence", fmt(capacity.legacyPicks.total)],
                   ["…graded", fmt(capacity.legacyPicks.graded)],
                   ["…still open", `${fmt(capacity.legacyPicks.open)} (${fmt(capacity.legacyPicks.openAndEditable)} can still be completed)`],
+                  ...(capacity.eras
+                    ? [
+                        ["Era: before the rule", `${fmt(capacity.eras.legacy.picks)} picks, ${fmt(capacity.eras.legacy.unstaked)} without Confidence`],
+                        ["Era: Confidence required", `${fmt(capacity.eras.mandatory.picks)} picks, ${fmt(capacity.eras.mandatory.unstaked)} without Confidence (should be 0)`],
+                        ["Era: Confidence optional", `${fmt(capacity.eras.optional.picks)} picks, ${fmt(capacity.eras.optional.staked)} with and ${fmt(capacity.eras.optional.unstaked)} without`],
+                      ]
+                    : []),
+                  ...(capacity.optionalMetrics
+                    ? [
+                        ["Unstaked pick edits", fmt(capacity.optionalMetrics.unstakedPickEdits)],
+                        ["Call BS cancelled by a pick change", fmt(capacity.optionalMetrics.pickChangedExpiries)],
+                        ["Confidence added after the pick", fmt(capacity.optionalMetrics.attachedAfterPick)],
+                      ]
+                    : []),
                 ].map(([k, v]) => (
                   <div key={k}>
                     <dt className="text-xs text-text-muted">{k}</dt>

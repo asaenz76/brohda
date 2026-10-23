@@ -1,5 +1,6 @@
 import "server-only";
 import { getStakeUiStates, type StakeUiState } from "@/lib/confidence/stakes";
+import { derivePickState, type PickStateName } from "@/lib/predictions/pick-state";
 import { getConfidenceOffer } from "@/lib/confidence/offer";
 import type { ConfidenceOffer } from "@/lib/confidence/format";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -160,6 +161,14 @@ export interface FeedMarketSummary {
    * `open` shows the "How confident are you?" control, `staked` shows the committed amount, anything else shows nothing.
    */
   confidence: StakeUiState;
+  /** Brohda 2.1 (M1): the viewer's Pick state, derived (lib/predictions/pick-state.ts) — one derivation for every card. Absent where a surface does not build it. */
+  pickState?: PickStateName;
+  /** Every lock on the viewer's Pick (they overlap: CONFIDENCE, CALL_BS, T10). */
+  lockSources?: string[];
+  canChangeTeam?: boolean;
+  canAttachConfidence?: boolean;
+  /** Show the two-step composer (team first, Confidence optional) instead of the one-step one. */
+  twoStep?: boolean;
   /** What the composer needs to know about the viewer's Confidence — the configured ladder, their available balance, and whether a Daily Claim is open — read once per page; null when predictions are unavailable (Confidence off, or no account). Presentation only. */
   confidenceOffer: ConfidenceOffer | null;
 }
@@ -356,10 +365,22 @@ function summarizeMarket({ game, market, sport, homeTeamName, awayTeamName, view
   // every input is already in scope, so no extra query per Market.
   let pickDisabledReason: string | null = null;
   let pickLockAt: string | null = null;
-  const isEditable = !viewerPrediction || (viewerPrediction.lockedAt === null && viewerPrediction.lifecycleState === "PENDING");
+  const twoStep = confidenceOffer?.twoStep === true;
+  const lock = pickLockState(game, predictionPolicy.pickLockMinutesBeforeKickoff, now);
+  const stakeState = viewerPrediction ? stakeStates.get(viewerPrediction.id) : undefined;
+  const ps = derivePickState({
+    prediction: viewerPrediction ? { lifecycleState: viewerPrediction.lifecycleState, result: viewerPrediction.result, lockedAt: viewerPrediction.lockedAt, lockReason: viewerPrediction.lockReason } : null,
+    staked: stakeState?.state === "staked",
+    acceptedCallBs: viewerPrediction?.lockReason === "CHALLENGE_ACCEPTED",
+    windowOpen: !lock.closed,
+  });
+  // Two-step (Brohda 2.1): the card stays interactive while the team can still change OR Confidence can still be added (an accepted Call BS locks the team but not Confidence). One-step: unchanged.
+  const isEditable = twoStep
+    ? !viewerPrediction || ps.canChangeTeam || ps.canAttachConfidence
+    : !viewerPrediction || (viewerPrediction.lockedAt === null && viewerPrediction.lifecycleState === "PENDING");
   // Commit-before-crowd: Brohda's crowd sentiment is shown only to someone whose prediction on THIS Market is final. Choosing a side in the composer shows nothing, and neither does an old open Pick that has not been completed with
   // Confidence yet. A logged-out visitor or a member with no prediction gets no percentages and no count — withheld here, so no surface can show them by accident. One Pick is one vote: Confidence never weights it.
-  const sentimentRevealed = viewerPrediction !== undefined && !isEditable;
+  const sentimentRevealed = viewerPrediction !== undefined && (twoStep ? ps.state !== "UNSTAKED_EDITABLE" : !isEditable);
   const sentiment = sentimentRevealed ? computePickSentiment(aggregate) : { yesPercent: null, noPercent: null, totalPickCount: 0 };
   if (isEditable) {
     const consumerStatus = deriveConsumerStatus(market.status, market.resolvedOutcome);
@@ -367,7 +388,6 @@ function summarizeMarket({ game, market, sport, homeTeamName, awayTeamName, view
     const eligibility = checkMarketEligibility({ consumerStatus, freshness, yesPrice: market.yesPrice, noPrice: market.noPrice, closesAt: market.closesAt, now }, predictionPolicy);
     pickDisabledReason = eligibility.eligible ? null : copyForIneligible(eligibility.reason);
     // The pre-kickoff lock: the Market stays ACTIVE until the provider reports the Game live (after kickoff), so the card must apply the lock itself.
-    const lock = pickLockState(game, predictionPolicy.pickLockMinutesBeforeKickoff, now);
     if (pickDisabledReason === null && lock.closed) pickDisabledReason = "Picks are locked for this game.";
     pickLockAt = pickDisabledReason === null ? lock.lockAt : null;
   } else {
@@ -395,6 +415,7 @@ function summarizeMarket({ game, market, sport, homeTeamName, awayTeamName, view
     pickLockAt,
     viewerPredictionId: viewerPrediction?.id ?? null,
     confidence: (viewerPrediction && stakeStates.get(viewerPrediction.id)) || { state: "none" },
+    ...(twoStep ? { pickState: ps.state, lockSources: ps.lockSources, canChangeTeam: ps.canChangeTeam, canAttachConfidence: ps.canAttachConfidence, twoStep: true } : {}),
     confidenceOffer,
   };
 }

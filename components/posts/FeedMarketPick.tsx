@@ -1,4 +1,5 @@
 import { PredictionComposer } from "@/components/predictions/PredictionComposer";
+import { TwoStepPickComposer } from "@/components/predictions/TwoStepPickComposer";
 import { PublicPickChoices } from "@/components/posts/PublicPickChoices";
 import { CommittedConfidence } from "@/components/confidence/CommittedConfidence";
 import type { FeedMarketSummary } from "@/lib/communities/feed";
@@ -41,6 +42,21 @@ export function FeedMarketPick({ market, isPublic, postId, heading = null, showT
         ) : (
           <PublicPickChoices choices={market.choices} postId={postId} />
         )
+      ) : market.isEditable && market.twoStep ? (
+        // Brohda 2.1: a team Pick on its own, then optional Confidence (which locks the team and fixes the amount). The database decides every deadline and lock.
+        <TwoStepPickComposer
+          marketId={market.id}
+          choices={market.choices}
+          offer={market.confidenceOffer}
+          disabledReason={market.pickDisabledReason}
+          lockAt={market.pickLockAt}
+          initialSelection={market.viewerSelection}
+          pickState={market.pickState ?? null}
+          canChangeTeam={market.canChangeTeam ?? true}
+          canAttachConfidence={market.canAttachConfidence ?? false}
+          hideTitle={!showTitle}
+          groupLabel={heading ?? undefined}
+        />
       ) : market.isEditable ? (
         // The prediction composer: side (local) + Confidence (the commitment). An open Pick from before Confidence was part of every prediction comes in with its side pre-selected, to be completed.
         <PredictionComposer
@@ -59,11 +75,16 @@ export function FeedMarketPick({ market, isPublic, postId, heading = null, showT
         <div className="space-y-1">
           <p className="text-sm font-semibold text-text-primary">You picked {selectionLabel}</p>
           <CommittedConfidence amount={market.confidence.amount} pending={market.confidence.stakeState === "RESERVED"} />
+          {market.lockSources?.includes("CALL_BS") && (
+            <p className="text-xs text-text-muted" data-slot="locked-by-call-bs">
+              Locked in a Call BS too.
+            </p>
+          )}
         </div>
       ) : (
         // A pick from before Confidence was part of every prediction that is already locked: kept as the record it is.
-        <p className="text-sm font-medium text-text-muted">
-          You picked {selectionLabel} — {market.pickDisabledReason}
+        <p className="text-sm font-medium text-text-muted" data-slot={market.pickState === "LOCKED_CALL_BS" ? "locked-by-call-bs" : undefined}>
+          You picked {selectionLabel} — {market.pickState === "LOCKED_CALL_BS" ? "locked by an accepted Call BS." : market.pickDisabledReason}
         </p>
       )}
 

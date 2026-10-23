@@ -16,6 +16,8 @@ export const CHALLENGE_EXPIRY_REASONS = [
   "RELATIONSHIP_BLOCKED",
   /** Any other system cause, and every Call BS that expired before reasons were recorded (never counted as ignored). */
   "OTHER_SYSTEM_REASON",
+  /** One of the two Members changed their (editable) Pick, so the pair no longer disagrees — shown as "Challenge cancelled because the Pick changed". Never counted as ignored. */
+  "PICK_CHANGED",
 ] as const;
 
 export type ChallengeExpiryReason = (typeof CHALLENGE_EXPIRY_REASONS)[number];

@@ -14,10 +14,14 @@ export interface ConfidenceConfig {
   dailyClaimAmount: number;
   dailyClaimIntervalHours: number;
   allowedStakes: number[];
+  /** Brohda 2.1: a Pick may exist without Confidence (confidence_optional_picks_enabled). */
+  optionalPicksEnabled: boolean;
+  /** Brohda 2.1 UI flag: the two-step composer is shown (only meaningful together with optionalPicksEnabled). */
+  twoStepComposerEnabled: boolean;
 }
 
 const COLUMNS =
-  "confidence_enabled, confidence_backed_picks_enabled, confidence_mandatory_since, confidence_baseline, confidence_daily_claim_amount, confidence_daily_claim_interval_hours, confidence_allowed_stakes, confidence_notify_correct, confidence_notify_incorrect, confidence_notify_void";
+  "confidence_enabled, confidence_backed_picks_enabled, confidence_mandatory_since, confidence_optional_picks_enabled, confidence_optional_first_enabled_at, confidence_two_step_composer_enabled, confidence_baseline, confidence_daily_claim_amount, confidence_daily_claim_interval_hours, confidence_allowed_stakes, confidence_notify_correct, confidence_notify_incorrect, confidence_notify_void";
 const isPositiveInt = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n) && n >= 1;
 
 /** The validated policy, or null when the capability is OFF or any value is unreadable/malformed — callers treat null as OFF. */
@@ -34,6 +38,8 @@ export const getConfidenceConfig = cache(async (): Promise<ConfidenceConfig | nu
       dailyClaimAmount: data.confidence_daily_claim_amount,
       dailyClaimIntervalHours: data.confidence_daily_claim_interval_hours,
       allowedStakes: data.confidence_allowed_stakes,
+      optionalPicksEnabled: data.confidence_optional_picks_enabled === true,
+      twoStepComposerEnabled: data.confidence_two_step_composer_enabled === true,
     };
   } catch {
     return null;
@@ -55,6 +61,10 @@ export interface ConfidenceSettingsForAdmin {
   backedPicksEnabled: boolean;
   /** When "every Pick needs Confidence" was enforced in the database (ISO), or null while it is not. */
   mandatorySince: string | null;
+  /** Brohda 2.1: Picks may exist without Confidence (the reversible switch) and when that was first enabled (write-once). */
+  optionalPicksEnabled: boolean;
+  optionalFirstEnabledAt: string | null;
+  twoStepComposerEnabled: boolean;
   notifyCorrect: string;
   notifyIncorrect: string;
   notifyVoid: string;
@@ -72,6 +82,9 @@ export async function getConfidenceSettingsForAdmin(): Promise<ConfidenceSetting
     enabled: data.confidence_enabled === true,
     backedPicksEnabled: data.confidence_backed_picks_enabled === true,
     mandatorySince: data.confidence_mandatory_since ?? null,
+    optionalPicksEnabled: data.confidence_optional_picks_enabled === true,
+    optionalFirstEnabledAt: data.confidence_optional_first_enabled_at ?? null,
+    twoStepComposerEnabled: data.confidence_two_step_composer_enabled === true,
     notifyCorrect: data.confidence_notify_correct,
     notifyIncorrect: data.confidence_notify_incorrect,
     notifyVoid: data.confidence_notify_void,

@@ -15,5 +15,5 @@ export const getConfidenceOffer = cache(async (memberId: string): Promise<Confid
   // The caller passes the signed-in Member's id (from their session); reading with the service client keeps the feed independent of request cookies.
   const mine = await readMemberConfidence(memberId, createAdminClient());
   if (!mine) return null;
-  return { available: mine.available, allowedStakes: config.allowedStakes, canClaim: mine.canClaim };
+  return { available: mine.available, allowedStakes: config.allowedStakes, canClaim: mine.canClaim, twoStep: config.optionalPicksEnabled && config.twoStepComposerEnabled };
 });

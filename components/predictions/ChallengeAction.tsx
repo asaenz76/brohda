@@ -56,7 +56,9 @@ export function ChallengeAction({ marketId, state }: { marketId: string; state: 
   }
 
   if (current.kind === "outgoing_pending" || current.kind === "accepted" || current.kind === "declined" || current.kind === "unavailable" || current.kind === "in_call_bs") {
-    const { label, className } = STATUS[current.kind];
+    const { label: baseLabel, className } = STATUS[current.kind];
+    // Brohda 2.1: a Call BS that ended because a Pick changed says so (D-3 copy), instead of the generic "No longer available".
+    const label = current.kind === "unavailable" && current.pickChanged ? "Challenge cancelled because the Pick changed" : baseLabel;
     return (
       <span
         ref={statusRef}

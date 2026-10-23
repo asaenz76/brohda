@@ -19,7 +19,7 @@ export type ChallengeActionState =
   // exact reason is never fabricated (EXPIRED alone doesn't distinguish
   // cutoff/edit-invalidation/displacement — see accept_call_bs()'s own
   // comment), so this one generic state covers all of them.
-  | { kind: "unavailable" }
+  | { kind: "unavailable"; /** Brohda 2.1: set only when the Call BS ended because one of the two Members changed their Pick (expiry_reason PICK_CHANGED), so the row can say so. */ pickChanged?: true }
   // No Call BS exists between this pair, and none can: the participant is already in an accepted Call BS with someone else on
   // this Market (the 1-v-1 rule). Shown instead of silence so a missing button reads as a rule, not a bug.
   | { kind: "in_call_bs" };
@@ -71,7 +71,7 @@ export function deriveChallengeActionState({
 
   if (active) {
     if (active.status === "ACCEPTED") return { kind: "accepted" };
-    if (active.status === "EXPIRED") return { kind: "unavailable" };
+    if (active.status === "EXPIRED") return active.expiryReason === "PICK_CHANGED" ? { kind: "unavailable", pickChanged: true } : { kind: "unavailable" };
     if (pastCutoff) return { kind: "unavailable" };
     if (active.challengerUserId === viewerId) return { kind: "outgoing_pending" };
     return { kind: "incoming_pending", challengeId: active.id };

@@ -197,5 +197,13 @@ export default defineConfig({
       fullyParallel: false,
       dependencies: ["chromium-confidence"],
     },
+    // Brohda 2.1 (M1): optional Confidence Picks. Flips the optional-Picks policy, the two-step composer flag and the Confidence settings, so — like the specs above — it runs alone, chained after them.
+    {
+      name: "chromium-optional-confidence-picks",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: /optional-confidence-picks/,
+      fullyParallel: false,
+      dependencies: ["chromium-confidence-predictions"],
+    },
   ],
 });
