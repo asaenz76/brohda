@@ -234,6 +234,11 @@ export function activeSportConfigs(env: Record<string, string | undefined> = pro
   return SPORT_CONFIGS.filter((c) => c.status === "live" && isSportActive(c, env));
 }
 
+/** The sports whose finished games CANNOT end level (data: each sport's `tiesPossible`). The grader treats a level final in one of them as an unsafe provider result and does not grade it. */
+export function sportsThatCannotEndLevel(): string[] {
+  return SPORT_CONFIGS.filter((c) => c.tiesPossible === false).map((c) => c.sport);
+}
+
 /** Can a finished game of this sport end level? Unknown sports (retired football/soccer history) keep the permissive NFL-style answer. */
 export function canEndLevel(sport: string | null | undefined): boolean {
   return getSportConfig(sport)?.tiesPossible ?? true;

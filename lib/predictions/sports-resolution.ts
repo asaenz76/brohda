@@ -27,12 +27,12 @@ export interface SportsMarketDefinition {
 }
 
 // A true objective final. Deterministically resolvable from the score.
-const RESOLVABLE_STATUS = "COMPLETED";
+export const RESOLVABLE_STATUS = "COMPLETED";
 // The Game never happened as scheduled — no proposition about it can be
 // objectively true. This is a deterministic template-level rule, not a
 // guess: an event that was cancelled cannot have a winner, a cover, or a
 // total.
-const DETERMINISTIC_VOID_STATUS = "CANCELLED";
+export const DETERMINISTIC_VOID_STATUS = "CANCELLED";
 
 /**
  * Every other fixture_internal_status value (NOT_STARTED, LIVE, HALFTIME,

@@ -291,7 +291,9 @@ describe("Challenge resolution automation (§23)", () => {
       .single();
 
     const body = await resolveChallengesRoute(req(CRON_SECRET)).then((r) => r.json());
-    expect(body.stillPending).toBeGreaterThanOrEqual(1);
+    // CHANGED with the grading-starvation fix (migration 215): a challenge whose Picks are not both graded is no longer a CANDIDATE, so it is not "examined and still pending";
+    // what must hold is unchanged — nothing is resolved and the challenge stays ACCEPTED.
+    expect(body).toMatchObject({ examined: 0, resolved: 0 });
     const { data: row } = await admin.from("challenges").select("status").eq("id", challenge!.id).single();
     expect(row?.status).toBe("ACCEPTED");
   });
