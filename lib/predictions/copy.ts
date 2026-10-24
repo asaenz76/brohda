@@ -23,6 +23,8 @@ export function copyForIneligible(reason: PredictionIneligibleReason): string {
       return "This market is closed to new predictions.";
     case "MARKET_INACTIVE":
       return "This market isn't open for predictions right now.";
+    case "TEMPLATE_NOT_ALLOWED":
+      return "This isn't one of the picks open right now. Pick the team you think wins.";
     case "PRICE_UNAVAILABLE":
       return "The current chance isn't available right now, so this market can't be predicted on yet.";
     case "PRICE_STALE":

@@ -12,6 +12,7 @@ import { listCommunityIdsForPost } from "./distribution";
 import { getPostPublicationPolicy } from "@/lib/posts/policy";
 import { listDisplayableMarketsForFixtures, type MarketRecord } from "@/lib/prediction-markets/repository";
 import { selectPrimaryMarket } from "@/lib/posts/primary-market";
+import { marketsOfAllowedTemplates } from "@/lib/prediction-markets/market-policy-parse";
 import { getChoicePresentation, type Choice } from "@/lib/prediction-markets/selection-labels";
 import { getPickAggregatesForMarkets, listLatestUserPredictionsForMarkets } from "@/lib/predictions/repository";
 import { computePickSentiment } from "@/lib/predictions/sentiment";
@@ -385,7 +386,7 @@ function summarizeMarket({ game, market, sport, homeTeamName, awayTeamName, view
   if (isEditable) {
     const consumerStatus = deriveConsumerStatus(market.status, market.resolvedOutcome);
     const freshness = classifyFreshness(market.lastSyncedAt, market.yesPrice != null || market.noPrice != null, freshnessPolicy);
-    const eligibility = checkMarketEligibility({ consumerStatus, freshness, yesPrice: market.yesPrice, noPrice: market.noPrice, closesAt: market.closesAt, now }, predictionPolicy);
+    const eligibility = checkMarketEligibility({ consumerStatus, marketTemplate: market.marketTemplate, freshness, yesPrice: market.yesPrice, noPrice: market.noPrice, closesAt: market.closesAt, now }, predictionPolicy);
     pickDisabledReason = eligibility.eligible ? null : copyForIneligible(eligibility.reason);
     // The pre-kickoff lock: the Market stays ACTIVE until the provider reports the Game live (after kickoff), so the card must apply the lock itself.
     if (pickDisabledReason === null && lock.closed) pickDisabledReason = "Picks are locked for this game.";
@@ -436,7 +437,8 @@ async function withSecondaryMarkets(
   // The logged-out front door cannot Pick: it keeps the link to the Post.
   if (!userId || items.length === 0) return items;
   const fixtureIds = [...new Set(items.map((i) => i.post.fixtureId))];
-  const markets = await listDisplayableMarketsForFixtures(fixtureIds);
+  // M2: only the templates Members are currently offered appear — a hidden SPREAD/TOTAL never becomes a secondary Market ("See more markets") either. History keeps them.
+  const markets = marketsOfAllowedTemplates(await listDisplayableMarketsForFixtures(fixtureIds), predictionPolicy.allowedTemplates);
   const priority = publicationPolicy.primaryMarketTemplatePriority;
   const rank = (template: string) => {
     const at = priority.indexOf(template);
@@ -509,7 +511,8 @@ async function enrichFeedRows(
   const fixtureIds = [...new Set(rows.map((r) => r.fixture_id))];
 
   const [activeMarkets, communitiesByPost, commentCounts] = await Promise.all([
-    listDisplayableMarketsForFixtures(fixtureIds),
+    // M2: only the templates Members are currently offered can be the card's primary Market.
+    listDisplayableMarketsForFixtures(fixtureIds).then((markets) => marketsOfAllowedTemplates(markets, predictionPolicy.allowedTemplates)),
     listCommunitiesForPosts(postIds),
     getPostCommentCountsForPosts(postIds),
   ]);

@@ -10,7 +10,12 @@ import { formatSpreadLine } from "@/lib/prediction-markets/selection-labels";
 import { aggregateMoneyline, aggregateTotal } from "./aggregate-nfl-odds";
 import { aggregateSpread } from "./aggregate-spread";
 import { getMarketIngestionPolicy } from "./policy";
-import { getCurrentSportsbookWeek } from "@/lib/sports-data/sportsbook-week";
+import { getMarketPolicy } from "@/lib/prediction-markets/market-policy";
+import { ensureFixtureMarkets } from "./fixture-markets";
+import type { PolicyMarketTemplate } from "@/lib/prediction-markets/market-policy-parse";
+import { listUpcomingFixtures, type EligibleFixture } from "./fixture-window";
+
+export type { EligibleFixture };
 
 // The shared Market-ingestion pipeline for every sport (it began as the NFL's and its behaviour for the NFL is unchanged):
 //
@@ -24,20 +29,15 @@ import { getCurrentSportsbookWeek } from "@/lib/sports-data/sportsbook-week";
 
 export interface FixtureIngestionOutcome {
   fixtureId: string;
-  moneyline: "inserted" | "updated" | "skipped-insufficient-bookmakers" | "skipped-no-data";
-  total: "inserted" | "updated" | "line-moved" | "skipped-insufficient-bookmakers" | "skipped-no-data";
+  /** "skipped-template-disabled": the template is not on the market_ingestion_templates allow-list (M2) — nothing was written for it. */
+  moneyline: "inserted" | "updated" | "skipped-insufficient-bookmakers" | "skipped-no-data" | "skipped-template-disabled";
+  total: "inserted" | "updated" | "line-moved" | "skipped-insufficient-bookmakers" | "skipped-no-data" | "skipped-template-disabled";
   /** Present only for sports whose registry templates include SPREAD. */
-  spread?: "inserted" | "updated" | "line-moved" | "skipped-insufficient-bookmakers" | "skipped-no-data" | "skipped-unverifiable";
+  spread?: "inserted" | "updated" | "line-moved" | "skipped-insufficient-bookmakers" | "skipped-no-data" | "skipped-unverifiable" | "skipped-template-disabled";
   /** The provider call itself threw (network, quota, plan): the fixture is skipped, and the run reports it instead of treating it as "no odds". */
   providerError?: string;
 }
 
-export interface EligibleFixture {
-  id: string;
-  externalFixtureId: string;
-  homeTeamName: string;
-  awayTeamName: string;
-}
 
 function moneylineMarket(config: SportConfig, fixture: EligibleFixture, homeProbability: number): NormalizedMarket {
   return {
@@ -124,8 +124,21 @@ function spreadMarket(config: SportConfig, fixture: EligibleFixture, homeLine: n
  * Markets already existed untouched — this only adds/refreshes state, never deletes, and every write goes through `upsertMarket`'s own
  * idempotent (provider, provider_market_id) upsert plus the DB's uniqueness/immutability guarantees as the backstop against a concurrent duplicate.
  */
-export async function ingestMarketsForFixture(config: SportConfig, fixture: EligibleFixture, minBookmakerCount: number): Promise<FixtureIngestionOutcome> {
-  const wantsSpread = config.marketTemplates.includes("SPREAD");
+export async function ingestMarketsForFixture(
+  config: SportConfig,
+  fixture: EligibleFixture,
+  minBookmakerCount: number,
+  /** M2: the policy's ingestion allow-list (market_ingestion_templates). Defaults to every template so existing callers and tests keep today's behaviour; the effective set is this ∩ the sport's own registered templates. */
+  allowedTemplates: readonly PolicyMarketTemplate[] = ["MONEYLINE", "SPREAD", "TOTAL"],
+): Promise<FixtureIngestionOutcome> {
+  const wantsMoneyline = allowedTemplates.includes("MONEYLINE");
+  const wantsTotal = allowedTemplates.includes("TOTAL");
+  const sportHasSpread = config.marketTemplates.includes("SPREAD");
+  const wantsSpread = sportHasSpread && allowedTemplates.includes("SPREAD");
+  // Nothing on the allow-list for this Game: no provider request at all (the odds request exists only to feed a template that is wanted).
+  if (!wantsMoneyline && !wantsTotal && !wantsSpread) {
+    return { fixtureId: fixture.id, moneyline: "skipped-template-disabled", total: "skipped-template-disabled", ...(sportHasSpread ? { spread: "skipped-template-disabled" as const } : {}) };
+  }
   const provider = getOddsProvider(config.provider);
   let providerError: string | undefined;
   const odds = provider
@@ -135,14 +148,20 @@ export async function ingestMarketsForFixture(config: SportConfig, fixture: Elig
       })
     : null;
   if (!odds || odds.bookmakers.length === 0) {
-    return { fixtureId: fixture.id, moneyline: "skipped-no-data", total: "skipped-no-data", ...(wantsSpread ? { spread: "skipped-no-data" as const } : {}), ...(providerError ? { providerError } : {}) };
+    return { fixtureId: fixture.id, moneyline: wantsMoneyline ? "skipped-no-data" : "skipped-template-disabled", total: wantsTotal ? "skipped-no-data" : "skipped-template-disabled", ...(sportHasSpread ? { spread: wantsSpread ? ("skipped-no-data" as const) : ("skipped-template-disabled" as const) } : {}), ...(providerError ? { providerError } : {}) };
   }
 
+  // The MONEYLINE consensus is computed even when MONEYLINE itself is not written, because the SPREAD verification reads it.
   const moneylineAggregate = aggregateMoneyline(odds.bookmakers, minBookmakerCount);
-  const moneyline = moneylineAggregate ? (await upsertMarket(moneylineMarket(config, fixture, moneylineAggregate.homeProbability))).outcome : "skipped-insufficient-bookmakers";
-  const total = await ingestTotal(config, fixture, odds.bookmakers, minBookmakerCount);
-  if (!wantsSpread) return { fixtureId: fixture.id, moneyline, total };
-  const spread = await ingestSpread(config, fixture, odds.bookmakers, minBookmakerCount, moneylineAggregate?.homeProbability ?? null);
+  // Enrichment: upsertMarket matches the Game's canonical MONEYLINE row by (provider, provider_market_id) — the same identity a fixture-driven row carries — so a Market created without a price gets its price here; no second row.
+  const moneyline: FixtureIngestionOutcome["moneyline"] = !wantsMoneyline
+    ? "skipped-template-disabled"
+    : moneylineAggregate
+      ? (await upsertMarket(moneylineMarket(config, fixture, moneylineAggregate.homeProbability))).outcome
+      : "skipped-insufficient-bookmakers";
+  const total: FixtureIngestionOutcome["total"] = wantsTotal ? await ingestTotal(config, fixture, odds.bookmakers, minBookmakerCount) : "skipped-template-disabled";
+  if (!sportHasSpread) return { fixtureId: fixture.id, moneyline, total };
+  const spread: NonNullable<FixtureIngestionOutcome["spread"]> = wantsSpread ? await ingestSpread(config, fixture, odds.bookmakers, minBookmakerCount, moneylineAggregate?.homeProbability ?? null) : "skipped-template-disabled";
   return { fixtureId: fixture.id, moneyline, total, spread };
 }
 
@@ -180,24 +199,11 @@ async function ingestSpread(
   return lineMoved ? "line-moved" : outcome;
 }
 
-/**
- * Which not-yet-started Games of this sport are worth an odds request right now: inside the sport's odds window (the NFL's established
- * "current sportsbook week", or a bounded number of hours for a daily-schedule sport), and — to protect a daily request budget — not refreshed
- * within the sport's minimum refresh interval. The original incident this window exists for: an unbounded candidate set once exhausted the whole
- * NFL daily quota (see git history of the NFL ingestion); the same discipline applies to every sport.
- */
+/** Upcoming Games worth an odds request now: the sport's window (listUpcomingFixtures), minus those whose price was refreshed within the sport's minimum refresh interval. */
 export async function listEligibleFixtures(config: SportConfig, now: Date = new Date()): Promise<EligibleFixture[]> {
   const admin = createAdminClient();
-  const windowEnd = config.oddsWindow.kind === "sportsbook-week" ? getCurrentSportsbookWeek(now).weekEndUtc : new Date(now.getTime() + config.oddsWindow.hours * 3_600_000).toISOString();
-  const { data, error } = await admin
-    .from("fixtures")
-    .select("id, external_fixture_id, home_team_name, away_team_name")
-    .eq("provider", config.provider)
-    .eq("internal_status", "NOT_STARTED")
-    .gt("scheduled_start_utc", now.toISOString())
-    .lt("scheduled_start_utc", windowEnd);
-  if (error) throw error;
-  let rows = data ?? [];
+  const upcoming = await listUpcomingFixtures(config, now);
+  let rows = upcoming.map((f) => ({ id: f.id, external_fixture_id: f.externalFixtureId, home_team_name: f.homeTeamName, away_team_name: f.awayTeamName }));
 
   if (config.oddsMinRefreshMinutes > 0 && rows.length > 0) {
     const cutoff = new Date(now.getTime() - config.oddsMinRefreshMinutes * 60_000).toISOString();
@@ -206,6 +212,8 @@ export async function listEligibleFixtures(config: SportConfig, now: Date = new 
       .select("fixture_id")
       .in("fixture_id", rows.map((r) => r.id))
       .eq("status", "ACTIVE")
+      // M2: only a Market that actually carries a price counts as "recently refreshed". A fixture-driven Market has no price; without this a price-less row (last_synced_at = creation) would hide its Game from odds requests and the price would never arrive.
+      .not("yes_price", "is", null)
       .gte("last_synced_at", cutoff);
     if (freshError) throw freshError;
     const recentlyRefreshed = new Set((fresh ?? []).map((m) => m.fixture_id));
@@ -218,6 +226,8 @@ export async function listEligibleFixtures(config: SportConfig, now: Date = new 
 export interface MarketIngestionSummary {
   ranAt: string;
   policyEnabled: boolean;
+  /** M2: what the Game-driven Market step did this run (absent when it did not run). */
+  fixtureMarkets?: import("./fixture-markets").FixtureMarketEnsureSummary;
   fixturesExamined: number;
   outcomes: FixtureIngestionOutcome[];
   /** Per-fixture failures (never allowed to abort the run), plus a sport-level entry when EVERY provider call in a run failed (a systemic outage, not "no odds"). Each names the sport, provider and game ids. */
@@ -232,13 +242,14 @@ export async function runSportMarketIngestion(config: SportConfig, now: Date = n
   }
 
   const fixtures = await listEligibleFixtures(config, now);
+  const { ingestionTemplates } = await getMarketPolicy();
   const outcomes: FixtureIngestionOutcome[] = [];
   const failures: MarketIngestionSummary["failures"] = [];
   const externalIdByFixture = new Map(fixtures.map((f) => [f.id, f.externalFixtureId]));
 
   for (const fixture of fixtures) {
     try {
-      outcomes.push(await ingestMarketsForFixture(config, fixture, policy.minBookmakerCount));
+      outcomes.push(await ingestMarketsForFixture(config, fixture, policy.minBookmakerCount, ingestionTemplates));
     } catch (error) {
       // One fixture's failure must never abort the rest of the run — canonical state already written for other fixtures stays intact.
       failures.push({ fixtureId: fixture.id, error: errorMessage(error), sport: config.sport, provider: config.provider, externalFixtureId: fixture.externalFixtureId });
@@ -263,11 +274,14 @@ export async function runSportMarketIngestion(config: SportConfig, now: Date = n
 /** The one ingestion job (the existing `ingest-nfl-markets` cron): every ACTIVE sport, in parallel, each failure-isolated. */
 export async function runMarketIngestion(env: Record<string, string | undefined> = process.env, now: Date = new Date()): Promise<MarketIngestionSummary> {
   const configs = activeSportConfigs(env).filter((c) => getOddsProvider(c.provider) !== null);
+  // M2: Market existence is Game-driven and independent of the odds switch below — it runs first, so odds fetched later in this same run enrich the Market just created. With
+  // fixture_markets_enabled off (the default) it reads one setting and does nothing.
+  const fixtureMarkets = await ensureFixtureMarkets(env, now);
   const policy = await getMarketIngestionPolicy();
-  if (!policy.enabled) return { ranAt: now.toISOString(), policyEnabled: false, fixturesExamined: 0, outcomes: [], failures: [] };
+  if (!policy.enabled) return { ranAt: now.toISOString(), policyEnabled: false, fixtureMarkets, fixturesExamined: 0, outcomes: [], failures: [] };
 
   const settled = await Promise.allSettled(configs.map((c) => runSportMarketIngestion(c, now)));
-  const merged: MarketIngestionSummary = { ranAt: now.toISOString(), policyEnabled: true, fixturesExamined: 0, outcomes: [], failures: [] };
+  const merged: MarketIngestionSummary = { ranAt: now.toISOString(), policyEnabled: true, fixtureMarkets, fixturesExamined: 0, outcomes: [], failures: [] };
   settled.forEach((outcome, i) => {
     if (outcome.status === "fulfilled") {
       merged.fixturesExamined += outcome.value.fixturesExamined;

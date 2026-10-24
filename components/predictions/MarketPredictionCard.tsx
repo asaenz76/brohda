@@ -88,6 +88,8 @@ export async function MarketPredictionCard({
     const eligibility = checkMarketEligibility(
       {
         consumerStatus: market.status,
+        // M2: a direct visit to a Market of a template Members are no longer offered (an old SPREAD/TOTAL link) renders read-only: the record stays, new interaction does not.
+        marketTemplate: rawMarket?.marketTemplate ?? "",
         freshness: market.freshness,
         yesPrice: rawMarket?.yesPrice ?? null,
         noPrice: rawMarket?.noPrice ?? null,

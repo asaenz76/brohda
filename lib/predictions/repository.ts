@@ -25,8 +25,8 @@ interface PredictionRow {
   user_id: string;
   market_id: string;
   selected_outcome: PredictionOutcome;
-  yes_probability_snapshot: number | string;
-  no_probability_snapshot: number | string;
+  yes_probability_snapshot: number | string | null;
+  no_probability_snapshot: number | string | null;
   market_question_snapshot: string;
   market_close_at_snapshot: string | null;
   market_status_snapshot: PredictionMarketStatusSnapshot;
@@ -41,14 +41,20 @@ interface PredictionRow {
   updated_at: string;
 }
 
+/** A stored snapshot, or null when none was recorded. Never coerces absence to 0. */
+export function snapshotOrNull(value: number | string | null | undefined): number | null {
+  return value === null || value === undefined ? null : Number(value);
+}
+
 function toDomain(row: PredictionRow): Prediction {
   return {
     id: row.id,
     userId: row.user_id,
     marketId: row.market_id,
     selectedOutcome: row.selected_outcome,
-    yesProbabilitySnapshot: Number(row.yes_probability_snapshot),
-    noProbabilitySnapshot: Number(row.no_probability_snapshot),
+    // M2: NULL means "no price existed at Pick time". Number(null) is 0 — a fake price — so absence is carried through, never coerced.
+    yesProbabilitySnapshot: snapshotOrNull(row.yes_probability_snapshot),
+    noProbabilitySnapshot: snapshotOrNull(row.no_probability_snapshot),
     marketQuestionSnapshot: row.market_question_snapshot,
     marketCloseAtSnapshot: row.market_close_at_snapshot,
     marketStatusSnapshot: row.market_status_snapshot,
@@ -194,15 +200,16 @@ export interface SetPickInput {
   userId: string;
   marketId: string;
   selectedOutcome: PredictionOutcome;
-  yesProbability: number;
-  noProbability: number;
+  /** Both prices or both null (M2: null = no price existed at Pick time; never a substituted value). */
+  yesProbability: number | null;
+  noProbability: number | null;
   marketQuestionSnapshot: string;
   marketCloseAtSnapshot: string | null;
   marketStatusSnapshot: PredictionMarketStatusSnapshot;
   idempotencyKey: string;
 }
 
-export type SetPickOutcome = "created" | "updated" | "unchanged" | "replayed" | "rejected_cutoff" | "rejected_game_closed" | "rejected_locked" | "rejected_backing_required";
+export type SetPickOutcome = "created" | "updated" | "unchanged" | "replayed" | "rejected_cutoff" | "rejected_game_closed" | "rejected_locked" | "rejected_backing_required" | "rejected_template_not_allowed" | "rejected_price_required";
 
 export interface SetPickResult {
   prediction: Prediction | null;
@@ -254,9 +261,9 @@ interface PredictionRevisionRow {
   prediction_id: string;
   user_id: string;
   previous_selected_outcome: PredictionOutcome;
-  previous_probability_snapshot: number | string;
+  previous_probability_snapshot: number | string | null;
   new_selected_outcome: PredictionOutcome;
-  new_probability_snapshot: number | string;
+  new_probability_snapshot: number | string | null;
   changed_at: string;
 }
 
@@ -266,9 +273,9 @@ function toRevisionDomain(row: PredictionRevisionRow): PredictionRevision {
     predictionId: row.prediction_id,
     userId: row.user_id,
     previousSelectedOutcome: row.previous_selected_outcome,
-    previousProbabilitySnapshot: Number(row.previous_probability_snapshot),
+    previousProbabilitySnapshot: snapshotOrNull(row.previous_probability_snapshot),
     newSelectedOutcome: row.new_selected_outcome,
-    newProbabilitySnapshot: Number(row.new_probability_snapshot),
+    newProbabilitySnapshot: snapshotOrNull(row.new_probability_snapshot),
     changedAt: row.changed_at,
   };
 }

@@ -53,8 +53,8 @@ export interface AdminPredictionRaw {
   user_id: string;
   market_id: string;
   selected_outcome: string;
-  yes_probability_snapshot: number | string;
-  no_probability_snapshot: number | string;
+  yes_probability_snapshot: number | string | null;
+  no_probability_snapshot: number | string | null;
   lifecycle_state: string;
   result: string | null;
   graded_at: string | null;
@@ -88,8 +88,9 @@ export interface AdminPredictionRow {
   selectedOutcome: string;
   /** What the person actually picked, as the Game reads it ("Washington Commanders"); null when the Market can't be described. */
   selectedLabel: string | null;
-  yesPercent: number;
-  noPercent: number;
+  /** The price snapshot at Pick time, rounded; null when no price existed then (M2) — never shown as 0%. */
+  yesPercent: number | null;
+  noPercent: number | null;
   lifecycleState: string;
   result: string | null;
   gradedAt: string | null;
@@ -144,8 +145,8 @@ export function buildAdminPredictionRows(input: {
       createdAt: p.created_at,
       selectedOutcome: p.selected_outcome,
       selectedLabel,
-      yesPercent: Math.round(Number(p.yes_probability_snapshot) * 100),
-      noPercent: Math.round(Number(p.no_probability_snapshot) * 100),
+      yesPercent: p.yes_probability_snapshot === null ? null : Math.round(Number(p.yes_probability_snapshot) * 100),
+      noPercent: p.no_probability_snapshot === null ? null : Math.round(Number(p.no_probability_snapshot) * 100),
       lifecycleState: p.lifecycle_state,
       result: p.result,
       gradedAt: p.graded_at,

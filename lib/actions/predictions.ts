@@ -5,7 +5,7 @@ import { requireUser } from "@/lib/auth/session";
 import { getMarketById } from "@/lib/prediction-markets/repository";
 import { deriveConsumerStatus } from "@/lib/prediction-markets/discovery/status";
 import { getFreshnessPolicy, classifyFreshness } from "@/lib/prediction-markets/discovery/policy";
-import { checkMarketEligibility, getPredictionPolicy } from "@/lib/predictions/policy";
+import { checkMarketEligibility, getPredictionPolicy, priceSnapshotFor } from "@/lib/predictions/policy";
 import { attachConfidenceSchema, commitPredictionSchema, setPickSchema } from "@/lib/validations/predictions";
 import { copyForIneligible } from "@/lib/predictions/copy";
 import { attachConfidenceStake, createConfidencePrediction, type CommittedPrediction } from "@/lib/confidence/predictions";
@@ -50,19 +50,20 @@ export async function commitPredictionAction(input: { marketId: string; selected
   const freshness = classifyFreshness(market.lastSyncedAt, market.yesPrice !== null || market.noPrice !== null, freshnessPolicy);
 
   const eligibility = checkMarketEligibility(
-    { consumerStatus, freshness, yesPrice: market.yesPrice, noPrice: market.noPrice, closesAt: market.closesAt, now: new Date() },
+    { consumerStatus, marketTemplate: market.marketTemplate, freshness, yesPrice: market.yesPrice, noPrice: market.noPrice, closesAt: market.closesAt, now: new Date() },
     predictionPolicy,
   );
   if (!eligibility.eligible) return fail(copyForIneligible(eligibility.reason), "market_ineligible");
 
-  // Guaranteed non-null by checkMarketEligibility's own PRICE_UNAVAILABLE check above. Read fresh on every call: the snapshot reflects THIS prediction's own context.
+  // The price snapshot reflects THIS prediction's own context, read fresh on every call: the real prices when they exist, otherwise NULL (M2) — never a substituted number.
+  const snapshot = priceSnapshotFor(market.yesPrice, market.noPrice, freshness, predictionPolicy.requirePrice);
   const result = await createConfidencePrediction({
     memberId: user.id,
     marketId,
     selectedOutcome,
     amount,
-    yesProbability: market.yesPrice as number,
-    noProbability: market.noPrice as number,
+    yesProbability: snapshot.yes,
+    noProbability: snapshot.no,
     marketQuestionSnapshot: market.question,
     marketCloseAtSnapshot: market.closesAt,
     // Non-null by the same eligibility check (MARKET_INACTIVE covers null).
@@ -96,6 +97,10 @@ export async function commitPredictionAction(input: { marketId: string; selected
       return fail(copyForIneligible("PICK_LOCKED"), "pick_locked", { closed: true });
     case "disabled":
       return fail("Predictions are paused right now.", "disabled", { closed: true });
+    case "template_not_allowed":
+      return fail(copyForIneligible("TEMPLATE_NOT_ALLOWED"), "template_not_allowed", { closed: true });
+    case "price_required":
+      return fail(copyForIneligible("PRICE_UNAVAILABLE"), "price_required");
     default:
       return fail("That isn't available right now.", result.outcome);
   }
@@ -124,7 +129,7 @@ const pickFail = (error: string, outcome: string, extra: Partial<PickActionState
 
 // M1 observability, on the existing log: one structured line per refused or unusual outcome (T-10 rejections, locked edits, an unbacked Pick refused while optional Picks are off) and per Call BS a Pick change cancelled.
 // The database decides every one of these; this only records them (success is not logged — the optional-Picks diagnostics count those from the data). Lock waits and deadlocks surface in the database log.
-const NOTEWORTHY = new Set(["past_deadline", "game_started", "pick_locked", "backing_required", "insufficient", "already_backed", "disabled", "error"]);
+const NOTEWORTHY = new Set(["past_deadline", "game_started", "pick_locked", "backing_required", "insufficient", "already_backed", "disabled", "error", "template_not_allowed", "price_required", "rejected_template_not_allowed", "rejected_price_required"]);
 const record = (action: "set_pick" | "attach_confidence", outcome: string | null, extra: Record<string, unknown> = {}) => {
   if (outcome && (NOTEWORTHY.has(outcome) || Object.keys(extra).length > 0)) console.info(`[picks] ${JSON.stringify({ action, outcome, ...extra })}`);
 };
@@ -141,16 +146,17 @@ export async function setPickAction(input: { marketId: string; selectedOutcome: 
   const consumerStatus = deriveConsumerStatus(market.status, market.resolvedOutcome);
   const [freshnessPolicy, predictionPolicy] = await Promise.all([getFreshnessPolicy(), getPredictionPolicy()]);
   const freshness = classifyFreshness(market.lastSyncedAt, market.yesPrice !== null || market.noPrice !== null, freshnessPolicy);
-  const eligibility = checkMarketEligibility({ consumerStatus, freshness, yesPrice: market.yesPrice, noPrice: market.noPrice, closesAt: market.closesAt, now: new Date() }, predictionPolicy);
+  const eligibility = checkMarketEligibility({ consumerStatus, marketTemplate: market.marketTemplate, freshness, yesPrice: market.yesPrice, noPrice: market.noPrice, closesAt: market.closesAt, now: new Date() }, predictionPolicy);
   if (!eligibility.eligible) return pickFail(copyForIneligible(eligibility.reason), "market_ineligible");
+  const snapshot = priceSnapshotFor(market.yesPrice, market.noPrice, freshness, predictionPolicy.requirePrice);
 
   const result = await setPick({
     userId: user.id,
     marketId,
     selectedOutcome,
-    // Guaranteed non-null by checkMarketEligibility above.
-    yesProbability: market.yesPrice as number,
-    noProbability: market.noPrice as number,
+    // Both prices when they exist, otherwise both null (M2): the Pick records what was true at Pick time.
+    yesProbability: snapshot.yes,
+    noProbability: snapshot.no,
     marketQuestionSnapshot: market.question,
     marketCloseAtSnapshot: market.closesAt,
     marketStatusSnapshot: consumerStatus as "ACTIVE" | "CLOSED" | "RESOLVED",
@@ -177,6 +183,10 @@ export async function setPickAction(input: { marketId: string; selectedOutcome: 
       return pickFail(copyForIneligible("PICK_LOCKED"), "pick_locked", { closed: true, selection: result.prediction?.selectedOutcome ?? null });
     case "rejected_backing_required":
       return pickFail("A pick needs Confidence right now.", "backing_required", { closed: true });
+    case "rejected_template_not_allowed":
+      return pickFail(copyForIneligible("TEMPLATE_NOT_ALLOWED"), "template_not_allowed", { closed: true });
+    case "rejected_price_required":
+      return pickFail(copyForIneligible("PRICE_UNAVAILABLE"), "price_required");
     default:
       return pickFail("That isn't available right now.", result.outcome);
   }

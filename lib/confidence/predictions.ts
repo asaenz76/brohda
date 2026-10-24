@@ -16,6 +16,8 @@ export type CreatePredictionOutcome =
   | "pick_locked"
   | "insufficient"
   | "idempotency_conflict"
+  | "template_not_allowed"
+  | "price_required"
   | "rejected";
 
 export interface CommittedPrediction {
@@ -42,8 +44,9 @@ export interface CreatePredictionInput {
   marketId: string;
   selectedOutcome: "YES" | "NO";
   amount: number;
-  yesProbability: number;
-  noProbability: number;
+  /** Both prices or both null (M2: null = no price existed at Pick time). */
+  yesProbability: number | null;
+  noProbability: number | null;
   marketQuestionSnapshot: string;
   marketCloseAtSnapshot: string | null;
   marketStatusSnapshot: string;

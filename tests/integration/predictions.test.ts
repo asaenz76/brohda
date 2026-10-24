@@ -580,7 +580,7 @@ describe("prediction policy — configurable without a deployment", () => {
     const defaultPolicy = await getPredictionPolicy();
     expect(defaultPolicy.allowClosedMarket).toBe(false);
     const deniedBefore = checkMarketEligibility(
-      { consumerStatus: "CLOSED", freshness: "FRESH", yesPrice: 0.5, noPrice: 0.5, closesAt: null, now: new Date() },
+      { consumerStatus: "CLOSED", marketTemplate: "MONEYLINE", freshness: "FRESH", yesPrice: 0.5, noPrice: 0.5, closesAt: null, now: new Date() },
       defaultPolicy,
     );
     expect(deniedBefore).toEqual({ eligible: false, reason: "MARKET_CLOSED" });
@@ -590,7 +590,7 @@ describe("prediction policy — configurable without a deployment", () => {
     const updatedPolicy = await getPredictionPolicy();
     expect(updatedPolicy.allowClosedMarket).toBe(true);
     const permittedAfter = checkMarketEligibility(
-      { consumerStatus: "CLOSED", freshness: "FRESH", yesPrice: 0.5, noPrice: 0.5, closesAt: null, now: new Date() },
+      { consumerStatus: "CLOSED", marketTemplate: "MONEYLINE", freshness: "FRESH", yesPrice: 0.5, noPrice: 0.5, closesAt: null, now: new Date() },
       updatedPolicy,
     );
     expect(permittedAfter).toEqual({ eligible: true });

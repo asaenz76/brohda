@@ -56,10 +56,10 @@ export interface Prediction {
 
   /** Immutable. */
   selectedOutcome: PredictionOutcome;
-  /** Immutable. 0-1 range, independently captured — never derived from the other. */
-  yesProbabilitySnapshot: number;
-  /** Immutable. */
-  noProbabilitySnapshot: number;
+  /** Immutable. 0-1 range, independently captured — never derived from the other. NULL when no price existed at Pick time (M2): never a substituted value; null together with the other side. */
+  yesProbabilitySnapshot: number | null;
+  /** Immutable. NULL when no price existed at Pick time (M2). */
+  noProbabilitySnapshot: number | null;
   /** Immutable. */
   marketQuestionSnapshot: string;
   /** Immutable. */
@@ -90,9 +90,11 @@ export interface PredictionRevision {
   predictionId: string;
   userId: string;
   previousSelectedOutcome: PredictionOutcome;
-  previousProbabilitySnapshot: number;
+  /** NULL when no price existed when the earlier side was picked (M2). */
+  previousProbabilitySnapshot: number | null;
   newSelectedOutcome: PredictionOutcome;
-  newProbabilitySnapshot: number;
+  /** NULL when no price existed when the new side was picked (M2). */
+  newProbabilitySnapshot: number | null;
   changedAt: string;
 }
 
@@ -108,6 +110,10 @@ export interface PredictionPolicy {
   allowStalePrice: boolean;
   allowUnavailablePrice: boolean;
   allowClosedMarket: boolean;
+  /** M2: whether a Market needs usable price data before a Member may Pick it. true = the pre-M2 behaviour (and the fail-closed value). */
+  requirePrice: boolean;
+  /** M2: the Market templates a Member may START new interaction with. Empty (the fail-closed value) offers nothing. */
+  allowedTemplates: string[];
 }
 
 /** Why a prediction attempt was rejected, for user-facing copy — never a raw exception message. */
@@ -116,6 +122,7 @@ export type PredictionIneligibleReason =
   | "MARKET_RESOLVED"
   | "MARKET_CLOSED"
   | "MARKET_INACTIVE"
+  | "TEMPLATE_NOT_ALLOWED"
   | "PRICE_UNAVAILABLE"
   | "PRICE_STALE"
   | "PAST_CUTOFF"

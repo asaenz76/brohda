@@ -113,7 +113,7 @@ export default defineConfig({
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
-      testIgnore: /admin-brohda-settings|monetary-capability-gating|legal-reconsent|legal-money-gating|sponsorship-flow|sponsor-intelligence|messaging|confidence/,
+      testIgnore: /admin-brohda-settings|monetary-capability-gating|legal-reconsent|legal-money-gating|sponsorship-flow|sponsor-intelligence|messaging|confidence|m2-moneyline-only/,
     },
     // A prediction carries a Confidence stake that can never be deleted through the API, so specs can no longer clean up the Games they predicted on; this clears them between the big project and the serial ones (see the file).
     {
@@ -204,6 +204,14 @@ export default defineConfig({
       testMatch: /optional-confidence-picks/,
       fullyParallel: false,
       dependencies: ["chromium-confidence-predictions"],
+    },
+    // Brohda 2.1 (M2): the team-winner-only active product. Flips the Market/Pick policy (offered templates, price requirement, fixture Markets), which every card and feed reads — so it runs alone, chained last.
+    {
+      name: "chromium-m2-moneyline-only",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: /m2-moneyline-only/,
+      fullyParallel: false,
+      dependencies: ["chromium-optional-confidence-picks"],
     },
   ],
 });

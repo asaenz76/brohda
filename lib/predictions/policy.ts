@@ -1,6 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { ConsumerMarketStatus, Freshness } from "@/lib/prediction-markets/discovery/types";
+import { parseMarketPolicy } from "@/lib/prediction-markets/market-policy-parse";
 import type {
   PickLockPolicy,
   PredictionEligibility,
@@ -32,6 +33,9 @@ const DEFAULT_PREDICTION_POLICY: PredictionPolicy = {
   allowStalePrice: true,
   allowUnavailablePrice: false,
   allowClosedMarket: false,
+  // M2 — fail CLOSED: an unreadable settings row offers no template and still requires a price (the opposite of the fail-open knobs above, because these two decide who may act).
+  requirePrice: true,
+  allowedTemplates: [],
 };
 
 export async function getPredictionPolicy(): Promise<PredictionPolicy> {
@@ -39,7 +43,7 @@ export async function getPredictionPolicy(): Promise<PredictionPolicy> {
   const { data } = await supabase
     .from("platform_settings")
     .select(
-      "prediction_allow_repeat, prediction_cutoff_minutes_before_close, prediction_allow_stale_price, prediction_allow_unavailable_price, prediction_allow_closed_market",
+      "prediction_allow_repeat, prediction_cutoff_minutes_before_close, prediction_allow_stale_price, prediction_allow_unavailable_price, prediction_allow_closed_market, prediction_require_price, prediction_allowed_templates",
     )
     .eq("id", true)
     .single();
@@ -52,11 +56,16 @@ export async function getPredictionPolicy(): Promise<PredictionPolicy> {
     allowStalePrice: data.prediction_allow_stale_price ?? DEFAULT_PREDICTION_POLICY.allowStalePrice,
     allowUnavailablePrice: data.prediction_allow_unavailable_price ?? DEFAULT_PREDICTION_POLICY.allowUnavailablePrice,
     allowClosedMarket: data.prediction_allow_closed_market ?? DEFAULT_PREDICTION_POLICY.allowClosedMarket,
+    // M2: parsed fail-closed (see lib/prediction-markets/market-policy-parse.ts).
+    requirePrice: parseMarketPolicy(data).requirePrice,
+    allowedTemplates: parseMarketPolicy(data).allowedTemplates,
   };
 }
 
 export interface MarketEligibilityInput {
   consumerStatus: ConsumerMarketStatus | null;
+  /** M2: MONEYLINE | SPREAD | TOTAL — checked against the allow-list before anything price-related. */
+  marketTemplate: string;
   freshness: Freshness;
   yesPrice: number | null;
   noPrice: number | null;
@@ -80,7 +89,7 @@ export interface MarketEligibilityInput {
  * same PredictionEligibility shape for its own ALREADY_PREDICTED result.
  */
 export function checkMarketEligibility(input: MarketEligibilityInput, policy: PredictionPolicy): PredictionEligibility {
-  const { consumerStatus, freshness, yesPrice, noPrice, closesAt, now } = input;
+  const { consumerStatus, marketTemplate, freshness, yesPrice, noPrice, closesAt, now } = input;
 
   if (consumerStatus === null) return { eligible: false, reason: "MARKET_INACTIVE" };
   if (consumerStatus === "RESOLVED") return { eligible: false, reason: "MARKET_RESOLVED" };
@@ -88,16 +97,24 @@ export function checkMarketEligibility(input: MarketEligibilityInput, policy: Pr
     return { eligible: false, reason: "MARKET_CLOSED" };
   }
 
-  if (freshness === "UNAVAILABLE" && !policy.allowUnavailablePrice) {
-    return { eligible: false, reason: "PRICE_UNAVAILABLE" };
-  }
-  if (freshness === "STALE" && !policy.allowStalePrice) {
-    return { eligible: false, reason: "PRICE_STALE" };
-  }
-  // A genuine snapshot needs both real values, regardless of freshness
-  // classification (freshness alone doesn't guarantee both sides parsed).
-  if (yesPrice === null || noPrice === null) {
-    return { eligible: false, reason: "PRICE_UNAVAILABLE" };
+  // M2 — STRUCTURAL eligibility, kept apart from PRICE eligibility below: the Market must be of a template Members are currently offered. (The database enforces the same rule
+  // in set_pick / call_bs; this is the early, friendly answer.) Historical Markets of other templates stay readable — this only stops NEW interaction.
+  if (!policy.allowedTemplates.includes(marketTemplate)) return { eligible: false, reason: "TEMPLATE_NOT_ALLOWED" };
+
+  // PRICE eligibility, policy-controlled (prediction_require_price). true = exactly the pre-M2 rules. false = price is enrichment only: a team-winner Pick stays available
+  // until the real deadline whatever the sportsbook coverage, and a missing price is simply recorded as NULL (see priceSnapshotFor), never invented.
+  if (policy.requirePrice) {
+    if (freshness === "UNAVAILABLE" && !policy.allowUnavailablePrice) {
+      return { eligible: false, reason: "PRICE_UNAVAILABLE" };
+    }
+    if (freshness === "STALE" && !policy.allowStalePrice) {
+      return { eligible: false, reason: "PRICE_STALE" };
+    }
+    // A genuine snapshot needs both real values, regardless of freshness
+    // classification (freshness alone doesn't guarantee both sides parsed).
+    if (yesPrice === null || noPrice === null) {
+      return { eligible: false, reason: "PRICE_UNAVAILABLE" };
+    }
   }
 
   // DEPRECATED (Brohda 2.1): the market-close-relative cutoff is outside the Member contract. T-10 (pick_lock_minutes_before_kickoff, enforced in the database by pick_action_window) is the ONLY Member
@@ -108,6 +125,18 @@ export function checkMarketEligibility(input: MarketEligibilityInput, policy: Pr
   }
 
   return { eligible: true };
+}
+
+/**
+ * What a Pick records as its price snapshot (M2). Both sides or neither, and never a substituted number — a Pick made with no price says so with NULL, so history can always tell
+ * "a price existed" from "none did".
+ *  - requirePrice ON (the pre-M2 rule): exactly today's behaviour — the observed prices, whenever both exist.
+ *  - requirePrice OFF: the observed prices only while they still describe Pick time; a price classified UNAVAILABLE (too old to be current) is recorded as NULL, not as if it were live.
+ */
+export function priceSnapshotFor(yesPrice: number | null, noPrice: number | null, freshness: Freshness, requirePrice: boolean): { yes: number; no: number } | { yes: null; no: null } {
+  if (yesPrice === null || noPrice === null) return { yes: null, no: null };
+  if (!requirePrice && freshness === "UNAVAILABLE") return { yes: null, no: null };
+  return { yes: yesPrice, no: noPrice };
 }
 
 const DEFAULT_PICK_LOCK_POLICY: PickLockPolicy = { lockMinutesBeforeKickoff: 10 };
