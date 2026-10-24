@@ -7,7 +7,7 @@ import { getMarketNotificationContext } from "@/lib/notifications/market-context
 import { computeSportsMarketOutcome, inconsistentFinalReason } from "./sports-resolution";
 import { getFixtureForGrading, type FixtureForGrading } from "@/lib/sports-data/fixture-lookup";
 import { getPostByFixtureId } from "@/lib/posts/repository";
-import { listPendingPredictions, markPredictionGraded } from "./repository";
+import { listGradeablePendingPredictions, markPredictionGraded } from "./repository";
 import { getConfidenceSettlementCopy, renderSettlementSentence } from "@/lib/confidence/config";
 import { getStakesForPredictions } from "@/lib/confidence/stakes";
 import type { Prediction, PredictionOutcome, PredictionResult } from "./types";
@@ -166,7 +166,8 @@ export interface GradingRunSummary {
 export async function runGradingJob(
   resultRecorder: (prediction: Prediction, result: Extract<PredictionResult, "CORRECT" | "INCORRECT">) => Promise<void>,
 ): Promise<GradingRunSummary> {
-  const pending = await listPendingPredictions();
+  // Candidates are the Picks that can be processed NOW (their Game is terminal, or their Market is archived), chosen before the batch limit — see listGradeablePendingPredictions.
+  const pending = await listGradeablePendingPredictions();
   const reportedAnomalies = new Set<string>();
   const summary: GradingRunSummary = { examined: 0, graded: 0, correct: 0, incorrect: 0, voided: 0, stillPending: 0, failures: [] };
 

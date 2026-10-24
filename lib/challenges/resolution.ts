@@ -1,7 +1,7 @@
 import { errorMessage } from "@/lib/utils/error-message";
 import "server-only";
 import { getPredictionById } from "@/lib/predictions/repository";
-import { listUnresolvedAcceptedChallenges, markChallengeResolved } from "./repository";
+import { listResolvableAcceptedChallenges, markChallengeResolved } from "./repository";
 import { createChallengeResolvedNotifications, deliverChallengeNotification } from "@/lib/notifications/challenges";
 import type { Prediction } from "@/lib/predictions/types";
 import type { Challenge, ChallengeResult } from "./types";
@@ -73,7 +73,8 @@ export interface ChallengeResolutionRunSummary {
  * grading a Market.
  */
 export async function resolveAcceptedChallenges(): Promise<ChallengeResolutionRunSummary> {
-  const accepted = await listUnresolvedAcceptedChallenges();
+  // Candidates are the ACCEPTED challenges whose Picks are both graded, chosen before the batch limit — see listResolvableAcceptedChallenges.
+  const accepted = await listResolvableAcceptedChallenges();
   const summary: ChallengeResolutionRunSummary = { examined: 0, resolved: 0, challengerWon: 0, recipientWon: 0, voided: 0, stillPending: 0, failures: [] };
 
   for (const challenge of accepted) {

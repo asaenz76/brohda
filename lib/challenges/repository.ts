@@ -243,6 +243,29 @@ export async function getChallengeRecordForUser(userId: string): Promise<Challen
  * `limit` argument still overrides it (used by tests that need a
  * smaller, deterministic batch).
  */
+/**
+ * The resolver's candidates: ACCEPTED challenges whose two Picks are both GRADED — exactly the ones decideChallengeResolution can resolve — chosen by the database
+ * BEFORE the batch limit (supabase/migrations/20260101000215_gradeable_candidate_selection.sql). The old oldest-first selection let accepted challenges on Games that
+ * had not finished fill the batch and starve resolvable ones behind them. Falls back to that old selection, loudly, if the function is not there yet (code ahead of migration 215).
+ */
+export async function listResolvableAcceptedChallenges(limit?: number): Promise<Challenge[]> {
+  const admin = createAdminClient();
+  let effectiveLimit: number = limit ?? 200;
+  if (limit === undefined) {
+    const { data: settingsRow } = await admin.from("platform_settings").select("challenge_resolution_batch_size").eq("id", true).single();
+    effectiveLimit = settingsRow?.challenge_resolution_batch_size ?? 200;
+  }
+  const { data, error } = await admin.rpc("list_resolvable_accepted_challenges", { p_limit: effectiveLimit });
+  if (error) {
+    if (error.code === "PGRST202" || /could not find the function/i.test(error.message)) {
+      console.error("[challenges] list_resolvable_accepted_challenges is missing — apply migration 215. Falling back to the old oldest-first selection.");
+      return listUnresolvedAcceptedChallenges(effectiveLimit);
+    }
+    throw error;
+  }
+  return ((data ?? []) as ChallengeRow[]).map(toDomain);
+}
+
 export async function listUnresolvedAcceptedChallenges(limit?: number): Promise<Challenge[]> {
   const admin = createAdminClient();
   let effectiveLimit: number = limit ?? 200;

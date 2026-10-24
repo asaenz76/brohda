@@ -1,5 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { RESOLVABLE_STATUS, DETERMINISTIC_VOID_STATUS } from "./sports-resolution";
+import { sportsThatCannotEndLevel } from "@/lib/sports-data/sport-registry";
 import type {
   Prediction,
   PredictionLifecycleState,
@@ -171,6 +173,38 @@ export async function getPickAggregatesForMarkets(marketIds: string[]): Promise<
  * still overrides it (used by tests that need a smaller, deterministic
  * batch).
  */
+/**
+ * The grading job's candidates: PENDING Picks that can be processed NOW, chosen by the database BEFORE the batch limit is applied
+ * (supabase/migrations/20260101000215_gradeable_candidate_selection.sql). The Game-state model stays here in application code — which fixture
+ * status grades from the score, which voids, and which sports cannot end level — and is passed in, so no second status model lives in SQL.
+ * `grading_batch_size` still sets the batch; it now caps work that is actually possible instead of whatever happens to be oldest.
+ *
+ * If the database function is not there yet (code deployed ahead of migration 215), this logs loudly and falls back to the previous oldest-first
+ * selection so grading keeps running instead of failing; it is the old behaviour, not a silent success.
+ */
+export async function listGradeablePendingPredictions(limit?: number): Promise<Prediction[]> {
+  const admin = createAdminClient();
+  let effectiveLimit: number = limit ?? 200;
+  if (limit === undefined) {
+    const { data: settingsRow } = await admin.from("platform_settings").select("grading_batch_size").eq("id", true).single();
+    effectiveLimit = settingsRow?.grading_batch_size ?? 200;
+  }
+  const { data, error } = await admin.rpc("list_gradeable_pending_predictions", {
+    p_limit: effectiveLimit,
+    p_resolvable_status: RESOLVABLE_STATUS,
+    p_void_status: DETERMINISTIC_VOID_STATUS,
+    p_level_final_sports: sportsThatCannotEndLevel(),
+  });
+  if (error) {
+    if (error.code === "PGRST202" || /could not find the function/i.test(error.message)) {
+      console.error("[grading] list_gradeable_pending_predictions is missing — apply migration 215. Falling back to the old oldest-first selection (can starve Picks on finished Games).");
+      return listPendingPredictions(effectiveLimit);
+    }
+    throw error;
+  }
+  return ((data ?? []) as PredictionRow[]).map(toDomain);
+}
+
 export async function listPendingPredictions(limit?: number): Promise<Prediction[]> {
   const admin = createAdminClient();
   let effectiveLimit: number = limit ?? 200;
