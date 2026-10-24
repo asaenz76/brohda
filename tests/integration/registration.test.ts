@@ -40,16 +40,18 @@ describe.skipIf(!SERVICE_ROLE_KEY)("platform_settings: registration_enabled togg
     expect(error).not.toBeNull();
   });
 
-  it("is readable by a completely unauthenticated (anon) client", async () => {
+  it("is readable by a completely unauthenticated (anon) client — through the one-column public view, not the base table", async () => {
     const anonClient = createSupabaseClient(SUPABASE_URL, ANON_KEY);
-    const { data, error } = await anonClient
-      .from("platform_settings")
-      .select("registration_enabled")
-      .eq("id", true)
-      .single();
+    const { data, error } = await anonClient.from("public_platform_settings").select("registration_enabled").single();
 
     expect(error).toBeNull();
     expect(typeof data?.registration_enabled).toBe("boolean");
+    expect(Object.keys(data ?? {})).toEqual(["registration_enabled"]);
+
+    // security hardening S2: the operational configuration itself is no longer readable by a visitor
+    const base = await anonClient.from("platform_settings").select("registration_enabled").eq("id", true).single();
+    expect(base.error).not.toBeNull();
+    expect(base.data).toBeNull();
   });
 
   it("cannot be written by an anon client — no write policy, RLS blocks it", async () => {
