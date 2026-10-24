@@ -100,6 +100,8 @@ export function checkMarketEligibility(input: MarketEligibilityInput, policy: Pr
     return { eligible: false, reason: "PRICE_UNAVAILABLE" };
   }
 
+  // DEPRECATED (Brohda 2.1): the market-close-relative cutoff is outside the Member contract. T-10 (pick_lock_minutes_before_kickoff, enforced in the database by pick_action_window) is the ONLY Member
+  // prediction deadline, and sports Markets carry no close time (markets.closes_at is null for every ingested Market), so this branch does not fire. Kept, not deleted, until it can be retired safely.
   if (policy.cutoffMinutesBeforeClose > 0 && closesAt !== null) {
     const cutoffMs = new Date(closesAt).getTime() - policy.cutoffMinutesBeforeClose * 60_000;
     if (now.getTime() >= cutoffMs) return { eligible: false, reason: "PAST_CUTOFF" };

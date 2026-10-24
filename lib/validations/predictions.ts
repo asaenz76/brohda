@@ -14,3 +14,19 @@ export const commitPredictionSchema = z.object({
   idempotencyKey: z.string().uuid(),
 });
 export type CommitPredictionInput = z.infer<typeof commitPredictionSchema>;
+
+// Brohda 2.1: a team Pick on its own (Confidence is optional and attached separately). Same exactly-once key discipline as a commitment.
+export const setPickSchema = z.object({
+  marketId: z.string().uuid(),
+  selectedOutcome: z.enum(["YES", "NO"]),
+  idempotencyKey: z.string().uuid(),
+});
+export type SetPickActionInput = z.infer<typeof setPickSchema>;
+
+// Attaching Confidence to the Member's existing Pick on a Market. The Pick is resolved on the server from the signed-in Member and the Market, never taken from the client.
+export const attachConfidenceSchema = z.object({
+  marketId: z.string().uuid(),
+  amount: z.number().int().min(1),
+  idempotencyKey: z.string().uuid(),
+});
+export type AttachConfidenceActionInput = z.infer<typeof attachConfidenceSchema>;

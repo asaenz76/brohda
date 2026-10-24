@@ -12,7 +12,7 @@ describe("Call BS expiry policy", () => {
 
   it("names the six required semantic causes, plus the relationship one", () => {
     expect(CHALLENGE_EXPIRY_REASONS).toEqual(
-      expect.arrayContaining(["NO_RESPONSE", "GAME_OR_MARKET_CANCELLED", "SYSTEM_INVALIDATED", "COMPETING_CHALLENGE_RESOLVED", "ACCOUNT_STATE_CHANGE", "OTHER_SYSTEM_REASON", "RELATIONSHIP_BLOCKED"]),
+      expect.arrayContaining(["NO_RESPONSE", "GAME_OR_MARKET_CANCELLED", "SYSTEM_INVALIDATED", "COMPETING_CHALLENGE_RESOLVED", "ACCOUNT_STATE_CHANGE", "OTHER_SYSTEM_REASON", "RELATIONSHIP_BLOCKED", "PICK_CHANGED"]),
     );
   });
 

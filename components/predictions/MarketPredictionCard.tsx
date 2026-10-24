@@ -6,6 +6,8 @@ import { getLatestUserPredictionForMarket } from "@/lib/predictions/repository";
 import { checkMarketEligibility, getPredictionPolicy } from "@/lib/predictions/policy";
 import { copyForIneligible } from "@/lib/predictions/copy";
 import { PredictionComposer } from "@/components/predictions/PredictionComposer";
+import { TwoStepPickComposer } from "@/components/predictions/TwoStepPickComposer";
+import { derivePickState } from "@/lib/predictions/pick-state";
 import { YourPredictionCard } from "@/components/predictions/YourPredictionCard";
 import { MarketParticipants } from "@/components/predictions/MarketParticipants";
 import { getStakeUiState } from "@/lib/confidence/stakes";
@@ -55,10 +57,22 @@ export async function MarketPredictionCard({
   const closesLabel = formatClosesAt(market.closesAt);
 
   const existingPrediction = await getLatestUserPredictionForMarket(userId, market.id);
-  const isEditable = existingPrediction === null || (existingPrediction.lockedAt === null && existingPrediction.lifecycleState === "PENDING");
+  const legacyEditable = existingPrediction === null || (existingPrediction.lockedAt === null && existingPrediction.lifecycleState === "PENDING");
 
   // Confidence behind the viewer's OWN Pick (optional): the card shows the committed amount, or — while the Pick is still open to it — the "How confident are you?" control. Nothing at all while Confidence is off.
   const [stakeState, confidenceOffer] = await Promise.all([existingPrediction ? getStakeUiState(userId, existingPrediction.id) : Promise.resolve({ state: "none" } as const), getConfidenceOffer(userId)]);
+  // Brohda 2.1 (M1): with optional Picks and the two-step UI flag on, the Pick is derived once (lib/predictions/pick-state.ts) and the card stays interactive while the team can still change OR Confidence can still be added.
+  const twoStep = confidenceOffer?.twoStep === true;
+  const earlyLock = twoStep ? await getMarketPickLock(market.id) : null;
+  const pickState = twoStep
+    ? derivePickState({
+        prediction: existingPrediction ? { lifecycleState: existingPrediction.lifecycleState, result: existingPrediction.result, lockedAt: existingPrediction.lockedAt, lockReason: existingPrediction.lockReason } : null,
+        staked: stakeState.state === "staked",
+        acceptedCallBs: existingPrediction?.lockReason === "CHALLENGE_ACCEPTED",
+        windowOpen: !earlyLock!.closed,
+      })
+    : null;
+  const isEditable = twoStep ? existingPrediction === null || pickState!.canChangeTeam || pickState!.canAttachConfidence : legacyEditable;
 
   let predictionDisabledReason: string | null = null;
   let pickLockAt: string | null = null;
@@ -104,7 +118,7 @@ export async function MarketPredictionCard({
         <p className="text-sm font-medium text-text-primary">{market.resolvedOutcome === "YES" ? market.yesLabel : market.noLabel}</p>
       )}
 
-      {existingPrediction === null || isEditable ? (
+      {existingPrediction === null || (twoStep ? pickState!.state === "UNSTAKED_EDITABLE" : isEditable) ? (
         <p className="text-xs text-text-muted">Make your pick to see how everyone else picked.</p>
       ) : hasPicks ? (
         <div className="space-y-1">
@@ -127,7 +141,19 @@ export async function MarketPredictionCard({
 
       {closesLabel && <p className="text-sm text-text-secondary">Closes {closesLabel}</p>}
 
-      {isEditable ? (
+      {isEditable && twoStep ? (
+        <TwoStepPickComposer
+          marketId={market.id}
+          choices={market.choices}
+          offer={confidenceOffer}
+          disabledReason={predictionDisabledReason}
+          lockAt={pickLockAt}
+          initialSelection={existingPrediction?.selectedOutcome ?? null}
+          pickState={pickState!.state}
+          canChangeTeam={pickState!.canChangeTeam}
+          canAttachConfidence={pickState!.canAttachConfidence}
+        />
+      ) : isEditable ? (
         <PredictionComposer
           marketId={market.id}
           choices={market.choices}

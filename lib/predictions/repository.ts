@@ -207,11 +207,14 @@ export type SetPickOutcome = "created" | "updated" | "unchanged" | "replayed" | 
 export interface SetPickResult {
   prediction: Prediction | null;
   outcome: SetPickOutcome;
+  /** Call BS challenges this edit cancelled (EXPIRED / PICK_CHANGED), so the caller can tell the other participants once it has committed. Empty when none. */
+  cancelledChallengeIds: string[];
 }
 
 interface SetPickRpcRow {
   prediction: PredictionRow | null;
   outcome: SetPickOutcome;
+  cancelled_challenge_ids: string[] | null;
 }
 
 /**
@@ -243,7 +246,7 @@ export async function setPick(input: SetPickInput): Promise<SetPickResult> {
   if (error) throw error;
 
   const row = data as SetPickRpcRow;
-  return { prediction: row.prediction ? toDomain(row.prediction) : null, outcome: row.outcome };
+  return { prediction: row.prediction ? toDomain(row.prediction) : null, outcome: row.outcome, cancelledChallengeIds: row.cancelled_challenge_ids ?? [] };
 }
 
 interface PredictionRevisionRow {

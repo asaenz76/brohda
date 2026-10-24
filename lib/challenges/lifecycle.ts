@@ -1,11 +1,14 @@
 import "server-only";
 import { errorMessage } from "@/lib/utils/error-message";
 import { expireStaleChallenges } from "./repository";
+import { reconcileChallengeCancellationNotifications } from "@/lib/notifications/challenges";
 import { resolveAcceptedChallenges, type ChallengeResolutionRunSummary } from "./resolution";
 
 export interface ChallengeLifecycleSummary extends ChallengeResolutionRunSummary {
   /** PENDING Call BS expired this run because they could no longer be accepted. */
   expired: number;
+  /** Brohda 2.1: "Call BS cancelled" notifications that were still owed (a delivery that failed after its Pick edit committed) and are now sent / still failing. */
+  cancellationNotifications: { delivered: number; failed: number };
 }
 
 /**
@@ -23,6 +26,13 @@ export async function runChallengeLifecycleJob(): Promise<ChallengeLifecycleSumm
   } catch (error) {
     sweepFailures.push({ challengeId: "(expiry sweep)", error: `pending Call BS expiry sweep failed: ${errorMessage(error)}` });
   }
+  // Its own failure domain too: a missed "cancelled because the Pick changed" notification is retried here, and never blocks resolution.
+  let cancellationNotifications = { delivered: 0, failed: 0 };
+  try {
+    cancellationNotifications = await reconcileChallengeCancellationNotifications();
+  } catch (error) {
+    sweepFailures.push({ challengeId: "(cancellation notifications)", error: `Call BS cancellation notification reconciliation failed: ${errorMessage(error)}` });
+  }
   const resolution = await resolveAcceptedChallenges();
-  return { ...resolution, expired, failures: [...sweepFailures, ...resolution.failures] };
+  return { ...resolution, expired, cancellationNotifications, failures: [...sweepFailures, ...resolution.failures] };
 }

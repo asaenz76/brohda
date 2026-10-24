@@ -83,7 +83,12 @@ describe("the Confidence domain is not money", () => {
 
   it("the Pick coupling is narrow: only the attach/status/settlement code reads Picks, and grading itself is never reimplemented here", () => {
     for (const file of TS) {
-      expect(readFileSync(join(ROOT, file), "utf8"), file).not.toMatch(/lib\/predictions\/(grading|streak|repository)|runGradingJob|markPredictionGraded|set_pick/);
+      // Brohda 2.1 (M1) deliberately lets a team Pick exist without Confidence, so the ONE server-action file that makes a Pick (setPickAction) may use the repository's setPick. Nothing else in the domain may, and
+      // nothing at all may reimplement or call grading/streak code.
+      const allowed = file === "lib/actions/predictions.ts";
+      const text = readFileSync(join(ROOT, file), "utf8");
+      expect(text, file).not.toMatch(/lib\/predictions\/(grading|streak)|runGradingJob|markPredictionGraded/);
+      if (!allowed) expect(text, file).not.toMatch(/lib\/predictions\/repository|set_pick/);
     }
     // Settlement is driven by the canonical grade (the PENDING -> GRADED transition), never by anything the Member or a client supplies.
     const migration = readFileSync(join(ROOT, SQL[1]), "utf8");

@@ -104,4 +104,6 @@ export interface ConfidenceOffer {
   available: number;
   allowedStakes: number[];
   canClaim: boolean;
+  /** Brohda 2.1: show the two-step composer (team first, Confidence optional) — optional Picks are on AND the UI flag is on. */
+  twoStep?: boolean;
 }
