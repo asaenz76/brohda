@@ -44,6 +44,8 @@ const PERMISSIVE_POLICY: PredictionPolicy = {
   allowStalePrice: true,
   allowUnavailablePrice: true,
   allowClosedMarket: true,
+  requirePrice: true,
+  allowedTemplates: ["MONEYLINE", "SPREAD", "TOTAL"],
 };
 
 const DEFAULT_POLICY: PredictionPolicy = {
@@ -52,11 +54,15 @@ const DEFAULT_POLICY: PredictionPolicy = {
   allowStalePrice: true,
   allowUnavailablePrice: false,
   allowClosedMarket: false,
+  // The pre-M2 values: price required, every template offered.
+  requirePrice: true,
+  allowedTemplates: ["MONEYLINE", "SPREAD", "TOTAL"],
 };
 
 function baseInput(overrides: Partial<MarketEligibilityInput> = {}): MarketEligibilityInput {
   return {
     consumerStatus: "ACTIVE",
+    marketTemplate: "MONEYLINE",
     freshness: "FRESH",
     yesPrice: 0.62,
     noPrice: 0.38,

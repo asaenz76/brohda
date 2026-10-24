@@ -55,7 +55,7 @@ export function AdminPredictionsTable({ rows, emptyMessage = "No predictions yet
                 <Cell primary={r.selectedLabel ?? r.selectedOutcome} secondary={r.selectedLabel ? r.selectedOutcome : "canonical"} known={r.selectedLabel !== null} fullId={r.selectedOutcome} className="max-w-[14rem]" />
               </td>
               <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary">
-                {r.yesPercent}% / {r.noPercent}%
+                {r.yesPercent === null || r.noPercent === null ? "No price" : `${r.yesPercent}% / ${r.noPercent}%`}
               </td>
               <td className="px-3 py-1.5 text-text-secondary">{r.lifecycleState}</td>
               <td className="px-3 py-1.5 text-text-secondary">{r.result ?? "—"}</td>

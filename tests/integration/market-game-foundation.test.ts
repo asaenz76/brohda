@@ -209,13 +209,14 @@ describe("Market proposition uniqueness", () => {
     expect(moved.id).not.toBe(original.id);
   });
 
-  it("allows two MONEYLINE rows for the same fixture on opposite sides (HOME vs AWAY) — genuinely distinct propositions", async () => {
+  // CHANGED IN M2 (migration 214), deliberately. R1 treated a HOME-side and an AWAY-side MONEYLINE of one Game as two distinct propositions and allowed both. Since then a Moneyline is read as exactly
+  // "which team wins" — its two choices ARE the two teams — so "Will the home team win?" and "Will the away team win?" are the same prediction, and a Game must never end up with two of them (one
+  // from the Game itself, one from a sportsbook). Production was verified to hold at most one MONEYLINE per Game, all HOME. SPREAD keeps its two-sided, per-line identity unchanged.
+  it("refuses a second MONEYLINE for the same fixture even on the opposite side (HOME vs AWAY): one canonical team-winner Market per Game", async () => {
     const fixtureId = await seedFixture();
     const home = await upsertMarket(marketPayload(fixtureId, { marketTemplate: "MONEYLINE", yesSide: "HOME" }));
     createdMarketIds.push(home.id);
-    const away = await upsertMarket(marketPayload(fixtureId, { marketTemplate: "MONEYLINE", yesSide: "AWAY" }));
-    createdMarketIds.push(away.id);
-    expect(away.id).not.toBe(home.id);
+    await expect(upsertMarket(marketPayload(fixtureId, { marketTemplate: "MONEYLINE", yesSide: "AWAY" }))).rejects.toMatchObject({ message: expect.stringMatching(/markets_one_moneyline_per_fixture/) });
   });
 });
 

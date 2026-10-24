@@ -6,6 +6,8 @@ import { OnlinePaymentsCard } from "@/components/sponsorship/OnlinePaymentsCard"
 import { SponsorIntelligenceCard } from "@/components/sponsor-intelligence/SponsorIntelligenceCard";
 import { MessagingSettingsCard } from "@/components/messaging/MessagingSettingsCard";
 import { ConfidenceSettingsCard } from "@/components/confidence/ConfidenceSettingsCard";
+import { MarketPolicyCard } from "@/components/admin/MarketPolicyCard";
+import { getMarketPolicy } from "@/lib/prediction-markets/market-policy";
 import { RefundPolicyCard } from "@/components/sponsorship/RefundPolicyCard";
 import {
   PredictionSettingsSection,
@@ -30,7 +32,7 @@ import {
 // per-domain admin/super_admin split.
 export default async function BrohdaSettingsPage() {
   await requireSuperAdmin();
-  const settings = await getBrohdaSettings();
+  const [settings, marketPolicy] = await Promise.all([getBrohdaSettings(), getMarketPolicy()]);
 
   return (
     <div className="space-y-6">
@@ -47,6 +49,7 @@ export default async function BrohdaSettingsPage() {
         </Link>
       </div>
 
+      <MarketPolicyCard initial={marketPolicy} />
       <PredictionSettingsSection initial={settings.predictions} updatedAt={settings.updatedAt} />
       <NotificationSettingsSection initial={settings.notifications} updatedAt={settings.updatedAt} />
       <MarketSettingsSection initial={settings.markets} updatedAt={settings.updatedAt} />
