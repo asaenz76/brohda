@@ -179,3 +179,38 @@ describe("S2 stage 1 — the narrow public settings surface", () => {
     expect(denied((await anon.from("public_platform_settings").insert({ registration_enabled: true })).error)).toBe(true);
   });
 });
+
+describe("S2 stage 2 — client roles can no longer read platform_settings", () => {
+  it("neither a visitor nor a signed-in Member can read the operational configuration, whichever column they ask for", async () => {
+    const anon = getTestAnonClient();
+    for (const columns of ["*", "sponsorship_payment_instructions", "messaging_abuse_blocks_threshold", "registration_enabled"]) {
+      const r = await anon.from("platform_settings").select(columns).limit(1);
+      expect(denied(r.error), `anon select ${columns}`).toBe(true);
+    }
+    const member = await sessionFor(await seedUser("s2-denied"));
+    expect(denied((await member.from("platform_settings").select("*").limit(1)).error)).toBe(true);
+    expect(denied((await member.from("platform_settings").select("sponsorship_payment_instructions").limit(1)).error)).toBe(true);
+  });
+
+  it("the permissive read policy is gone, effective privileges agree, and the server (service role) still reads everything", async () => {
+    expect((await pg.query("select count(*)::int n from pg_policies where schemaname='public' and tablename='platform_settings' and policyname='anyone can read platform settings'")).rows[0].n).toBe(0);
+    for (const role of ["anon", "authenticated"]) expect((await pg.query("select has_table_privilege($1,'public.platform_settings','SELECT') h", [role])).rows[0].h).toBe(false);
+    const full = await admin.from("platform_settings").select("*").eq("id", true).single();
+    expect(full.error).toBeNull();
+    expect(Object.keys(full.data ?? {}).length).toBeGreaterThan(50);
+  });
+
+  it("the public view keeps working (registration and the login link need it before any session exists)", async () => {
+    const r = await getTestAnonClient().from("public_platform_settings").select("registration_enabled").single();
+    expect(r.error).toBeNull();
+    expect(typeof r.data?.registration_enabled).toBe("boolean");
+  });
+
+  it("no database object that runs under a client role depends on the revoked read: the SECURITY DEFINER functions a signed-in Member may call still work", async () => {
+    const id = await seedUser("s2-definer");
+    const member = await sessionFor(id);
+    expect((await member.rpc("get_user_prediction_record", { p_user_id: id })).error).toBeNull();
+    expect((await member.rpc("get_prediction_leaderboard", { p_period: "ALL_TIME", p_limit: 5, p_offset: 0 })).error).toBeNull();
+    expect((await member.rpc("confidence_enabled_flag")).error).toBeNull();
+  });
+});
