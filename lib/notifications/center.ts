@@ -71,6 +71,8 @@ export const NOTIFICATION_CENTER_TYPES = [
   "CALL_BS_ACCEPTED",
   "CALL_BS_DECLINED",
   "CALL_BS_RESOLVED",
+  // Brohda 2.1 (M1): the other participant learns the Pick changed and the Call BS was cancelled. Sent once, only to them (never to the Member who changed their Pick).
+  "CALL_BS_CANCELLED",
   "MONETARY_PROPOSAL_RECEIVED",
   "MONETARY_PROPOSAL_ACCEPTED",
   "MONETARY_PROPOSAL_DECLINED",

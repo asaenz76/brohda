@@ -82,7 +82,7 @@ export async function resetIntegrationWorld(): Promise<void> {
       await client.query(`delete from public.${table}`);
     }
     // The Confidence cutover is one-way and has no column default, so the generic reset below would leave it set: clear it here (this connection has triggers off, which is the explicit remediation path the one-way trigger leaves open).
-    await client.query("update public.platform_settings set confidence_mandatory_since = null where id = true");
+    await client.query("update public.platform_settings set confidence_mandatory_since = null, confidence_optional_picks_enabled = false, confidence_optional_first_enabled_at = null where id = true");
     // Every Game Preview setting back to its shipped default (generation OFF, no model), whatever columns the table has.
     await client.query(`
       do $$

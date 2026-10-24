@@ -348,7 +348,7 @@ describe("Pending behavior", () => {
     expect(outcome).toBe("updated");
   });
 
-  it("a changed Pick invalidates acceptance — the Challenge transitions to EXPIRED", async () => {
+  it("a changed Pick cancels the PENDING Challenge in the same step (M1: EXPIRED / PICK_CHANGED) — acceptance then finds it no longer pending", async () => {
     const fixtureId = await createFixture();
     const marketId = await createMarket(fixtureId);
     const a = await createUser("a");
@@ -359,8 +359,8 @@ describe("Pending behavior", () => {
     expect(created.ok).toBe(true);
     if (!created.ok) return;
 
-    // André flips YES -> NO: now both sides read NO, the exact disagreement this Challenge named no longer holds.
-    await setPick({
+    // André flips YES -> NO: now both sides read NO, the exact disagreement this Challenge named no longer holds, so the edit itself ends it.
+    const edit = await setPick({
       userId: a.userId,
       marketId,
       selectedOutcome: "NO",
@@ -371,14 +371,36 @@ describe("Pending behavior", () => {
       marketStatusSnapshot: "ACTIVE",
       idempotencyKey: crypto.randomUUID(),
     });
+    expect(edit.outcome).toBe("updated");
+    const ended = await getChallengeById(created.challenge.id);
+    expect(ended?.status).toBe("EXPIRED");
+    expect(ended?.expiryReason).toBe("PICK_CHANGED");
 
     const result = await acceptCallBS(created.challenge.id, b.userId);
-    expect(result.outcome).toBe("rejected_invalidated");
+    expect(result.outcome).toBe("not_pending");
     expect(result.challenge.status).toBe("EXPIRED");
 
     const [aRow, bRow] = await Promise.all([getPredictionById(aPick), getPredictionById(bPick)]);
     expect(aRow?.lockedAt).toBeNull();
     expect(bRow?.lockedAt).toBeNull();
+  });
+
+  it("acceptance still re-checks the selections itself: a Pick changed behind the edit path's back invalidates acceptance (defence in depth)", async () => {
+    const fixtureId = await createFixture();
+    const marketId = await createMarket(fixtureId);
+    const a = await createUser("a");
+    const b = await createUser("b");
+    await pick(a.userId, marketId, "YES");
+    const bPick = await pick(b.userId, marketId, "NO");
+    const created = await callBS(a.userId, bPick);
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    await admin.from("predictions").update({ selected_outcome: "NO" }).eq("user_id", a.userId).eq("market_id", marketId);
+
+    const result = await acceptCallBS(created.challenge.id, b.userId);
+    expect(result.outcome).toBe("rejected_invalidated");
+    expect(result.challenge.status).toBe("EXPIRED");
   });
 });
 

@@ -85,3 +85,26 @@ export async function reverseConfidenceEntryAction(entryId: string, note: string
   revalidatePath("/admin/confidence");
   return { success: true, error: null, message: "Entry reversed." };
 }
+
+/**
+ * Super Admin: Brohda 2.1 optional Picks — a Pick may exist without Confidence (editable until T-10; attaching Confidence locks the team and fixes the amount). Audited, idempotent, and reversible: turning it
+ * off makes new Picks need Confidence again and rewrites nothing. The very first activation is stamped once and kept (it separates mandatory-era from optional-era Picks).
+ */
+export async function setConfidenceOptionalPicksAction(enabled: boolean): Promise<ConfidenceAdminResult> {
+  const admin = await requireSuperAdmin();
+  const { error } = await createAdminClient().rpc("admin_set_confidence_optional_picks", { p_admin_id: admin.id, p_enabled: enabled });
+  if (error?.message.includes("optional_picks_requires_confidence_on")) return fail("Turn on Confidence and predictions before allowing Picks without Confidence.");
+  if (error) return fail("Couldn't save that setting.");
+  revalidatePath("/admin/confidence");
+  revalidatePath("/admin/settings/brohda");
+  return { success: true, error: null, message: enabled ? "Members can make a Pick without Confidence." : "Every new Pick needs Confidence again." };
+}
+
+/** Super Admin: the two-step composer (choose a team, then optionally Confidence). A display flag only: it changes what Members see, never what the database allows. */
+export async function setConfidenceTwoStepComposerAction(enabled: boolean): Promise<ConfidenceAdminResult> {
+  const admin = await requireSuperAdmin();
+  const { error } = await createAdminClient().rpc("admin_set_confidence_two_step_composer", { p_admin_id: admin.id, p_enabled: enabled });
+  if (error) return fail("Couldn't save that setting.");
+  revalidatePath("/admin/confidence");
+  return { success: true, error: null, message: enabled ? "The two-step composer is on." : "The one-step composer is back." };
+}

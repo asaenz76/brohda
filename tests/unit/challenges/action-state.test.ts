@@ -125,4 +125,10 @@ describe("deriveChallengeActionState", () => {
       expect(derive([], { canCallBs: false, pairedInCallBs: false })).toBeNull();
     });
   });
+
+  it("a Call BS cancelled because a Pick changed says so (Brohda 2.1) — every other expiry stays the generic unavailable", () => {
+    const cancelled = challenge({ status: "EXPIRED", expiryReason: "PICK_CHANGED" });
+    expect(derive([cancelled])).toEqual({ kind: "unavailable", pickChanged: true });
+    expect(derive([challenge({ status: "EXPIRED", expiryReason: "COMPETING_CHALLENGE_RESOLVED" })])).toEqual({ kind: "unavailable" });
+  });
 });

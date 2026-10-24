@@ -33,6 +33,8 @@ export interface CreatePredictionResult {
   /** The Member's available Confidence when that was the reason (insufficient). */
   available?: number;
   replay?: boolean;
+  /** Call BS challenges the Pick edit inside this creation cancelled (an open unstaked Pick completed with the other side). */
+  cancelledChallengeIds: string[];
 }
 
 export interface CreatePredictionInput {
@@ -57,6 +59,7 @@ interface Row {
   reserved?: number;
   total?: number;
   replay?: boolean;
+  cancelledChallengeIds?: string[];
 }
 
 export async function createConfidencePrediction(input: CreatePredictionInput): Promise<CreatePredictionResult> {
@@ -78,6 +81,47 @@ export async function createConfidencePrediction(input: CreatePredictionInput): 
   const committed: CommittedPrediction | null =
     (row.outcome === "created" || row.outcome === "already_predicted") && row.predictionId && row.selectedOutcome && typeof row.amount === "number"
       ? { predictionId: row.predictionId, selectedOutcome: row.selectedOutcome, amount: row.amount, available: row.available, reserved: row.reserved, total: row.total }
+      : null;
+  return { outcome: row.outcome, committed, available: row.available, replay: row.replay, cancelledChallengeIds: row.cancelledChallengeIds ?? [] };
+}
+
+// ---- Attaching Confidence to a Pick that already exists (Brohda 2.1, optional Confidence) ----
+// Before T-10, to the Member's own ungraded, unstaked Pick — including one an accepted Call BS has locked. The team never changes; the amount is fixed from this moment (no increase, decrease or removal). The database
+// decides everything (capability, ownership, deadline, ladder, balance) in one transaction: stake + reserve + lock, or nothing.
+
+export type AttachConfidenceOutcome =
+  | "attached"
+  | "retired"
+  | "disabled"
+  | "ineligible"
+  | "invalid_amount"
+  | "not_found"
+  | "already_backed"
+  | "pick_graded"
+  | "game_started"
+  | "past_deadline"
+  | "insufficient"
+  | "idempotency_conflict";
+
+export interface AttachConfidenceResult {
+  outcome: AttachConfidenceOutcome;
+  committed: CommittedPrediction | null;
+  available?: number;
+  replay?: boolean;
+}
+
+export async function attachConfidenceStake(input: { memberId: string; predictionId: string; amount: number; idempotencyKey: string }): Promise<AttachConfidenceResult> {
+  const { data, error } = await createAdminClient().rpc("confidence_attach_stake", {
+    p_member_id: input.memberId,
+    p_prediction_id: input.predictionId,
+    p_amount: input.amount,
+    p_idempotency_key: input.idempotencyKey,
+  });
+  if (error) throw new Error(error.message);
+  const row = data as { outcome: AttachConfidenceOutcome; stakeId?: string; amount?: number; selectedOutcome?: "YES" | "NO"; available?: number; reserved?: number; total?: number; replay?: boolean };
+  const committed: CommittedPrediction | null =
+    row.outcome === "attached" && typeof row.amount === "number"
+      ? { predictionId: input.predictionId, selectedOutcome: row.selectedOutcome ?? "YES", amount: row.amount, available: row.available, reserved: row.reserved, total: row.total }
       : null;
   return { outcome: row.outcome, committed, available: row.available, replay: row.replay };
 }

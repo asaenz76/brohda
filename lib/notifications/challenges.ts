@@ -126,3 +126,57 @@ export async function createChallengeResolvedNotifications({ challenge }: { chal
     },
   ]);
 }
+
+/**
+ * Brohda 2.1 (M1): a Call BS ended because one of the two Members changed their (editable) Pick. ONLY the other participant is told (never the Member who changed it). At most one per
+ * recipient and challenge — the database's unique index (notifications_call_bs_cancelled_once) makes a retry or the reconciliation sweep a no-op, so a duplicate attempt is treated as delivered.
+ */
+export async function createChallengeCancelledNotification({ challengeId, notifyUserId, marketId }: { challengeId: string; notifyUserId: string; marketId: string }): Promise<void> {
+  const { subject, postId } = await getMarketNotificationContext(marketId);
+  const admin = createAdminClient();
+  const { error } = await admin.from("notifications").insert({
+    user_id: notifyUserId,
+    type: "CALL_BS_CANCELLED",
+    title: "Call BS cancelled",
+    body: `Challenge cancelled because the Pick changed on "${subject}".`,
+    challenge_id: challengeId,
+    market_id: marketId,
+    post_id: postId,
+  });
+  if (error && error.code !== "23505") throw new Error(`CALL_BS_CANCELLED notification insert failed: ${error.message}`);
+}
+
+/**
+ * After a Pick edit commits: notify the other participant of every challenge it cancelled. Best-effort and never throws (the edit already stands). The ids come from the database's own answer to
+ * the edit (set_pick's cancelled_challenge_ids), and the recipient is derived from the challenge itself — the editor is never notified.
+ */
+export async function notifyPickChangedCancellations(challengeIds: string[], editorUserId: string): Promise<void> {
+  if (challengeIds.length === 0) return;
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("challenges").select("id, challenger_user_id, recipient_user_id, market_id").in("id", challengeIds);
+  if (error || !data) {
+    console.error("[call-bs] cancellation notification lookup failed — the reconciliation sweep will deliver them:", error?.message);
+    return;
+  }
+  for (const row of data) {
+    const notifyUserId = row.challenger_user_id === editorUserId ? row.recipient_user_id : row.challenger_user_id;
+    await deliverChallengeNotification("CALL_BS_CANCELLED", row.id, () => createChallengeCancelledNotification({ challengeId: row.id, notifyUserId, marketId: row.market_id }));
+  }
+}
+
+/** Delivers the cancellation notifications still owed (a delivery that failed after its edit committed). Idempotent; returns how many it delivered and how many failed. */
+export async function reconcileChallengeCancellationNotifications(limit = 100): Promise<{ delivered: number; failed: number }> {
+  const admin = createAdminClient();
+  const { data, error } = await admin.rpc("call_bs_cancellations_awaiting_notification", { p_limit: limit });
+  if (error) throw new Error(`cancellation notification reconciliation failed: ${error.message}`);
+  let delivered = 0;
+  let failed = 0;
+  for (const row of (data ?? []) as { challenge_id: string; notify_user_id: string; market_id: string }[]) {
+    const result = await deliverChallengeNotification("CALL_BS_CANCELLED", row.challenge_id, () =>
+      createChallengeCancelledNotification({ challengeId: row.challenge_id, notifyUserId: row.notify_user_id, marketId: row.market_id }),
+    );
+    if (result.delivered) delivered += 1;
+    else failed += 1;
+  }
+  return { delivered, failed };
+}

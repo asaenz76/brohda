@@ -1,3 +1,5 @@
+// T-10 (platform_settings.pick_lock_minutes_before_kickoff) is Brohda's only Member prediction deadline; there is no T-5. The DATABASE is authoritative (pick_action_window / pick_lock_deadline, evaluated with clock_timestamp()
+// after the locks). Everything in this file only DISPLAYS the deadline — it closes controls and words the lock; it never decides whether an action is allowed.
 // Milestone R5 (docs/BROHDA_2_0_MILESTONE_MAP.md, Pick Editing + Locking).
 // The Pick-cutoff calculation, centralized (§35: "do not duplicate the
 // cutoff value in frontend code"). Pure — no I/O, no `new Date()` inline —

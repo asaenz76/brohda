@@ -11,6 +11,8 @@ afterEach(() => cleanup());
 
 vi.mock("@/lib/actions/predictions", () => ({
   commitPredictionAction: vi.fn(),
+  setPickAction: vi.fn(),
+  attachConfidenceAction: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), replace: vi.fn() }),
@@ -413,6 +415,54 @@ describe("GamePostCard", () => {
     it("shows nothing about Confidence to a logged-out visitor", () => {
       const { container } = render(<GamePostCard mode="public" item={withViewer({ confidenceOffer: offer() })} />);
       expect(container.textContent).not.toMatch(/How confident|Confidence/);
+    });
+  });
+
+  describe("Brohda 2.1 two-step card (optional Confidence; team first)", () => {
+    const offer2 = { available: 47, allowedStakes: [1, 2, 3, 4, 5], canClaim: false, twoStep: true };
+    const twoStep = (overrides: Partial<NonNullable<FeedItem["primaryMarket"]>> = {}) => makeItem({ primaryMarket: { ...makeItem().primaryMarket!, twoStep: true, confidenceOffer: offer2, ...overrides } });
+
+    it("a Member with no pick sees the two team choices and NO Confidence level yet — a pick needs no Confidence", () => {
+      render(<GamePostCard item={twoStep()} />);
+      expect(screen.getByRole("button", { name: "Pick Home Test NFL to win" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Pick Away Test NFL to win" })).toBeEnabled();
+      expect(screen.queryByRole("button", { name: /^\d Confidence$/ })).toBeNull();
+      expect(screen.getByText("Make your pick")).toBeInTheDocument();
+    });
+
+    it("an unstaked pick still changeable shows its team selected, the optional Confidence step and the change hint", () => {
+      render(<GamePostCard item={twoStep({ viewerSelection: "YES", viewerPredictionId: "p1", pickState: "UNSTAKED_EDITABLE", canChangeTeam: true, canAttachConfidence: true })} />);
+      expect(screen.getByRole("button", { name: "Pick Home Test NFL to win" })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByText("You can change your pick until it locks.")).toBeInTheDocument();
+      expect(screen.getByText("(optional)")).toBeInTheDocument();
+      expect((screen.getAllByRole("button", { name: /^\d Confidence$/ }) as HTMLButtonElement[]).every((b) => !b.disabled)).toBe(true);
+    });
+
+    it("a pick locked by an accepted Call BS keeps the optional Confidence control while the team stays locked", () => {
+      render(<GamePostCard item={twoStep({ viewerSelection: "YES", viewerPredictionId: "p1", pickState: "LOCKED_CALL_BS", canChangeTeam: false, canAttachConfidence: true })} />);
+      expect(screen.getByText("Your team is locked by an accepted Call BS.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Pick Home Test NFL to win" })).toBeDisabled();
+      expect(screen.getAllByRole("button", { name: /^\d Confidence$/ })).toHaveLength(5);
+    });
+
+    it("a Confidence-backed pick is read-only: the team and the amount are final, and an accepted Call BS is noted too", () => {
+      render(<GamePostCard item={twoStep({ viewerSelection: "NO", viewerPredictionId: "p2", isEditable: false, pickState: "STAKED_LOCKED_CONFIDENCE", lockSources: ["CONFIDENCE", "CALL_BS"], pickDisabledReason: "Picks are locked for this game.", confidence: { state: "staked", amount: 3, stakeState: "RESERVED", result: null } })} />);
+      expect(screen.getByText("You picked Away Test NFL")).toBeInTheDocument();
+      expect(screen.getByLabelText("3 Confidence, locked")).toBeInTheDocument();
+      expect(screen.getByText("Locked in a Call BS too.")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Pick .* to win/ })).toBeNull();
+    });
+
+    it("an unstaked pick past T-10 is the final record: no controls, and the lock reason", () => {
+      render(<GamePostCard item={twoStep({ viewerSelection: "YES", viewerPredictionId: "p3", isEditable: false, pickState: "UNSTAKED_LOCKED_T10", pickDisabledReason: "Picks are locked for this game." })} />);
+      expect(screen.getByText("You picked Home Test NFL — Picks are locked for this game.")).toBeInTheDocument();
+      expect(screen.queryByText(/How confident/)).toBeNull();
+    });
+
+    it("without the two-step flag the one-step composer is shown exactly as before", () => {
+      render(<GamePostCard item={makeItem({ primaryMarket: { ...makeItem().primaryMarket!, confidenceOffer: { available: 47, allowedStakes: [1, 2, 3, 4, 5], canClaim: false } } })} />);
+      expect(screen.queryByText("(optional)")).toBeNull();
+      expect(screen.getAllByRole("button", { name: /^\d Confidence$/ })).toHaveLength(5);
     });
   });
 

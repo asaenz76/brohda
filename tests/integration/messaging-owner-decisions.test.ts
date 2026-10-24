@@ -444,10 +444,10 @@ describe("Call BS expiry reasons and the 'ignored' policy", () => {
     const r2Pick = await seedPick(r2, g3.marketId, "NO");
     const sent3 = await callBS(r1, r2Pick);
     if (!sent3.ok) throw new Error("setup");
-    await seedPick(r2, g3.marketId, "YES"); // the recipient edits their Pick, so the Call BS no longer names a real disagreement
+    await seedPick(r2, g3.marketId, "YES"); // the recipient edits their Pick, so the Call BS no longer names a real disagreement: since Brohda 2.1 (M1) the edit itself ends it
     expect(r2Pick).toBeTruthy();
-    expect((await acceptCallBS(sent3.challenge.id, r2)).outcome).toBe("rejected_invalidated");
-    expect((await reasonOf(sent3.challenge.id)).expiry_reason).toBe("SYSTEM_INVALIDATED");
+    expect((await reasonOf(sent3.challenge.id)).expiry_reason).toBe("PICK_CHANGED");
+    expect((await acceptCallBS(sent3.challenge.id, r2)).outcome).toBe("not_pending");
   });
 
   it("EXPIRED always carries a reason and nothing else does — even a direct write that forgets one", async () => {
