@@ -390,7 +390,9 @@ describe("grading", () => {
 
     // Still ACTIVE — grading must never fabricate a result.
     const notYetSummary = await runGradingJob(recordGradedPredictionResult);
-    expect(notYetSummary.stillPending).toBeGreaterThanOrEqual(1);
+    // CHANGED with the grading-starvation fix (migration 215): a Pick on a Game that has not finished is no longer a CANDIDATE (the batch is chosen from processable Picks), so it is
+    // not "examined and still pending" any more; what must hold is unchanged — nothing is graded and the Pick stays PENDING.
+    expect(notYetSummary).toMatchObject({ examined: 0, graded: 0 });
     const stillPending = await getLatestUserPredictionForMarket(user.id, marketId);
     expect(stillPending?.lifecycleState).toBe("PENDING");
 
