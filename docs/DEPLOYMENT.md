@@ -55,12 +55,14 @@ Three Vercel environment scopes exist on the production project; they must never
 
 | Scope | What it may hold |
 |---|---|
-| **Production** | The production Supabase URL/anon/service-role key, the production `CRON_SECRET`, every provider/payment/e-mail/Anthropic key, `SUPABASE_ACCESS_TOKEN`, `APP_URL`, the Sentry DSN. |
+| **Production** | The production Supabase URL/anon/service-role key, the production `CRON_SECRET`, every provider/payment/e-mail/Anthropic key, `APP_URL`, the Sentry DSN. **Never** `SUPABASE_ACCESS_TOKEN` (see below). |
 | **Preview** (every pull-request deployment) | **Only** the *staging* Supabase URL/anon/service-role key, a Preview-only `CRON_SECRET`, `API_*_ENABLED=false`, and harmless settings (`DEFAULT_TIMEZONE`). **Never** a production secret, the production service-role key, `SUPABASE_ACCESS_TOKEN`, a provider key, an e-mail key or a payment/webhook secret. Anything absent here makes the feature fail closed in a Preview. |
 | **Development** | Nothing (local development uses `.env.local` / the local Supabase CLI). |
 
 Why: the service-role key bypasses RLS and the cron secret opens every job route. A Preview runs unreviewed code, so it must not be able to write to production. (Found and fixed in the M1 release gate: Preview used to inherit all of Production's variables.)
 When adding a variable in Vercel, choose its scopes deliberately; a variable that is added to "Production, Preview" at once is the mistake this rule exists to prevent. Rotate any secret that has ever been printed or pasted anywhere.
+
+`SUPABASE_ACCESS_TOKEN` is a Supabase *Management* credential (it can administer the project, not just read its data). Nothing in the application, the Vercel build or the CI workflow reads it, so it belongs in **no** Vercel scope. Whoever runs `supabase db push` / `supabase link` keeps it in their own CLI login (or a local secret store); if CI ever needs it, store it as a GitHub Actions secret.
 
 The staging environment (a separate Supabase project and a separate Vercel project, `brohda-staging`) is where release rehearsals run; it holds staging-only secrets, no e-mail key, no provider keys, and registration disabled. Apply new migrations to staging first.
 
