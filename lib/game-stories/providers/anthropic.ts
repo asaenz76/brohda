@@ -30,6 +30,8 @@ export class StoryProviderError extends Error {
 const RESEARCH_MAX_TOKENS = 16000;
 const STAGE_MAX_TOKENS = 6000;
 const MAX_PAUSE_RESUMES = 4;
+/** A multi-search research session legitimately takes minutes (the legacy engine allowed 290 s): research never gets less than this, whatever the per-request setting. The route itself is capped at 300 s. */
+export const RESEARCH_MIN_TIMEOUT_MS = 240_000;
 
 interface CallResult {
   text: string;
@@ -101,7 +103,7 @@ export class AnthropicStoryProvider implements StoryResearchProvider, StoryAngle
   readonly name = "anthropic";
   constructor(private readonly client: MessagesClient, private readonly options: ProviderOptions) {}
 
-  private async call(params: Omit<Anthropic.Messages.MessageCreateParamsNonStreaming, "stream">, countsSearch: boolean): Promise<CallResult> {
+  private async call(params: Omit<Anthropic.Messages.MessageCreateParamsNonStreaming, "stream">, countsSearch: boolean, timeoutMs: number = this.options.timeoutMs): Promise<CallResult> {
     const sleep = this.options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
     const messages: Anthropic.Messages.MessageParam[] = [...params.messages];
     let usage: ProviderUsage = emptyUsage();
@@ -111,7 +113,7 @@ export class AnthropicStoryProvider implements StoryResearchProvider, StoryAngle
       let response: Anthropic.Messages.Message | null = null;
       for (let attempt = 0; ; attempt++) {
         try {
-          response = (await this.client.messages.create({ ...params, messages }, { timeout: this.options.timeoutMs })) as Anthropic.Messages.Message;
+          response = (await this.client.messages.create({ ...params, messages }, { timeout: timeoutMs })) as Anthropic.Messages.Message;
           break;
         } catch (error) {
           const e = classifyError(error);
@@ -151,6 +153,7 @@ export class AnthropicStoryProvider implements StoryResearchProvider, StoryAngle
     const first = await this.call(
       { model: this.options.model, max_tokens: RESEARCH_MAX_TOKENS, system: researchSystem(game, config.maxQueriesPerGame, blocked), output_config: { effort: this.options.effort }, tools: [tool as unknown as Anthropic.Messages.ToolUnion], messages: [{ role: "user", content: `Research this Game and return the facts.\n${describeGame(game)}\nToday (UTC): ${ctx.now.toISOString()}` }] },
       true,
+      Math.min(290_000, Math.max(this.options.timeoutMs, RESEARCH_MIN_TIMEOUT_MS)),
     );
     // pages the search actually reached: a fact is accepted only if its URL is one of them (the model cannot cite a page it did not retrieve)
     const reached = new Set<string>();
@@ -169,7 +172,7 @@ export class AnthropicStoryProvider implements StoryResearchProvider, StoryAngle
       parsed = extractJson(first.text, "research");
     } catch {
       // ONE bounded format retry, with no tools: the model is shown its own answer and asked to return the same findings as valid JSON.
-      const retry = await this.call({ ...first.request, messages: [...first.request.messages, { role: "assistant", content: first.text.trim() || "(no answer)" }, { role: "user", content: FORMAT_RETRY }] }, false);
+      const retry = await this.call({ ...first.request, messages: [...first.request.messages, { role: "assistant", content: first.text.trim() || "(no answer)" }, { role: "user", content: FORMAT_RETRY }] }, false, this.options.timeoutMs);
       usage = addUsage(usage, retry.usage);
       parsed = extractJson(retry.text, "research");
     }

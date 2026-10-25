@@ -67,8 +67,9 @@ export async function runScheduledStories(options: { budgetMs?: number; perGameM
   const deps = { ...defaultDeps, ...overrides };
   const config = await deps.loadConfig();
   if (!config.generationEnabled) return { enabled: false, candidates: 0, results: [], stoppedForTime: false };
-  const budget = options.budgetMs ?? 270_000;
-  const perGame = options.perGameMs ?? 110_000;
+  // One Game is research (up to ~4 min) + angles + draft + verify + score: a Game is started only if a realistic worst case still fits the function's 300 s, otherwise the next tick takes it.
+  const budget = options.budgetMs ?? 290_000;
+  const perGame = options.perGameMs ?? 150_000;
   const candidates = await listCandidates(config.maxGamesPerRun);
   const started = Date.now();
   const report: ScheduledReport = { enabled: true, candidates: candidates.length, results: [], stoppedForTime: false };

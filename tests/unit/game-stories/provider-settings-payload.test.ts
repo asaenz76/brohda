@@ -26,7 +26,11 @@ describe("research", () => {
     expect(req.output_config).toEqual({ effort: "medium" });
     expect(req.tools[0]).toMatchObject({ type: "web_search_20250305", name: "web_search", max_uses: 4 });
     expect(req.tools[0].blocked_domains).toEqual(expect.arrayContaining(["draftkings.com", "reddit.com", "example-blocked.com"]));
-    expect(create.mock.calls[0][1]).toMatchObject({ timeout: 5000 });
+    // a multi-search session is allowed minutes whatever the per-request setting; the other stages use the configured timeout
+    expect(create.mock.calls[0][1]).toMatchObject({ timeout: 240_000 });
+    const angles = vi.fn<Create>(async () => message('{"angles":[]}'));
+    await provider(angles).propose(game(), [], ctx);
+    expect(angles.mock.calls[0][1]).toMatchObject({ timeout: 5000 });
   });
   it("keeps only facts whose URL the search actually reached (a model cannot cite a page it never retrieved)", async () => {
     const text = JSON.stringify({ facts: [{ url: "https://www.espn.com/real", fact_text: "Real.", subject_team: "BOTH", evidence_type: "ARTICLE" }, { url: "https://www.espn.com/invented", fact_text: "Invented.", subject_team: "BOTH" }] });
