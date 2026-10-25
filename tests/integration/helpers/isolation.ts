@@ -58,6 +58,11 @@ const TRANSIENT_TABLES = [
   "predictions",
   "post_comments",
   "post_communities",
+  "game_story_claim_evidence",
+  "game_story_claims",
+  "game_story_revisions",
+  "game_story_evidence",
+  "game_story_runs",
   "game_preview_runs",
   "game_preview_revisions",
   "game_preview_sources",
@@ -93,6 +98,18 @@ export async function resetIntegrationWorld(): Promise<void> {
           from information_schema.columns
           where table_schema = 'public' and table_name = 'game_preview_config' and column_default is not null and column_name not in ('id', 'updated_at');
         execute 'update public.game_preview_config set ' || cols || ' where id = true';
+      end $$;
+    `);
+    // Every Game Story setting back to its shipped default (generation OFF, auto-publish OFF, 300 characters, 80 points).
+    await client.query(`
+      do $$
+      declare cols text;
+      begin
+        select string_agg(format('%I = default', column_name), ', ')
+          into cols
+          from information_schema.columns
+          where table_schema = 'public' and table_name = 'game_story_config' and column_default is not null and column_name not in ('id', 'updated_at');
+        execute 'update public.game_story_config set ' || cols || ' where id = true';
       end $$;
     `);
     await client.query(`
