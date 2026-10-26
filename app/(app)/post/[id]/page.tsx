@@ -23,6 +23,8 @@ import { PostCommunityBadges } from "@/components/communities/PostCommunityBadge
 import { Card, CardContent } from "@/components/ui/card";
 import { LocalDateTime } from "@/components/LocalDateTime";
 import { MatchupHeading } from "@/components/posts/MatchupHeading";
+import { GameContextLine } from "@/components/posts/GameContextLine";
+import { getGameContexts } from "@/lib/game-context/repository";
 import { orderTeamsForDisplay } from "@/lib/sports-data/team-display-order";
 import { LeagueCrest } from "@/components/LeagueCrest";
 import { SponsoredLabel } from "@/components/sponsorship/SponsoredLabel";
@@ -49,7 +51,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
   if (!fixture) notFound();
   const league = resolveLeagueIdentity({ competitionName: fixture.competitionName, competitionLogoUrl: fixture.competitionLogoUrl });
 
-  const [allMarkets, policy, conversation, communities, sponsorship, preview, lockPolicy, predictionPolicy] = await Promise.all([
+  const [allMarkets, policy, conversation, communities, sponsorship, preview, lockPolicy, predictionPolicy, gameContexts] = await Promise.all([
     listDisplayableMarketsForFixture(post.fixtureId),
     getPostPublicationPolicy(),
     getPostConversation(post.id, undefined, user.id),
@@ -58,7 +60,10 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
     getGamePreviewForFixture(post.fixtureId),
     getPickLockPolicy(),
     getPredictionPolicy(),
+    // Same function, same answer as the feed card. Never throws: any failure is "no context".
+    getGameContexts([post.fixtureId]),
   ]);
+  const gameContext = gameContexts.get(post.fixtureId) ?? null;
   // M2: only the templates Members are currently offered are shown on the Game; hidden Markets stay in history (profile, Call BS history), never as a secondary block here.
   const activeMarkets = marketsOfAllowedTemplates(allMarkets, predictionPolicy.allowedTemplates);
   const primaryMarket = selectPrimaryMarket(activeMarkets, policy.primaryMarketTemplatePriority);
@@ -107,6 +112,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
             <p className="text-sm text-text-secondary">
               <LocalDateTime iso={fixture.scheduledStartUtc} options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
             </p>
+            {gameContext && <GameContextLine text={gameContext.text} />}
             {fixture.internalStatus === "COMPLETED" && fixture.homeScore != null && fixture.awayScore != null && (
               <p className="text-sm font-medium text-text-primary">
                 {(() => {

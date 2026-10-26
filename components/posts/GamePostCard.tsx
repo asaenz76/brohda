@@ -9,6 +9,7 @@ import { MatchupHeading } from "@/components/posts/MatchupHeading";
 import { formatMatchupScores, formatMatchupSpoken } from "@/lib/sports-data/team-display-order";
 import { FeedMarketPick } from "@/components/posts/FeedMarketPick";
 import { MoreMarkets } from "@/components/posts/MoreMarkets";
+import { GameContextLine } from "@/components/posts/GameContextLine";
 import { getCommunityTypeLabel } from "@/lib/communities/presentation";
 import type { FeedItem } from "@/lib/communities/feed";
 import { MONEYLINE_MARKET_LABEL } from "@/lib/prediction-markets/selection-labels";
@@ -104,6 +105,8 @@ export function GamePostCard({ item, mode = "member" }: { item: FeedItem; mode?:
             <p className="text-sm text-text-secondary">
               {statusLabel ?? <LocalDateTime iso={item.scheduledStartUtc} options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />}
             </p>
+
+            {item.gameContext && <GameContextLine text={item.gameContext.text} />}
 
             {market && <MarketContext market={market} />}
           </Link>
