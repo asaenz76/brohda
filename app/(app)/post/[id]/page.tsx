@@ -11,6 +11,8 @@ import { getCommunityRefsForPost } from "@/lib/communities/feed";
 import { getUserPredictionRecords } from "@/lib/reputation/repository";
 import type { UserIdentityReputation } from "@/components/identity/UserIdentity";
 import { GameMarketSentimentSection } from "@/components/posts/GameMarketSentiment";
+import { GameStorySection } from "@/components/game-stories/GameStorySection";
+import { getApprovedStoryForFixture } from "@/lib/game-stories/repository";
 import { GamePreviewSection } from "@/components/posts/GamePreviewSection";
 import { MarketParticipants } from "@/components/predictions/MarketParticipants";
 import { getGameMarketSentiment } from "@/lib/posts/game-sentiment";
@@ -49,13 +51,14 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
   if (!fixture) notFound();
   const league = resolveLeagueIdentity({ competitionName: fixture.competitionName, competitionLogoUrl: fixture.competitionLogoUrl });
 
-  const [allMarkets, policy, conversation, communities, sponsorship, preview, lockPolicy, predictionPolicy] = await Promise.all([
+  const [allMarkets, policy, conversation, communities, sponsorship, preview, story, lockPolicy, predictionPolicy] = await Promise.all([
     listDisplayableMarketsForFixture(post.fixtureId),
     getPostPublicationPolicy(),
     getPostConversation(post.id, undefined, user.id),
     getCommunityRefsForPost(post.id),
     loadPublicSponsorshipForPost(post.id),
     getGamePreviewForFixture(post.fixtureId),
+    getApprovedStoryForFixture(post.fixtureId),
     getPickLockPolicy(),
     getPredictionPolicy(),
   ]);
@@ -126,10 +129,16 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
             </div>
           )}
 
-          {preview && (
+          {story ? (
             <div className="border-t border-border-subtle pt-4">
-              <GamePreviewSection preview={preview} />
+              <GameStorySection story={story} />
             </div>
+          ) : (
+            preview && (
+              <div className="border-t border-border-subtle pt-4">
+                <GamePreviewSection preview={preview} />
+              </div>
+            )
           )}
 
           {sponsorship?.promotion && (
