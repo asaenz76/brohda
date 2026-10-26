@@ -26,6 +26,7 @@ import { getPostCommentCountsForPosts } from "@/lib/post-comments/repository";
 import type { Prediction, PredictionOutcome } from "@/lib/predictions/types";
 import { loadPublicSponsorships } from "@/lib/sponsorship/public";
 import type { PublicSponsorship } from "@/lib/sponsorship/types";
+import { getGameContexts } from "@/lib/game-context/repository";
 
 // Milestone R4 (§21-22) established the canonical Post-centric discovery
 // queries; Stage 4A (R13.10 remediation of the Stage 4 audit's P0 finding
@@ -214,6 +215,8 @@ export interface FeedItem {
   secondaryMarkets?: FeedMarketSummary[];
   /** The active, approved, paid sponsorship for this Post (null when none / capability off) — presentation only, never part of the Post's identity. */
   sponsorship?: PublicSponsorship | null;
+  /** Deterministic Game Context (lib/game-context): one short line computed from stored sports data, or absent. Optional enrichment only — nothing about the Game, its Pick controls or its grading ever depends on it. */
+  gameContext?: { text: string } | null;
 }
 
 /**
@@ -331,7 +334,7 @@ export async function getSocialFeed(userId: string | null, limit: number = FEED_
   const confidenceOffer = userId ? await getConfidenceOffer(userId) : null;
   const items = await enrichFeedRows(rows, userId, followedPostIds, publicationPolicy, predictionPolicy, freshnessPolicy, confidenceOffer);
   items.sort(compareFeedItems);
-  return withSponsorships(await withSecondaryMarkets(items.slice(0, limit), userId, publicationPolicy, predictionPolicy, freshnessPolicy, confidenceOffer));
+  return withGameContext(await withSponsorships(await withSecondaryMarkets(items.slice(0, limit), userId, publicationPolicy, predictionPolicy, freshnessPolicy, confidenceOffer)));
 }
 
 /** The prediction policy plus the pre-kickoff pick lock: the card closes its controls at the same instant the database starts refusing picks. */
@@ -655,7 +658,21 @@ export async function getCommunityTimeline(communityId: string, userId: string |
   }));
 
   deNoised.sort(compareCommunityTimelineItems);
-  return withSponsorships(await withSecondaryMarkets(deNoised.slice(0, limit), userId, publicationPolicy, predictionPolicy, freshnessPolicy, confidenceOffer));
+  return withGameContext(await withSponsorships(await withSecondaryMarkets(deNoised.slice(0, limit), userId, publicationPolicy, predictionPolicy, freshnessPolicy, confidenceOffer)));
+}
+
+/**
+ * Presentation only: attaches each Game's deterministic context line, when there is one. ONE batched read for the whole page (never one per card); a Game with no line, a policy that is off, or any failure
+ * leaves the item exactly as it was. Never changes which Posts appear, their order, or anything a Member can do.
+ */
+async function withGameContext(items: FeedItem[]): Promise<FeedItem[]> {
+  if (items.length === 0) return items;
+  const contexts = await getGameContexts(items.map((i) => i.post.fixtureId));
+  if (contexts.size === 0) return items;
+  return items.map((item) => {
+    const context = contexts.get(item.post.fixtureId);
+    return context ? { ...item, gameContext: { text: context.text } } : item;
+  });
 }
 
 /** Presentation only: attaches the active sponsorship (if any) to each returned item. Never changes which Posts appear, their order, or any sports content. */

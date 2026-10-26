@@ -68,6 +68,12 @@ export interface SportConfig {
   expectedTeamCount: number;
   /** Whether a finished game can end level. False for basketball / hockey / baseball: a COMPLETED level score there is an inconsistent provider result and is never graded. */
   tiesPossible: boolean;
+  /**
+   * Game Context (lib/game-context): how a Game's REGULAR season is told apart from preseason and postseason using only what Brohda stores. `{ roundPrefix }` = the provider's `round` label starts with it
+   * (API-NFL: "Regular Season - Week 7" against "Pre Season - Week 2"). `null` = the stored data carries no such marker — API-NBA and API-NHL send round / stage / week as null and their schedules open with
+   * preseason Games — so no form fact can be proven for that sport and Game Context stays silent for it. Supplying a marker for a sport is a reviewed edit here, never a guess.
+   */
+  regularSeason: { roundPrefix: string } | null;
 }
 
 const utcYear = (now: Date) => now.getUTCFullYear();
@@ -105,6 +111,7 @@ export const SPORT_CONFIGS: readonly SportConfig[] = [
     ingestionSource: "nfl_market_ingestion",
     expectedTeamCount: 32,
     tiesPossible: true,
+    regularSeason: { roundPrefix: "Regular Season" },
   },
   {
     sport: "basketball",
@@ -137,6 +144,7 @@ export const SPORT_CONFIGS: readonly SportConfig[] = [
     ingestionSource: "nba_market_ingestion",
     expectedTeamCount: 30,
     tiesPossible: false,
+    regularSeason: null,
   },
   {
     sport: "hockey",
@@ -164,6 +172,7 @@ export const SPORT_CONFIGS: readonly SportConfig[] = [
     ingestionSource: "nhl_market_ingestion",
     expectedTeamCount: 32,
     tiesPossible: false,
+    regularSeason: null,
   },
   {
     sport: "baseball",
@@ -188,6 +197,7 @@ export const SPORT_CONFIGS: readonly SportConfig[] = [
     ingestionSource: "mlb_market_ingestion",
     expectedTeamCount: 30,
     tiesPossible: false,
+    regularSeason: null,
   },
 ];
 
