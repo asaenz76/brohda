@@ -61,16 +61,6 @@ export const JOB_REGISTRY: readonly JobDefinition[] = [
     expectedCadenceMinutes: 1440,
   },
   {
-    // M3 Game Story Engine (lib/game-stories). Its own route and its own external scheduler entry. A no-op until game_story_config.generation_enabled is switched on: off means no candidate query, no provider call and no write.
-    // It only ever produces candidates for Admin review; nothing it does is published without an approval.
-    id: "game-stories",
-    displayName: "Research Game stories",
-    route: "/api/cron/game-stories",
-    category: "brohda-social",
-    criticality: "standard",
-    expectedCadenceMinutes: 30,
-  },
-  {
     id: "prune-provider-request-log",
     displayName: "Prune provider request log",
     route: "/api/cron/prune-provider-request-log",
