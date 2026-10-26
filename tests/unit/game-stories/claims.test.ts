@@ -52,6 +52,12 @@ describe("findUnclaimedFacts", () => {
     const out = findUnclaimedFacts("Brunson sits.", "Boston hosts New York; Derrick White has played 12 minutes of it.", c, g);
     expect(out).toEqual(expect.arrayContaining(["12", "White"]));
   });
+  it("a team's short form and the Game's own weekday are not facts; any other weekday is (found on real runs: 'Philly', 'Monday')", () => {
+    const eagles = { homeTeam: "Philadelphia Eagles", awayTeam: "Dallas Cowboys", kickoffUtc: "2026-10-27T00:15:00Z" }; // a Monday-evening US Game, Tuesday in UTC
+    const c = [claim({ text: "Dallas has lost two straight", evidenceIds: ["x"] })];
+    expect(findUnclaimedFacts("Without Hurts.", "Dallas visits Philly on Monday; somebody's offense wakes up Tuesday.", c, eagles)).toEqual(["Hurts"]);
+    expect(findUnclaimedFacts("Quiet night.", "Dallas visits Philly. They lost last Thursday.", c, eagles)).toEqual(["Thursday"]);
+  });
   it("does not treat the first word of a sentence, team names or 'one' as facts", () => {
     const c = [claim({ text: "Boston hosts New York", evidenceIds: ["x"] })];
     expect(findUnclaimedFacts("Tonight it matters.", "Boston and the Knicks meet. One of them blinks first.", c, g)).toEqual([]);

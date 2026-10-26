@@ -43,11 +43,14 @@ const GENERIC_PHRASES: readonly string[] = [
 ];
 
 /** Short forms of team names that real sports copy uses. Key = the alias, value = text that the team's full name contains. */
-const TEAM_ALIASES: Readonly<Record<string, string>> = {
+export const TEAM_ALIASES: Readonly<Record<string, string>> = {
   philly: "philadelphia", cavs: "cavaliers", wolves: "timberwolves", twolves: "timberwolves", mavs: "mavericks", pats: "patriots", bucs: "buccaneers", niners: "49ers", sixers: "76ers", blazers: "trail blazers",
   habs: "canadiens", isles: "islanders", pens: "penguins", caps: "capitals", preds: "predators", bolts: "lightning", wings: "red wings", jackets: "blue jackets", leafs: "maple leafs", nugs: "nuggets",
   dubs: "warriors", celts: "celtics", grizz: "grizzlies", clips: "clippers", cards: "cardinals", fins: "dolphins", jags: "jaguars", okc: "oklahoma city", nola: "new orleans", kc: "kansas city", gb: "green bay", tb: "tampa bay",
 };
+
+/** The alias short forms (normalised) that stand for this team, e.g. "philly" for the Philadelphia Eagles. */
+export const aliasTokensFor = (team: string): string[] => Object.entries(TEAM_ALIASES).filter(([, standsFor]) => normalizeForCompare(team).includes(standsFor)).map(([alias]) => alias);
 
 export function checkCopyRules(hook: string, body: string, config: Pick<StoryConfig, "maxChars">, game: Pick<GameContext, "homeTeam" | "awayTeam">): RuleViolation[] {
   const violations: RuleViolation[] = [];

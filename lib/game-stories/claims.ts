@@ -7,6 +7,7 @@
 //   availability status matches the evidence exactly (questionable is never "out")  · quotes appear verbatim in a strong source that names the speaker
 //   high-risk claim types need a source above the policy's authority floor
 // Story-level: every figure and proper noun in the copy must appear in some claim ("unclaimed fact" ⇒ reject), so a sentence can never smuggle in an unverified fact next to a sourced one.
+import { aliasTokensFor } from "./rules";
 import { minAuthorityForClaim } from "./source-policy";
 import { evidenceNumbers, normalizeForCompare, numbersIn, stripTeamNames } from "./text";
 import { CURRENT_CLAIM_TYPES, type ClaimResult, type ClaimVerdict, type DraftClaim, type EvidenceItem, type GameContext, type RejectionCode, type StoryConfig } from "./types";
@@ -101,11 +102,20 @@ const ALLOWED_CAPITALISED = new Set(["brohda", "i", "nba", "nfl", "nhl", "mlb", 
  * Facts in the copy that no claim covers: figures and mid-sentence capitalised words (names, places) absent from every claim's text. The writer must list every factual statement as a claim,
  * so this is what stops an unsourced fact riding along inside a sourced sentence. Team names of this Game are always allowed.
  */
-export function findUnclaimedFacts(hook: string, body: string, claims: readonly DraftClaim[], game: Pick<GameContext, "homeTeam" | "awayTeam">): string[] {
+const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+/** The weekday names that belong to THIS Game: the kickoff's day (UTC) and the evening before it (a US evening Game falls on the previous UTC day). Any other weekday is a fact and needs a claim. */
+const gameWeekdays = (kickoffUtc: string | undefined): Set<string> => {
+  const t = kickoffUtc ? Date.parse(kickoffUtc) : NaN;
+  if (Number.isNaN(t)) return new Set();
+  return new Set([new Date(t).getUTCDay(), new Date(t - 86_400_000).getUTCDay()].map((d) => WEEKDAYS[d]));
+};
+
+export function findUnclaimedFacts(hook: string, body: string, claims: readonly DraftClaim[], game: Pick<GameContext, "homeTeam" | "awayTeam"> & Partial<Pick<GameContext, "kickoffUtc">>): string[] {
   const claimText = claims.map((c) => `${c.text} ${c.quote?.text ?? ""}`).join(" ");
   const claimFigures = numbersIn(claimText, { includeAmbiguousWords: true });
   const claimNorm = normalizeForCompare(claimText);
-  const teamTokens = new Set([game.homeTeam, game.awayTeam].flatMap((t) => normalizeForCompare(t).split(" ")));
+  const teamTokens = new Set([game.homeTeam, game.awayTeam].flatMap((t) => [...normalizeForCompare(t).split(" "), ...aliasTokensFor(t)]));
+  const days = gameWeekdays(game.kickoffUtc);
   const unclaimed = new Set<string>();
   for (const part of [hook, body]) {
     const text = stripTeamNames(part, [game.homeTeam, game.awayTeam]);
@@ -119,7 +129,7 @@ export function findUnclaimedFacts(hook: string, body: string, claims: readonly 
         const w = raw.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9'’-]+$/g, "");
         if (!/^[A-Z][A-Za-z'’-]{2,}$/.test(w)) return;
         const lw = w.toLowerCase().replace(/['’]s$/, "");
-        if (ALLOWED_CAPITALISED.has(lw) || teamTokens.has(lw)) return;
+        if (ALLOWED_CAPITALISED.has(lw) || teamTokens.has(lw) || days.has(lw)) return;
         if (!claimNorm.includes(normalizeForCompare(lw))) unclaimed.add(w);
       });
     }
