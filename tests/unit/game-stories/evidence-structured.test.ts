@@ -37,6 +37,18 @@ describe("normalizeEvidence", () => {
     expect(stats.overLimit).toBe(1);
     expect(items.find((i) => i.statusReason === "over_source_limit")!.kind).toBe("OTHER_REPORTING");
   });
+  it("the cap counts distinct PAGES, keeps every fact of a kept page (up to a per-page ceiling) and prefers a dated strong page to an undated one", () => {
+    const manyFromOnePage = Array.from({ length: 9 }, (_, i) => raw({ url: "https://www.espn.com/one", factText: `Fact number ${i}.` }));
+    const { items, stats } = norm(manyFromOnePage, { maxSources: 2 });
+    expect(items.filter((i) => i.status === "USABLE")).toHaveLength(6); // one page, 6 facts at most
+    expect(stats.overLimit).toBe(3);
+    expect(items.find((i) => i.status === "DROPPED")!.statusReason).toBe("over_fact_limit");
+    const undatedOfficial = raw({ url: "https://www.nba.com/undated", publishedAt: null, factText: "An undated official fact." });
+    const datedMajor = raw({ url: "https://www.espn.com/dated", publishedAt: hoursAgo(3), factText: "A dated major fact." });
+    const kept = norm([undatedOfficial, datedMajor], { maxSources: 1 }).items;
+    expect(kept.find((i) => i.status === "USABLE")!.factText).toBe("A dated major fact.");
+    expect(kept.find((i) => i.status === "DROPPED")!.statusReason).toBe("over_source_limit");
+  });
   it("sanitises hidden characters and markup, and ignores an item with no text", () => {
     const { items } = norm([raw({ factText: "Boston​ won <script>alert(1)</script> big." }), raw({ factText: "  " })]);
     expect(items).toHaveLength(1);

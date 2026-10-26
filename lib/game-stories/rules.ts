@@ -13,7 +13,7 @@ export interface RuleViolation {
 /** Sportsbook vocabulary and betting advice. The story is Game-first: pricing is never the editorial spine. */
 const GAMBLING = /\b(point spread|(?:the|a|\d+(?:\.\d+)?-point) spread|against the spread|ats|over\/under|over-under|moneylines?|odds|betting|bettors?|bets?|wagers?|wagering|parlays?|sportsbooks?|bookmakers?|handicap(?:per|ping)?|lock of the (?:day|week)|(?:cover|covers|covered) the|juice|vig|prop bets?|futures bets?|implied probability|gambl\w+)\b/i;
 /** Any proposition other than the team winner: totals, margins, firsts, individual lines. */
-const EXTRA_PROPOSITION = /\b(?:over|under) \d+(?:\.\d+)?\b|\btotal (?:points|goals|runs)\b|\bby (?:more|less|at least|over|under) (?:than )?\d+\b|\bwin by \d+|\bfirst (?:to|team to) score\b|\bwill (?:score|record|total|combine|throw|rush|score)\b.{0,30}\b(?:more|fewer|over|under) than\b|\bto (?:score|record) (?:over|under|at least)\b/i;
+const EXTRA_PROPOSITION = /\b(?:over|under) \d+\.\d+\b|\b(?:goes|go|going|hit|hits|cash|cashes|cashing|take|takes) (?:the )?(?:over|under)\b|\btotal (?:points|goals|runs)\b|\bby (?:more|less|at least) than \d+\b|\bwin by \d+|\bfirst (?:to|team to) score\b|\bwill (?:score|record|total|combine|throw|rush)\b.{0,30}\b(?:more|fewer|over|under) than\b|\bto (?:score|record) (?:over|under|at least)\b/i;
 const HASHTAG_OR_LINK = /(^|\s)#\w+|https?:\/\/|\bwww\.\S+|\b\S+\.(?:com|net|org|io)\b/i;
 const AI_DISCLAIMER = /\b(as an ai|ai[- ]generated|generated (?:by|with) (?:ai|claude|gpt)|language model|i (?:cannot|can't) (?:verify|browse))\b/i;
 const CALL_TO_ACTION = /\b(pick a side|make your pick|make your prediction|vote (?:now|below)|let us know|comment below|sound off|drop your pick|tell us)\b/i;

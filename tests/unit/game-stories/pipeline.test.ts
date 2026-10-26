@@ -234,6 +234,14 @@ describe("editorial gates", () => {
     expect((await run(withWeb(web(), draft), [streak()])).outcome.rejectionCode).toBe(code);
   });
 
+  it("is not fooled by sports phrasing that merely contains 'over' and a number (a false positive found on the first real run)", async () => {
+    const draft = (e: EvidenceItem[]): Draft => ({ ...accepted(e), body: "Boston has won five straight and three meetings in a row against New York, and the Knicks turned it over 23 times last week. Jalen Brunson is out with an ankle injury. Who snaps it?" });
+    const out = await run(withWeb(web(), draft), [streak()]);
+    expect(out.outcome.rejectionCode).not.toBe("EXTRA_PROPOSITION");
+    const betting = (e: EvidenceItem[]): Draft => ({ ...accepted(e), body: "Boston has won five straight and three meetings in a row against New York; take the over 220.5 as Jalen Brunson is out with an ankle injury." });
+    expect((await run(withWeb(web(), betting), [streak()])).outcome.rejectionCode).toBe("EXTRA_PROPOSITION");
+  });
+
   it("rejects a story that is about neither team of this Game", async () => {
     const draft = (e: EvidenceItem[]): Draft => ({ ...accepted(e), hook: "Six straight, and counting.", body: "The Lakers have beaten the Warriors six straight times, and Jalen Brunson is out with an ankle injury. Who snaps it?" });
     expect((await run(withWeb(web(), draft), [streak()])).outcome.rejectionCode).toBe("WRONG_GAME");

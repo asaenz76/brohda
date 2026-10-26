@@ -5,9 +5,13 @@
 //   * sanitise text and QUARANTINE anything that reads like an instruction to the system (prompt-injection resistance): retrieved pages are data, never commands;
 //   * de-duplicate (same page + same fact), cap the number of sources, never keep an unbounded set;
 //   * resolve contradictions between sources about the same fact — newer-and-at-least-as-authoritative wins, otherwise the fact is CONFLICTED and unusable. A better story is never a reason to choose a side.
-import { canonicalUrl, classifySource, hostOf } from "./source-policy";
+import { canonicalUrl, classifySource, hostOf, minAuthorityForClaim } from "./source-policy";
 import { looksLikeInjection, normalizeForCompare, sanitizeText } from "./text";
 import type { EvidenceItem, GameContext, RawEvidence, StoryConfig } from "./types";
+
+/** Facts one page may contribute, and the authority a page needs for its facts to support a high-risk claim. */
+const MAX_FACTS_PER_PAGE = 6;
+const HIGH_RISK_FLOOR = minAuthorityForClaim("AVAILABILITY");
 
 export interface NormalizeStats {
   received: number;
@@ -87,14 +91,26 @@ export function normalizeEvidence(
     items.push(base);
   }
 
-  // Keep the strongest, freshest sources up to the configured cap.
+  // The cap counts distinct PAGES (sources), not facts: one article can carry many facts. Pages are ranked strong-and-dated first — a page whose facts can support a high-risk claim (authority >= the floor) and that states a
+  // date outranks a stronger-sounding undated one, then by authority, then by recency — and every fact of a kept page stays (up to a per-page and a total ceiling so a single page cannot flood the set).
   const usable = items.filter((i) => i.status === "USABLE");
-  usable.sort((a, b) => b.authority - a.authority || (Date.parse(b.publishedAt ?? "") || 0) - (Date.parse(a.publishedAt ?? "") || 0));
-  for (const dropped of usable.slice(Math.max(config.maxSources, 1))) {
-    dropped.status = "DROPPED";
-    dropped.statusReason = "over_source_limit";
-    stats.overLimit++;
-  }
+  const pages = new Map<string, EvidenceItem[]>();
+  for (const i of usable) pages.set(i.canonicalId, [...(pages.get(i.canonicalId) ?? []), i]);
+  const stamp = (p: EvidenceItem[]) => Math.max(...p.map((i) => Date.parse(i.publishedAt ?? "") || 0));
+  const rank = (p: EvidenceItem[]) => [Math.max(...p.map((i) => i.authority)) >= HIGH_RISK_FLOOR && stamp(p) > 0 ? 1 : 0, Math.max(...p.map((i) => i.authority)), stamp(p)];
+  const ordered = [...pages.values()].sort((a, b) => {
+    const [ra, rb] = [rank(a), rank(b)];
+    return rb[0] - ra[0] || rb[1] - ra[1] || rb[2] - ra[2];
+  });
+  const maxPages = Math.max(config.maxSources, 1);
+  let kept = 0;
+  ordered.forEach((page, index) => {
+    for (const [n, item] of page.entries()) {
+      if (index >= maxPages) { item.status = "DROPPED"; item.statusReason = "over_source_limit"; stats.overLimit++; }
+      else if (n >= MAX_FACTS_PER_PAGE || kept >= maxPages * MAX_FACTS_PER_PAGE) { item.status = "DROPPED"; item.statusReason = "over_fact_limit"; stats.overLimit++; }
+      else kept++;
+    }
+  });
 
   const conflicts = resolveConflicts(items);
   stats.superseded = conflicts.superseded;
