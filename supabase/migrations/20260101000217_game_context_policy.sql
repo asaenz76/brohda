@@ -63,9 +63,9 @@ begin
         raise exception 'invalid_config';
       end if;
     end loop;
-    -- "Notable" must be a real majority of the window and cannot exceed it (the defaults are 5 and 4).
+    -- "Notable" must be a real majority of the window and cannot exceed it (the defaults are 5 and 5).
     v_last_n := coalesce((p_config ->> 'last_n')::int, 5);
-    v_decisive := coalesce((p_config ->> 'last_n_min_decisive')::int, 4);
+    v_decisive := coalesce((p_config ->> 'last_n_min_decisive')::int, 5);
     if v_decisive > v_last_n or v_decisive * 2 <= v_last_n then raise exception 'invalid_config'; end if;
   end if;
 

@@ -9,7 +9,9 @@ export const GAME_CONTEXT_DEFAULTS: Readonly<Omit<GameContextConfig, "enabled">>
   minLossStreak: 3,
   minVenueStreak: 3,
   lastN: 5,
-  lastNMinDecisive: 4,
+  // 5 of 5 on purpose: staging evaluation on real data found every 4–1 / 1–4 "last 5" line WEAK (7 of 7: about a quarter of all NFL Games have one; two were the same sentence twice). A window that is all one way is
+  // just the streak, which is already said, so by default the record is not shown. A longer window (last_n 10, last_n_min_decisive 8) is the intended use, once a sport's data allows it.
+  lastNMinDecisive: 5,
   seriesEnabled: true,
   pairsEnabled: true,
   connectiveEnabled: true,

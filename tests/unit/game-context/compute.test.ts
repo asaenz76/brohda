@@ -81,9 +81,20 @@ describe("last N", () => {
     expect(ctx("h", "a", season("h", "WWLWWW"), { ...config, minWinStreak: 9, minVenueStreak: 9 })).toBeNull();
   });
 
-  it("a five-game window: 4–1 is notable, 3–2 is not", () => {
-    expect(ctx("h", "a", season("h", "WWLWW"))?.text).toBe("Team H are 4–1 in their last 5.");
-    expect(ctx("h", "a", season("h", "WLWLW"))).toBeNull();
+  it("a five-game window: with the bar at 4 of 5, 4–1 is notable and 3–2 is not", () => {
+    const bar4 = { ...CONFIG, lastNMinDecisive: 4 };
+    expect(ctx("h", "a", season("h", "WWLWW"), bar4)?.text).toBe("Team H are 4–1 in their last 5.");
+    expect(ctx("h", "a", season("h", "WWWLW"), bar4)?.primaryFact.type).toBe("LAST_N");
+    expect(ctx("h", "a", season("h", "WLWLW"), bar4)).toBeNull();
+  });
+
+  // Regression for a class of bad output found on real staging data: an ordinary small-window record (4–1 / 1–4 in the last 5, which is most of an NFL team's season so far) was shown for about a quarter of all
+  // Games, once as the same sentence twice. With the shipped defaults only a window that is all one way qualifies — and that is the streak, which is already said — so none of these shows a record.
+  it("with the DEFAULTS an ordinary 4–1 or 1–4 last-5 record is not shown, for either team, alone or as a pair", () => {
+    for (const results of ["WWLWW", "WWWLW", "WWWWL", "LLWLL", "LLLWL", "LLLLW"]) expect(ctx("h", "a", season("h", results)), results).toBeNull();
+    const both = computeGameContext(upcoming("h", "a"), [...season("h", "WWLWW"), ...season("a", "WWLWW")], CONFIG);
+    expect(both).toBeNull();
+    expect(CONFIG.lastNMinDecisive).toBe(5);
   });
 
   it("5–0 in the last 5 is the 5-game streak again, not said twice", () => {

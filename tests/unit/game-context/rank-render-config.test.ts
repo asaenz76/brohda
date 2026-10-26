@@ -43,7 +43,7 @@ describe("ranking", () => {
 
   it("Case C — a 4–1 last five (32) outranks a 3-game streak (30); both qualify, so they are paired", () => {
     const history = [...season("h", "WWLWW"), ...season("a", "LWWW")];
-    const c = computeGameContext(upcoming("h", "a"), history, CONFIG)!;
+    const c = computeGameContext(upcoming("h", "a"), history, { ...CONFIG, lastNMinDecisive: 4 })!;
     expect(c.primaryFact.type).toBe("LAST_N");
     expect(c.secondaryFact?.type).toBe("WIN_STREAK");
   });
