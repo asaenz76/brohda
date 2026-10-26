@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { runStoryPipeline, type PipelineInput } from "@/lib/game-stories/pipeline";
+import { checkCopyRules } from "@/lib/game-stories/rules";
 import type { Draft, EvidenceItem, ModelScore } from "@/lib/game-stories/types";
 import { GOOD_SCORE, claim, config, fakeDeps, game, hoursAgo, id, raw, structuredEv, type Script } from "../../support/game-stories";
 
@@ -254,6 +255,18 @@ describe("editorial gates", () => {
     expect(out.outcome.rejectionCode).not.toBe("EXTRA_PROPOSITION");
     const betting = (e: EvidenceItem[]): Draft => ({ ...accepted(e), body: "Boston has won five straight and three meetings in a row against New York; take the over 220.5 as Jalen Brunson is out with an ankle injury." });
     expect((await run(withWeb(web(), betting), [streak()])).outcome.rejectionCode).toBe("EXTRA_PROPOSITION");
+  });
+
+  it("ordinary basketball English is not betting, and a short form of a team name is still that team (two false positives found on real runs)", async () => {
+    const cover = (e: EvidenceItem[]): Draft => ({ ...accepted(e), body: "Boston has won five straight and three meetings in a row against New York. Can Jalen Brunson's scoring cover the hole? Who snaps it?" });
+    expect((await run(withWeb(web(), cover), [streak()])).outcome.rejectionCode).not.toBe("GAMBLING_COPY");
+    const spread = (e: EvidenceItem[]): Draft => ({ ...accepted(e), body: "Boston has won five straight and three meetings in a row against New York; will they cover the spread? Jalen Brunson is out." });
+    expect((await run(withWeb(web(), spread), [streak()])).outcome.rejectionCode).toBe("GAMBLING_COPY");
+    const philly = game({ homeTeam: "Philadelphia Eagles", awayTeam: "Dallas Cowboys", sport: "american_football" });
+    const short = checkCopyRules("Philly's four-game skid now runs through a backup.", "Philly has lost four straight and Hurts is on injured reserve, so the backup runs the offense Monday against a rested opponent.", { maxChars: 300 }, philly);
+    expect(short.map((v) => v.code)).not.toContain("WRONG_GAME");
+    const other = checkCopyRules("Lakers by a mile.", "The Lakers have beaten the Warriors six straight times, and the building will be loud for it again tonight.", { maxChars: 300 }, philly);
+    expect(other.map((v) => v.code)).toContain("WRONG_GAME");
   });
 
   it("rejects a story that is about neither team of this Game", async () => {

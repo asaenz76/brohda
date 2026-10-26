@@ -11,7 +11,7 @@ export interface RuleViolation {
 }
 
 /** Sportsbook vocabulary and betting advice. The story is Game-first: pricing is never the editorial spine. */
-const GAMBLING = /\b(point spread|(?:the|a|\d+(?:\.\d+)?-point) spread|against the spread|ats|over\/under|over-under|moneylines?|odds|betting|bettors?|bets?|wagers?|wagering|parlays?|sportsbooks?|bookmakers?|handicap(?:per|ping)?|lock of the (?:day|week)|(?:cover|covers|covered) the|juice|vig|prop bets?|futures bets?|implied probability|gambl\w+)\b/i;
+const GAMBLING = /\b(point spread|(?:the|a|\d+(?:\.\d+)?-point) spread|against the spread|ats|over\/under|over-under|moneylines?|odds|betting|bettors?|bets?|wagers?|wagering|parlays?|sportsbooks?|bookmakers?|handicap(?:per|ping)?|lock of the (?:day|week)|(?:cover|covers|covered) the (?:spread|number|line|points?|total)|juice|vig|prop bets?|futures bets?|implied probability|gambl\w+)\b/i;
 /** Any proposition other than the team winner: totals, margins, firsts, individual lines. */
 const EXTRA_PROPOSITION = /\b(?:over|under) \d+\.\d+\b|\b(?:goes|go|going|hit|hits|cash|cashes|cashing|take|takes) (?:the )?(?:over|under)\b|\btotal (?:points|goals|runs)\b|\bby (?:more|less|at least) than \d+\b|\bwin by \d+|\bfirst (?:to|team to) score\b|\bwill (?:score|record|total|combine|throw|rush)\b.{0,30}\b(?:more|fewer|over|under) than\b|\bto (?:score|record) (?:over|under|at least)\b/i;
 const HASHTAG_OR_LINK = /(^|\s)#\w+|https?:\/\/|\bwww\.\S+|\b\S+\.(?:com|net|org|io)\b/i;
@@ -42,6 +42,13 @@ const GENERIC_PHRASES: readonly string[] = [
   "needs no introduction",
 ];
 
+/** Short forms of team names that real sports copy uses. Key = the alias, value = text that the team's full name contains. */
+const TEAM_ALIASES: Readonly<Record<string, string>> = {
+  philly: "philadelphia", cavs: "cavaliers", wolves: "timberwolves", twolves: "timberwolves", mavs: "mavericks", pats: "patriots", bucs: "buccaneers", niners: "49ers", sixers: "76ers", blazers: "trail blazers",
+  habs: "canadiens", isles: "islanders", pens: "penguins", caps: "capitals", preds: "predators", bolts: "lightning", wings: "red wings", jackets: "blue jackets", leafs: "maple leafs", nugs: "nuggets",
+  dubs: "warriors", celts: "celtics", grizz: "grizzlies", clips: "clippers", cards: "cardinals", fins: "dolphins", jags: "jaguars", okc: "oklahoma city", nola: "new orleans", kc: "kansas city", gb: "green bay", tb: "tampa bay",
+};
+
 export function checkCopyRules(hook: string, body: string, config: Pick<StoryConfig, "maxChars">, game: Pick<GameContext, "homeTeam" | "awayTeam">): RuleViolation[] {
   const violations: RuleViolation[] = [];
   const text = `${hook}\n${body}`;
@@ -54,7 +61,9 @@ export function checkCopyRules(hook: string, body: string, config: Pick<StoryCon
   const mentions = (team: string) => {
     const words = team.trim().split(/\s+/);
     const forms = [team, words[words.length - 1], words.slice(0, -1).join(" ")].filter((w) => w.length >= 3).map(normalizeForCompare);
-    return forms.some((f) => lower.includes(f));
+    // common short forms writers actually use ("Philly", "Cavs", "Pats"): an alias counts when the team's own name contains the key it stands for
+    for (const [alias, standsFor] of Object.entries(TEAM_ALIASES)) if (normalizeForCompare(team).includes(standsFor)) forms.push(alias);
+    return forms.some((f) => new RegExp(`(^| )${f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}( |$)`).test(lower) || (f.length >= 5 && lower.includes(f)));
   };
   if (!mentions(game.homeTeam) && !mentions(game.awayTeam)) violations.push({ code: "WRONG_GAME", detail: "The story names neither team of this Game." });
 
