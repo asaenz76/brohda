@@ -95,6 +95,20 @@ describe("factual rejections — an unsupported or unsafe claim rejects regardle
     expect((await run(s, [streak()])).outcome.rejectionCode).toBe("STALE_EVIDENCE");
   });
 
+  it("a past RESULT is never stale: last season's meetings are history, however old (a false rejection found on the first real runs)", async () => {
+    const old = raw({ url: "https://www.nba.com/old-series", publishedAt: hoursAgo(24 * 240), factText: "Charlotte swept Washington 4-0 in the 2025-26 season series, including a 129-112 win on February 22.", subjectTeam: "BOTH", evidenceType: "OFFICIAL_STATEMENT" });
+    const draft = (e: EvidenceItem[]): Draft => ({
+      hook: "Charlotte swept Washington last season.",
+      body: "Charlotte swept the 2025-26 series 4-0, including a 129-112 win on February 22, and Boston owns the longer streak. Does Washington have a long memory?",
+      claims: [
+        claim({ text: "Charlotte swept Washington 4-0 in the 2025-26 series, including a 129-112 win on February 22", type: "RESULT", subjectTeam: "BOTH", evidenceIds: [e.find((x) => x.url?.includes("old-series"))!.id] }),
+        claim({ text: "Boston has won the last 6 meetings against New York", type: "HISTORY", subjectTeam: "BOTH", evidenceIds: [byFactKey(e, "h2h:streak").id] }),
+      ],
+    });
+    const { outcome } = await run(withWeb([old], draft), [streak()]);
+    expect(outcome.candidate!.claims[0].verdict).toBe("SUPPORTED");
+  });
+
   it("rejects an availability claim whose source is older than the configured status window", async () => {
     const s = withWeb([injuryRaw({ publishedAt: hoursAgo(80) })], (e) => goodDraft(byFactKey(e, "h2h:streak"), byFactKey(e, "availability:jalen-brunson")));
     expect((await run(s, [streak()])).outcome.rejectionCode).toBe("STALE_EVIDENCE");
@@ -296,6 +310,26 @@ describe("editorial gates", () => {
     const { outcome } = await run(withWeb(web(), accepted), [streak()], { recentHooks: ["Six straight. Now Brunson sits."] });
     expect(outcome.candidate!.dims!.originality).toBe(5);
     expect(outcome.candidate!.capsApplied.join(" ")).toMatch(/originality/);
+  });
+
+  it("a draft that fails ONLY on length gets one redraft of the same angle with the exact overage, and that redraft is fully re-verified", async () => {
+    const long = (e: EvidenceItem[]): Draft => ({ ...accepted(e), body: `${accepted(e).body} ${"Boston New York. ".repeat(20)}` });
+    let feedbackSeen: string[] = [];
+    const script = withWeb(web(), (e) => accepted(e));
+    script.drafts = [long, accepted];
+    const { deps, calls } = fakeDeps(script);
+    const original = deps.drafter.draft.bind(deps.drafter);
+    deps.drafter.draft = async (g, a, e, c) => { feedbackSeen = c.feedback; return original(g, a, e, c); };
+    const outcome = await runStoryPipeline(deps, { game: game(), structured: [streak()], recentHooks: [], config: config({ maxAttempts: 2 }) });
+    expect(calls.draft).toBe(2);
+    expect(outcome.decision).toBe("ACCEPTED");
+    expect(feedbackSeen[0]).toMatch(/characters; the limit for hook \+ body together is 300/);
+    expect(outcome.candidatesConsidered.map((c) => c.rejectionCode)).toEqual(["OVER_LENGTH", null]);
+    // bounded: if the redraft is still too long, no third draft happens
+    const stillLong = fakeDeps({ ...script, drafts: [long] });
+    const rejected = await runStoryPipeline(stillLong.deps, { game: game(), structured: [streak()], recentHooks: [], config: config({ maxAttempts: 2 }) });
+    expect(stillLong.calls.draft).toBe(2);
+    expect(rejected.rejectionCode).toBe("OVER_LENGTH");
   });
 
   it("stops at the first accepted candidate and bounds attempts by configuration", async () => {

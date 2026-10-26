@@ -42,8 +42,8 @@ export interface EvidenceItem {
 
 export const CLAIM_TYPES = ["STAT", "STREAK", "HISTORY", "AVAILABILITY", "QUOTE", "TRANSACTION", "RESULT", "CONTEXT"] as const;
 export type ClaimType = (typeof CLAIM_TYPES)[number];
-/** Claim types whose truth changes with the news cycle. */
-export const CURRENT_CLAIM_TYPES: readonly ClaimType[] = ["STAT", "STREAK", "AVAILABILITY", "TRANSACTION", "RESULT"];
+/** Claim types about CURRENT STATE, whose truth changes with the news cycle and so go stale. A RESULT (or HISTORY) is a past event: it cannot become untrue, so it is never "stale" (whether it is still relevant is the editor's judgement, scored). */
+export const CURRENT_CLAIM_TYPES: readonly ClaimType[] = ["STAT", "STREAK", "AVAILABILITY", "TRANSACTION"];
 
 export const AVAILABILITY_STATUSES = ["OUT", "DOUBTFUL", "QUESTIONABLE", "PROBABLE", "AVAILABLE", "RETURNING"] as const;
 export type AvailabilityStatus = (typeof AVAILABILITY_STATUSES)[number];

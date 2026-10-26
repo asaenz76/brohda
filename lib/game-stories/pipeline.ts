@@ -169,18 +169,30 @@ async function runStoryPipelineInner(deps: PipelineDeps, input: PipelineInput, u
   if (angles.length === 0) return finish({ decision: "NO_STORY", rejectionCode: "NO_STORY", rejectionDetail: "No candidate angle rested on usable evidence. Not every Game has a story.", candidate: null, candidatesConsidered: [], evidence, queriesUsed: raw.queriesUsed });
 
   // ---- candidates (bounded) --------------------------------------------------------------------------------------------------------------------------
+  // `max_attempts` bounds the DRAFTS of a run. A draft that fails only because it is too long gets ONE redraft of the same angle with the exact overage (a human editor would trim, not discard): found on the first real runs, where a
+  // strong hook was lost by 25 characters.
   const considered: CandidateAssessment[] = [];
   let feedback: string[] = [];
-  for (const angle of angles) {
-    t = Date.now();
-    const drafted = await deps.drafter.draft(game, angle, usable, { ...ctx, feedback, recentHooks: input.recentHooks });
-    usage.value = addUsage(usage.value, drafted.usage);
-    const claims = sanitizeClaims(drafted.draft.claims, deps.newId);
-    const assessed = await assessCandidate(deps, { game, hook: drafted.draft.hook.trim(), body: drafted.draft.body.trim(), angle, claims, evidence, recentHooks: input.recentHooks, config, score: true }, ctx, usage);
-    stage(`candidate_${considered.length + 1}`, t);
-    considered.push(assessed);
-    if (!assessed.rejectionCode) break;
-    feedback = [`Previous attempt rejected (${assessed.rejectionCode}): ${assessed.rejectionDetail ?? ""}`];
+  let drafts = 0;
+  outer: for (const angle of angles) {
+    for (let tries = 0; tries < 2 && drafts < Math.max(config.maxAttempts, 1); tries++) {
+      drafts++;
+      t = Date.now();
+      const drafted = await deps.drafter.draft(game, angle, usable, { ...ctx, feedback, recentHooks: input.recentHooks });
+      usage.value = addUsage(usage.value, drafted.usage);
+      const claims = sanitizeClaims(drafted.draft.claims, deps.newId);
+      const assessed = await assessCandidate(deps, { game, hook: drafted.draft.hook.trim(), body: drafted.draft.body.trim(), angle, claims, evidence, recentHooks: input.recentHooks, config, score: true }, ctx, usage);
+      stage(`candidate_${considered.length + 1}`, t);
+      considered.push(assessed);
+      if (!assessed.rejectionCode) break outer;
+      if (assessed.rejectionCode === "OVER_LENGTH" && tries === 0) {
+        const total = assessed.draft.hook.length + assessed.draft.body.length;
+        feedback = [`Your draft was ${total} characters; the limit for hook + body together is ${config.maxChars}. Shorten it to under ${config.maxChars} by cutting words, not by dropping the tension, and keep every figure and name covered by a claim.`];
+        continue;
+      }
+      feedback = [`Previous attempt rejected (${assessed.rejectionCode}): ${assessed.rejectionDetail ?? ""}`];
+      break;
+    }
   }
   details.candidates = considered.map((c) => ({ angle: c.angle.type, code: c.rejectionCode, total: c.total, caps: c.capsApplied, rationale: c.modelRationale }));
 

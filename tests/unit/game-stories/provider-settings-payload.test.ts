@@ -23,7 +23,8 @@ describe("research", () => {
     await provider(create).research(game(), { config: config({ maxQueriesPerGame: 4, blockedDomains: ["example-blocked.com"] }), now: NOW });
     const req = create.mock.calls[0][0];
     expect(req.model).toBe("m-test");
-    expect(req.output_config).toEqual({ effort: "medium" });
+    expect(req.output_config).toEqual({ effort: "low" }); // research is retrieval: low effort whatever the configured effort for the editorial stages
+    expect(req.system).toContain("at most 30 facts");
     expect(req.tools[0]).toMatchObject({ type: "web_search_20250305", name: "web_search", max_uses: 4 });
     expect(req.tools[0].blocked_domains).toEqual(expect.arrayContaining(["draftkings.com", "reddit.com", "example-blocked.com"]));
     // a multi-search session is allowed minutes whatever the per-request setting; the other stages use the configured timeout

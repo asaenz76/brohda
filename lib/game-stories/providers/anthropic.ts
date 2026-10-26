@@ -33,6 +33,8 @@ const STAGE_MAX_TOKENS = 8000;
 const MAX_PAUSE_RESUMES = 4;
 /** A multi-search research session legitimately takes minutes (the legacy engine allowed 290 s): research never gets less than this, whatever the per-request setting. The route itself is capped at 300 s. */
 export const RESEARCH_MIN_TIMEOUT_MS = 240_000;
+/** Research is retrieval, not editorial judgement: the first real runs spent 25,000–32,000 output tokens per Game, almost all of it reasoning at `medium` effort, and one was cut off at the limit. Research therefore runs at `low` effort whatever the configured effort for the editorial stages. */
+export const RESEARCH_EFFORT = "low" as const;
 
 interface CallResult {
   text: string;
@@ -152,7 +154,7 @@ export class AnthropicStoryProvider implements StoryResearchProvider, StoryAngle
     const blocked = [...new Set([...BUILT_IN_BLOCKED_DOMAINS, ...config.blockedDomains])];
     const tool: Record<string, unknown> = { type: this.options.webSearchToolVersion, name: "web_search", max_uses: config.maxQueriesPerGame, blocked_domains: blocked };
     const first = await this.call(
-      { model: this.options.model, max_tokens: RESEARCH_MAX_TOKENS, system: researchSystem(game, config.maxQueriesPerGame, blocked), output_config: { effort: this.options.effort }, tools: [tool as unknown as Anthropic.Messages.ToolUnion], messages: [{ role: "user", content: `Research this Game and return the facts.\n${describeGame(game)}\nToday (UTC): ${ctx.now.toISOString()}` }] },
+      { model: this.options.model, max_tokens: RESEARCH_MAX_TOKENS, system: researchSystem(game, config.maxQueriesPerGame, blocked), output_config: { effort: RESEARCH_EFFORT }, tools: [tool as unknown as Anthropic.Messages.ToolUnion], messages: [{ role: "user", content: `Research this Game and return the facts.\n${describeGame(game)}\nToday (UTC): ${ctx.now.toISOString()}` }] },
       true,
       Math.min(290_000, Math.max(this.options.timeoutMs, RESEARCH_MIN_TIMEOUT_MS)),
       "research",
