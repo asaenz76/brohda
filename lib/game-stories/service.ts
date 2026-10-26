@@ -7,7 +7,7 @@ import {
   completeReverification, failRun, getStoryConfig, listCandidates, loadGameContext, loadRecentHooks, loadRevision, loadRunEvidence, loadTeamHistory, markRunResearching, saveRunResult, startRun, type StartOutcome,
 } from "./repository";
 import { buildStructuredEvidence } from "./structured-evidence";
-import type { StoryConfig } from "./types";
+import { addUsage, emptyUsage, type ProviderUsage, type StoryConfig } from "./types";
 
 // Brohda 2.1 M3 — the use cases: generate a story for one Game, run the scheduled batch, re-verify an Admin edit.
 // Research or generation failing NEVER touches the Game, its Market, Picks, comments or Call BS: a run is closed as FAILED with a category and the Game simply has no new story.
@@ -49,8 +49,10 @@ export async function generateStoryForFixture(input: { fixtureId: string; trigge
   } catch (error) {
     const category = error instanceof StoryProviderError ? error.category : "internal_error";
     const detail = (error instanceof Error ? error.message : String(error)).slice(0, 500);
-    await failRun(runId, category, detail, Date.now() - t0).catch(() => undefined);
-    log("run_failed", { runId, fixtureId: input.fixtureId, category, ms: Date.now() - t0 });
+    // what was spent before the failure (earlier stages + the failing call itself): a failed run still costs money
+    const spent = addUsage((error as { partialUsage?: ProviderUsage }).partialUsage ?? emptyUsage(), error instanceof StoryProviderError ? (error.usage ?? emptyUsage()) : emptyUsage());
+    await failRun(runId, category, detail, Date.now() - t0, { model_calls: spent.modelCalls, search_calls: spent.searchCalls, input_tokens: spent.inputTokens, output_tokens: spent.outputTokens }).catch(() => undefined);
+    log("run_failed", { runId, fixtureId: input.fixtureId, category, ms: Date.now() - t0, modelCalls: spent.modelCalls, searchCalls: spent.searchCalls });
     return { outcome: "failed", runId, category };
   }
 }

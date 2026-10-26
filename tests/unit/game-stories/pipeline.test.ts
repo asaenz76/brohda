@@ -306,6 +306,12 @@ describe("source and provider failures", () => {
     await expect(runStoryPipeline(deps, { game: game(), structured: [streak()], recentHooks: [], config: config() })).rejects.toThrow("anthropic_timeout");
     expect(calls.draft).toBe(0);
   });
+  it("a failure after earlier calls succeeded carries the usage already spent (a failed run still costs money)", async () => {
+    const { deps } = fakeDeps({ raw: [injuryRaw()], providerError: new Error("anthropic_api_529: overloaded") });
+    const err = await runStoryPipeline(deps, { game: game(), structured: [streak()], recentHooks: [], config: config() }).catch((e) => e);
+    expect(err.message).toContain("overloaded");
+    expect(err.partialUsage).toMatchObject({ modelCalls: 1, searchCalls: 3 }); // the research call completed before the angles call failed
+  });
   it("an AI provider failure while proposing angles propagates", async () => {
     const { deps } = fakeDeps({ raw: [injuryRaw()], providerError: new Error("anthropic_api_529: overloaded") });
     await expect(runStoryPipeline(deps, { game: game(), structured: [streak()], recentHooks: [], config: config() })).rejects.toThrow("overloaded");

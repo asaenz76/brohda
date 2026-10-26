@@ -21,14 +21,15 @@ export type MessagesClient = Pick<Anthropic, "messages">;
 
 export type ProviderErrorCategory = "rate_limit" | "timeout" | "provider_unavailable" | "provider_error" | "search_quota" | "refusal" | "truncated" | "structured_output" | "credentials_missing";
 export class StoryProviderError extends Error {
-  constructor(readonly category: ProviderErrorCategory, message: string) {
+  constructor(readonly category: ProviderErrorCategory, message: string, /** What the failing call itself consumed (a failed run still costs money; recorded on the run). */ readonly usage?: ProviderUsage) {
     super(message);
     this.name = "StoryProviderError";
   }
 }
 
-const RESEARCH_MAX_TOKENS = 16000;
-const STAGE_MAX_TOKENS = 6000;
+/** Research output (a list of facts with excerpts) and the model's own reasoning share this budget; the legacy engine, on the same models, uses 32,000 / 8,000. A first real run at 16,000 / 6,000 was cut off. */
+const RESEARCH_MAX_TOKENS = 32000;
+const STAGE_MAX_TOKENS = 8000;
 const MAX_PAUSE_RESUMES = 4;
 /** A multi-search research session legitimately takes minutes (the legacy engine allowed 290 s): research never gets less than this, whatever the per-request setting. The route itself is capped at 300 s. */
 export const RESEARCH_MIN_TIMEOUT_MS = 240_000;
@@ -103,7 +104,7 @@ export class AnthropicStoryProvider implements StoryResearchProvider, StoryAngle
   readonly name = "anthropic";
   constructor(private readonly client: MessagesClient, private readonly options: ProviderOptions) {}
 
-  private async call(params: Omit<Anthropic.Messages.MessageCreateParamsNonStreaming, "stream">, countsSearch: boolean, timeoutMs: number = this.options.timeoutMs): Promise<CallResult> {
+  private async call(params: Omit<Anthropic.Messages.MessageCreateParamsNonStreaming, "stream">, countsSearch: boolean, timeoutMs: number = this.options.timeoutMs, stage = "model"): Promise<CallResult> {
     const sleep = this.options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
     const messages: Anthropic.Messages.MessageParam[] = [...params.messages];
     let usage: ProviderUsage = emptyUsage();
@@ -126,14 +127,14 @@ export class AnthropicStoryProvider implements StoryResearchProvider, StoryAngle
       const searched = countsSearch ? (response.usage.server_tool_use?.web_search_requests ?? response.content.filter((b) => b.type === "server_tool_use" && b.name === "web_search").length) : 0;
       usage = addUsage(usage, { modelCalls: 1, searchCalls: searched, inputTokens: response.usage.input_tokens ?? 0, outputTokens: response.usage.output_tokens ?? 0 });
       if (response.stop_reason === "pause_turn") {
-        if (resumes >= MAX_PAUSE_RESUMES) throw new StoryProviderError("search_quota", "anthropic_pause_limit: the search kept pausing");
+        if (resumes >= MAX_PAUSE_RESUMES) throw new StoryProviderError("search_quota", `anthropic_pause_limit: the ${stage} search kept pausing`, usage);
         messages.push({ role: "assistant", content: response.content as Anthropic.Messages.ContentBlockParam[] });
         continue;
       }
       break;
     }
-    if (last!.stop_reason === "refusal") throw new StoryProviderError("refusal", "anthropic_refusal: the model declined this request");
-    if (last!.stop_reason === "max_tokens") throw new StoryProviderError("truncated", "anthropic_max_tokens: the answer was cut off");
+    if (last!.stop_reason === "refusal") throw new StoryProviderError("refusal", `anthropic_refusal: the model declined the ${stage} request`, usage);
+    if (last!.stop_reason === "max_tokens") throw new StoryProviderError("truncated", `anthropic_max_tokens: the ${stage} answer was cut off (limit ${params.max_tokens} tokens)`, usage);
     const text = last!.content.filter((b): b is Anthropic.Messages.TextBlock => b.type === "text").map((b) => b.text).join("");
     const request: CallResult["request"] & { tools?: unknown } = { ...params };
     delete request.tools;
@@ -141,7 +142,7 @@ export class AnthropicStoryProvider implements StoryResearchProvider, StoryAngle
   }
 
   private async structuredCall<T>(system: string, user: string, schema: object, what: string): Promise<{ value: T; usage: ProviderUsage }> {
-    const result = await this.call({ model: this.options.model, max_tokens: STAGE_MAX_TOKENS, system, output_config: structured(this.options.effort, schema), messages: [{ role: "user", content: user }] }, false);
+    const result = await this.call({ model: this.options.model, max_tokens: STAGE_MAX_TOKENS, system, output_config: structured(this.options.effort, schema), messages: [{ role: "user", content: user }] }, false, this.options.timeoutMs, what);
     return { value: extractJson<T>(result.text, what), usage: result.usage };
   }
 
@@ -154,6 +155,7 @@ export class AnthropicStoryProvider implements StoryResearchProvider, StoryAngle
       { model: this.options.model, max_tokens: RESEARCH_MAX_TOKENS, system: researchSystem(game, config.maxQueriesPerGame, blocked), output_config: { effort: this.options.effort }, tools: [tool as unknown as Anthropic.Messages.ToolUnion], messages: [{ role: "user", content: `Research this Game and return the facts.\n${describeGame(game)}\nToday (UTC): ${ctx.now.toISOString()}` }] },
       true,
       Math.min(290_000, Math.max(this.options.timeoutMs, RESEARCH_MIN_TIMEOUT_MS)),
+      "research",
     );
     // pages the search actually reached: a fact is accepted only if its URL is one of them (the model cannot cite a page it did not retrieve)
     const reached = new Set<string>();
@@ -172,7 +174,7 @@ export class AnthropicStoryProvider implements StoryResearchProvider, StoryAngle
       parsed = extractJson(first.text, "research");
     } catch {
       // ONE bounded format retry, with no tools: the model is shown its own answer and asked to return the same findings as valid JSON.
-      const retry = await this.call({ ...first.request, messages: [...first.request.messages, { role: "assistant", content: first.text.trim() || "(no answer)" }, { role: "user", content: FORMAT_RETRY }] }, false, this.options.timeoutMs);
+      const retry = await this.call({ ...first.request, messages: [...first.request.messages, { role: "assistant", content: first.text.trim() || "(no answer)" }, { role: "user", content: FORMAT_RETRY }] }, false, this.options.timeoutMs, "research format retry");
       usage = addUsage(usage, retry.usage);
       parsed = extractJson(retry.text, "research");
     }

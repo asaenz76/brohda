@@ -120,10 +120,20 @@ export async function assessCandidate(deps: Pick<PipelineDeps, "verifier" | "sco
   return a;
 }
 
+/** A failed run still costs money: whatever a provider call fails after earlier calls succeeded, the usage so far travels with the error (`partialUsage`) so the run records it. */
 export async function runStoryPipeline(deps: PipelineDeps, input: PipelineInput): Promise<RunOutcome> {
+  const usage = { value: emptyUsage() };
+  try {
+    return await runStoryPipelineInner(deps, input, usage);
+  } catch (error) {
+    if (error && typeof error === "object") (error as { partialUsage?: ProviderUsage }).partialUsage = usage.value;
+    throw error;
+  }
+}
+
+async function runStoryPipelineInner(deps: PipelineDeps, input: PipelineInput, usage: { value: ProviderUsage }): Promise<RunOutcome> {
   const { game, config } = input;
   const ctx: ResearchContext = { config, now: deps.now() };
-  const usage = { value: emptyUsage() };
   const details: Record<string, unknown> = { stages: {} };
   const stage = (name: string, started: number) => ((details.stages as Record<string, number>)[name] = Date.now() - started);
   const finish = (partial: Omit<RunOutcome, "usage" | "details" | "queriesUsed"> & { queriesUsed?: number }): RunOutcome => ({ queriesUsed: 0, ...partial, usage: usage.value, details });

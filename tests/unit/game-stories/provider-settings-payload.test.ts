@@ -81,7 +81,10 @@ describe("bounded retries and error handling", () => {
   });
   it("a refusal or a truncated answer is a clean failure, not a story", async () => {
     await expect(provider(async () => message("", { stop_reason: "refusal" })).propose(game(), [], ctx)).rejects.toMatchObject({ category: "refusal" });
-    await expect(provider(async () => message("{", { stop_reason: "max_tokens" })).propose(game(), [], ctx)).rejects.toMatchObject({ category: "truncated" });
+    const cut = await provider(async () => message("{", { stop_reason: "max_tokens" })).propose(game(), [], ctx).catch((e) => e);
+    expect(cut).toMatchObject({ category: "truncated" });
+    expect(cut.message).toMatch(/angles answer was cut off \(limit 8000 tokens\)/); // names the stage and the limit
+    expect(cut.usage).toMatchObject({ modelCalls: 1, inputTokens: 100, outputTokens: 50 }); // and what the failing call consumed
   });
 });
 
