@@ -183,7 +183,7 @@ test.describe("Reputation", () => {
       await loginAs(page, emailChamp);
       await page.goto(`/markets/${cbsMarketId}`);
       await page.getByRole("button", { name: "Accept" }).click();
-      await expect(page.getByText("Accepted")).toBeVisible();
+      await expect(page.getByText("Accepted", { exact: true })).toBeVisible();
 
       const champPredictionId = await getPredictionId(champ.userId, cbsMarketId);
       const belowMinPredictionId = await getPredictionId(belowMin.userId, cbsMarketId);

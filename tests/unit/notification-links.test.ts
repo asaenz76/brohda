@@ -67,11 +67,15 @@ describe("resolveNotificationHref", () => {
   });
 
   describe("Call BS notifications", () => {
-    const CALL_BS_TYPES = ["CALL_BS_RECEIVED", "CALL_BS_ACCEPTED", "CALL_BS_DECLINED", "CALL_BS_RESOLVED"];
+    const CALL_BS_TYPES = ["CALL_BS_RECEIVED", "CALL_BS_ACCEPTED", "CALL_BS_DECLINED", "CALL_BS_RESOLVED", "CALL_BS_CANCELLED"];
 
-    it.each(CALL_BS_TYPES)("%s prefers the canonical Post over the Market", (type) => {
+    it.each(CALL_BS_TYPES)("%s prefers the canonical Post over the Market, landing on the Your Call BS block", (type) => {
       const n = makeNotification({ type, post_id: "post-1", market_id: "market-1" });
-      expect(resolveNotificationHref(n)).toBe("/post/post-1");
+      expect(resolveNotificationHref(n)).toBe("/post/post-1#call-bs");
+    });
+
+    it("monetary pair notifications keep the plain Post link (no Call BS block anchor)", () => {
+      expect(resolveNotificationHref(makeNotification({ type: "MONETARY_PROPOSAL_RECEIVED", post_id: "post-1", market_id: "market-1" }))).toBe("/post/post-1");
     });
 
     it.each(CALL_BS_TYPES)("%s falls back to the Market when the Game has no published Post", (type) => {

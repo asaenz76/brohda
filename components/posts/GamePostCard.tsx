@@ -47,6 +47,26 @@ function gameStatusLabel(sport: string, internalStatus: string, homeScore: numbe
 }
 
 /**
+ * What a Member who has already picked is invited to do next, in words that never invent anything: with no comments yet, "Say why"; with comments, the count, plus "see who picked <the other side>" only when the real, revealed
+ * sentiment shows someone did. Null before a Pick (and for a logged-out visitor), where the card stays Pick-first.
+ */
+export function conversationNextStep(item: FeedItem, isPublic: boolean): { text: string; label: string } | null {
+  const market = item.primaryMarket;
+  if (isPublic || !market || market.viewerSelection == null) return null;
+  // Once the Game is over there is nothing left to argue about: the plain count (and the result on the Post) is enough.
+  if (item.internalStatus === "COMPLETED" || item.internalStatus === "CANCELLED") return null;
+  const picked = market.choices.find((c) => c.outcome === market.viewerSelection);
+  const other = market.choices.find((c) => c.outcome !== market.viewerSelection);
+  if (!picked) return null;
+  // The visible words stay short (the card already says what the Member picked); the link's full name tells assistive technology which side and where it goes.
+  if (item.commentCount === 0) return { text: "Say why", label: `Say why you picked ${picked.label}, in the Game's conversation` };
+  const count = `${item.commentCount} ${item.commentCount === 1 ? "comment" : "comments"}`;
+  const otherShare = !other ? null : other.outcome === "YES" ? market.yesPercent : market.noPercent;
+  const disagreement = market.sentimentRevealed && other && otherShare !== null && otherShare > 0 ? ` · See who picked ${other.label}` : "";
+  return { text: `${count}${disagreement}`, label: `${count}${disagreement ? `, and see who picked ${other!.label}` : ""}, in the Game's conversation` };
+}
+
+/**
  * One Game Post, two audiences. The card is identical for a member and for
  * a logged-out visitor — same matchup, status, question, sentiment and
  * spacing — so signing in never changes how a Game looks, only what you can
@@ -70,6 +90,7 @@ export function GamePostCard({ item, mode = "member" }: { item: FeedItem; mode?:
   const secondary = item.secondaryMarkets ?? [];
   const spokenMatchup = formatMatchupSpoken(item.sport, item.homeTeamName, item.awayTeamName);
   const league = resolveLeagueIdentity({ competitionName: item.competitionName, competitionLogoUrl: item.competitionLogoUrl });
+  const nextStep = conversationNextStep(item, isPublic);
   // Restraint (spec §20): a Post can belong to several Communities at
   // once (home team, away team, league, sport) — show at most a couple,
   // never a wall of badges.
@@ -174,10 +195,23 @@ export function GamePostCard({ item, mode = "member" }: { item: FeedItem; mode?:
             <span />
           )}
 
-          <Link href={`/post/${item.post.id}`} className="flex items-center gap-1 text-xs text-text-muted hover:text-text-primary">
-            <MessageCircle className="size-3.5" aria-hidden="true" />
-            {item.commentCount} {item.commentCount === 1 ? "comment" : "comments"}
-          </Link>
+          {nextStep ? (
+            // M4: once the Member has picked, the card says what to do next — say why, or see who disagrees — and goes straight to the conversation on the canonical Post. Before a Pick the card stays Pick-first: just the count.
+            <Link
+              href={`/post/${item.post.id}#conversation`}
+              data-slot="conversation-next-step"
+              aria-label={nextStep.label}
+              className="flex min-h-9 items-center gap-1 text-xs font-medium text-accent-primary hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              <MessageCircle className="size-3.5" aria-hidden="true" />
+              {nextStep.text}
+            </Link>
+          ) : (
+            <Link href={`/post/${item.post.id}`} className="flex items-center gap-1 text-xs text-text-muted hover:text-text-primary">
+              <MessageCircle className="size-3.5" aria-hidden="true" />
+              {item.commentCount} {item.commentCount === 1 ? "comment" : "comments"}
+            </Link>
+          )}
         </div>
       </CardContent>
     </Card>

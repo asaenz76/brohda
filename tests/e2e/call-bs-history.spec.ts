@@ -152,7 +152,7 @@ test.describe("Call BS record, head-to-head and history", () => {
     await login(page, B_EMAIL);
     await page.goto(`/post/${games.First.postId}`);
     await page.getByRole("button", { name: "Accept" }).click();
-    await expect(page.getByText("Accepted")).toBeVisible();
+    await expect(page.getByText("Accepted", { exact: true })).toBeVisible();
     await expect(page.getByText(/Your Call BS record vs/)).toHaveCount(0);
     await page.goto("/profile");
     await expect(page.getByText("No Call BS results yet.")).toBeVisible();
@@ -217,7 +217,7 @@ test.describe("Call BS record, head-to-head and history", () => {
     await page.goto(`/post/${games.Second.postId}`);
     await expect(page.getByText(/Your Call BS record vs .*: 0–1/)).toBeVisible(); // B's mirror image
     await page.getByRole("button", { name: "Accept" }).click();
-    await expect(page.getByText("Accepted")).toBeVisible();
+    await expect(page.getByText("Accepted", { exact: true })).toBeVisible();
     await expect(page.getByText(/Your Call BS record vs .*: 0–1/)).toBeVisible(); // accepted-but-ungraded isn't counted either
   });
 
