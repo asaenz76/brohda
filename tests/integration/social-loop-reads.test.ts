@@ -3,6 +3,7 @@
  * Every `from()` / `rpc()` on the service client is counted, then the same readers run again with many more Members; the counts must be identical.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { appendFileSync } from "node:fs";
 import { getTestAdminClient } from "./helpers/test-env";
 
 const counter = vi.hoisted(() => ({ calls: 0 }));
@@ -68,6 +69,7 @@ describe("the Post's social readers are batched", () => {
   it("make the same number of database calls for 1 opponent and for 12", async () => {
     const small = await measure(1);
     const large = await measure(12);
+    if (process.env.SOCIAL_LOOP_PERF_OUT) appendFileSync(process.env.SOCIAL_LOOP_PERF_OUT, `1 opponent: ${JSON.stringify(small)}\n12 opponents: ${JSON.stringify(large)}\n`);
     expect(small.participants).toBe(2);
     expect(large.participants).toBe(13);
     expect(large.items + large.more).toBe(12);
