@@ -98,16 +98,22 @@ function CommentRow({
         <p className={isRemoved ? "text-sm italic text-text-muted" : "text-sm text-text-secondary"}>
           {isRemoved ? "[comment deleted]" : comment.body}
         </p>
-        {onReply && !isRemoved && (
-          <button type="button" onClick={onReply} className="min-h-9 text-xs font-medium text-text-muted hover:text-text-secondary">
-            Reply
-          </button>
-        )}
-        {side && callBsMarketId && !isRemoved && side.relation === "opposite" && (
-          <div className="space-y-1" data-slot="comment-call-bs">
-            {side.action && <ChallengeAction marketId={callBsMarketId} state={side.action} targetName={side.displayName} />}
-            {side.headToHead && <HeadToHeadLine opponentName={side.displayName} wins={side.headToHead.wins} losses={side.headToHead.losses} />}
+        {(onReply || (side && callBsMarketId && side.relation === "opposite")) && !isRemoved && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1" data-slot="comment-actions">
+            {onReply && (
+              <button type="button" onClick={onReply} className="min-h-9 text-xs font-medium text-text-muted hover:text-text-secondary">
+                Reply
+              </button>
+            )}
+            {side && callBsMarketId && side.relation === "opposite" && side.action && (
+              <div data-slot="comment-call-bs">
+                <ChallengeAction marketId={callBsMarketId} state={side.action} targetName={side.displayName} align="start" />
+              </div>
+            )}
           </div>
+        )}
+        {side && callBsMarketId && !isRemoved && side.relation === "opposite" && side.headToHead && (
+          <HeadToHeadLine opponentName={side.displayName} wins={side.headToHead.wins} losses={side.headToHead.losses} />
         )}
       </div>
       {canRemove && (

@@ -23,7 +23,7 @@ const STATUS: Record<StatusKind, { label: string; className: string }> = {
   called_on_you: { label: "Called BS on you", className: "text-text-secondary" },
 };
 
-export function ChallengeAction({ marketId, state, targetName }: { marketId: string; state: ChallengeActionState; /** Who the control is about. Read as the control's description ("Call BS, Call BS on Maria") so its accessible NAME stays "Call BS" / "Accept" / "Decline" everywhere, while a screen reader still knows whom it is about. */ targetName?: string }) {
+export function ChallengeAction({ marketId, state, targetName, align = "end" }: { marketId: string; state: ChallengeActionState; /** Where the control sits when there is room: right (a row in a list) or flush left (inside a comment, beside Reply). */ align?: "start" | "end"; /** Who the control is about. Read as the control's description ("Call BS, Call BS on Maria") so its accessible NAME stays "Call BS" / "Accept" / "Decline" everywhere, while a screen reader still knows whom it is about. */ targetName?: string }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   // What THIS viewer just did on this row (Call BS / Accept / Decline),
@@ -75,7 +75,7 @@ export function ChallengeAction({ marketId, state, targetName }: { marketId: str
   if (current.kind === "call_bs") {
     const { recipientPredictionId } = current;
     return (
-      <div className="flex flex-col items-start gap-1 sm:items-end">
+      <div className={`flex flex-col items-start gap-1 ${align === "end" ? "sm:items-end" : ""}`}>
         <Button
           type="button"
           size="lg"
@@ -108,7 +108,7 @@ export function ChallengeAction({ marketId, state, targetName }: { marketId: str
   // incoming_pending
   const { challengeId } = current;
   return (
-    <div className="flex flex-col items-start gap-1 sm:items-end">
+    <div className={`flex flex-col items-start gap-1 ${align === "end" ? "sm:items-end" : ""}`}>
       <div className="flex items-center gap-2">
         <Button
           type="button"
@@ -171,7 +171,7 @@ export function ChallengeAction({ marketId, state, targetName }: { marketId: str
           {error}
         </p>
       )}
-      <p className="max-w-[18rem] text-xs text-text-secondary sm:text-right">Accepting locks both predictions for this game.</p>
+      <p className={`max-w-[18rem] text-xs text-text-secondary ${align === "end" ? "sm:text-right" : ""}`}>Accepting locks both predictions for this game.</p>
     </div>
   );
 }
