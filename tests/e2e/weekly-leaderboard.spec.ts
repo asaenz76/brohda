@@ -187,6 +187,13 @@ test.describe("The weekly leaderboard", () => {
     await expect(page.locator('[data-slot="record-picks"]')).toContainText("13–5");
   });
 
+  test("is for signed-in Members only: a signed-out visitor is sent to log in", async ({ page }) => {
+    await page.context().clearCookies();
+    await page.goto("/leaderboard");
+    await expect(page).toHaveURL(/\/login/);
+    await expect(page.locator('[data-slot="weekly-leaderboard"]')).toHaveCount(0);
+  });
+
   test("a Member below the minimum sees progress, not a rank; staff are told they are not ranked", async ({ page }) => {
     await login(page, people.dani.email);
     await page.goto("/leaderboard");
