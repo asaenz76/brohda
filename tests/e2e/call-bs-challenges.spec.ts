@@ -125,13 +125,13 @@ test.describe("Call BS Challenges", () => {
       await expect(page.getByText("Picked Away Test FC")).toBeVisible();
       await expect(page.getByRole("button", { name: "Accept" })).toBeVisible();
       await page.getByRole("button", { name: "Accept" }).click();
-      await expect(page.getByText("Accepted")).toBeVisible();
+      await expect(page.getByText("Accepted", { exact: true })).toBeVisible();
 
       // B also now sees it as accepted.
       await page.context().clearCookies();
       await loginAs(page, emailB);
       await page.goto(`/markets/${marketId}`);
-      await expect(page.getByText("Accepted")).toBeVisible();
+      await expect(page.getByText("Accepted", { exact: true })).toBeVisible();
 
       const { data: challenge } = await admin.from("challenges").select("status").eq("market_id", marketId).single();
       expect(challenge?.status).toBe("ACCEPTED");
@@ -169,7 +169,7 @@ test.describe("Call BS Challenges", () => {
       await loginAs(page, emailA);
       await page.goto(`/markets/${marketId}`);
       await page.getByRole("button", { name: "Decline" }).click();
-      await expect(page.getByText("Declined")).toBeVisible();
+      await expect(page.getByText("Declined", { exact: true })).toBeVisible();
 
       const { data: challenge } = await admin.from("challenges").select("status").eq("market_id", marketId).single();
       expect(challenge?.status).toBe("DECLINED");
@@ -251,7 +251,7 @@ test.describe("Call BS Challenges", () => {
       await expect(carlosRow.getByText(/locks both predictions/i)).toBeVisible();
 
       await carlosRow.getByRole("button", { name: "Accept" }).click();
-      await expect(carlosRow.getByText("Accepted")).toBeVisible();
+      await expect(carlosRow.getByText("Accepted", { exact: true })).toBeVisible();
 
       // Marco's still-visible row must stop offering Accept/Decline —
       // never a stale control — and must not read as an explicit Decline.
@@ -271,7 +271,7 @@ test.describe("Call BS Challenges", () => {
       await page.context().clearCookies();
       await loginAs(page, emailMarco);
       await page.goto(`/markets/${marketId}`);
-      await expect(page.getByText("No longer available")).toBeVisible();
+      await expect(page.getByText("No longer available", { exact: true })).toBeVisible();
 
       const { data: predictions } = await admin.from("predictions").select("user_id, locked_at, lock_reason").eq("market_id", marketId);
       const byUser = new Map((predictions ?? []).map((p) => [p.user_id as string, p]));

@@ -12,7 +12,7 @@ import type { ChallengeActionState } from "@/lib/challenges/action-state";
 // MarketParticipants.tsx) (§47: no financial controls, no stake fields,
 // ever).
 
-type StatusKind = "outgoing_pending" | "accepted" | "declined" | "unavailable" | "in_call_bs";
+type StatusKind = "outgoing_pending" | "accepted" | "declined" | "unavailable" | "in_call_bs" | "called_on_you";
 
 const STATUS: Record<StatusKind, { label: string; className: string }> = {
   outgoing_pending: { label: "Pending", className: "text-text-muted" },
@@ -20,9 +20,10 @@ const STATUS: Record<StatusKind, { label: string; className: string }> = {
   declined: { label: "Declined", className: "text-text-muted" },
   unavailable: { label: "No longer available", className: "text-text-muted" },
   in_call_bs: { label: "In a Call BS", className: "text-text-muted" },
+  called_on_you: { label: "Called BS on you", className: "text-text-secondary" },
 };
 
-export function ChallengeAction({ marketId, state }: { marketId: string; state: ChallengeActionState }) {
+export function ChallengeAction({ marketId, state, targetName, align = "end" }: { marketId: string; state: ChallengeActionState; /** Where the control sits when there is room: right (a row in a list) or flush left (inside a comment, beside Reply). */ align?: "start" | "end"; /** Who the control is about. Read as the control's description ("Call BS, Call BS on Maria") so its accessible NAME stays "Call BS" / "Accept" / "Decline" everywhere, while a screen reader still knows whom it is about. */ targetName?: string }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   // What THIS viewer just did on this row (Call BS / Accept / Decline),
@@ -55,7 +56,7 @@ export function ChallengeAction({ marketId, state }: { marketId: string; state: 
     setLocalOutcome(next);
   }
 
-  if (current.kind === "outgoing_pending" || current.kind === "accepted" || current.kind === "declined" || current.kind === "unavailable" || current.kind === "in_call_bs") {
+  if (current.kind === "outgoing_pending" || current.kind === "accepted" || current.kind === "declined" || current.kind === "unavailable" || current.kind === "in_call_bs" || current.kind === "called_on_you") {
     const { label: baseLabel, className } = STATUS[current.kind];
     // Brohda 2.1: a Call BS that ended because a Pick changed says so (D-3 copy), instead of the generic "No longer available".
     const label = current.kind === "unavailable" && current.pickChanged ? "Challenge cancelled because the Pick changed" : baseLabel;
@@ -74,12 +75,13 @@ export function ChallengeAction({ marketId, state }: { marketId: string; state: 
   if (current.kind === "call_bs") {
     const { recipientPredictionId } = current;
     return (
-      <div className="flex flex-col items-start gap-1 sm:items-end">
+      <div className={`flex flex-col items-start gap-1 ${align === "end" ? "sm:items-end" : ""}`}>
         <Button
           type="button"
           size="lg"
           variant="outline"
           disabled={isPending}
+          aria-description={targetName ? `Call BS on ${targetName}` : undefined}
           onClick={() => {
             setError(null);
             startTransition(async () => {
@@ -106,12 +108,13 @@ export function ChallengeAction({ marketId, state }: { marketId: string; state: 
   // incoming_pending
   const { challengeId } = current;
   return (
-    <div className="flex flex-col items-start gap-1 sm:items-end">
+    <div className={`flex flex-col items-start gap-1 ${align === "end" ? "sm:items-end" : ""}`}>
       <div className="flex items-center gap-2">
         <Button
           type="button"
           size="lg"
           disabled={isPending}
+          aria-description={targetName ? `Accept the Call BS from ${targetName}` : undefined}
           onClick={() => {
             setError(null);
             startTransition(async () => {
@@ -143,6 +146,7 @@ export function ChallengeAction({ marketId, state }: { marketId: string; state: 
           size="lg"
           variant="ghost"
           disabled={isPending}
+          aria-description={targetName ? `Decline the Call BS from ${targetName}` : undefined}
           onClick={() => {
             setError(null);
             startTransition(async () => {
@@ -167,7 +171,7 @@ export function ChallengeAction({ marketId, state }: { marketId: string; state: 
           {error}
         </p>
       )}
-      <p className="max-w-[18rem] text-xs text-text-secondary sm:text-right">Accepting locks both predictions for this game.</p>
+      <p className={`max-w-[18rem] text-xs text-text-secondary ${align === "end" ? "sm:text-right" : ""}`}>Accepting locks both predictions for this game.</p>
     </div>
   );
 }

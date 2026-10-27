@@ -199,6 +199,43 @@ export async function listChallengesForMarketAndUser(marketId: string, userId: s
 }
 
 /**
+ * M4: whether any of these Members is already in an ACCEPTED Call BS on this Market (with anyone). One accepted Call BS is exclusive, so a new one involving them can never be accepted:
+ * accept_call_bs() refuses it (rejected_already_paired). The Post never offers one; the Call BS action asks this first, so a crafted request cannot send a Call BS that is already
+ * impossible (and notify someone about it). Read-only; the database stays authoritative for the acceptance itself.
+ */
+export async function hasAcceptedCallBsAmong(marketId: string, userIds: string[]): Promise<boolean> {
+  const unique = [...new Set(userIds)];
+  if (unique.length === 0) return false;
+  const admin = createAdminClient();
+  const { count, error } = await admin
+    .from("challenges")
+    .select("id", { count: "exact", head: true })
+    .eq("market_id", marketId)
+    .eq("status", "ACCEPTED")
+    .or(`challenger_user_id.in.(${unique.join(",")}),recipient_user_id.in.(${unique.join(",")})`);
+  if (error) throw error;
+  return (count ?? 0) > 0;
+}
+
+/**
+ * M4: every Challenge of any status between this user and anyone, across a set of Markets (a Game's Markets), in ONE read — the Post's "Your Call BS" status. Only the user's own challenges, so it exposes nothing
+ * about anyone else's. A constant number of reads however many Markets or opponents there are.
+ */
+export async function listChallengesForMarketsAndUser(marketIds: string[], userId: string): Promise<Challenge[]> {
+  if (marketIds.length === 0) return [];
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("challenges")
+    .select("*")
+    .in("market_id", marketIds)
+    .or(`challenger_user_id.eq.${userId},recipient_user_id.eq.${userId}`)
+    .order("updated_at", { ascending: false })
+    .limit(200);
+  if (error) throw error;
+  return (data as ChallengeRow[]).map(toDomain);
+}
+
+/**
  * The purely factual head-to-head tally (§38-39, §48) — no scoring, no
  * weighting, a plain count. R11 owns any future reputation derivation;
  * this is the raw material it will consume.

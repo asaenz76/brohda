@@ -15,6 +15,7 @@ import { Avatar } from "@/components/Avatar";
 import { ChallengeAction } from "@/components/predictions/ChallengeAction";
 import { HeadToHeadLine } from "@/components/profile/CallBsRecordLine";
 import { getHeadToHeadRecords } from "@/lib/challenges/history";
+import type { PostSocial } from "@/lib/challenges/post-social";
 import { MonetaryProposalAction } from "@/components/predictions/MonetaryProposalAction";
 import { deriveMonetaryActionState } from "@/lib/monetary/action-state";
 import { getMonetaryStakeLimits, getP2pFeeBps } from "@/lib/monetary/policy";
@@ -42,9 +43,15 @@ export async function MarketParticipants({
   marketId,
   viewerId,
   viewerHasPick,
+  social = null,
+  conversationUserIds,
 }: {
   marketId: string;
   viewerId: string;
+  /** M4 (the Post): the participants, the viewer's Call BS and head-to-head records, already read once for the whole page. Passed instead of read again; an incoming Call BS is then answered in the "Your Call BS" block, so a row only names it. */
+  social?: PostSocial | null;
+  /** M4 (the Post): Members who already show up in the conversation, with their side and Call BS inside their comment. They are not listed a second time here, so nobody has two Call BS controls. */
+  conversationUserIds?: Set<string>;
   /** Participants (and Call BS) only appear once the viewer has picked; before that, a one-line hint says so. */
   viewerHasPick: boolean;
 }) {
@@ -71,8 +78,8 @@ export async function MarketParticipants({
   }
 
   const [participants, relevantChallenges, monetaryParticipants, relevantProposals, walletSummary, lockPolicy, feeBps, stakeLimits, moneyEnabled] = await Promise.all([
-    getMarketParticipants(marketId, viewerId, scheduledStartUtc),
-    listChallengesForMarketAndUser(marketId, viewerId),
+    social ? Promise.resolve(social.participants) : getMarketParticipants(marketId, viewerId, scheduledStartUtc),
+    social ? Promise.resolve(social.challenges) : listChallengesForMarketAndUser(marketId, viewerId),
     getMonetaryParticipants(marketId, viewerId, scheduledStartUtc),
     listMonetaryProposalsForMarketAndUser(marketId, viewerId),
     getWalletBalanceSummary(viewerId),
@@ -100,27 +107,31 @@ export async function MarketParticipants({
   const settlements = await listMonetaryPositionSettlementsByPositionIds(terminalPositionIds);
   const settlementsByPositionId = new Map(settlements.map((s) => [s.positionId, s]));
 
-  const others = participants.filter((p) => p.userId !== viewerId);
+  const others = participants.filter((p) => p.userId !== viewerId && !conversationUserIds?.has(p.userId));
   if (others.length === 0) return null;
 
   // The viewer's resolved Call BS record against each person on this list, in one batched read. Only RESOLVED challenges count,
   // so a pending or accepted-but-ungraded one is never in it; the line below appears only where there is history to show.
-  const headToHead = await getHeadToHeadRecords(
-    viewerId,
-    others.map((p) => p.userId),
-  );
+  const headToHead = social
+    ? social.headToHead
+    : await getHeadToHeadRecords(
+        viewerId,
+        others.map((p) => p.userId),
+      );
 
   const actionByUserId = new Map(
     others.map((participant) => [
       participant.userId,
-      deriveChallengeActionState({
-        viewerId,
-        participantPredictionId: participant.predictionId,
-        canCallBs: participant.canCallBs,
-        pairedInCallBs: participant.pairedInCallBs,
-        challenges: relevantChallenges,
-        pastCutoff,
-      }),
+      social
+        ? (social.byUserId[participant.userId]?.action ?? null)
+        : deriveChallengeActionState({
+            viewerId,
+            participantPredictionId: participant.predictionId,
+            canCallBs: participant.canCallBs,
+            pairedInCallBs: participant.pairedInCallBs,
+            challenges: relevantChallenges,
+            pastCutoff,
+          }),
     ]),
   );
   // The 1-v-1 rule from the viewer's side: once the viewer is in an
@@ -176,7 +187,7 @@ export async function MarketParticipants({
                   it) instead of competing with it for width; from sm up they
                   sit to its right as before. */}
               <div className="flex shrink-0 flex-col items-start gap-2 pl-8 sm:items-end sm:gap-1 sm:pl-0">
-                {action && <ChallengeAction marketId={marketId} state={action} />}
+                {action && <ChallengeAction marketId={marketId} state={action} targetName={participant.displayName} />}
                 {monetaryAction && (
                   <MonetaryProposalAction
                     marketId={marketId}

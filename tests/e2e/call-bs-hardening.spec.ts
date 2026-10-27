@@ -164,6 +164,8 @@ async function cleanup(fixtureId: string, marketId: string, postId: string, user
 }
 
 const rowFor = (page: Page, name: string): Locator => page.locator("li", { hasText: name });
+// M4: an INCOMING Call BS is answered in one place, the "Your Call BS" block at the top of the Post (a notification lands on it). Its row in "Other picks" only names it ("Called BS on you") and follows the server's state.
+const answerFor = (page: Page, name: string): Locator => page.locator('[data-slot="call-bs-item"]', { hasText: name });
 
 test.describe("Call BS final hardening", () => {
   test("accepting one Call BS on the Post expires its siblings live — no reload — and Accept/Decline vanish with them", async ({ page }) => {
@@ -197,18 +199,26 @@ test.describe("Call BS final hardening", () => {
       const carlosRow = rowFor(page, "e2e-live-carlos");
       const marcoRow = rowFor(page, "e2e-live-marco");
       const priyaRow = rowFor(page, "e2e-live-priya");
-      await expect(carlosRow.getByRole("button", { name: "Accept" })).toBeVisible();
-      await expect(marcoRow.getByRole("button", { name: "Accept" })).toBeVisible();
+      const carlosAnswer = answerFor(page, "e2e-live-carlos");
+      const marcoAnswer = answerFor(page, "e2e-live-marco");
+      await expect(carlosAnswer.getByRole("button", { name: "Accept" })).toBeVisible();
+      await expect(marcoAnswer.getByRole("button", { name: "Accept" })).toBeVisible();
+      // Each is answered once, in the block at the top; the rows below only name them.
+      await expect(carlosRow.getByText("Called BS on you")).toBeVisible();
+      await expect(carlosRow.getByRole("button", { name: /^(Accept|Decline)$/ })).toHaveCount(0);
       await expect(priyaRow.getByRole("button", { name: "Call BS" })).toBeVisible();
 
-      await carlosRow.getByRole("button", { name: "Accept" }).click();
-      await expect(carlosRow.getByText("Accepted")).toBeVisible();
+      await carlosAnswer.getByRole("button", { name: "Accept" }).click();
+      await expect(carlosAnswer.getByRole("status")).toHaveText("Accepted");
+      await expect(carlosRow.getByText("Accepted", { exact: true })).toBeVisible();
 
       // No page.reload(): the displaced sibling and the now-ineligible row
       // must update on their own, because the action revalidates the Post.
       await expect(marcoRow.getByText("No longer available")).toBeVisible();
-      await expect(marcoRow.getByRole("button", { name: "Accept" })).toHaveCount(0);
-      await expect(marcoRow.getByRole("button", { name: "Decline" })).toHaveCount(0);
+      await expect(marcoAnswer).toContainText("is no longer available");
+      await expect(marcoAnswer.getByRole("button", { name: "Accept" })).toHaveCount(0);
+      await expect(marcoAnswer.getByRole("button", { name: "Decline" })).toHaveCount(0);
+      await expect(marcoRow.getByRole("button", { name: /^(Accept|Decline)$/ })).toHaveCount(0);
       await expect(marcoRow.getByText("Declined")).toHaveCount(0);
       await expect(priyaRow.getByRole("button", { name: "Call BS" })).toHaveCount(0);
 
@@ -238,7 +248,7 @@ test.describe("Call BS final hardening", () => {
       // Before cutoff the recipient is offered Accept/Decline.
       await loginAs(page, emailA);
       await page.goto(`/post/${postId}`);
-      await expect(rowFor(page, "e2e-cutoff-b").getByRole("button", { name: "Accept" })).toBeVisible();
+      await expect(answerFor(page, "e2e-cutoff-b").getByRole("button", { name: "Accept" })).toBeVisible();
 
       // Kickoff moves inside the cutoff window. Nothing sweeps the PENDING
       // row — it is still PENDING in the database.
@@ -249,8 +259,8 @@ test.describe("Call BS final hardening", () => {
       await page.reload();
       const bRow = rowFor(page, "e2e-cutoff-b");
       await expect(bRow.getByText("No longer available")).toBeVisible();
-      await expect(bRow.getByRole("button", { name: "Accept" })).toHaveCount(0);
-      await expect(bRow.getByRole("button", { name: "Decline" })).toHaveCount(0);
+      await expect(answerFor(page, "e2e-cutoff-b")).toContainText("expired");
+      await expect(page.getByRole("button", { name: /^(Accept|Decline)$/ })).toHaveCount(0);
 
       // The sender sees the same, not a Pending that can never resolve.
       await loginAs(page, emailB);
@@ -258,6 +268,7 @@ test.describe("Call BS final hardening", () => {
       const aRow = rowFor(page, "e2e-cutoff-a");
       await expect(aRow.getByText("No longer available")).toBeVisible();
       await expect(aRow.getByText("Pending")).toHaveCount(0);
+      await expect(answerFor(page, "e2e-cutoff-a")).toContainText("expired");
     } finally {
       await cleanup(fixtureId, marketId, postId, userIds);
     }
@@ -298,9 +309,11 @@ test.describe("Call BS final hardening", () => {
       await loginAs(page, emailA);
       await page.goto(`/post/${postId}`);
       const bRow = rowFor(page, "e2e-money-b");
-      await expect(bRow.getByRole("button", { name: "Accept" })).toBeVisible();
-      await bRow.getByRole("button", { name: "Accept" }).click();
-      await expect(bRow.getByText("Accepted")).toBeVisible();
+      const bAnswer = answerFor(page, "e2e-money-b");
+      await expect(bAnswer.getByRole("button", { name: "Accept" })).toBeVisible();
+      await bAnswer.getByRole("button", { name: "Accept" }).click();
+      await expect(bAnswer.getByRole("status")).toHaveText("Accepted");
+      await expect(bRow.getByText("Accepted", { exact: true })).toBeVisible();
       await expect(bRow.getByText("$10.00 on the line")).toBeVisible();
 
       const { data: challenge } = await admin.from("challenges").select("status").eq("market_id", marketId).single();
@@ -357,7 +370,7 @@ test.describe("Call BS missing-state hints", () => {
       // A paired viewer is told they cannot call BS on anyone else; their partner's row reads Accepted.
       await loginAs(page, emails.paira);
       await page.goto(`/post/${postId}`);
-      await expect(rowFor(page, "e2e-hint-pairb").getByText("Accepted")).toBeVisible();
+      await expect(rowFor(page, "e2e-hint-pairb").getByText("Accepted", { exact: true })).toBeVisible();
       await expect(page.getByText("You're already in a Call BS on this game")).toBeVisible();
 
       // Someone who hasn't picked sees a hint, and nobody's name or pick.
@@ -460,14 +473,15 @@ test.describe("Call BS at 375px", () => {
       await expectInsideViewport(longRow.getByText(/^Picked /), "long outcome label");
 
       // Incoming Call BS: Accept/Decline are touch-sized, on screen, and the lock warning is readable.
-      const accept = incomingRow.getByRole("button", { name: "Accept" });
-      const decline = incomingRow.getByRole("button", { name: "Decline" });
+      const incomingAnswer = answerFor(page, "e2e-m375-incoming");
+      const accept = incomingAnswer.getByRole("button", { name: "Accept" });
+      const decline = incomingAnswer.getByRole("button", { name: "Decline" });
       await expect(accept).toBeVisible();
       await expectInsideViewport(accept, "Accept");
       await expectInsideViewport(decline, "Decline");
       await expectNoOverlap(accept, decline, "Accept vs Decline");
       expect((await accept.boundingBox())!.height, "Accept touch target").toBeGreaterThanOrEqual(36);
-      const warning = incomingRow.getByText("Accepting locks both predictions for this game.");
+      const warning = incomingAnswer.getByText("Accepting locks both predictions for this game.");
       await expect(warning).toBeVisible();
       await expectInsideViewport(warning, "lock warning");
       expect(await warning.evaluate((el) => parseFloat(getComputedStyle(el).fontSize)), "lock warning font size").toBeGreaterThanOrEqual(12);
@@ -481,8 +495,11 @@ test.describe("Call BS at 375px", () => {
 
       // Accept the incoming one: Accepted is readable, the siblings update live.
       await accept.click();
-      await expect(incomingRow.getByText("Accepted")).toBeVisible();
-      await expectInsideViewport(incomingRow.getByText("Accepted"), "Accepted");
+      await expect(incomingAnswer.getByRole("status")).toHaveText("Accepted");
+      await expectInsideViewport(incomingAnswer.getByRole("status"), "Accepted");
+      await expect(incomingRow.getByText("Accepted", { exact: true })).toBeVisible();
+      await expectInsideViewport(incomingRow.getByText("Accepted", { exact: true }), "Accepted (row)");
+      await expectInsideViewport(incomingAnswer, "Your Call BS block");
       await expect(longRow.getByRole("button", { name: "Call BS" })).toHaveCount(0);
       await expectNoHorizontalOverflow(page, "states after accepting");
       await shot(page, testInfo, "375-after-accept");

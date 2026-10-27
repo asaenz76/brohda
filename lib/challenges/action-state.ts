@@ -22,7 +22,14 @@ export type ChallengeActionState =
   | { kind: "unavailable"; /** Brohda 2.1: set only when the Call BS ended because one of the two Members changed their Pick (expiry_reason PICK_CHANGED), so the row can say so. */ pickChanged?: true }
   // No Call BS exists between this pair, and none can: the participant is already in an accepted Call BS with someone else on
   // this Market (the 1-v-1 rule). Shown instead of silence so a missing button reads as a rule, not a bug.
-  | { kind: "in_call_bs" };
+  | { kind: "in_call_bs" }
+  // M4: this Member called BS on the viewer and the viewer can answer it in the "Your Call BS" block at the top of the Post, so a row further down says so instead of repeating Accept / Decline.
+  | { kind: "called_on_you" };
+
+/** On the Post, an incoming Call BS is answered in one place (the "Your Call BS" block); every row below only names it. Any other state is unchanged. */
+export function withIncomingAnsweredAbove(state: ChallengeActionState | null): ChallengeActionState | null {
+  return state?.kind === "incoming_pending" ? { kind: "called_on_you" } : state;
+}
 
 /**
  * The pure per-row decision behind MarketParticipants' Call BS control —

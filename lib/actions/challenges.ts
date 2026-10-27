@@ -2,7 +2,8 @@
 
 import { errorMessage } from "@/lib/utils/error-message";
 import { requireUser } from "@/lib/auth/session";
-import { callBS, acceptCallBS, declineCallBS } from "@/lib/challenges/repository";
+import { callBS, acceptCallBS, declineCallBS, hasAcceptedCallBsAmong } from "@/lib/challenges/repository";
+import { getPredictionById } from "@/lib/predictions/repository";
 import { callBsSchema, respondToChallengeSchema } from "@/lib/validations/challenges";
 import { checkCallBsRateLimit } from "@/lib/rate-limit/challenges";
 import {
@@ -39,6 +40,8 @@ const CALL_BS_ERROR_COPY: Record<string, string> = {
   duplicate_pending_challenge: "You already have a pending Call BS with this pick.",
   // One neutral message for a block in either direction, so it never reveals who blocked whom.
   relationship_blocked: "You can't call BS on this Member.",
+  // M4: one accepted Call BS pairs two Members exclusively.
+  already_in_call_bs: "You or they are already in a Call BS on this game.",
 };
 
 function copyForCallBsError(message: string): string {
@@ -56,6 +59,12 @@ export async function callBSAction(recipientPredictionId: string, marketId: stri
   const allowed = await checkCallBsRateLimit(user.id);
   if (!allowed) {
     return { error: "Too many Call BS attempts. Try again in a moment.", challenge: null };
+  }
+
+  // M4: one accepted Call BS is exclusive. A new one involving either Member could never be accepted, so it is refused here rather than sent (the Post never offers it either).
+  const recipientPick = await getPredictionById(parsed.data.recipientPredictionId);
+  if (recipientPick && (await hasAcceptedCallBsAmong(recipientPick.marketId, [user.id, recipientPick.userId]))) {
+    return { error: CALL_BS_ERROR_COPY.already_in_call_bs, challenge: null };
   }
 
   const outcome = await callBS(user.id, parsed.data.recipientPredictionId);

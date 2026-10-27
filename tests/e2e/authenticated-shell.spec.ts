@@ -208,7 +208,7 @@ test.describe("Authenticated shell — desktop (1280)", () => {
     await expect(main).toContainText("A very long comment");
   });
 
-  test("Post detail reads Game -> Market sentiment -> conversation -> Other picks / Call BS, one expanded Game Post — and is not a prediction surface", async ({ page }) => {
+  test("Post detail reads Game -> Market sentiment -> conversation (with Call BS inside the other side's comment), one expanded Game Post — and is not a prediction surface", async ({ page }) => {
     // Participants (Call BS / money) only show to someone who has a Pick, so this test uses its own viewer who already picked
     // the other side from the seeded commenter — independent of what the Pick test does to the main viewer.
     const picker = await createUser("order", "Order Viewer", `shellorder${suffix}`);
@@ -218,18 +218,21 @@ test.describe("Authenticated shell — desktop (1280)", () => {
     const y = async (loc: import("@playwright/test").Locator) => (await loc.first().boundingBox())!.y;
     const main = page.getByRole("main");
     await expect(main.getByText(/^Your prediction:/)).toBeVisible(); // measure only once the Post has rendered
-    await expect(main.getByText("Other picks", { exact: true })).toBeVisible();
+    // M4: the commenter (the only other participant) is in the conversation, so their side and Call BS sit inside their comment and nobody is listed a second time under "Other picks".
+    await expect(main.locator('[data-slot="comment-side"]')).toContainText("Other side");
+    await expect(main.getByRole("button", { name: "Call BS" })).toBeVisible();
+    await expect(main.getByText("Other picks", { exact: true })).toHaveCount(0);
     const game = await y(main.getByText(`${AWAY} @`));
     const sentiment = await y(main.getByText(/\d+% *$/).first());
     const yours = await y(main.getByText(/^Your prediction:/)); // the viewer's own prediction as context, inside its Market's sentiment block — never a prediction card
     const comments = await y(main.getByText("Comments", { exact: true }));
     const comment = await y(main.getByText("A very long comment"));
-    const others = await y(main.getByText("Other picks", { exact: true }));
+    const callBs = await y(main.getByRole("button", { name: "Call BS" })); // Call BS belongs inside the argument: after the commenter's words, in the same comment
     expect(game).toBeLessThan(sentiment);
     expect(sentiment).toBeLessThan(comments);
     expect(Math.abs(yours - sentiment)).toBeLessThan(200); // it sits with the Market's numbers
     expect(comments).toBeLessThan(comment);
-    expect(comment).toBeLessThan(others); // the participants (Call BS, optional money) come after the conversation
+    expect(comment).toBeLessThan(callBs);
     // One Post, one card, and no second prediction surface on it.
     await expect(main.locator('[data-slot="card"]')).toHaveCount(1);
     await expect(main.locator('[data-testid="prediction-actions"], [data-slot="confidence-choice"]')).toHaveCount(0);

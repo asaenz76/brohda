@@ -16,7 +16,12 @@ import { MarketParticipants } from "@/components/predictions/MarketParticipants"
 import { getGameMarketSentiment } from "@/lib/posts/game-sentiment";
 import { getPickLockPolicy, getPredictionPolicy } from "@/lib/predictions/policy";
 import { marketsOfAllowedTemplates } from "@/lib/prediction-markets/market-policy-parse";
-import { arePredictionsClosed } from "@/lib/predictions/lock";
+import { arePredictionsClosed, isPastEffectiveLock } from "@/lib/predictions/lock";
+import { getSelectionLabel } from "@/lib/prediction-markets/selection-labels";
+import { loadPostSocial, toConversationSocial, type PostSocial } from "@/lib/challenges/post-social";
+import { loadGameCallBsStatus, type GameCallBsStatus } from "@/lib/challenges/game-status";
+import { visibleCommenterIds } from "@/lib/post-comments/commenters";
+import { CallBsStatusCard } from "@/components/posts/CallBsStatusCard";
 import { getGamePreviewForFixture } from "@/lib/game-previews/repository";
 import { PostConversation } from "@/components/posts/PostConversation";
 import { PostCommunityBadges } from "@/components/communities/PostCommunityBadges";
@@ -81,6 +86,29 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
   // Other Picks / Call BS ride on the primary Market and need to know whether the viewer has a Pick on it (unchanged from before).
   const viewerHasPick = primaryMarket ? sentiment.find((m) => m.marketId === primaryMarket.id)?.hasViewerPick === true : false;
 
+  // M4: the Game's social loop. Everything below is read-only presentation of stored picks and Call BS (never a new rule), and it fails soft: if either read fails the Post still renders, without the side badges /
+  // the "Your Call BS" block, and the failure is logged.
+  const pastCutoff = isPastEffectiveLock(fixture.scheduledStartUtc, lockPolicy.lockMinutesBeforeKickoff, new Date());
+  const [social, callBsStatus] = await Promise.all([
+    primaryMarket && viewerHasPick
+      ? loadPostSocial({
+          marketId: primaryMarket.id,
+          viewerId: user.id,
+          scheduledStartUtc: fixture.scheduledStartUtc,
+          lockMinutesBeforeKickoff: lockPolicy.lockMinutesBeforeKickoff,
+          // The same shared presentation the sentiment block and every other surface use.
+          labelFor: (outcome) => getSelectionLabel({ ...primaryMarket, homeTeamName: fixture.homeTeamName, awayTeamName: fixture.awayTeamName, sport: fixture.sport }, outcome),
+        }).catch((error): PostSocial | null => {
+          console.error("[post-social] failed; showing the Post without side badges:", error instanceof Error ? error.message : error);
+          return null;
+        })
+      : Promise.resolve<PostSocial | null>(null),
+    loadGameCallBsStatus({ viewerId: user.id, marketIds: allMarkets.map((m) => m.id), pastCutoff }).catch((error): GameCallBsStatus => {
+      console.error("[game-call-bs-status] failed; showing the Post without it:", error instanceof Error ? error.message : error);
+      return { items: [], more: 0 };
+    }),
+  ]);
+
   // Phase G — every commenter's canonical reputation, batched in one query
   // regardless of thread size (lib/reputation/repository.ts's
   // getUserPredictionRecords), never one getUserPredictionRecord() call
@@ -126,6 +154,12 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
             <PostCommunityBadges communities={communities} />
           </div>
 
+          {callBsStatus.items.length > 0 && (
+            <div className="border-t border-border-subtle pt-4">
+              <CallBsStatusCard status={callBsStatus} />
+            </div>
+          )}
+
           {sentiment.length > 0 && (
             <div className="border-t border-border-subtle pt-4">
               <GameMarketSentimentSection markets={sentiment} />
@@ -144,18 +178,25 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
             </div>
           )}
 
-          <div className="border-t border-border-subtle pt-4">
+          <div id="conversation" className="scroll-mt-16 border-t border-border-subtle pt-4">
             <PostConversation
               postId={post.id}
               viewer={{ id: user.id, isModerator: isAdminOrAbove(user) }}
               initialComments={conversation}
               reputationByUserId={reputationByUserId}
+              social={social ? toConversationSocial(social) : null}
             />
           </div>
 
           {primaryMarket && (
             <div className="border-t border-border-subtle pt-4">
-              <MarketParticipants marketId={primaryMarket.id} viewerId={user.id} viewerHasPick={viewerHasPick} />
+              <MarketParticipants
+                marketId={primaryMarket.id}
+                viewerId={user.id}
+                viewerHasPick={viewerHasPick}
+                social={social}
+                conversationUserIds={social ? visibleCommenterIds(conversation) : undefined}
+              />
             </div>
           )}
         </CardContent>

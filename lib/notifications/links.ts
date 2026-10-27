@@ -28,6 +28,9 @@ const PAIR_NOTIFICATION_TYPES = new Set([
   "MONETARY_POSITION_VOIDED",
 ]);
 
+// M4: a Call BS notification lands on the "Your Call BS" block at the top of the Post (the section id), where the Member can answer it or read its result. A browser with no such block on the page simply stays at the top.
+const CALL_BS_NOTIFICATION_TYPES = new Set(["CALL_BS_RECEIVED", "CALL_BS_ACCEPTED", "CALL_BS_DECLINED", "CALL_BS_RESOLVED", "CALL_BS_CANCELLED"]);
+
 const MESSAGE_NOTIFICATION_TYPES = new Set(["MESSAGE_REQUEST_RECEIVED", "MESSAGE_REQUEST_ACCEPTED", "MESSAGE_RECEIVED"]);
 
 export function resolveNotificationHref(n: NotificationRow): string | null {
@@ -39,7 +42,7 @@ export function resolveNotificationHref(n: NotificationRow): string | null {
   if (n.type === "WALLET_REQUEST_SUBMITTED") return "/admin/wallet-requests";
 
   if (PAIR_NOTIFICATION_TYPES.has(n.type)) {
-    if (n.post_id) return `/post/${n.post_id}`;
+    if (n.post_id) return CALL_BS_NOTIFICATION_TYPES.has(n.type) ? `/post/${n.post_id}#call-bs` : `/post/${n.post_id}`;
     if (n.market_id) return `/markets/${n.market_id}`;
     return null;
   }
