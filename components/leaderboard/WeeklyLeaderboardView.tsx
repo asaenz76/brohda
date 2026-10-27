@@ -67,6 +67,8 @@ function Row({ entry, isViewer }: { entry: LeaderboardEntry; isViewer: boolean }
     </span>
   );
   const href = isViewer ? "/profile" : entry.username ? `/profile/${entry.username}` : null;
+  // The viewer's own row sits on a darker highlight, where the usual secondary grey falls under the 4.5:1 AA contrast; their figures use the primary colour instead.
+  const muted = isViewer ? "text-text-primary" : "text-text-secondary";
   return (
     <li
       data-slot="leaderboard-row"
@@ -74,7 +76,7 @@ function Row({ entry, isViewer }: { entry: LeaderboardEntry; isViewer: boolean }
       data-viewer={isViewer ? "true" : undefined}
       className={cn("flex items-center gap-3 border-b border-border-subtle px-4 py-3 last:border-b-0", isViewer && "bg-surface-secondary")}
     >
-      <span className={cn("w-10 shrink-0 text-right tabular-nums", entry.rank <= 3 ? "text-lg font-semibold text-text-primary" : "text-base text-text-secondary")}>
+      <span className={cn("w-10 shrink-0 text-right tabular-nums", entry.rank <= 3 ? "text-lg font-semibold text-text-primary" : cn("text-base", muted))}>
         <span className="sr-only">Rank </span>#{entry.rank}
       </span>
       <div className="min-w-0 flex-1">
@@ -89,7 +91,7 @@ function Row({ entry, isViewer }: { entry: LeaderboardEntry; isViewer: boolean }
       <div className="shrink-0 text-right">
         <p className="text-base font-semibold tabular-nums text-text-primary">
           {weeklyRecord(entry.correct, entry.incorrect)}
-          <span className="ml-2 text-sm font-normal text-text-secondary">{accuracyPercent(entry.accuracy)}</span>
+          <span className={cn("ml-2 text-sm font-normal", muted)}>{accuracyPercent(entry.accuracy)}</span>
         </p>
         {(entry.tied || isViewer) && (
           <p className="text-xs text-text-muted">
