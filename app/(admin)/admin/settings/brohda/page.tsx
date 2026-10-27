@@ -9,6 +9,8 @@ import { ConfidenceSettingsCard } from "@/components/confidence/ConfidenceSettin
 import { MarketPolicyCard } from "@/components/admin/MarketPolicyCard";
 import { getMarketPolicy } from "@/lib/prediction-markets/market-policy";
 import { GameContextCard } from "@/components/admin/GameContextCard";
+import { LeaderboardCard } from "@/components/admin/LeaderboardCard";
+import { getLeaderboardPolicyForAdmin } from "@/lib/leaderboard/config";
 import { getGameContextPolicyForAdmin } from "@/lib/game-context/repository";
 import { RefundPolicyCard } from "@/components/sponsorship/RefundPolicyCard";
 import {
@@ -34,7 +36,7 @@ import {
 // per-domain admin/super_admin split.
 export default async function BrohdaSettingsPage() {
   await requireSuperAdmin();
-  const [settings, marketPolicy, gameContext] = await Promise.all([getBrohdaSettings(), getMarketPolicy(), getGameContextPolicyForAdmin()]);
+  const [settings, marketPolicy, gameContext, leaderboard] = await Promise.all([getBrohdaSettings(), getMarketPolicy(), getGameContextPolicyForAdmin(), getLeaderboardPolicyForAdmin()]);
 
   return (
     <div className="space-y-6">
@@ -53,6 +55,7 @@ export default async function BrohdaSettingsPage() {
 
       <MarketPolicyCard initial={marketPolicy} />
       <GameContextCard initial={gameContext} />
+      <LeaderboardCard initial={leaderboard} />
       <PredictionSettingsSection initial={settings.predictions} updatedAt={settings.updatedAt} />
       <NotificationSettingsSection initial={settings.notifications} updatedAt={settings.updatedAt} />
       <MarketSettingsSection initial={settings.markets} updatedAt={settings.updatedAt} />

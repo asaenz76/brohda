@@ -45,13 +45,26 @@ describe("RecordCard", () => {
     expect(screen.getByText("Streak").closest("div")).toHaveTextContent("Best: 8 correct in a row");
   });
 
-  it("says the best run only when it is more than the current run (and more than one)", () => {
+  it("says the best run unless it IS the current correct run, or is only one pick", () => {
     const { unmount } = render(<RecordCard {...props} summary={{ ...base, currentStreak: { kind: "CORRECT", length: 8 }, bestCorrectStreak: 8 }} />);
     expect(screen.getByText("8 correct in a row")).toBeInTheDocument();
     expect(screen.queryByText(/Best:/)).toBeNull();
     unmount();
     render(<RecordCard {...props} summary={{ ...base, currentStreak: { kind: "INCORRECT", length: 3 }, bestCorrectStreak: 1 }} />);
     expect(screen.getByText("3 misses in a row")).toBeInTheDocument();
+    expect(screen.queryByText(/Best:/)).toBeNull();
+  });
+
+  it("M6 regression: a current losing streak never hides the best winning streak (5 misses in a row, best 4 correct)", () => {
+    const { unmount } = render(<RecordCard {...props} summary={{ ...base, currentStreak: { kind: "INCORRECT", length: 5 }, bestCorrectStreak: 4 }} />);
+    expect(screen.getByText("5 misses in a row")).toBeInTheDocument();
+    expect(screen.getByText("Streak").closest("div")).toHaveTextContent("Best: 4 correct in a row");
+    unmount();
+    // A shorter current winning run still shows the better one; an equal current winning run is not repeated.
+    const second = render(<RecordCard {...props} summary={{ ...base, currentStreak: { kind: "CORRECT", length: 2 }, bestCorrectStreak: 4 }} />);
+    expect(screen.getByText("Streak").closest("div")).toHaveTextContent("Best: 4 correct in a row");
+    second.unmount();
+    render(<RecordCard {...props} summary={{ ...base, currentStreak: { kind: "CORRECT", length: 4 }, bestCorrectStreak: 4 }} />);
     expect(screen.queryByText(/Best:/)).toBeNull();
   });
 

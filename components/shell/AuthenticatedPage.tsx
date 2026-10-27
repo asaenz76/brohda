@@ -4,6 +4,7 @@ import { getSocialPredictionAccessPolicy } from "@/lib/social/access";
 import { getConsumerMonetaryAccess } from "@/lib/monetary/capability";
 import { isMessagingEnabled } from "@/lib/messaging/config";
 import { getUnreadSummary } from "@/lib/messaging/queries";
+import { isLeaderboardEnabled } from "@/lib/leaderboard/config";
 import { AuthenticatedShell } from "@/components/shell/AuthenticatedShell";
 import { getShellConfidence } from "@/lib/confidence/service";
 import type { UserProfile } from "@/lib/auth/session";
@@ -30,6 +31,9 @@ export async function AuthenticatedPage({ user, children }: { user: UserProfile;
   const showMessages = await isMessagingEnabled();
   const unreadMessages = showMessages ? await getUnreadSummary() : { unreadConversations: 0, pendingRequests: 0 };
 
+  // The weekly leaderboard: its entry exists only while the capability is ON (off = no entry; the read is one cached settings row).
+  const showLeaderboard = await isLeaderboardEnabled();
+
   return (
     <AuthenticatedShell
       user={user}
@@ -37,6 +41,7 @@ export async function AuthenticatedPage({ user, children }: { user: UserProfile;
       showSocialNav={showSocialNav}
       showWallet={money.canSeeWallet}
       showMessages={showMessages}
+      showLeaderboard={showLeaderboard}
       confidence={confidence}
       unreadMessageCount={unreadMessages.unreadConversations + unreadMessages.pendingRequests}
     >

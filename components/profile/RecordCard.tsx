@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
-import { formLabel, formSpoken, percentIfEnough, recordLabel, sportName, streakLabel } from "@/lib/member-record/format";
+import { bestStreakLabel, formLabel, formSpoken, percentIfEnough, recordLabel, sportName, streakLabel } from "@/lib/member-record/format";
 import type { MemberOpponent, MemberRecordSummary } from "@/lib/member-record/types";
 
 // Brohda 2.1 M5 — the Member's record, in the order a visitor reads a competitor: how often they are right (raw record first, a percentage only once there is enough to mean something), how they do when someone
@@ -50,9 +50,8 @@ export function RecordCard({
   const callBsPercent = percentIfEnough({ correct: callBs.wins, incorrect: callBs.losses }, minDecided);
   const form = formLabel(summary.form);
   const streak = streakLabel(summary.currentStreak);
-  const currentRun = summary.currentStreak?.length ?? 0;
-  // The best run of correct picks is worth saying only when it is more than the run they are in and more than one.
-  const bestRun = summary.bestCorrectStreak > currentRun && summary.bestCorrectStreak > 1 ? `Best: ${summary.bestCorrectStreak} correct in a row` : undefined;
+  // The best run of correct picks is said when it is more than one pick and not already the run they are in; a current run of misses never hides it.
+  const bestRun = bestStreakLabel(summary.currentStreak, summary.bestCorrectStreak) ?? undefined;
   const week = summary.thisWeek;
   const seasonsMatter = summary.bySport.some((s) => summary.bySeason.filter((x) => x.sport === s.sport).length > 1);
 

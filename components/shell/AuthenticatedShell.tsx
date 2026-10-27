@@ -28,6 +28,7 @@ export function AuthenticatedShell({
   showSocialNav,
   showWallet,
   showMessages = false,
+  showLeaderboard = false,
   unreadMessageCount = 0,
   confidence = null,
   children,
@@ -39,6 +40,8 @@ export function AuthenticatedShell({
   showWallet: boolean;
   /** Messaging is ON: show the Messages entry, with the unread count. (A UX signal; each /messages page enforces its own access.) */
   showMessages?: boolean;
+  /** The weekly leaderboard is ON: show the Leaderboard entry. (A UX signal; the /leaderboard page enforces its own access.) */
+  showLeaderboard?: boolean;
   unreadMessageCount?: number;
   /** The Member's Confidence for the shell summary; null while Confidence is off or for anyone without an account (nothing is shown, no space is left). */
   confidence?: ShellConfidence | null;
@@ -47,7 +50,7 @@ export function AuthenticatedShell({
   // The viewer's own profile segment: the same one ProfilePage uses for its follower links.
   const profileSlug = user.username ?? user.id;
   const isAdmin = isAdminOrAbove(user);
-  const navProps = { profileSlug, showSocialNav, showWallet, unreadNotificationCount, showMessages, unreadMessageCount, isAdmin, confidence };
+  const navProps = { profileSlug, showSocialNav, showWallet, unreadNotificationCount, showMessages, showLeaderboard, unreadMessageCount, isAdmin, confidence };
 
   return (
     <div className="min-h-full bg-background">

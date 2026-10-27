@@ -413,10 +413,10 @@ export const SETTINGS_REGISTRY: SettingRegistryEntry[] = [
     domain: "Reputation",
     key: "leaderboardMinDecidedPicks",
     column: "leaderboard_min_decided_picks",
-    label: "Leaderboard minimum sample",
-    description: "Minimum number of decided (correct + incorrect) graded Picks a user must have before appearing in the Prediction Leaderboard.",
+    label: "Profile percentage minimum",
+    description: "Decided (correct + incorrect) graded Picks a Member needs before a percentage is shown next to their record on profiles and comments. Below it, only the raw record (like 1–0) is shown. This does NOT control the weekly leaderboard, which has its own minimum on the Weekly leaderboard card.",
     type: "integer",
-    impactNote: "Takes effect immediately for ranking eligibility. Never changes anyone's actual prediction history, and never requires a deployment.",
+    impactNote: "Takes effect immediately. Never changes anyone's actual prediction history, and never requires a deployment. (Stored as leaderboard_min_decided_picks, which the retired all-time leaderboard also used; the weekly leaderboard does not read it.)",
   },
 
   // Operations
@@ -477,6 +477,9 @@ export const NOT_EXPOSED_SETTINGS: Array<{ column: string; reason: string }> = [
   { column: "market_ingestion_templates", reason: "Brohda 2.1 (M2) Market policy: the Market templates sportsbook ingestion may create/update (an array). Same card and audited function." },
   { column: "game_context_enabled", reason: "Brohda 2.1 (M3) Game Context: whether a Game shows one short line computed from stored sports data (OFF by default). Edited by Super Admin on the Brohda Settings page's \"Game Context\" card through its own audited function (admin_set_game_context_policy; audit action settings.game_context_policy_updated), not the positional Predictions function." },
   { column: "game_context_config", reason: "Brohda 2.1 (M3) Game Context thresholds (a jsonb object: minimum streaks, last-N window, score bar, maximum length, pairs/connective/series switches). NULL = defaults. Same \"Game Context\" card and audited function as game_context_enabled; the database validates every key and range, and the application parses it fail-closed." },
+  { column: "leaderboard_enabled", reason: "Brohda 2.1 (M6) weekly leaderboard: whether the page and its navigation entry exist (OFF by default, fails closed). Edited by Super Admin on the Brohda Settings page's \"Weekly leaderboard\" card through its own audited function (admin_set_leaderboard_policy; audit action settings.leaderboard_policy_updated), not the generic settings form." },
+  { column: "leaderboard_weekly_min_decided_picks", reason: "Brohda 2.1 (M6): decided Picks a Member needs in the current week to be ranked (default 5, 1 to 50). Same \"Weekly leaderboard\" card and audited function as leaderboard_enabled; independent of the profile percentage minimum." },
+  { column: "leaderboard_top_n", reason: "Brohda 2.1 (M6): how many ranked Members the weekly leaderboard lists (default 20, 3 to 100). Same \"Weekly leaderboard\" card and audited function as leaderboard_enabled." },
   { column: "sponsorship_refund_cutoff_hours", reason: "Owner-approved Sponsor refund cutoff (default 12h before the Game's scheduled start). Read by the one refund-eligibility function; deliberately NOT editable in the Super Admin UI yet — changing it changes a published Sponsor Terms number, so it is a policy change (new Sponsor Terms version), changed by an operator for now." },
   { column: "sponsorship_online_payments_enabled", reason: "Online sponsorship payment policy (on/off). Edited by Super Admin on the Sponsorship queue's Online sponsorship payments card through its own audited function (settings.online_payments_updated), not the generic settings form — it is paired with the provider choice and validated against the installed-provider registry." },
   { column: "sponsorship_online_payment_provider", reason: "Which installed provider takes NEW online sponsorship payments. Same card and audited function as sponsorship_online_payments_enabled; a provider key is only valid if the application's registry knows it." },

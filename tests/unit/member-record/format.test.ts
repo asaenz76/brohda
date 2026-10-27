@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formLabel, formSpoken, identityRecordText, parseMemberRecordSummary, percentIfEnough, recordLabel, sportName, streakLabel } from "@/lib/member-record/format";
+import { bestStreakLabel, formLabel, formSpoken, identityRecordText, parseMemberRecordSummary, percentIfEnough, recordLabel, sportName, streakLabel } from "@/lib/member-record/format";
 
 const valid = {
   correct: 7,
@@ -91,5 +91,19 @@ describe("the identity line of a tiny sample", () => {
   });
   it("no decided pick: nothing is fabricated", () => {
     expect(identityRecordText(rep(0, 0, 5))).toEqual({ percent: null, record: null });
+  });
+});
+
+describe("bestStreakLabel (M6 fix)", () => {
+  it("is said when more than one pick and not already the current correct run", () => {
+    expect(bestStreakLabel({ kind: "CORRECT", length: 2 }, 4)).toBe("Best: 4 correct in a row");
+    expect(bestStreakLabel({ kind: "INCORRECT", length: 5 }, 4)).toBe("Best: 4 correct in a row");
+    expect(bestStreakLabel({ kind: "INCORRECT", length: 1 }, 2)).toBe("Best: 2 correct in a row");
+    expect(bestStreakLabel(null, 3)).toBe("Best: 3 correct in a row");
+  });
+  it("is not repeated when the current correct run is the best, and never said for a single pick", () => {
+    expect(bestStreakLabel({ kind: "CORRECT", length: 4 }, 4)).toBeNull();
+    expect(bestStreakLabel({ kind: "INCORRECT", length: 3 }, 1)).toBeNull();
+    expect(bestStreakLabel({ kind: "INCORRECT", length: 3 }, 0)).toBeNull();
   });
 });

@@ -65,13 +65,17 @@ const nextConfig: NextConfig = {
       // Phase H (Brohda 2.0 redesign, consumer V1 decommission) — the
       // legacy Pool leaderboard (/leaderboard), the Brohda 2.0 prediction
       // leaderboard (/predictions/leaderboard), and its older
-      // /leaderboard/predictions alias (Stage 4C) are all retired as
+      // /leaderboard/predictions alias (Stage 4C) were all retired as
       // consumer destinations: none ever had a primary-nav entry, and
       // reputation/ranking now lives on the profile itself
       // (lib/reputation/*, ProfileHeader) rather than a dedicated page.
       // Redirecting to /profile rather than /feed or a 404 — the thing a
       // visitor to any of these three paths was looking for (their
       // standing) is exactly what /profile now shows.
+      //
+      // M6: /leaderboard is a real page again (the WEEKLY leaderboard), so its redirect is gone from this
+      // file; while the capability is off the page itself sends a visitor to /profile, exactly as before.
+      // The two older aliases keep redirecting to /profile.
       {
         source: "/leaderboard/predictions",
         destination: "/profile",
@@ -79,11 +83,6 @@ const nextConfig: NextConfig = {
       },
       {
         source: "/predictions/leaderboard",
-        destination: "/profile",
-        permanent: true,
-      },
-      {
-        source: "/leaderboard",
         destination: "/profile",
         permanent: true,
       },
