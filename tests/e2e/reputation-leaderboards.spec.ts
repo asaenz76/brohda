@@ -234,7 +234,7 @@ test.describe("Reputation", () => {
       await page.context().clearCookies();
       await loginAs(page, emailBelowMin);
       await page.goto("/profile");
-      await expect(page.getByRole("main").getByText("67% prediction accuracy · 3 predicted")).toBeVisible();
+      await expect(page.getByRole("main").getByText("2–1 prediction record · 3 predicted")).toBeVisible();
     } finally {
       if (challengeIds.length > 0) {
         await admin.from("notifications").delete().in("challenge_id", challengeIds);

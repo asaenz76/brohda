@@ -4,6 +4,8 @@ import { requireUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getUserCallBsRecord, getUserPredictionRecord } from "@/lib/reputation/repository";
 import { listCallBsHistory } from "@/lib/challenges/history";
+import { getMemberRecord } from "@/lib/member-record/repository";
+import { RecordCard } from "@/components/profile/RecordCard";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
@@ -33,13 +35,14 @@ import { ConfidenceCard } from "@/components/confidence/ConfidenceCard";
  * - "Analytics"/"Rules" — REMOVED entirely, per spec §17-18 (routes
  *   untouched, just no longer linked from Profile).
  */
-export default async function ProfilePage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+export default async function ProfilePage({ searchParams }: { searchParams: Promise<{ tab?: string; page?: string }> }) {
   const user = await requireUser();
   const supabase = await createClient();
-  const { tab: tabParam } = await searchParams;
+  const { tab: tabParam, page: pageParam } = await searchParams;
+  const page = Number.parseInt(pageParam ?? "1", 10);
   const tab: ProfileTab = tabParam === "communities" ? "communities" : "predictions";
 
-  const [{ data: countsRows }, { data: editableFields }, reputation, callBsRecord, callBsHistory] = await Promise.all([
+  const [{ data: countsRows }, { data: editableFields }, reputation, callBsRecord, callBsHistory, memberRecord] = await Promise.all([
     supabase.rpc("get_follow_counts", { p_user_id: user.id }),
     // Not part of the shared session UserProfile type (kept narrow for
     // guards/middleware) — fetched separately for this page's header/edit form.
@@ -51,6 +54,11 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
     getUserPredictionRecord(user.id),
     getUserCallBsRecord(user.id),
     listCallBsHistory(user.id),
+    // M5: derived at read time; if it fails the profile still renders, without the Record card.
+    getMemberRecord(user.id).catch((error) => {
+      console.error("[member-record] failed; showing the profile without the Record card:", error instanceof Error ? error.message : error);
+      return null;
+    }),
   ]);
 
   const counts = Array.isArray(countsRows) ? countsRows[0] : countsRows;
@@ -78,13 +86,15 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
         }
       />
 
+      {memberRecord && <RecordCard summary={memberRecord.summary} callBs={callBsRecord} opponents={memberRecord.opponents} minDecided={reputation.minDecidedForLeaderboard} subjectIsViewer />}
+
       <ConfidenceCard memberId={user.id} />
 
       <CallBsHistory entries={callBsHistory} subjectIsViewer subjectName={user.display_name} />
 
       <ProfileTabNav active={tab} basePath="/profile" />
 
-      {tab === "predictions" ? <PredictionsHistory userId={user.id} /> : <CommunitiesTab profileUserId={user.id} viewerId={user.id} />}
+      {tab === "predictions" ? <PredictionsHistory userId={user.id} page={page} basePath="/profile" /> : <CommunitiesTab profileUserId={user.id} viewerId={user.id} />}
     </div>
   );
 }

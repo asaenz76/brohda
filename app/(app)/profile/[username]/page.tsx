@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { resolvePublicProfile } from "@/lib/profiles/fetch";
 import { getUserCallBsRecord, getUserPredictionRecord } from "@/lib/reputation/repository";
 import { getHeadToHeadRecords, listCallBsHistory } from "@/lib/challenges/history";
+import { getMemberRecord } from "@/lib/member-record/repository";
+import { RecordCard } from "@/components/profile/RecordCard";
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
 import { CallBsHistory } from "@/components/profile/CallBsHistory";
 import { FollowButton } from "@/components/profile/FollowButton";
@@ -36,12 +38,13 @@ export default async function PublicProfilePage({
   searchParams,
 }: {
   params: Promise<{ username: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; page?: string }>;
 }) {
   const { username: identifier } = await params;
   const currentUser = await requireUser();
   const supabase = await createClient();
-  const { tab: tabParam } = await searchParams;
+  const { tab: tabParam, page: pageParam } = await searchParams;
+  const page = Number.parseInt(pageParam ?? "1", 10);
   const tab: ProfileTab = tabParam === "communities" ? "communities" : "predictions";
 
   const profile = await resolvePublicProfile(identifier);
@@ -49,7 +52,7 @@ export default async function PublicProfilePage({
   if (!profile) notFound();
   if (profile.id === currentUser.id) redirect("/profile");
 
-  const [{ data: countsRows }, { data: isFollowing }, { data: blockRow }, reputation, callBsRecord, callBsHistory, headToHeadMap, messagingOn, publicConfidence] = await Promise.all([
+  const [{ data: countsRows }, { data: isFollowing }, { data: blockRow }, reputation, callBsRecord, callBsHistory, headToHeadMap, messagingOn, publicConfidence, memberRecord] = await Promise.all([
     supabase.rpc("get_follow_counts", { p_user_id: profile.id }),
     supabase.rpc("is_following", { p_follower_id: currentUser.id, p_followee_id: profile.id }),
     // RLS lets a Member read only their OWN blocks, so this can only ever say "have I blocked them" — never whether they blocked me.
@@ -62,6 +65,11 @@ export default async function PublicProfilePage({
     isMessagingEnabled(),
     // PUBLIC Confidence: the total only, and null while the capability is OFF.
     getPublicConfidence(profile.id).catch(() => null),
+    // M5: graded-only aggregates, the same visibility the public accuracy and Call BS record already have. Fails soft.
+    getMemberRecord(profile.id).catch((error) => {
+      console.error("[member-record] failed; showing the profile without the Record card:", error instanceof Error ? error.message : error);
+      return null;
+    }),
   ]);
 
   const counts = Array.isArray(countsRows) ? countsRows[0] : countsRows;
@@ -91,6 +99,8 @@ export default async function PublicProfilePage({
         }
       />
 
+      {memberRecord && <RecordCard summary={memberRecord.summary} callBs={callBsRecord} opponents={memberRecord.opponents} minDecided={reputation.minDecidedForLeaderboard} subjectIsViewer={false} />}
+
       {publicConfidence !== null && (
         <p className="text-sm text-text-secondary" data-slot="public-confidence">
           Confidence <ConfidenceBadge points={publicConfidence} className="font-semibold text-text-primary" />
@@ -102,7 +112,7 @@ export default async function PublicProfilePage({
       <ProfileTabNav active={tab} basePath={`/profile/${identifier}`} />
 
       {tab === "predictions" ? (
-        <PredictionsHistory userId={profile.id} gradedOnly />
+        <PredictionsHistory userId={profile.id} gradedOnly page={page} basePath={`/profile/${identifier}`} />
       ) : (
         <CommunitiesTab profileUserId={profile.id} viewerId={currentUser.id} />
       )}
