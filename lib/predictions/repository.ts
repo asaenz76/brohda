@@ -111,6 +111,20 @@ export async function listUserPredictions(userId: string, limit = 50): Promise<P
   return (data as PredictionRow[]).map(toDomain);
 }
 
+/**
+ * M5: one PAGE of a Member's predictions, newest first, with a stable order (made-at, then id) and a "there is more" flag (one extra row is read, never a count of the whole history). `gradedOnly` filters IN THE
+ * QUERY, so a visited profile pages through settled results only instead of filtering a page that may be full of open picks.
+ */
+export async function listUserPredictionsPage(userId: string, { limit, offset, gradedOnly = false }: { limit: number; offset: number; gradedOnly?: boolean }): Promise<{ rows: Prediction[]; hasMore: boolean }> {
+  const admin = createAdminClient();
+  let query = admin.from("predictions").select("*").eq("user_id", userId);
+  if (gradedOnly) query = query.eq("lifecycle_state", "GRADED");
+  const { data, error } = await query.order("created_at", { ascending: false }).order("id", { ascending: false }).range(offset, offset + limit);
+  if (error) throw error;
+  const all = (data as PredictionRow[]).map(toDomain);
+  return { rows: all.slice(0, limit), hasMore: all.length > limit };
+}
+
 /** A single Prediction by id — used by Milestone R7's Challenge resolution (lib/challenges/resolution.ts), which needs to read the current graded state of two specific Picks, not a user's own latest one. */
 export async function getPredictionById(id: string): Promise<Prediction | null> {
   const admin = createAdminClient();

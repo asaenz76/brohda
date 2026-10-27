@@ -1,6 +1,7 @@
 import { Compass } from "lucide-react";
 import Link from "next/link";
-import { listUserPredictions } from "@/lib/predictions/repository";
+import { listUserPredictionsPage } from "@/lib/predictions/repository";
+import type { Prediction } from "@/lib/predictions/types";
 import { listChoiceSourcesByMarketIds } from "@/lib/prediction-markets/repository";
 import { listPostIdsForMarkets } from "@/lib/predictions/post-links";
 import { getChoicePresentation, getMarketSubject, type SelectionLabelSource } from "@/lib/prediction-markets/selection-labels";
@@ -32,12 +33,15 @@ import { confidenceLabel, formatConfidence, formatSignedConfidence } from "@/lib
  * results, never an in-flight one), applied here for consistency rather
  * than invented fresh.
  */
-export async function PredictionsHistory({ userId, gradedOnly = false }: { userId: string; gradedOnly?: boolean }) {
-  const allPredictions = await listUserPredictions(userId);
-  const predictions = gradedOnly ? allPredictions.filter((p) => p.lifecycleState === "GRADED") : allPredictions;
+/** M5: a page of history, never the whole of it (20 a page, "Older"/"Newer" links). The record above is derived from the full history in the database; this list is only the browsable part. */
+export const PREDICTIONS_PAGE_SIZE = 20;
+
+export async function PredictionsHistory({ userId, gradedOnly = false, page = 1, basePath }: { userId: string; gradedOnly?: boolean; page?: number; basePath?: string }) {
+  const pageNumber = Number.isInteger(page) && page >= 1 ? page : 1;
+  const { rows: predictions, hasMore } = await listUserPredictionsPage(userId, { limit: PREDICTIONS_PAGE_SIZE, offset: (pageNumber - 1) * PREDICTIONS_PAGE_SIZE, gradedOnly });
 
   if (predictions.length === 0) {
-    return <EmptyFeedState icon={Compass} title="No predictions yet." description="Real Picks on real games will show up here." />;
+    return <EmptyFeedState icon={Compass} title={pageNumber > 1 ? "No more predictions." : "No predictions yet."} description={pageNumber > 1 ? "That was the oldest one." : "Real Picks on real games will show up here."} />;
   }
 
   const marketIds = [...new Set(predictions.map((p) => p.marketId))];
@@ -60,6 +64,13 @@ export async function PredictionsHistory({ userId, gradedOnly = false }: { userI
           stake={stakesByPredictionId.get(prediction.id) ?? null}
         />
       ))}
+      {basePath && (pageNumber > 1 || hasMore) && (
+        <nav aria-label="Predictions pages" className="flex items-center justify-between text-sm" data-slot="predictions-pager">
+          {pageNumber > 1 ? <Link href={pageNumber === 2 ? basePath : `${basePath}?page=${pageNumber - 1}`} className="font-medium text-accent-primary hover:underline">Newer</Link> : <span />}
+          <span className="text-xs text-text-muted">Page {pageNumber}</span>
+          {hasMore ? <Link href={`${basePath}?page=${pageNumber + 1}`} className="font-medium text-accent-primary hover:underline">Older</Link> : <span />}
+        </nav>
+      )}
     </div>
   );
 }
@@ -70,7 +81,7 @@ function PredictionHistoryRow({
   postId,
   stake,
 }: {
-  prediction: Awaited<ReturnType<typeof listUserPredictions>>[number];
+  prediction: Prediction;
   /** Confidence committed behind this Pick, if any. */
   stake: PublicStake | null;
   /** What the shared presentation needs to name this Pick (template, line, side, teams), or null if the Market's own row is no longer resolvable — it then falls back to the labels it can still find, never to a guess. */
@@ -114,7 +125,7 @@ function PredictionHistoryRow({
 }
 
 /** Restrained, factual result language (spec §13) — never gamified, never color-only. */
-function ResultBadge({ prediction }: { prediction: Awaited<ReturnType<typeof listUserPredictions>>[number] }) {
+function ResultBadge({ prediction }: { prediction: Prediction }) {
   if (prediction.lifecycleState === "PENDING") {
     return <p className="text-xs font-medium text-text-muted">Pending</p>;
   }

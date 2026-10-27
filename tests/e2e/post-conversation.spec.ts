@@ -218,7 +218,7 @@ test.describe("Post Conversation", () => {
       await page.goto(`/post/${postId}`);
       await page.getByPlaceholder("Add a comment…").fill("Second comment, real record");
       await page.getByRole("button", { name: "Post" }).click();
-      await expect(page.getByText("100% · 1 predicted")).toBeVisible();
+      await expect(page.getByText("1–0 · 1 predicted")).toBeVisible();
 
       // The identity byline still links to the canonical public profile. (Not clicked as the veteran: your own profile address
       // redirects to /profile, so that click only passed when the test happened to observe the URL before the redirect.)

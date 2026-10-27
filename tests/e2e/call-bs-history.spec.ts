@@ -169,7 +169,7 @@ test.describe("Call BS record, head-to-head and history", () => {
     await expect(main.getByText("Call BS record: 1 win, 0 losses")).toBeAttached(); // what a screen reader hears
     await expect(main.getByText("Call BS: 1–0")).toBeVisible();
     // Prediction reputation is its own, unchanged line: 1 graded Pick, correct (the Second Game isn't graded yet).
-    await expect(main.getByText("100% prediction accuracy · 1 predicted")).toBeVisible();
+    await expect(main.getByText("1–0 prediction record · 1 predicted")).toBeVisible();
     await expect(main.getByText("No Call BS results yet.")).toHaveCount(0);
 
     const row = main.getByRole("listitem").filter({ hasText: games.First.label });
@@ -228,7 +228,7 @@ test.describe("Call BS record, head-to-head and history", () => {
     await login(page, A_EMAIL);
     await page.goto("/profile");
     await expect(page.getByRole("main").getByText("Call BS: 2–0")).toBeVisible();
-    await expect(page.getByRole("main").getByText("100% prediction accuracy · 2 predicted")).toBeVisible();
+    await expect(page.getByRole("main").getByText("2–0 prediction record · 2 predicted")).toBeVisible();
     const rows = page.getByRole("main").getByRole("list").filter({ has: page.getByRole("link", { name: /Open the Game/ }) }).getByRole("listitem");
     await expect(rows).toHaveCount(2);
     await expect(rows.first()).toContainText(games.Second.label); // resolved last, listed first
@@ -247,11 +247,11 @@ test.describe("Call BS record, head-to-head and history", () => {
     await expect(page.getByRole("main").getByText("Call BS: 0–2")).toBeVisible();
   });
 
-  test("no ranking furniture: no percentage, rank, XP, tier, badge or leaderboard anywhere near the record", async ({ page }) => {
+  test("no ranking furniture: no Call BS percentage on a tiny sample, rank, XP, tier, badge or leaderboard anywhere near the record", async ({ page }) => {
     await login(page, A_EMAIL);
     await page.goto("/profile");
     const text = await page.getByRole("main").innerText();
-    expect(text).not.toMatch(/call bs[^\n]*%|\b(rank|xp|tier|badge|trophy|achievement|elo|rating|streak)\b/i);
+    expect(text).not.toMatch(/call bs[^\n]*%|\b(rank|xp|tier|badge|trophy|achievement|elo|rating)\b/i); // (M5 adds a plain, text-only prediction streak to the record; a streak is not ranking furniture)
     expect(text).not.toMatch(/leaderboard/i);
     // Money never appears in the Call BS record (no stakes, wins in dollars, profit).
     expect(text).not.toMatch(/\$\d|profit|stake|payout/i);

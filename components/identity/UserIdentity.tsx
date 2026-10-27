@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Avatar } from "@/components/Avatar";
 import { cn } from "@/lib/utils";
 import type { UserPredictionRecord } from "@/lib/reputation/types";
+import { identityRecordText } from "@/lib/member-record/format";
 
 // Phase B (design-system redesign) — the reusable social-identity
 // primitive the spec asks for: "André / @asaenz / 67% prediction accuracy
@@ -18,7 +19,9 @@ import type { UserPredictionRecord } from "@/lib/reputation/types";
 // comment). Locked public terminology: "predicted", never "decided" (spec
 // §3/§12) — this file is the one place that formats the count, so no
 // caller can accidentally leak the internal word.
-export type UserIdentityReputation = Pick<UserPredictionRecord, "accuracy" | "decided" | "void">;
+// M5: callers that hold the full record (every current one does) also pass correct / incorrect / minDecidedForLeaderboard, so a tiny sample reads as its raw record ("1–0") instead of "100%" until the
+// configured minimum of decided picks is reached. Callers that pass only the three original fields keep the percentage exactly as before.
+export type UserIdentityReputation = Pick<UserPredictionRecord, "accuracy" | "decided" | "void"> & Partial<Pick<UserPredictionRecord, "correct" | "incorrect" | "minDecidedForLeaderboard">>;
 
 /**
  * `accuracyPercent` is null exactly when `decided === 0` (lib/reputation/
@@ -26,20 +29,22 @@ export type UserIdentityReputation = Pick<UserPredictionRecord, "accuracy" | "de
  * so far was VOID. Never fabricate a percentage in that case; the two
  * formatted strings below each handle it honestly without guessing.
  */
-function formatReputation(reputation: UserIdentityReputation): { accuracyPercent: number | null; predictedCount: number } | null {
+type FormattedReputation = { accuracyPercent: number | null; record: string | null; predictedCount: number };
+
+function formatReputation(reputation: UserIdentityReputation): FormattedReputation | null {
   const predictedCount = reputation.decided + reputation.void;
   if (predictedCount === 0) return null;
-  const accuracyPercent = reputation.accuracy !== null ? Math.round(reputation.accuracy * 100) : null;
-  return { accuracyPercent, predictedCount };
+  const { percent, record } = identityRecordText(reputation);
+  return { accuracyPercent: percent, record, predictedCount };
 }
 
-function fullReputationLabel(rep: { accuracyPercent: number | null; predictedCount: number }): string {
-  const accuracy = rep.accuracyPercent !== null ? `${rep.accuracyPercent}% prediction accuracy` : "no graded predictions yet";
+function fullReputationLabel(rep: FormattedReputation): string {
+  const accuracy = rep.accuracyPercent !== null ? `${rep.accuracyPercent}% prediction accuracy` : rep.record !== null ? `${rep.record} prediction record` : "no graded predictions yet";
   return `${accuracy} · ${rep.predictedCount} predicted`;
 }
 
-function compactReputationLabel(rep: { accuracyPercent: number | null; predictedCount: number }): string {
-  const accuracy = rep.accuracyPercent !== null ? `${rep.accuracyPercent}%` : "unranked";
+function compactReputationLabel(rep: FormattedReputation): string {
+  const accuracy = rep.accuracyPercent !== null ? `${rep.accuracyPercent}%` : rep.record !== null ? rep.record : "unranked";
   return `${accuracy} · ${rep.predictedCount} predicted`;
 }
 
