@@ -10,7 +10,7 @@ export async function AuthGameContext({ next, action }: { next: string | null; a
   return (
     <div className="mb-4 space-y-0.5 rounded-lg border border-border-subtle bg-surface-secondary px-3 py-2.5 text-center" data-slot="auth-game-context">
       <p className="text-sm font-semibold text-text-primary">{matchup}</p>
-      <p className="text-xs text-text-secondary">{action === "create" ? "Create your account to make your pick on this game." : "Log in to make your pick on this game."}</p>
+      <p className="text-xs text-text-muted">{action === "create" ? "Create your account to make your pick on this game." : "Log in to make your pick on this game."}</p>
     </div>
   );
 }
