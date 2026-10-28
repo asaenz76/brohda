@@ -145,7 +145,7 @@ test.describe("The weekly leaderboard", () => {
     await expect(page).toHaveURL(/\/leaderboard$/);
     await expect(page.getByRole("heading", { level: 1, name: "Leaderboard" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Weekly leaderboard" })).toBeVisible();
-    await expect(page.locator('[data-slot="leaderboard-week"]')).toContainText(/[A-Z][a-z]{2} \d{1,2} – [A-Z][a-z]{2} \d{1,2} · .+ left · resets Monday 12:00 AM Costa Rica time/);
+    await expect(page.locator('[data-slot="leaderboard-week"]')).toContainText(/[A-Z][a-z]{2} \d{1,2} – [A-Z][a-z]{2} \d{1,2} · .+ left · resets Monday 12:00 AM CST/);
     await expect(page.locator('[data-slot="leaderboard-rule"]')).toContainText(`${MIN} decided Picks this week to qualify. Ranked by accuracy, then most correct.`);
 
     const row = (p: Person) => page.locator('[data-slot="leaderboard-row"]').filter({ hasText: p.name });

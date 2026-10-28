@@ -112,7 +112,7 @@ export function WeeklyLeaderboardView({ board, viewerUserId, now }: { board: Wee
       <div className="space-y-1">
         <h2 className="text-lg font-semibold text-text-primary">Weekly leaderboard</h2>
         <p className="text-sm text-text-secondary" data-slot="leaderboard-week">
-          {weekRangeLabel(board.weekStart, board.weekEnd)} · {timeLeftLabel(board.weekEnd, now)} · resets Monday 12:00 AM Costa Rica time
+          {weekRangeLabel(board.weekStart, board.weekEnd)} · {timeLeftLabel(board.weekEnd, now)} · resets Monday 12:00 AM CST
         </p>
         <p className="text-sm text-text-secondary" data-slot="leaderboard-rule">
           {qualificationRule(board.minDecided)}
