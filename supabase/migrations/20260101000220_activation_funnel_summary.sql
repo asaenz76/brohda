@@ -1,7 +1,7 @@
 -- Brohda 2.1 M7 — the activation and return funnel, measured from the rows Brohda already keeps. ONE read-only function; no table, no column, no setting, no trigger and no tracking of any kind.
 --
 -- The questions (and the canonical rows that answer them — nothing here is a counter or an event log):
---   Activation            registered Members who made a first Pick within 24 hours      user_profiles.created_at vs min(predictions.created_at)
+--   Activation            registered Members (at least 24 hours old) who made a first Pick within 24 hours   user_profiles.created_at vs min(predictions.created_at)
 --   Early retention       activated Members who made a SECOND Pick within 7 days of the first   predictions (the second row by created_at)
 --   Result-loop return    Members whose first Pick was graded, who within 48 hours of that result made another Pick or opened their "result is in" notification   predictions.graded_at, predictions.created_at, notifications.read_at
 --   Social                Members who ever commented / started a Call BS                post_comments.user_id, challenges.challenger_user_id
@@ -57,7 +57,7 @@ begin
     'registered', (select count(*) from cohort),
     'registered_24h_old', (select count(*) from cohort where created_at <= now() - interval '24 hours'),
     'picked_ever', (select count(*) from firsts where first_pick is not null),
-    'picked_within_24h', (select count(*) from firsts where first_pick is not null and first_pick <= created_at + interval '24 hours'),
+    'picked_within_24h', (select count(*) from firsts where created_at <= now() - interval '24 hours' and first_pick is not null and first_pick <= created_at + interval '24 hours'),
     'median_minutes_to_first_pick', (select round((percentile_cont(0.5) within group (order by extract(epoch from (first_pick - created_at)) / 60))::numeric, 1) from firsts where first_pick is not null),
     'activated_7d_old', (select count(*) from firsts where first_pick is not null and first_pick <= now() - interval '7 days'),
     'second_pick_within_7d', (select count(*) from seconds where first_pick <= now() - interval '7 days' and second_pick is not null and second_pick <= first_pick + interval '7 days'),
@@ -67,9 +67,10 @@ begin
     'called_bs', (select count(distinct c.id) from cohort c join public.challenges ch on ch.challenger_user_id = c.id),
     'weekly_min_decided', v_min,
     'ranked_this_week', v_ranked,
-    'by_week', (select coalesce(jsonb_agg(jsonb_build_object('week', w.week, 'registered', w.registered, 'picked_within_24h', w.picked) order by w.week), '[]'::jsonb)
+    'by_week', (select coalesce(jsonb_agg(jsonb_build_object('week', w.week, 'registered', w.registered, 'registered_24h_old', w.aged, 'picked_within_24h', w.picked) order by w.week), '[]'::jsonb)
                 from (select date_trunc('week', f.created_at at time zone 'America/Costa_Rica')::date as week, count(*) as registered,
-                             count(*) filter (where f.first_pick is not null and f.first_pick <= f.created_at + interval '24 hours') as picked
+                             count(*) filter (where f.created_at <= now() - interval '24 hours') as aged,
+                             count(*) filter (where f.created_at <= now() - interval '24 hours' and f.first_pick is not null and f.first_pick <= f.created_at + interval '24 hours') as picked
                       from firsts f group by 1) w)
   ) into v_result;
   return v_result;

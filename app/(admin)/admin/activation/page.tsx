@@ -73,7 +73,7 @@ export default async function ActivationPage() {
           <ul className="text-sm text-text-secondary">
             {funnel.byWeek.map((w) => (
               <li key={w.week} className="tabular-nums">
-                Week of {w.week}: {w.registered} registered, {w.pickedWithin24h} picked within 24 hours
+                Week of {w.week}: {w.registered} registered; {w.pickedWithin24h} of {w.registered24hOld} (registered at least 24 hours ago) picked within 24 hours
               </li>
             ))}
           </ul>

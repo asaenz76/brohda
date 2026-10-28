@@ -22,14 +22,14 @@ export function parseActivationFunnel(raw: unknown): ActivationFunnel | null {
   for (const w of r.by_week) {
     if (typeof w !== "object" || w === null) return null;
     const x = w as Record<string, unknown>;
-    const reg = int(x.registered), pick = int(x.picked_within_24h);
-    if (typeof x.week !== "string" || reg === null || pick === null) return null;
-    byWeek.push({ week: x.week, registered: reg, pickedWithin24h: pick });
+    const reg = int(x.registered), aged = int(x.registered_24h_old), pick = int(x.picked_within_24h);
+    if (typeof x.week !== "string" || reg === null || aged === null || pick === null || pick > aged || aged > reg) return null;
+    byWeek.push({ week: x.week, registered: reg, registered24hOld: aged, pickedWithin24h: pick });
   }
   const median = r.median_minutes_to_first_pick === null || r.median_minutes_to_first_pick === undefined ? null : Number(r.median_minutes_to_first_pick);
   if (median !== null && !Number.isFinite(median)) return null;
   // Internal consistency: a numerator can never exceed its denominator.
-  if (pickedWithin24h! > pickedEver! || pickedEver! > registered! || secondPickWithin7d! > activated7dOld! || cameBackWithin48h! > firstGraded48hOld!) return null;
+  if (pickedWithin24h! > registered24hOld! || registered24hOld! > registered! || pickedWithin24h! > pickedEver! || pickedEver! > registered! || secondPickWithin7d! > activated7dOld! || cameBackWithin48h! > firstGraded48hOld!) return null;
   return {
     from: r.from, to: r.to, registered: registered!, registered24hOld: registered24hOld!, pickedEver: pickedEver!, pickedWithin24h: pickedWithin24h!, medianMinutesToFirstPick: median,
     activated7dOld: activated7dOld!, secondPickWithin7d: secondPickWithin7d!, firstGraded48hOld: firstGraded48hOld!, cameBackWithin48h: cameBackWithin48h!, commented: commented!, calledBs: calledBs!,

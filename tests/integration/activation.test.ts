@@ -105,7 +105,7 @@ describe("activation_funnel_summary", () => {
     expect(f.came_back_within_48h).toBe(2); // a (another Pick) and d (read the notification); b read it too late
     expect(f.commented).toBe(1);
     expect(f.called_bs).toBe(0);
-    expect(f.by_week).toEqual([{ week: firstMonday.toISOString().slice(0, 10), registered: 4, picked_within_24h: 2 }]);
+    expect(f.by_week).toEqual([{ week: firstMonday.toISOString().slice(0, 10), registered: 4, registered_24h_old: 4, picked_within_24h: 2 }]);
 
     // The application's own parser accepts exactly this, through the repository.
     const parsed = await getActivationFunnel(FROM, TO);
@@ -123,7 +123,7 @@ describe("activation_funnel_summary", () => {
     expect(f.registered).toBe(1);
     // Registered 2h ago: not in the 24h denominator; first Pick 90 min ago: not in the 7d denominator; first result 30 min ago: not in the 48h denominator.
     expect(f.registered_24h_old).toBe(0);
-    expect(f.picked_within_24h).toBeGreaterThanOrEqual(1);
+    expect(f.picked_within_24h).toBe(0); // a fresh signup is never counted as activated OR as a miss: it is in neither the numerator nor the 24h denominator
     expect(f.activated_7d_old).toBe(0);
     expect(f.first_graded_48h_old).toBe(0);
     expect(f.came_back_within_48h).toBe(0);
