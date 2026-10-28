@@ -10,6 +10,8 @@ import { getPostByFixtureId } from "@/lib/posts/repository";
 import { getFixtureForPostPresentation } from "@/lib/sports-data/fixture-lookup";
 import { resolveLeagueIdentity } from "@/lib/sports-data/league-crest";
 import { LeagueCrest } from "@/components/LeagueCrest";
+import { loadResultNextSteps } from "@/lib/predictions/result-next-steps";
+import { ResultNextSteps } from "@/components/predictions/ResultNextSteps";
 
 // Market detail (roadmap STEP 15; prediction submission added Milestone 3,
 // roadmap STEP 17). A market that's INACTIVE/ARCHIVED, or genuinely doesn't
@@ -42,6 +44,9 @@ export default async function MarketDetailPage({ params }: { params: Promise<{ i
   const fixture = raw ? await getFixtureForPostPresentation(raw.fixtureId) : null;
   const league = fixture ? resolveLeagueIdentity({ competitionName: fixture.competitionName, competitionLogoUrl: fixture.competitionLogoUrl }) : null;
 
+  // M7: the result destination of a "result is in" notification — when the viewer's Pick on this Market is graded, connect it to their Record, the week and the next Pick.
+  const nextSteps = await loadResultNextSteps(user.id, id);
+
   return (
     <div className="space-y-3">
       <ColumnHeader title="Market" backHref={backHref} />
@@ -54,6 +59,7 @@ export default async function MarketDetailPage({ params }: { params: Promise<{ i
             </p>
           )}
           <MarketPredictionCard market={market} userId={user.id} matchup={matchup} />
+          {nextSteps && <ResultNextSteps data={nextSteps} />}
         </CardContent>
       </Card>
     </div>

@@ -221,7 +221,7 @@ test.describe("Logged-out front door — desktop", () => {
     const picksOnThisGame = async () => (await admin.from("predictions").select("id", { count: "exact", head: true }).eq("market_id", seeded.marketId)).count;
     const before = await picksOnThisGame();
     await game.getByRole("link", { name: /^Pick .* \(create an account/ }).first().click();
-    await expect(page).toHaveURL(new RegExp(`/register\\?next=%2Fpost%2F${seeded.postId}$`));
+    await expect(page).toHaveURL(new RegExp(`/register\\?next=%2Fpost%2F${seeded.postId}%3Fpick%3D(YES|NO)$`));
     expect(await picksOnThisGame()).toBe(before);
 
     // A Post link is real; Post detail needs an account today, so the visitor is sent to log in — and brought back to that Post afterwards (login ?next=).
@@ -456,7 +456,7 @@ test.describe("Logged-out front door — mobile (Mastodon pattern: the feed is t
         await page.getByRole("main").getByRole("tab", { name: "Sports" }).click();
         await expect(gameArticle(page)).toBeVisible();
         await gameArticle(page).getByRole("link", { name: /^Pick .* \(create an account/ }).first().click();
-        await expect(page).toHaveURL(new RegExp(`/register\\?next=%2Fpost%2F${seeded.postId}$`));
+        await expect(page).toHaveURL(new RegExp(`/register\\?next=%2Fpost%2F${seeded.postId}%3Fpick%3D(YES|NO)$`));
       });
 
       test("long names stay inside the screen and nothing overflows horizontally", async ({ page }) => {

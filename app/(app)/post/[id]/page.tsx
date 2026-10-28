@@ -7,7 +7,12 @@ import { selectPrimaryMarket } from "@/lib/posts/primary-market";
 import { getFixtureForPostPresentation } from "@/lib/sports-data/fixture-lookup";
 import { listDisplayableMarketsForFixture } from "@/lib/prediction-markets/repository";
 import { getPostConversation } from "@/lib/post-comments/repository";
-import { getCommunityRefsForPost } from "@/lib/communities/feed";
+import { getCommunityRefsForPost, getFeedItemForPost, type FeedItem } from "@/lib/communities/feed";
+import { parsePickIntent } from "@/lib/auth/pick-intent";
+import { FeedMarketPick } from "@/components/posts/FeedMarketPick";
+import { PickIntentConfirm } from "@/components/posts/PickIntentConfirm";
+import { loadResultNextSteps } from "@/lib/predictions/result-next-steps";
+import { ResultNextSteps } from "@/components/predictions/ResultNextSteps";
 import { getUserPredictionRecords } from "@/lib/reputation/repository";
 import type { UserIdentityReputation } from "@/components/identity/UserIdentity";
 import { GameMarketSentimentSection } from "@/components/posts/GameMarketSentiment";
@@ -42,12 +47,14 @@ import { ColumnHeader } from "@/components/shell/ColumnHeader";
  * Post detail — the canonical social destination for a Game, and its Game Preview. The split is deliberate: the FEED is where a prediction is made (every Market, Confidence, the committed state); the POST is the Game
  * Preview and the conversation. So this page carries information the feed does not: the Game (read live from `fixtures`, never duplicated sports truth), how the crowd picked on each Market (commit-before-crowd, one
  * labelled block per Market), the saved Game Preview (a hook and a short factual story, written ahead of time — nothing is researched or generated when a Member opens the Post), the one shared conversation, and the
- * Other Picks / Call BS context. It does not repeat the prediction interface: no Pick buttons, no Confidence control, no "more markets" links.
+ * Other Picks / Call BS context. M7: it ALSO carries the Game's Pick control (the very same component the feed card uses), so someone who arrives at a Game — a shared link, a notification, or back from sign-up with
+ * "?pick=" — can make their Pick right here instead of hunting for the Game in the feed. No "more markets" links.
  * An unpublished or nonexistent Post renders the honest not-found state, matching the Market detail page's own convention.
  */
-export default async function PostDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function PostDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ pick?: string | string[] }> }) {
   const user = await requireSocialPredictionAccess();
   const { id } = await params;
+  const pickIntent = parsePickIntent((await searchParams).pick);
 
   const post = await getPublishedPostById(id);
   if (!post) notFound();
@@ -56,7 +63,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
   if (!fixture) notFound();
   const league = resolveLeagueIdentity({ competitionName: fixture.competitionName, competitionLogoUrl: fixture.competitionLogoUrl });
 
-  const [allMarkets, policy, conversation, communities, sponsorship, preview, lockPolicy, predictionPolicy, gameContexts] = await Promise.all([
+  const [allMarkets, policy, conversation, communities, sponsorship, preview, lockPolicy, predictionPolicy, gameContexts, feedItem] = await Promise.all([
     listDisplayableMarketsForFixture(post.fixtureId),
     getPostPublicationPolicy(),
     getPostConversation(post.id, undefined, user.id),
@@ -67,6 +74,11 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
     getPredictionPolicy(),
     // Same function, same answer as the feed card. Never throws: any failure is "no context".
     getGameContexts([post.fixtureId]),
+    // M7: the Game as a feed card sees it, for the Pick control below. Fails soft: without it the Post renders exactly as before.
+    getFeedItemForPost(post.id, user.id).catch((error): FeedItem | null => {
+      console.error("[post-pick] could not load the Pick control; showing the Post without it:", error instanceof Error ? error.message : error);
+      return null;
+    }),
   ]);
   const gameContext = gameContexts.get(post.fixtureId) ?? null;
   // M2: only the templates Members are currently offered are shown on the Game; hidden Markets stay in history (profile, Call BS history), never as a secondary block here.
@@ -89,7 +101,8 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
   // M4: the Game's social loop. Everything below is read-only presentation of stored picks and Call BS (never a new rule), and it fails soft: if either read fails the Post still renders, without the side badges /
   // the "Your Call BS" block, and the failure is logged.
   const pastCutoff = isPastEffectiveLock(fixture.scheduledStartUtc, lockPolicy.lockMinutesBeforeKickoff, new Date());
-  const [social, callBsStatus] = await Promise.all([
+  // M7: a Game with a result for this viewer also connects it to their Record, the week and the next Pick (nothing beyond one head count is read unless their Pick on the primary Market is graded).
+  const [social, callBsStatus, resultNextSteps] = await Promise.all([
     primaryMarket && viewerHasPick
       ? loadPostSocial({
           marketId: primaryMarket.id,
@@ -107,6 +120,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
       console.error("[game-call-bs-status] failed; showing the Post without it:", error instanceof Error ? error.message : error);
       return { items: [], more: 0 };
     }),
+    primaryMarket ? loadResultNextSteps(user.id, primaryMarket.id) : Promise.resolve(null),
   ]);
 
   // Phase G — every commenter's canonical reputation, batched in one query
@@ -154,6 +168,26 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
             <PostCommunityBadges communities={communities} />
           </div>
 
+          {feedItem?.primaryMarket && (() => {
+            const market = feedItem.primaryMarket;
+            const chosen = pickIntent ? market.choices.find((c) => c.outcome === pickIntent) : undefined;
+            // The hint only ever asks a question, and only when a Pick is still possible: no Pick yet, and the Market open.
+            const askToConfirm = Boolean(chosen) && market.viewerSelection == null && market.isEditable && market.pickDisabledReason === null;
+            return (
+              <div className="space-y-3 border-t border-border-subtle pt-4" data-slot="post-pick">
+                {askToConfirm && chosen && <PickIntentConfirm marketId={market.id} outcome={chosen.outcome as "YES" | "NO"} label={chosen.label} postId={post.id} />}
+                {/* Keyed by whether the confirmation is showing: when the Member confirms, the hint leaves the address and this control is built again from the server's state (the Pick now exists), instead of keeping the empty state it was first built with. */}
+                <FeedMarketPick key={askToConfirm ? "confirming" : "plain"} market={market} isPublic={false} postId={post.id} />
+              </div>
+            );
+          })()}
+
+          {resultNextSteps && (
+            <div className="border-t border-border-subtle pt-4">
+              <ResultNextSteps data={resultNextSteps} />
+            </div>
+          )}
+
           {callBsStatus.items.length > 0 && (
             <div className="border-t border-border-subtle pt-4">
               <CallBsStatusCard status={callBsStatus} />
@@ -185,6 +219,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ id:
               initialComments={conversation}
               reputationByUserId={reputationByUserId}
               social={social ? toConversationSocial(social) : null}
+              gameOver={fixture.internalStatus === "COMPLETED" || fixture.internalStatus === "CANCELLED"}
             />
           </div>
 

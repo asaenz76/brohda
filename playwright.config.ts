@@ -113,7 +113,7 @@ export default defineConfig({
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
-      testIgnore: /admin-brohda-settings|monetary-capability-gating|legal-reconsent|legal-money-gating|sponsorship-flow|sponsor-intelligence|messaging|confidence|m2-moneyline-only|weekly-leaderboard/,
+      testIgnore: /admin-brohda-settings|monetary-capability-gating|legal-reconsent|legal-money-gating|sponsorship-flow|sponsor-intelligence|messaging|confidence|m2-moneyline-only|activation-flow|weekly-leaderboard/,
     },
     // A prediction carries a Confidence stake that can never be deleted through the API, so specs can no longer clean up the Games they predicted on; this clears them between the big project and the serial ones (see the file).
     {
@@ -213,13 +213,21 @@ export default defineConfig({
       fullyParallel: false,
       dependencies: ["chromium-optional-confidence-picks"],
     },
+    // Brohda 2.1 (M7): a new member's first Pick. Needs the production-shaped Pick policy (optional Confidence, the two-step composer) — global state — so it runs alone, chained after the M2 project.
+    {
+      name: "chromium-activation",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: /activation-flow/,
+      fullyParallel: false,
+      dependencies: ["chromium-m2-moneyline-only"],
+    },
     // Brohda 2.1 (M6): the weekly leaderboard. Flips leaderboard_enabled and its weekly minimum — which decide whether a navigation entry exists for EVERY signed-in Member — so it runs alone, chained last.
     {
       name: "chromium-weekly-leaderboard",
       use: { ...devices["Desktop Chrome"] },
       testMatch: /weekly-leaderboard/,
       fullyParallel: false,
-      dependencies: ["chromium-m2-moneyline-only"],
+      dependencies: ["chromium-activation"],
     },
   ],
 });

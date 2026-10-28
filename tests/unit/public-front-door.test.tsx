@@ -121,7 +121,7 @@ describe("PublicFrontDoor", () => {
     const picks = screen.getAllByRole("link", { name: /^Pick .* \(create an account/ });
     expect(picks).toHaveLength(2);
     // An intent click goes to sign-up and then straight back to the Game being looked at.
-    for (const pick of picks) expect(pick).toHaveAttribute("href", expect.stringMatching(/^\/register\?next=%2Fpost%2F[^&]+$/));
+    for (const pick of picks) expect(pick).toHaveAttribute("href", expect.stringMatching(/^\/register\?next=%2Fpost%2F[A-Za-z0-9_-]+%3Fpick%3D(YES|NO)$/));
   });
 
   it("explains an unavailable Pick instead of offering one", () => {

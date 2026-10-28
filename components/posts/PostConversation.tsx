@@ -131,7 +131,10 @@ export function PostConversation({
   initialComments,
   reputationByUserId,
   social = null,
+  gameOver = false,
 }: {
+  /** M7: the Game has finished (or was cancelled): the prompts talk about the RESULT, not about why someone picked — that moment has passed. */
+  gameOver?: boolean;
   /** M4: the viewer's side and every other Member's side on this Game's Market (null until the viewer has picked, exactly as the rest of the Post withholds sides before a Pick). */
   social?: ConversationSocial | null;
   postId: string;
@@ -243,7 +246,7 @@ export function PostConversation({
       <div className="space-y-4">
         {comments.length === 0 ? (
           <p className="text-sm text-text-muted" data-slot="empty-conversation">
-            {social ? `Nobody has said anything yet. Say why you picked ${social.viewer.label}.` : "Be the first to comment."}
+            {gameOver ? "Nobody has said anything yet. Talk about the result." : social ? `Nobody has said anything yet. Say why you picked ${social.viewer.label}.` : "Be the first to comment."}
           </p>
         ) : (
           shown.map((comment) => (
@@ -304,7 +307,7 @@ export function PostConversation({
 
       {social && comments.length > 0 && (
         <p className="text-xs text-text-muted" data-slot="composer-prompt">
-          Say why you picked {social.viewer.label}.
+          {gameOver ? "Talk about the result." : <>Say why you picked {social.viewer.label}.</>}
         </p>
       )}
       <form onSubmit={handleSubmit} className="flex items-start gap-2">

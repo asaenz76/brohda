@@ -6,6 +6,7 @@ import { getUserCallBsRecord, getUserPredictionRecord } from "@/lib/reputation/r
 import { listCallBsHistory } from "@/lib/challenges/history";
 import { getMemberRecord } from "@/lib/member-record/repository";
 import { RecordCard } from "@/components/profile/RecordCard";
+import { countPendingPredictions } from "@/lib/predictions/repository";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
@@ -61,6 +62,10 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
     }),
   ]);
 
+  // M7: only while the Record is still empty — a first Pick that is waiting for its result should say so. One head count, never for a Member who already has a Record.
+  const recordIsEmpty = memberRecord !== null && memberRecord.summary.correct + memberRecord.summary.incorrect + memberRecord.summary.void === 0 && callBsRecord.wins + callBsRecord.losses + callBsRecord.void === 0;
+  const pendingPicks = recordIsEmpty ? await countPendingPredictions(user.id).catch(() => 0) : 0;
+
   const counts = Array.isArray(countsRows) ? countsRows[0] : countsRows;
   const profileHref = `/profile/${user.username ?? user.id}`;
 
@@ -86,7 +91,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
         }
       />
 
-      {memberRecord && <RecordCard summary={memberRecord.summary} callBs={callBsRecord} opponents={memberRecord.opponents} minDecided={reputation.minDecidedForLeaderboard} subjectIsViewer />}
+      {memberRecord && <RecordCard summary={memberRecord.summary} callBs={callBsRecord} opponents={memberRecord.opponents} minDecided={reputation.minDecidedForLeaderboard} subjectIsViewer pendingPicks={pendingPicks} />}
 
       <ConfidenceCard memberId={user.id} />
 

@@ -2,7 +2,7 @@ import { formatConfidence } from "@/lib/confidence/format";
 import type { GameMarketSentiment as Sentiment } from "@/lib/posts/game-sentiment";
 
 /**
- * How the crowd picked, per Market, on the opened Post. Information only — the Post has no Pick buttons and no Confidence control (the feed is where a prediction is made). Each Market is one compact block: its label and how many
+ * How the crowd picked, per Market, on the opened Post. Information only — the Pick control itself sits above this block on the Post (M7). Each Market is one compact block: its label and how many
  * predicted on one line, then both sides' shares side by side in two even columns (small, readable type — this is context, not the headline). A Market the viewer has not predicted on yet says where the numbers come from instead of
  * showing them (commit-before-crowd), and a Market nobody has picked says so — it never shows 0% / 0%.
  */
@@ -19,7 +19,7 @@ export function GameMarketSentimentSection({ markets }: { markets: Sentiment[] }
               {showShares && <p className="shrink-0 text-xs text-text-muted">{m.totalPickCount} predicted</p>}
             </div>
             {!m.revealed ? (
-              <p className="text-sm text-text-muted">Make your prediction in the feed to see how everyone else picked.</p>
+              <p className="text-sm text-text-muted">Make your pick to see how everyone else picked.</p>
             ) : m.totalPickCount === 0 ? (
               <p className="text-sm text-text-muted">No one has predicted yet.</p>
             ) : (

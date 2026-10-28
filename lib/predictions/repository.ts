@@ -115,6 +115,14 @@ export async function listUserPredictions(userId: string, limit = 50): Promise<P
  * M5: one PAGE of a Member's predictions, newest first, with a stable order (made-at, then id) and a "there is more" flag (one extra row is read, never a count of the whole history). `gradedOnly` filters IN THE
  * QUERY, so a visited profile pages through settled results only instead of filtering a page that may be full of open picks.
  */
+/** How many of a Member's Picks are still waiting for their result (PENDING). One head-only count; the own profile asks for it only while the Record is still empty (M7). */
+export async function countPendingPredictions(userId: string): Promise<number> {
+  const admin = createAdminClient();
+  const { count, error } = await admin.from("predictions").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("lifecycle_state", "PENDING");
+  if (error) throw error;
+  return count ?? 0;
+}
+
 export async function listUserPredictionsPage(userId: string, { limit, offset, gradedOnly = false }: { limit: number; offset: number; gradedOnly?: boolean }): Promise<{ rows: Prediction[]; hasMore: boolean }> {
   const admin = createAdminClient();
   let query = admin.from("predictions").select("*").eq("user_id", userId);

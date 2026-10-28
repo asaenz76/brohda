@@ -68,6 +68,24 @@ describe("RecordCard", () => {
     expect(screen.queryByText(/Best:/)).toBeNull();
   });
 
+  it("M7: an empty Record with a Pick already waiting says it starts when that game ends, not 'with your first pick'", () => {
+    const empty = { ...base, correct: 0, incorrect: 0, void: 0, form: [], currentStreak: null, bestCorrectStreak: 0, thisWeek: { correct: 0, incorrect: 0 }, confidence: { picks: 0, correct: 0, incorrect: 0 }, bySport: [], bySeason: [] };
+    const nobody = { wins: 0, losses: 0, void: 0 };
+    const { unmount } = render(<RecordCard {...props} summary={empty} callBs={nobody} opponents={[]} subjectIsViewer pendingPicks={1} />);
+    expect(screen.getByText("Your Record starts when your first game ends. Your pick is waiting for a result.")).toBeInTheDocument();
+    expect(screen.queryByText("Your record starts with your first pick.")).toBeNull();
+    unmount();
+    const two = render(<RecordCard {...props} summary={empty} callBs={nobody} opponents={[]} subjectIsViewer pendingPicks={3} />);
+    expect(screen.getByText(/Your 3 picks are waiting for a result\./)).toBeInTheDocument();
+    two.unmount();
+    // No pending pick: unchanged. Someone else's empty Record never mentions picks waiting.
+    const zero = render(<RecordCard {...props} summary={empty} callBs={nobody} opponents={[]} subjectIsViewer pendingPicks={0} />);
+    expect(screen.getByText("Your record starts with your first pick.")).toBeInTheDocument();
+    zero.unmount();
+    render(<RecordCard {...props} summary={empty} callBs={nobody} opponents={[]} subjectIsViewer={false} pendingPicks={2} />);
+    expect(screen.getByText("No graded picks yet.")).toBeInTheDocument();
+  });
+
   it("shows no percentage for a tiny sample, only the raw record (1–0 is not 100%)", () => {
     render(<RecordCard {...props} summary={{ ...base, correct: 1, incorrect: 0, void: 0, form: ["W"], bySport: [], bySeason: [], confidence: { picks: 0, correct: 0, incorrect: 0 }, thisWeek: { correct: 0, incorrect: 0 } }} callBs={{ wins: 1, losses: 0, void: 0 }} opponents={[]} />);
     expect(screen.getByText("Picks").closest("div")).toHaveTextContent("1–0");

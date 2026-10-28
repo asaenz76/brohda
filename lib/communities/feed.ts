@@ -301,6 +301,9 @@ function compareFeedItems(a: FeedItem, b: FeedItem): number {
  * function serves a hypothetical unauthenticated preview without a second
  * code path; every caller in this codebase today passes a real user id.
  */
+/** The columns a feed row needs: the Post and its Game. One definition for the feed and for the single-Post read below. */
+const FEED_POST_SELECT = "*, fixtures!inner(sport, internal_status, scheduled_start_utc, updated_at, home_team_name, away_team_name, home_team_logo_url, away_team_logo_url, competition_name, competition_logo_url, home_score, away_score)";
+
 /** How many Game Posts the Home timeline returns — one number, used by the signed-in feed AND the logged-out front door so the two always show the same Games. */
 export const FEED_PAGE_SIZE = 50;
 
@@ -320,7 +323,7 @@ export async function getSocialFeed(userId: string | null, limit: number = FEED_
   // 5x-overfetch precedent.
   const { data, error } = await admin
     .from("posts")
-    .select("*, fixtures!inner(sport, internal_status, scheduled_start_utc, updated_at, home_team_name, away_team_name, home_team_logo_url, away_team_logo_url, competition_name, competition_logo_url, home_score, away_score)")
+    .select(FEED_POST_SELECT)
     .not("published_at", "is", null)
     .order("published_at", { ascending: false })
     .limit(Math.min(limit * 10, 500));
@@ -335,6 +338,26 @@ export async function getSocialFeed(userId: string | null, limit: number = FEED_
   const items = await enrichFeedRows(rows, userId, followedPostIds, publicationPolicy, predictionPolicy, freshnessPolicy, confidenceOffer);
   items.sort(compareFeedItems);
   return withGameContext(await withSponsorships(await withSecondaryMarkets(items.slice(0, limit), userId, publicationPolicy, predictionPolicy, freshnessPolicy, confidenceOffer)));
+}
+
+/**
+ * M7: ONE Game Post as the viewer sees it on a feed card — the same enrichment, the same Pick state, the same lock and eligibility rules (it IS enrichFeedRows), so the Post page can offer the very same Pick control
+ * the feed does. A visitor who arrives at a Game (a shared link, or back from sign-up) no longer has to find it again among the feed's cards to make the Pick. Null for a Post that is unpublished or missing.
+ * No feed-eligibility filter here: a Game that has started simply shows its own "locked" state.
+ */
+export async function getFeedItemForPost(postId: string, userId: string): Promise<FeedItem | null> {
+  const admin = createAdminClient();
+  const [publicationPolicy, predictionPolicy, freshnessPolicy, confidenceOffer, postResult] = await Promise.all([
+    getPostPublicationPolicy(),
+    getFeedPredictionPolicy(),
+    getFreshnessPolicy(),
+    getConfidenceOffer(userId),
+    admin.from("posts").select(FEED_POST_SELECT).eq("id", postId).not("published_at", "is", null).maybeSingle(),
+  ]);
+  if (postResult.error) throw postResult.error;
+  if (!postResult.data) return null;
+  const [item] = await enrichFeedRows([postResult.data as unknown as FeedPostRow], userId, new Set<string>(), publicationPolicy, predictionPolicy, freshnessPolicy, confidenceOffer);
+  return item ?? null;
 }
 
 /** The prediction policy plus the pre-kickoff pick lock: the card closes its controls at the same instant the database starts refusing picks. */

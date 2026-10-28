@@ -108,7 +108,7 @@ test("the feed card shows a visible 'Game Preview' link on desktop and phone —
   await expect(card(page, g).getByRole("heading", { name: "Spread" })).toBeVisible();
 });
 
-test("the Post is the Game Preview: identity, then sentiment per Market, then the saved Preview, then comments and Other Picks — with no second prediction surface", async ({ page }) => {
+test("the Post is the Game Preview: identity, then sentiment per Market, then the saved Preview, then comments and Other Picks — with the one Pick control and no second prediction surface", async ({ page }) => {
   test.setTimeout(180_000);
   const viewer = await createMember("viewer");
   const other1 = await createMember("o1");
@@ -136,7 +136,7 @@ test("the Post is the Game Preview: identity, then sentiment per Market, then th
   await expect(ml).toContainText("Your prediction:");
   await expect(ml).toContainText("🔥5");
   for (const i of [1, 2]) {
-    await expect(blocks.nth(i)).toContainText("Make your prediction in the feed to see how everyone else picked.");
+    await expect(blocks.nth(i)).toContainText("Make your pick to see how everyone else picked.");
     expect(await blocks.nth(i).innerText()).not.toMatch(/%|predicted/);
   }
 
@@ -171,11 +171,10 @@ test("the Post is the Game Preview: identity, then sentiment per Market, then th
   expect(previewY).toBeLessThan(comments);
   expect(comments).toBeLessThan(others);
 
-  // No second prediction surface on the Post.
-  await expect(main.locator('[data-testid="prediction-actions"]')).toHaveCount(0);
-  await expect(main.locator('[data-slot="confidence-choice"]')).toHaveCount(0);
-  await expect(main.getByText(/You picked|More markets for this game|How confident are you/)).toHaveCount(0);
-  await expect(main.getByRole("button", { name: /^Pick / })).toHaveCount(0);
+  // M7: the Post carries ONE Pick control — the primary Market's — and no second prediction surface (no more-markets block, no other Market's composer).
+  await expect(main.locator('[data-slot="post-pick"]')).toHaveCount(1);
+  await expect(main.locator('[data-slot="feed-market"]')).toHaveCount(1);
+  await expect(main.getByText(/More markets for this game/)).toHaveCount(0);
   await expect(main.locator('a[href^="/markets/"]')).toHaveCount(0);
 
   // Comments and Other Picks / Call BS still work: the opposing Pick is listed with the Call BS action.

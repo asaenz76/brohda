@@ -208,7 +208,7 @@ test.describe("Authenticated shell — desktop (1280)", () => {
     await expect(main).toContainText("A very long comment");
   });
 
-  test("Post detail reads Game -> Market sentiment -> conversation (with Call BS inside the other side's comment), one expanded Game Post — and is not a prediction surface", async ({ page }) => {
+  test("Post detail reads Game -> Market sentiment -> conversation (with Call BS inside the other side's comment), one expanded Game Post — with the one Pick control above the sentiment", async ({ page }) => {
     // Participants (Call BS / money) only show to someone who has a Pick, so this test uses its own viewer who already picked
     // the other side from the seeded commenter — independent of what the Pick test does to the main viewer.
     const picker = await createUser("order", "Order Viewer", `shellorder${suffix}`);
@@ -233,10 +233,11 @@ test.describe("Authenticated shell — desktop (1280)", () => {
     expect(Math.abs(yours - sentiment)).toBeLessThan(200); // it sits with the Market's numbers
     expect(comments).toBeLessThan(comment);
     expect(comment).toBeLessThan(callBs);
-    // One Post, one card, and no second prediction surface on it.
+    // One Post, one card. M7: it carries ONE Pick control — the primary Market's, above the sentiment — and no "more markets" surface.
     await expect(main.locator('[data-slot="card"]')).toHaveCount(1);
-    await expect(main.locator('[data-testid="prediction-actions"], [data-slot="confidence-choice"]')).toHaveCount(0);
-    await expect(main.getByText(/You picked|More markets for this game/)).toHaveCount(0);
+    await expect(main.locator('[data-slot="post-pick"]')).toHaveCount(1);
+    await expect(main.locator('[data-slot="feed-market"]')).toHaveCount(1);
+    await expect(main.getByText(/More markets for this game/)).toHaveCount(0);
   });
 
   test("the right rail is contextual: the viewer's own identity and what they follow — real data, no composer", async ({ page }) => {

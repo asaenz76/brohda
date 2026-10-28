@@ -16,6 +16,14 @@ function SentimentLine({ market, isPublic }: { market: FeedMarketSummary; isPubl
       </p>
     );
   }
+  // M7: someone who HAS picked must not be told to "make your pick" — say when the crowd appears instead (commit-before-crowd: once the Pick is final, locked or backed with Confidence).
+  if (!isPublic && market.viewerSelection != null && !market.pickDisabledReason) {
+    return (
+      <p className="text-xs text-text-muted" data-slot="crowd-after-lock">
+        Your pick is in. You&apos;ll see how everyone else picked once it locks or you add Confidence.
+      </p>
+    );
+  }
   // Nothing to nudge toward when picking isn't possible right now (locked / closed game).
   if (market.pickDisabledReason) return null;
   return <p className="text-xs text-text-muted">Make your pick to see how everyone else picked.</p>;

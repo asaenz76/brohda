@@ -138,3 +138,23 @@ describe("PostConversation — side-aware", () => {
     expect(screen.getByText("Be the first to comment.")).toBeInTheDocument();
   });
 });
+
+describe("PostConversation — a finished Game talks about the result (M7)", () => {
+  it("empty: 'Talk about the result', never 'Say why you picked' once the Game is over; before kickoff the prompt is unchanged", () => {
+    const over = render(<PostConversation postId="post-1" viewer={VIEWER} initialComments={[]} reputationByUserId={{}} social={social} gameOver />);
+    expect(screen.getByText("Nobody has said anything yet. Talk about the result.")).toBeInTheDocument();
+    expect(screen.queryByText(/Say why you picked/)).toBeNull();
+    over.unmount();
+    render(<PostConversation postId="post-1" viewer={VIEWER} initialComments={[]} reputationByUserId={{}} social={social} />);
+    expect(screen.getByText("Nobody has said anything yet. Say why you picked Chiefs.")).toBeInTheDocument();
+  });
+
+  it("with comments: the composer prompt follows the same rule", () => {
+    const over = render(<PostConversation postId="post-1" viewer={VIEWER} initialComments={thread()} reputationByUserId={{}} social={social} gameOver />);
+    expect(screen.getByText("Talk about the result.")).toBeInTheDocument();
+    expect(screen.queryByText("Say why you picked Chiefs.")).toBeNull();
+    over.unmount();
+    render(<PostConversation postId="post-1" viewer={VIEWER} initialComments={thread()} reputationByUserId={{}} social={social} />);
+    expect(screen.getByText("Say why you picked Chiefs.")).toBeInTheDocument();
+  });
+});
