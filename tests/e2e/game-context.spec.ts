@@ -76,7 +76,8 @@ async function seedGame(spec: Spec, startOffsetMinutes: number) {
       away_team_external_id: spec.awayId,
       home_team_name: spec.home,
       away_team_name: spec.away,
-      scheduled_start_utc: new Date(Date.now() + DAY + startOffsetMinutes * 60_000).toISOString(),
+      // Soonest kickoff sorts first and the feed keeps only FEED_PAGE_SIZE (50) Games, while most other specs seed their Games at +24h and run in parallel. Starting these a half hour out keeps the cards on the first page however crowded the shared feed is (the cause of an intermittent "element(s) not found"), and is far from any pick lock.
+      scheduled_start_utc: new Date(Date.now() + 30 * 60_000 + startOffsetMinutes * 60_000).toISOString(),
       internal_status: "NOT_STARTED",
     })
     .select("id")
@@ -106,6 +107,9 @@ const SINGLE_TEXT = `${G.single.home} have won 4 straight. ${G.single.away} are 
 const CONTRAST_TEXT = `${G.contrast.home} have won 5 straight. ${G.contrast.away} have lost 4 straight.`;
 
 test.describe("Game Context", () => {
+  // One worker for the whole file: beforeAll seeds the shared Games and flips the global Game Context policy, and afterAll deletes every fixture of this provider and switches the policy off. Under fullyParallel each worker would run its own copy and tear down the others' data mid-test.
+  test.describe.configure({ mode: "serial" });
+
   test.beforeAll(async () => {
     for (const spec of Object.values(G)) {
       const rows = [...historyRows(spec.homeId, spec.home, spec.home_form), ...historyRows(spec.awayId, spec.away, spec.away_form)];
@@ -184,6 +188,20 @@ test.describe("Game Context", () => {
     await expect(line(page, G.single)).toHaveText(SINGLE_TEXT);
     await expect(card(page, G.none)).toBeVisible();
     await expect(line(page, G.none)).toHaveCount(0);
+  });
+
+  test("the cards stay on the first page of a crowded feed (52 Games that kick off after them)", async ({ page }) => {
+    const crowd = Array.from({ length: 52 }, (_, i) => ({ provider: PROVIDER, sport: "american_football", external_fixture_id: `gc-crowd-${randomUUID()}`, season: "2026", home_team_name: `Crowd Home ${suffix} ${i}`, away_team_name: `Crowd Away ${suffix} ${i}`, scheduled_start_utc: new Date(Date.now() + 60 * 60_000 + i * 60_000).toISOString(), internal_status: "NOT_STARTED" }));
+    const { data: fixtures, error } = await admin.from("fixtures").insert(crowd).select("id");
+    if (error || !fixtures) throw error ?? new Error("failed to seed the crowd");
+    fixtureIds.push(...fixtures.map((f) => f.id as string));
+    const { error: postError } = await admin.from("posts").insert(fixtures.map((f) => ({ fixture_id: f.id as string, published_at: new Date().toISOString() })));
+    if (postError) throw postError;
+    const email = `e2e-gc-crowd-${randomUUID()}@example.com`;
+    await createPlayer(email);
+    await loginAs(page, email);
+    await expect(line(page, G.single)).toHaveText(SINGLE_TEXT);
+    await expect(line(page, G.contrast)).toHaveText(CONTRAST_TEXT);
   });
 
   test("with the policy off, no line appears anywhere and the feed is unchanged", async ({ page }) => {
