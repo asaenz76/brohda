@@ -174,12 +174,17 @@ test.describe("A new member's first Pick", () => {
     await page.getByLabel("Password", { exact: true }).fill(PASSWORD);
     await page.getByRole("button", { name: /log in/i }).click();
     await expect(page).toHaveURL(/\/feed$/);
-    for (const bad of ["MAYBE", "%00", "yes%20no", "https://evil.example/"]) {
+    for (const bad of ["MAYBE", "%00", "yes%20no", "https://evil.example/", "yes", "YES%20", "YES&pick=NO"]) {
       await page.goto(`/post/${game.postId}?pick=${bad}`);
       await expect(page).toHaveURL(new RegExp(`/post/${game.postId}`));
       await expect(page.locator('[data-slot="pick-intent"]')).toHaveCount(0);
     }
     expect(await pickRows(member.user!.id, game.marketId)).toEqual([]);
+    // A Post id that is not a UUID is the honest not-found state, never a server error.
+    for (const badId of ["not-a-real-id", "%2e%2e%2f", "00000000-0000-0000-0000-000000000000"]) {
+      const res = await page.goto(`/post/${badId}?pick=YES`);
+      expect(res?.status(), badId).toBe(404);
+    }
     // A hint can never choose for someone who has already picked: the control shows their own Pick, not the hint.
     await page.goto(`/post/${game.postId}`);
     await page.locator('[data-slot="post-pick"]').getByRole("button", { name: `Pick ${game.home} to win` }).click();

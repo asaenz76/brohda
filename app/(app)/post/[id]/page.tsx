@@ -56,6 +56,8 @@ export default async function PostDetailPage({ params, searchParams }: { params:
   const { id } = await params;
   const pickIntent = parsePickIntent((await searchParams).pick);
 
+  // A Post id is a UUID: anything else (a hand-edited link, a hostile "next") is the honest not-found state, never a database error.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) notFound();
   const post = await getPublishedPostById(id);
   if (!post) notFound();
 

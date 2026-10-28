@@ -5,12 +5,9 @@ import { sanitizeNextPath } from "./safe-next";
 
 export type PickIntentOutcome = "YES" | "NO";
 
-/** The outcome in `?pick=`, or null when it is missing or anything but exactly YES / NO (case-insensitive). */
+/** The outcome in `?pick=`, or null unless it is exactly the string YES or NO (no other case, no padding, and a repeated `?pick=` is ambiguous so it is ignored). */
 export function parsePickIntent(raw: unknown): PickIntentOutcome | null {
-  const value = Array.isArray(raw) ? raw[0] : raw;
-  if (typeof value !== "string") return null;
-  const upper = value.trim().toUpperCase();
-  return upper === "YES" || upper === "NO" ? upper : null;
+  return raw === "YES" || raw === "NO" ? raw : null;
 }
 
 // A Post id is a UUID in the database; the pattern accepts any plain id token (letters, digits, "-", "_") and nothing that could be a path, a query or a host.

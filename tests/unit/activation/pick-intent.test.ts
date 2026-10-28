@@ -5,12 +5,11 @@ import { loginHrefFor, registerHrefFor, sanitizeNextPath } from "@/lib/auth/safe
 const ID = "0f6d2c1e-8a3b-4c52-9d41-7e5f8a1b2c3d";
 
 describe("parsePickIntent — a hint, never an instruction", () => {
-  it("accepts exactly YES or NO, in any case", () => {
+  it("accepts exactly the strings YES and NO", () => {
     expect(parsePickIntent("YES")).toBe("YES");
-    expect(parsePickIntent("no")).toBe("NO");
-    expect(parsePickIntent([" yes "])).toBe("YES");
+    expect(parsePickIntent("NO")).toBe("NO");
   });
-  it.each([undefined, null, "", "MAYBE", "YES;DROP", "1", ["x", "YES"], 42, {}])("ignores %j", (value) => {
+  it.each([undefined, null, "", "MAYBE", "yes", "no", "Yes", " YES", "YES ", "YES;DROP", "1", ["x", "YES"], ["YES"], ["YES", "NO"], 42, {}])("ignores %j", (value) => {
     expect(parsePickIntent(value as never)).toBeNull();
   });
 });
