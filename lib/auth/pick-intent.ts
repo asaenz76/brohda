@@ -26,3 +26,11 @@ export function postIdFromNext(next: unknown): string | null {
   const match = new RegExp(`^/post/(${POST_ID})(?:[?#].*)?$`).exec(safe);
   return match ? match[1] : null;
 }
+
+/** The raw `?pick=` value carried inside a safe `next` path ("/post/<id>?pick=YES" -> "YES"), or null. A repeated `?pick=` is ambiguous and yields null; pass the result through parsePickIntent. */
+export function pickIntentFromNext(next: unknown): string | null {
+  const safe = sanitizeNextPath(next);
+  if (!safe) return null;
+  const values = new URL(safe, "http://brohda.invalid").searchParams.getAll("pick");
+  return values.length === 1 ? values[0] : null;
+}

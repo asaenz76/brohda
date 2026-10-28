@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { updateProfileSchema, changePasswordSchema, registerSchema } from "@/lib/validations/profile";
+import { updateProfileSchema, changePasswordSchema, registerSchema, registerFieldErrors, REGISTER_FIELD_MESSAGES } from "@/lib/validations/profile";
 
 const validUpdate = {
   displayName: "André",
@@ -122,7 +122,6 @@ describe("registerSchema", () => {
   const validRegistration = {
     email: "New.Player@Example.com",
     password: "supersecret1",
-    displayName: "New Player",
     username: "newplayer",
     acceptedTerms: true as const,
   };
@@ -143,13 +142,16 @@ describe("registerSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects a missing display name", () => {
-    const rest = { ...validRegistration } as Partial<typeof validRegistration>;
-    delete rest.displayName;
-    expect(registerSchema.safeParse(rest).success).toBe(false);
+  it("asks for no name: a name field is not part of sign-up (the display name starts as the username)", () => {
+    expect(registerSchema.safeParse({ ...validRegistration, displayName: "New Player" }).success).toBe(false); // strict: not accepted, not silently kept
   });
 
-  it("rejects a missing username — set atomically at signup now, in the same 4-step wizard", () => {
+  it("rejects a password over 72 characters (the limit the login provider enforces)", () => {
+    expect(registerSchema.safeParse({ ...validRegistration, password: "x".repeat(73) }).success).toBe(false);
+    expect(registerSchema.safeParse({ ...validRegistration, password: "x".repeat(72) }).success).toBe(true);
+  });
+
+  it("rejects a missing username — set atomically at signup, on the same screen", () => {
     const rest = { ...validRegistration } as Partial<typeof validRegistration>;
     delete rest.username;
     expect(registerSchema.safeParse(rest).success).toBe(false);
@@ -175,5 +177,28 @@ describe("registerSchema", () => {
     const rest = { ...validRegistration } as Partial<typeof validRegistration>;
     delete rest.acceptedTerms;
     expect(registerSchema.safeParse(rest).success).toBe(false);
+  });
+});
+
+describe("registerFieldErrors — one message per field that is wrong", () => {
+  const good = { email: "a@b.co", password: "supersecret1", username: "newplayer", acceptedTerms: true };
+
+  it("is empty for a valid sign-up", () => {
+    expect(registerFieldErrors(good)).toEqual({});
+  });
+
+  it("names every invalid field at once, in the field's own words", () => {
+    expect(registerFieldErrors({ email: "nope", password: "short", username: "no spaces!", acceptedTerms: false })).toEqual(REGISTER_FIELD_MESSAGES);
+  });
+
+  it("flags only the fields that are wrong, so the rest of the form is left alone", () => {
+    expect(Object.keys(registerFieldErrors({ ...good, acceptedTerms: false }))).toEqual(["acceptedTerms"]);
+    expect(Object.keys(registerFieldErrors({ ...good, username: "ab" }))).toEqual(["username"]);
+    expect(Object.keys(registerFieldErrors({ ...good, email: "" }))).toEqual(["email"]);
+  });
+
+  it("treats missing values (a hand-made POST) as invalid fields, never as a crash", () => {
+    expect(Object.keys(registerFieldErrors({})).sort()).toEqual(["acceptedTerms", "email", "password", "username"]);
+    expect(Object.keys(registerFieldErrors({ email: null, password: null, username: null, acceptedTerms: false })).sort()).toEqual(["acceptedTerms", "email", "password", "username"]);
   });
 });

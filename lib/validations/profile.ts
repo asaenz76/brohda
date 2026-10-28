@@ -50,17 +50,12 @@ export const loginSchema = z
 
 export type LoginInput = z.infer<typeof loginSchema>;
 
-// Self-service signup, collected as a 4-step wizard (register-form.tsx) —
-// username is set here, atomically with account creation, rather than via
-// a separate forced "complete your profile" step afterward (the old flow's
-// post-signup notice went unread and left people stuck). Same username
-// format rule as updateProfileSchema; acceptedTerms mirrors
-// acceptInvitationSchema's acceptedRules pattern.
+// Self-service signup (register-form.tsx): ONE screen — email, password, username and the Terms. Username is set here, atomically with account creation, because a Member without one is held at /profile by the proxy (lib/auth/profile-gate.ts) and
+// every public surface (profile link, Pick and Call BS attribution) needs it. There is no name field: display_name starts as the username and is editable in Profile. Same username format rule as updateProfileSchema.
 export const registerSchema = z
   .object({
     email: z.string().trim().toLowerCase().email(),
     password: z.string().min(8).max(72),
-    displayName: z.string().trim().min(1).max(60),
     username: z
       .string()
       .trim()
@@ -71,3 +66,25 @@ export const registerSchema = z
   .strict();
 
 export type RegisterInput = z.infer<typeof registerSchema>;
+
+export type RegisterField = "email" | "password" | "username" | "acceptedTerms";
+
+/** One short, actionable message per field that failed — what the sign-up form shows next to the field (never a generic "check your details"). */
+export const REGISTER_FIELD_MESSAGES: Record<RegisterField, string> = {
+  email: "Enter a valid email address.",
+  password: "Use 8 to 72 characters.",
+  username: "Use 3 to 24 letters, numbers or underscores.",
+  acceptedTerms: "Agree to the Terms and Policy to create your account.",
+};
+
+/** Which fields of a registration attempt are invalid, from the schema's own verdict. */
+export function registerFieldErrors(input: unknown): Partial<Record<RegisterField, string>> {
+  const result = registerSchema.safeParse(input);
+  if (result.success) return {};
+  const errors: Partial<Record<RegisterField, string>> = {};
+  for (const issue of result.error.issues) {
+    const field = issue.path[0];
+    if (field === "email" || field === "password" || field === "username" || field === "acceptedTerms") errors[field] ??= REGISTER_FIELD_MESSAGES[field];
+  }
+  return errors;
+}
