@@ -24,6 +24,7 @@ export function RecordCard({
   opponents,
   minDecided,
   subjectIsViewer,
+  pendingPicks = 0,
 }: {
   summary: MemberRecordSummary;
   callBs: { wins: number; losses: number; void: number };
@@ -31,6 +32,8 @@ export function RecordCard({
   /** The configured minimum of decided picks before a percentage is shown (leaderboard_min_decided_picks). */
   minDecided: number;
   subjectIsViewer: boolean;
+  /** M7: the viewer's own Picks still waiting for a result — only used by the empty state, so a first Pick is not met with "your record starts with your first pick". */
+  pendingPicks?: number;
 }) {
   const decided = summary.correct + summary.incorrect;
   const callBsDecided = callBs.wins + callBs.losses;
@@ -40,7 +43,13 @@ export function RecordCard({
       <Card>
         <CardContent className="space-y-1 pt-4" data-slot="record-empty">
           <h2 className="text-sm font-semibold text-text-primary">Record</h2>
-          <p className="text-sm text-text-secondary">{subjectIsViewer ? "Your record starts with your first pick." : "No graded picks yet."}</p>
+          <p className="text-sm text-text-secondary">
+            {subjectIsViewer
+              ? pendingPicks > 0
+                ? `Your Record starts when your first game ends. ${pendingPicks === 1 ? "Your pick is" : `Your ${pendingPicks} picks are`} waiting for a result.`
+                : "Your record starts with your first pick."
+              : "No graded picks yet."}
+          </p>
         </CardContent>
       </Card>
     );

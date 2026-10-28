@@ -3,6 +3,7 @@ import { getRegistrationEnabled } from "@/lib/settings/registration";
 import { RegisterForm } from "./register-form";
 import { loginHrefFor, sanitizeNextPath } from "@/lib/auth/safe-next";
 import { Card, CardContent } from "@/components/ui/card";
+import { AuthGameContext } from "@/components/auth/AuthGameContext";
 
 export default async function RegisterPage({ searchParams }: { searchParams: Promise<{ next?: string | string[] }> }) {
   const enabled = await getRegistrationEnabled();
@@ -27,6 +28,7 @@ export default async function RegisterPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="space-y-4">
+      <AuthGameContext next={next} action="create" />
       <RegisterForm next={next} />
       <p className="text-center text-sm text-text-secondary">
         Already have an account?{" "}

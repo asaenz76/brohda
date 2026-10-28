@@ -217,10 +217,10 @@ test.describe("Pick-first sentiment", () => {
     await expect(page).toHaveURL(/\/feed$/);
     await page.goto(`/post/${nfl.postId}`);
     const main = page.getByRole("main");
-    // The Post is not a prediction surface: it says where the numbers come from and withholds them.
-    await expect(main.getByText("Make your prediction in the feed to see how everyone else picked.").first()).toBeVisible();
+    // The Post says where the numbers come from and withholds them (M7: the Pick control itself is on the Post too).
+    await expect(main.getByText("Make your pick to see how everyone else picked.").first()).toBeVisible();
     expect(await main.innerText()).not.toMatch(/\d+%|\d+ predicted/);
-    await expect(main.getByRole("button", { name: `Pick ${nfl.home} to win` })).toHaveCount(0);
+    await expect(main.getByRole("button", { name: `Pick ${nfl.home} to win` })).toHaveCount(1);
 
     // A prediction is a side AND Confidence, made in the feed: the side is local, a level makes it, and only then does the crowd appear.
     await page.goto("/feed");

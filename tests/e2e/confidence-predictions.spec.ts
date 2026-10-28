@@ -216,10 +216,12 @@ test("the composer on the feed: a side alone creates nothing, a level alone crea
   await expect(page.locator('[data-slot="pick-confidence"]')).toHaveAttribute("aria-label", "3 Confidence, locked");
   await expect(page.getByRole("button", { name: /^Pick / })).toHaveCount(0);
 
-  // The Post agrees too — as context in its Market's sentiment block, not as a second prediction surface.
+  // The Post agrees too — as context in its Market's sentiment block, and (M7) in the Post's own Pick control, which shows the SAME final state: the committed Confidence, no ladder to choose from.
   await page.goto(`/post/${g.postId}`);
   await expect(page.locator('[data-slot="your-prediction"]').first()).toContainText(`${g.away} · 🔥3`);
-  await expect(page.locator('[data-slot="pick-confidence"], [data-slot="confidence-choice"]')).toHaveCount(0);
+  await expect(page.locator('[data-slot="post-pick"] [data-slot="pick-confidence"]')).toHaveAttribute("aria-label", "3 Confidence, locked");
+  await expect(page.locator('[data-slot="confidence-choice"]')).toHaveCount(0);
+  await expect(page.locator('[data-slot="post-pick"] [data-slot="feed-market"]')).toHaveCount(1);
 
   // A second Game: the Market page composes the same way (the one shared composer).
   await page.goto(`/markets/${g2.marketId}`);

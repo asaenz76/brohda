@@ -183,6 +183,12 @@ export function TwoStepPickComposer({
           </Button>
         ))}
       </div>
+      {hasPick && !callBsLocked && (
+        // M7: say plainly that the Pick is made and what it means, before anything else about it (the next lines are about changing it or adding Confidence).
+        <p className="text-sm font-medium text-text-primary" data-slot="pick-made" role="status">
+          Pick made. It counts toward your Record when the game ends.
+        </p>
+      )}
       <p id={hintId} className="text-xs text-text-muted" data-slot="team-hint">
         {!hasPick ? "Choose a team to make your pick." : callBsLocked ? "Your team is locked by an accepted Call BS." : "You can change your pick until it locks."}
       </p>

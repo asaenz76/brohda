@@ -39,6 +39,18 @@ describe("TwoStepPickComposer — a team Pick first, Confidence optional", () =>
     expect(attachConfidenceAction).not.toHaveBeenCalled();
   });
 
+  it("M7: the first Pick is acknowledged in plain words — made, and what it means for the Record — before anything about changing it or Confidence", async () => {
+    vi.mocked(setPickAction).mockResolvedValue(pickOk("YES"));
+    render(<TwoStepPickComposer marketId="m1" choices={moneyline} offer={offer} disabledReason={null} />);
+    expect(document.querySelector('[data-slot="pick-made"]')).toBeNull();
+    team("Pick Indianapolis Colts to win");
+    const made = await screen.findByText("Pick made. It counts toward your Record when the game ends.");
+    expect(made).toHaveAttribute("role", "status");
+    // The existing hint is untouched, and comes after the acknowledgement.
+    expect(screen.getByText("You can change your pick until it locks.")).toBeInTheDocument();
+    expect(made.compareDocumentPosition(screen.getByText("You can change your pick until it locks.")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("the team can be switched before it locks: each tap is a new request (a fresh key), the other side is saved, and a cancelled Call BS is reported", async () => {
     vi.mocked(setPickAction).mockResolvedValueOnce(pickOk("YES")).mockResolvedValueOnce(pickOk("NO", 2));
     render(<TwoStepPickComposer marketId="m1" choices={moneyline} offer={offer} disabledReason={null} />);

@@ -95,10 +95,10 @@ test("clicking it expands the other Markets in place (no navigation); the canoni
     await expect(card(page, g).getByRole("heading", { name: "Spread" })).toBeVisible();
     await card(page, g).getByRole("link", { name: /comment/ }).first().click();
     await expect(page).toHaveURL(new RegExp(`/post/${g.postId}$`));
-    // The Post carries no second way to predict: no composer, no Pick buttons, and no "more markets" links (the feed is where a prediction is made).
+    // The Post carries exactly one way to predict (the Moneyline Pick, so a Member arriving from sign-up or a link can make their first Pick), and no "more markets" links.
     await expect(page.getByText("More markets for this game")).toHaveCount(0);
-    await expect(page.locator('[data-testid="prediction-actions"]')).toHaveCount(0);
-    await expect(page.locator('[data-slot="confidence-choice"]')).toHaveCount(0);
+    await expect(page.locator('[data-slot="post-pick"]')).toHaveCount(1);
+    await expect(page.locator('[data-testid="prediction-actions"]')).toHaveCount(1);
     await expect(page.getByRole("main").locator('a[href^="/markets/"]')).toHaveCount(0);
     // Its Markets appear as sentiment blocks, in the configured order.
     await expect(page.locator('[data-slot="market-sentiment-block"] h2')).toHaveText(["Moneyline", "Total 6.5", "Spread"]);
