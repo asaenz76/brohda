@@ -27,7 +27,7 @@ export function LeaderboardCard({ initial }: { initial: LeaderboardPolicy }) {
     <section aria-label="Weekly leaderboard" data-slot="leaderboard-policy" className="space-y-3 rounded-lg border border-border-subtle p-3 text-sm">
       <h2 className="text-sm font-semibold text-text-primary">Weekly leaderboard</h2>
       <p className="text-xs text-text-muted">
-        Ranks Members by accuracy on the Games of the current week (Monday to Monday, Costa Rica time), using graded Picks only. No points, no prizes, nothing stored: each week is just a new window over the same history. Staff accounts are never ranked, and nobody&apos;s rank can be set by hand. It never changes a Pick, Confidence, Call BS or grading. Turning it off removes the page and its navigation entry.
+        Ranks Members by accuracy on the Games of the current week (Monday to Monday, CST), using graded Picks only. No points, no prizes, nothing stored: each week is just a new window over the same history. Staff accounts are never ranked, and nobody&apos;s rank can be set by hand. It never changes a Pick, Confidence, Call BS or grading. Turning it off removes the page and its navigation entry.
       </p>
 
       <label className="flex items-center gap-1.5" data-slot="leaderboard-enabled">

@@ -27,7 +27,7 @@ describe("WeeklyLeaderboardView", () => {
   it("reads in five seconds: the week, the rule, then each Member's rank, raw record and accuracy", () => {
     render(<WeeklyLeaderboardView board={board()} viewerUserId="me" now={NOW} />);
     expect(screen.getByRole("heading", { name: "Weekly leaderboard" })).toBeInTheDocument();
-    expect(document.querySelector('[data-slot="leaderboard-week"]')).toHaveTextContent("Oct 26 – Nov 1 · 3 days left · resets Monday 12:00 AM Costa Rica time");
+    expect(document.querySelector('[data-slot="leaderboard-week"]')).toHaveTextContent("Oct 26 – Nov 1 · 3 days left · resets Monday 12:00 AM CST");
     expect(document.querySelector('[data-slot="leaderboard-rule"]')).toHaveTextContent("5 decided Picks this week to qualify. Ranked by accuracy, then most correct.");
     const rows = within(screen.getByRole("list", { name: /Weekly leaderboard, top 3/ })).getAllByRole("listitem");
     expect(rows).toHaveLength(3);
