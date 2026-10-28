@@ -40,7 +40,7 @@ export function Avatar({
       role="img"
       aria-label={displayName}
       className={cn(
-        "flex items-center justify-center rounded-full bg-surface-elevated font-medium text-text-secondary",
+        "flex items-center justify-center rounded-full bg-surface-elevated font-medium text-text-primary",
         SIZES[size],
         className,
       )}

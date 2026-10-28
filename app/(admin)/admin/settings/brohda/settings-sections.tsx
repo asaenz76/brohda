@@ -502,8 +502,8 @@ export function ReputationSettingsSection({ initial, updatedAt }: { initial: Rep
   return (
     <SectionCard title="Reputation">
       <FieldRow
-        label="Leaderboard minimum sample"
-        description="Minimum decided (correct + incorrect) graded Picks required to appear in the Prediction Leaderboard. Takes effect immediately; never changes anyone's actual prediction history."
+        label="Profile percentage minimum"
+        description="Decided (correct + incorrect) graded Picks a Member needs before a percentage is shown next to their record. Below it only the raw record (like 1–0) shows. The weekly leaderboard has its own minimum on the Weekly leaderboard card. Takes effect immediately; never changes anyone's actual prediction history."
       >
         <Input type="number" className="w-24" value={values.leaderboardMinDecidedPicks} onChange={(e) => setValues((v) => ({ ...v, leaderboardMinDecidedPicks: Number(e.target.value) }))} />
       </FieldRow>

@@ -1,4 +1,4 @@
-import { Bell, Compass, Home, MessageSquare, Search, User } from "lucide-react";
+import { Bell, Compass, Home, ListOrdered, MessageSquare, Search, User } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 // The authenticated app's navigation, defined once and read by both the
@@ -7,7 +7,7 @@ import type { LucideIcon } from "lucide-react";
 //
 // There is deliberately no "Create"/"New post" entry: Game Posts are
 // published by Brohda only, so a member has nothing to create.
-export type ShellNavKey = "home" | "discovery" | "notifications" | "messages" | "search" | "profile" | "wallet" | "settings" | "rules";
+export type ShellNavKey = "home" | "discovery" | "notifications" | "messages" | "leaderboard" | "search" | "profile" | "wallet" | "settings" | "rules";
 
 export interface ShellNavItem {
   key: ShellNavKey;
@@ -23,6 +23,8 @@ export const DISCOVERY_NAV: ShellNavItem = { key: "discovery", label: "Discovery
 export const NOTIFICATIONS_NAV: ShellNavItem = { key: "notifications", label: "Notifications", href: "/notifications", icon: Bell };
 /** Shown only while Messaging is ON (the shell decides; each /messages page enforces its own access). Not part of PRIMARY_NAV so nothing changes while the capability is off. */
 export const MESSAGES_NAV: ShellNavItem = { key: "messages", label: "Messages", href: "/messages", icon: MessageSquare };
+/** Shown only while the weekly leaderboard is ON (the shell decides; the /leaderboard page enforces its own access). Not part of PRIMARY_NAV, so nothing changes while the capability is off. */
+export const LEADERBOARD_NAV: ShellNavItem = { key: "leaderboard", label: "Leaderboard", href: "/leaderboard", icon: ListOrdered };
 export const SEARCH_NAV: ShellNavItem = { key: "search", label: "Search", href: "/search", icon: Search };
 export const PROFILE_NAV: ShellNavItem = { key: "profile", label: "Profile", href: "/profile", icon: User };
 
@@ -36,9 +38,14 @@ export function visibleNav(items: readonly ShellNavItem[], showSocialNav: boolea
   return items.filter((item) => showSocialNav || !item.socialGated);
 }
 
-/** The desktop rail with Messages inserted right after Notifications when Messaging is on. */
-export function railNav(showSocialNav: boolean, showMessages: boolean): ShellNavItem[] {
-  const items = visibleNav(PRIMARY_NAV, showSocialNav);
+/** The desktop rail with Messages inserted right after Notifications when Messaging is on, and the Leaderboard right after Discovery (or Home) when the weekly leaderboard is on. */
+export function railNav(showSocialNav: boolean, showMessages: boolean, showLeaderboard = false): ShellNavItem[] {
+  let items = visibleNav(PRIMARY_NAV, showSocialNav);
+  if (showLeaderboard) {
+    const after = items.findIndex((i) => i.key === "discovery");
+    const at = after >= 0 ? after : items.findIndex((i) => i.key === "home");
+    items = [...items.slice(0, at + 1), LEADERBOARD_NAV, ...items.slice(at + 1)];
+  }
   if (!showMessages) return items;
   const at = items.findIndex((i) => i.key === "notifications");
   return [...items.slice(0, at + 1), MESSAGES_NAV, ...items.slice(at + 1)];
@@ -55,6 +62,7 @@ export function activeNavKey(pathname: string, profileSlug: string | null): Shel
   if (under("/discovery") || under("/community")) return "discovery";
   if (under("/notifications") || under("/activity")) return "notifications";
   if (under("/messages")) return "messages";
+  if (under("/leaderboard")) return "leaderboard";
   if (under("/search")) return "search";
   if (under("/wallet")) return "wallet";
   if (under("/rules")) return "rules";

@@ -67,6 +67,16 @@ export function streakLabel(streak: MemberRecordSummary["currentStreak"]): strin
   return streak.kind === "CORRECT" ? `${streak.length} correct in a row` : `${streak.length} misses in a row`;
 }
 
+/**
+ * "Best: 8 correct in a row" — the longest run of correct picks, said when it is worth saying: more than one pick, and not already what the Member is on right now (a current CORRECT run that equals the best IS
+ * the best, so it is not repeated). A current run of misses never hides it: being on a losing streak says nothing about the best winning one (M6 fix; M5 compared the run lengths whatever their kind).
+ */
+export function bestStreakLabel(streak: MemberRecordSummary["currentStreak"], bestCorrectStreak: number): string | null {
+  if (bestCorrectStreak < 2) return null;
+  if (streak && streak.kind === "CORRECT" && streak.length >= bestCorrectStreak) return null;
+  return `Best: ${bestCorrectStreak} correct in a row`;
+}
+
 /** "Last 10: 7–3" from the form sequence (decided picks only). Null with no decided pick. */
 export function formLabel(form: Array<"W" | "L">): string | null {
   if (form.length === 0) return null;

@@ -4,6 +4,7 @@ import { getSocialPredictionAccessPolicy } from "@/lib/social/access";
 import { getConsumerMonetaryAccess } from "@/lib/monetary/capability";
 import { isMessagingEnabled } from "@/lib/messaging/config";
 import { getUnreadSummary } from "@/lib/messaging/queries";
+import { isLeaderboardEnabled } from "@/lib/leaderboard/config";
 import { AuthenticatedShell } from "@/components/shell/AuthenticatedShell";
 import { getShellConfidence } from "@/lib/confidence/service";
 import type { UserProfile } from "@/lib/auth/session";
@@ -14,7 +15,8 @@ import type { UserProfile } from "@/lib/auth/session";
 // that also renders inside the app shell for a signed-in visitor (/rules), so
 // the shell is assembled in exactly one place.
 export async function AuthenticatedPage({ user, children }: { user: UserProfile; children: React.ReactNode }) {
-  const [{ availableCents, heldCents, unreadNotificationCount }, socialPolicy] = await Promise.all([getAppShellProps(user), getSocialPredictionAccessPolicy()]);
+  // The weekly leaderboard's entry exists only while the capability is ON; its one (request-cached) settings read runs alongside the shell's other reads, never after them.
+  const [{ availableCents, heldCents, unreadNotificationCount }, socialPolicy, showLeaderboard] = await Promise.all([getAppShellProps(user), getSocialPredictionAccessPolicy(), isLeaderboardEnabled()]);
   // The nav tab is a UX signal, not the enforcement layer; each Brohda 2.0 page's own requireSocialPredictionAccess() is what actually
   // protects direct URL access. Admin/Super Admin always see the tab, matching their always-pass preview access on the pages themselves.
   const showSocialNav = isAdminOrAbove(user) || socialPolicy.enabled;
@@ -37,6 +39,7 @@ export async function AuthenticatedPage({ user, children }: { user: UserProfile;
       showSocialNav={showSocialNav}
       showWallet={money.canSeeWallet}
       showMessages={showMessages}
+      showLeaderboard={showLeaderboard}
       confidence={confidence}
       unreadMessageCount={unreadMessages.unreadConversations + unreadMessages.pendingRequests}
     >

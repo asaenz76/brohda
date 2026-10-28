@@ -47,6 +47,7 @@ export function LeftNav({
   showWallet,
   unreadNotificationCount,
   showMessages = false,
+  showLeaderboard = false,
   unreadMessageCount = 0,
   isAdmin,
   confidence = null,
@@ -56,6 +57,7 @@ export function LeftNav({
   showWallet: boolean;
   unreadNotificationCount: number;
   showMessages?: boolean;
+  showLeaderboard?: boolean;
   unreadMessageCount?: number;
   isAdmin: boolean;
   /** The Member's Confidence (null while Confidence is off): the primary balance-like summary, in the slot the Wallet row used to own. */
@@ -66,7 +68,7 @@ export function LeftNav({
 
   return (
     <nav aria-label="Primary" className="flex flex-col gap-1">
-      {railNav(showSocialNav, showMessages).map((item) => (
+      {railNav(showSocialNav, showMessages, showLeaderboard).map((item) => (
         <NavRow key={item.key} item={item} active={active === item.key} unread={item.key === "notifications" ? unreadNotificationCount : item.key === "messages" ? unreadMessageCount : undefined} />
       ))}
 

@@ -12,7 +12,7 @@ The record is **arithmetic over canonical rows**. Nothing is stored, cached, cou
 | Accuracy % | same | no | `correct / (correct + incorrect)`; void is never in the denominator; shown only at ≥ `leaderboard_min_decided_picks` decided picks, otherwise the raw record |
 | Recent form (last 10) | decided picks ordered by Game start | no | `member_record_summary()` |
 | Current streak / best correct streak | same | no | same; void and pending are ignored (they neither extend nor break a run) |
-| This week | `predictions.graded_at` | no | same; the platform week the leaderboard uses (Monday, `America/Costa_Rica`) |
+| This week | `fixtures.scheduled_start_utc` (the Game's week) | no | same; the platform week from `platform_week_bounds()` (Monday, `America/Costa_Rica`), shared with the M6 weekly leaderboard so the two always agree (M5 originally used `graded_at`; changed in migration 219) |
 | Backed with Confidence | `confidence_prediction_stakes` joined to graded picks | no | a count of picks and their decided record (never an amount or a score) |
 | Sport / sport-season | `predictions → markets → fixtures` (`sport`, `season`) | no | same; a pick with no stored season is left out of the season list (fail closed), never inferred from the date |
 | Call BS record | `challenges` (RESOLVED) | no | existing `get_call_bs_record()` (one result per my pick and opponent) |
@@ -24,7 +24,7 @@ The record is **arithmetic over canonical rows**. Nothing is stored, cached, cou
 
 - **Order of picks** is the order the *Games* were played (`fixtures.scheduled_start_utc`), not the order grading ran. Only a pick whose Game row is gone falls back to `graded_at`, then `created_at`.
 - **Void** is counted on its own line and is ignored by accuracy, form and streaks.
-- **Streak**: the run the most recent decided picks are in ("4 correct in a row", "3 misses in a row", a single pick reads "Last pick correct/incorrect"). **Best** = the longest run of correct picks ever, shown only when it beats the current run and is more than one.
+- **Streak**: the run the most recent decided picks are in ("4 correct in a row", "3 misses in a row", a single pick reads "Last pick correct/incorrect"). **Best** = the longest run of correct picks ever, shown when it is more than one pick and is not already the current correct run; a current run of misses never hides it (M6 fix: M5 compared run lengths regardless of kind).
 - **Tiny samples**: the raw record ("1–0") always; a percentage only once a Member has `leaderboard_min_decided_picks` decided picks (the existing, Super-Admin-configurable setting; no new setting). The same rule drives the identity line everywhere (profile header, comments, participants). **Production note:** that setting is currently `1`, so nothing is hidden there until the owner raises it (5 is the schema default and the recommendation).
 - **Call BS**: RESOLVED only. Pending, declined, expired (including `PICK_CHANGED`) and accepted-but-unresolved never count.
 - **Most Call BS played** is a count of settled matchups, not a "rival": the product has no rule for what makes a rival, so nobody is labelled one.

@@ -200,7 +200,7 @@ test.describe("Admin Brohda Settings", () => {
     await page.goto("/admin/settings/brohda");
     await expect(page.getByRole("heading", { name: "Brohda Settings" })).toBeVisible();
 
-    const leaderboardInput = fieldInput(page, "Leaderboard minimum sample");
+    const leaderboardInput = fieldInput(page, "Profile percentage minimum");
     await expect(leaderboardInput).toHaveValue("5");
     await leaderboardInput.fill("3");
     await page.getByRole("button", { name: "Save Reputation" }).click();

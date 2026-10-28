@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, Menu, MessageSquare, Search, Settings, Shield, Wallet } from "lucide-react";
+import { BookOpen, ListOrdered, Menu, MessageSquare, Search, Settings, Shield, Wallet } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 import { LogoutRow } from "@/components/shell/LogoutRow";
 import { MenuSheet, menuItemClass } from "@/components/shell/MenuSheet";
-import { MESSAGES_NAV, MOBILE_NAV, activeNavKey, visibleNav, type ShellNavItem } from "@/components/shell/nav";
+import { LEADERBOARD_NAV, MESSAGES_NAV, MOBILE_NAV, activeNavKey, visibleNav, type ShellNavItem } from "@/components/shell/nav";
 import { cn } from "@/lib/utils";
 
 const itemClass = "relative flex min-h-12 min-w-0 flex-col items-center justify-center gap-0.5 px-0.5 py-1.5 text-[11px] font-medium max-[360px]:text-[10px] outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50";
@@ -47,6 +47,7 @@ export function MobileNav({
   showWallet,
   unreadNotificationCount,
   showMessages = false,
+  showLeaderboard = false,
   unreadMessageCount = 0,
   isAdmin,
 }: {
@@ -56,6 +57,7 @@ export function MobileNav({
   showWallet: boolean;
   unreadNotificationCount: number;
   showMessages?: boolean;
+  showLeaderboard?: boolean;
   unreadMessageCount?: number;
   isAdmin: boolean;
 }) {
@@ -106,6 +108,12 @@ export function MobileNav({
                         <span className="sr-only">{unreadMessageCount} unread</span>
                       </span>
                     )}
+                  </Link>
+                )}
+                {showLeaderboard && (
+                  <Link href={LEADERBOARD_NAV.href} onClick={close} className={menuItemClass}>
+                    <ListOrdered className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
+                    <span>Leaderboard</span>
                   </Link>
                 )}
                 <Link href="/search" onClick={close} className={menuItemClass}>
