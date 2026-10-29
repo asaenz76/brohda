@@ -26,6 +26,8 @@ interface PickSpec {
   result: Result | "PENDING";
   /** Days from now the Game is played (negative = in the past). */
   startDays: number;
+  /** An exact start time (epoch ms), for tests of the platform-week boundary; wins over startDays. */
+  startAtMs?: number;
   gradedDaysAgo?: number;
   sport?: string;
   season?: string | null;
@@ -63,7 +65,7 @@ async function seedPicks(userId: string, specs: PickSpec[]): Promise<Seeded[]> {
     predictionId: randomUUID(),
     stakeId: randomUUID(),
     result: s.result,
-    startMs: Date.now() + s.startDays * DAY,
+    startMs: s.startAtMs ?? Date.now() + s.startDays * DAY,
     gradedMs: Date.now() - (s.gradedDaysAgo ?? 1) * DAY,
     sport: s.sport ?? "american_football",
     season: s.season === undefined ? "2026" : s.season,
@@ -174,7 +176,6 @@ function reference(specs: PickSpec[]) {
     best = Math.max(best, run);
   }
   const count = (xs: typeof graded, r: Result) => xs.filter((s) => s.result === r).length;
-  const weekPicks = graded.filter((s) => (s.gradedDaysAgo ?? 1) < 0.5);
   return {
     correct: count(graded, "CORRECT"),
     incorrect: count(graded, "INCORRECT"),
@@ -182,7 +183,6 @@ function reference(specs: PickSpec[]) {
     form,
     current,
     best,
-    weekPicks,
   };
 }
 
@@ -284,16 +284,85 @@ describe("form and streaks", () => {
   }, 120_000);
 });
 
+/** The platform week containing `at`, as the product itself reports it (platform_week_bounds: Monday 00:00 to the next Monday 00:00, America/Costa_Rica) — never recomputed here. Epoch ms. */
+async function platformWeek(at: Date = new Date()): Promise<{ start: number; end: number }> {
+  const { data, error } = await admin.rpc("platform_week_bounds", { p_at: at.toISOString() });
+  if (error) throw error;
+  const row = (data as Array<{ week_start: string; week_end: string }>)[0];
+  return { start: Date.parse(row.week_start), end: Date.parse(row.week_end) };
+}
+
+/**
+ * Start times for finished Games placed relative to the platform week containing `now`, so a test means the same thing on a Monday morning and on a Sunday night
+ * (a fixture like "two days ago" is last week on a Monday and THIS week on a Wednesday, which is how this suite went red on main).
+ *   inWeek     — a Game already played, definitely inside this week (midway between the week's start and now; at Monday 00:00 that is the start itself)
+ *   atStart    — a Game starting exactly when the week begins (the week is [start, end): it counts)
+ *   justBefore — one second before the week began (it does not)
+ *   before     — a day and a half before the week began (last week, whatever the weekday)
+ */
+function weekFixtureTimes(week: { start: number; end: number }, now: number) {
+  return { inWeek: week.start + Math.floor((now - week.start) / 2), atStart: week.start, justBefore: week.start - 1000, before: week.start - 36 * 3_600_000 };
+}
+
+/** Runs `fn` with the current platform week, again if the week rolled over while it ran (once a week, for a few milliseconds). */
+async function inStablePlatformWeek<T>(fn: (week: { start: number; end: number }, now: number) => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    const now = Date.now();
+    const week = await platformWeek(new Date(now));
+    const out = await fn(week, now);
+    if ((await platformWeek()).start === week.start || attempt >= 2) return out;
+  }
+}
+
 describe("this week, sport, season, Confidence", () => {
-  it("this week counts only picks graded since the platform week began", async () => {
-    const u = await seedUser("m5-week");
-    await seedPicks(u, [
-      { result: "CORRECT", startDays: -1, gradedDaysAgo: 0 },
-      { result: "INCORRECT", startDays: -2, gradedDaysAgo: 40 },
-    ]);
-    const s = await summaryOf(u);
-    // The pick graded just now is in this platform week; the one graded 40 days ago is not.
-    expect(s.this_week).toEqual({ correct: 1, incorrect: 0 });
+  it("this week is the platform week the GAME was played in: a Game this week counts, last week's does not, even when it was graded just now", async () => {
+    await inStablePlatformWeek(async (week, now) => {
+      const t = weekFixtureTimes(week, now);
+      const u = await seedUser("m5-week");
+      await seedPicks(u, [
+        { result: "CORRECT", startDays: 0, startAtMs: t.inWeek, gradedDaysAgo: 0 },
+        // Played last week but graded only now (delayed grading): grading time never moves a Game into another week.
+        { result: "INCORRECT", startDays: 0, startAtMs: t.before, gradedDaysAgo: 0 },
+        // Played this week but graded long ago (a re-grade, a back-fill): still this week, by its own start.
+        { result: "CORRECT", startDays: 0, startAtMs: t.inWeek, gradedDaysAgo: 40 },
+      ]);
+      const s = await summaryOf(u);
+      expect(s.this_week).toEqual({ correct: 2, incorrect: 0 });
+      expect([s.correct, s.incorrect]).toEqual([2, 1]); // the lifetime record still holds all three
+    });
+  });
+
+  it("the week boundary is exact: the instant the week begins counts, one second earlier does not", async () => {
+    await inStablePlatformWeek(async (week, now) => {
+      const t = weekFixtureTimes(week, now);
+      const u = await seedUser("m5-weekedge");
+      await seedPicks(u, [
+        { result: "CORRECT", startDays: 0, startAtMs: t.atStart, gradedDaysAgo: 0 },
+        { result: "INCORRECT", startDays: 0, startAtMs: t.justBefore, gradedDaysAgo: 0 },
+      ]);
+      const s = await summaryOf(u);
+      expect(s.this_week).toEqual({ correct: 1, incorrect: 0 });
+    });
+  });
+
+  it("the fixtures mean the same thing whatever the weekday: checked against the product's own week for a Monday morning, a Wednesday, and a Sunday night", async () => {
+    // Costa Rica is UTC-6 all year. Monday 00:00:00 local, Monday 00:00:01, Wednesday midday, Saturday evening, Sunday 23:59:59.
+    const instants = ["2026-10-26T06:00:00Z", "2026-10-26T06:00:01Z", "2026-10-28T18:00:00Z", "2026-10-31T23:00:00Z", "2026-11-02T05:59:59Z"].map((x) => new Date(x));
+    for (const at of instants) {
+      const week = await platformWeek(at);
+      const t = weekFixtureTimes(week, at.getTime());
+      const startOf = async (ms: number) => (await platformWeek(new Date(ms))).start;
+      expect(t.inWeek, at.toISOString()).toBeLessThanOrEqual(at.getTime()); // already played
+      expect(await startOf(t.inWeek), `${at.toISOString()} inWeek`).toBe(week.start);
+      expect(await startOf(t.atStart), `${at.toISOString()} atStart`).toBe(week.start);
+      expect(await startOf(t.justBefore), `${at.toISOString()} justBefore`).toBeLessThan(week.start);
+      expect(await startOf(t.before), `${at.toISOString()} before`).toBeLessThan(week.start);
+      // A Sunday-night "now" is still in the week that began the Monday before; the next instant belongs to the next week.
+      expect(week.end).toBeGreaterThan(at.getTime());
+    }
+    const sunday = await platformWeek(instants[4]);
+    const monday = await platformWeek(new Date(instants[4].getTime() + 1000));
+    expect(monday.start).toBe(sunday.end);
   });
 
   it("breaks down by sport and by sport-season exactly once per pick, and leaves a missing season out (fail closed)", async () => {

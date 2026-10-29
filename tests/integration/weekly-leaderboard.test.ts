@@ -616,13 +616,15 @@ async function seedPopulation(count: number, weekStart: number, games = 100): Pr
       [],
     );
     // Each Member plays a different share of the week's Games (most a few, a few many): about 8 picks a Member on average. Accuracy centred a little above a coin flip, a few voids, none pending.
+    // The result is drawn in the SELECT LIST of the row set, so every pick gets its own draw. (It used to be drawn in an uncorrelated lateral sub-select, which Postgres evaluates ONCE per statement: every pick then shared
+    // one result, so the week was never "realistic", and about 3% of runs drew VOID for all of them.) A VOID has no resolved outcome (predictions_correctness_matches_outcome), so its snapshot is NULL.
     await c.query(
-      `with activity as (select id, power(random(), 3) * 0.55 as p from perf_users)
+      `with activity as (select id, power(random(), 3) * 0.55 as p from perf_users),
+            played as (select a.id as user_id, gm.mid, gm.start_at, random() as x from activity a cross join perf_games gm where random() < a.p),
+            drawn as (select user_id, mid, start_at, case when x < 0.03 then 'VOID' when x < 0.03 + 0.97 * 0.56 then 'CORRECT' else 'INCORRECT' end as result from played)
        insert into public.predictions (id, user_id, market_id, selected_outcome, market_question_snapshot, market_status_snapshot, lifecycle_state, result, resolved_outcome_snapshot, graded_at, idempotency_key, created_at)
-       select gen_random_uuid(), a.id, gm.mid, 'YES', 'P?', 'RESOLVED', 'GRADED', r.result, 'YES', gm.start_at + interval '3 hours', '${PERF_PREFIX}-' || gen_random_uuid(), gm.start_at - interval '1 day'
-       from activity a cross join perf_games gm
-       cross join lateral (select case when x < 0.03 then 'VOID' when x < 0.03 + 0.97 * 0.56 then 'CORRECT' else 'INCORRECT' end as result from (select random() as x) q) r
-       where random() < a.p`,
+       select gen_random_uuid(), d.user_id, d.mid, 'YES', 'P?', 'RESOLVED', 'GRADED', d.result, case when d.result = 'VOID' then null else 'YES' end, d.start_at + interval '3 hours', '${PERF_PREFIX}-' || gen_random_uuid(), d.start_at - interval '1 day'
+       from drawn d`,
       [],
     );
   });
