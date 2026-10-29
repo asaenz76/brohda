@@ -40,7 +40,10 @@ const PROTECTED_RPCS: Array<{
   { name: "add_post_comment", args: { p_post_id: "00000000-0000-0000-0000-000000000000", p_user_id: "00000000-0000-0000-0000-000000000000", p_body: "test", p_parent_comment_id: null }, allowAnon: false, allowAuthenticated: false },
   { name: "apply_wallet_transaction", args: { p_account_type: "user", p_user_id: "00000000-0000-0000-0000-000000000000", p_type: "manual_deposit", p_direction: "credit", p_amount: 1, p_admin_id: "00000000-0000-0000-0000-000000000000", p_reason: "test", p_idempotency_key: "test", p_pool_id: "00000000-0000-0000-0000-000000000000", p_entry_id: "00000000-0000-0000-0000-000000000000", p_settlement_id: "00000000-0000-0000-0000-000000000000", p_destination: "test" }, allowAnon: false, allowAuthenticated: false },
   { name: "call_bs", args: { p_challenger_user_id: "00000000-0000-0000-0000-000000000000", p_recipient_prediction_id: "00000000-0000-0000-0000-000000000000" }, allowAnon: false, allowAuthenticated: false },
-  { name: "check_and_increment_rate_limit", args: { p_identifier: "test", p_window_seconds: 1, p_max_attempts: 1 }, allowAnon: true, allowAuthenticated: true },
+  // M9: service-role only — with the old anon/authenticated grant anybody holding the public anon key could spend another person's bucket (`login:<their email>` locked them out of signing in).
+  { name: "check_and_increment_rate_limit", args: { p_identifier: "test", p_window_seconds: 1, p_max_attempts: 1 }, allowAnon: false, allowAuthenticated: false },
+  { name: "prune_rate_limits", args: { p_older_than: "1 day", p_batch: 1 }, allowAnon: false, allowAuthenticated: false },
+  { name: "reclaimable_orphan_auth_user", args: { p_email: "nobody@example.com", p_min_age: "10 minutes" }, allowAnon: false, allowAuthenticated: false },
   { name: "claim_import_job_chunks", args: { p_limit: 1, p_max_attempts: 1 }, allowAnon: false, allowAuthenticated: false },
   { name: "cleanup_import_job_chunk_payloads", args: { p_recovery_window: "1 hour" }, allowAnon: false, allowAuthenticated: false },
   { name: "close_own_account", args: { p_user_id: "00000000-0000-0000-0000-000000000000" }, allowAnon: false, allowAuthenticated: false },

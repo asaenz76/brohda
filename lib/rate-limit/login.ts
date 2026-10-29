@@ -1,5 +1,6 @@
 import "server-only";
 import { checkRateLimit } from "./check";
+import { limiterKey } from "./key";
 
 const LOGIN_WINDOW_SECONDS = 15 * 60;
 const LOGIN_MAX_ATTEMPTS = 10;
@@ -7,8 +8,8 @@ const LOGIN_MAX_ATTEMPTS = 10;
 /**
  * Returns true if the attempt is allowed, false if the identifier
  * (typically an email) has exceeded the attempt budget for the current
- * window.
+ * window. The bucket is keyed by a hash of the email, never the email itself.
  */
 export async function checkLoginRateLimit(identifier: string): Promise<boolean> {
-  return checkRateLimit(`login:${identifier}`, LOGIN_WINDOW_SECONDS, LOGIN_MAX_ATTEMPTS);
+  return checkRateLimit(limiterKey("login", identifier), LOGIN_WINDOW_SECONDS, LOGIN_MAX_ATTEMPTS);
 }
