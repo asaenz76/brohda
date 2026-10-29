@@ -10,7 +10,7 @@ import { recordLegalAcceptance } from "@/lib/legal/acceptance";
 import { isSponsorArea, SPONSOR_HOME } from "@/lib/auth/account-routing";
 import { typeAccountAsMember } from "@/lib/auth/member-account";
 import { getRegistrationEnabled } from "@/lib/settings/registration";
-import { loginSchema, registerSchema } from "@/lib/validations/profile";
+import { loginSchema, registerFieldErrors, registerSchema, type RegisterField } from "@/lib/validations/profile";
 
 export type LoginState = { error: string | null };
 
@@ -115,17 +115,34 @@ export async function setNewPasswordAction(
   redirect("/feed");
 }
 
-export type RegisterState = { error: string | null };
+export type RegisterState = {
+  /** A problem that belongs to no single field (rate limit, a failed setup step, registration closed). */
+  error: string | null;
+  /** What is wrong with each field, in the field's own words — the form shows each next to its field and keeps everything the person typed. */
+  fieldErrors?: Partial<Record<RegisterField, string>>;
+  /** The email already belongs to an account: the form offers the way to log in (carrying the Game the visitor came for). */
+  existingAccount?: boolean;
+};
+
+/** Best-effort undo of a half-made account; a failure is logged (user id only — never an email or a password) so an orphan can be found and removed. */
+async function discardAccount(adminClient: ReturnType<typeof createAdminClient>, userId: string, profileWritten: boolean) {
+  if (profileWritten) {
+    const { error } = await adminClient.from("user_profiles").delete().eq("id", userId);
+    if (error) console.error("[register] could not remove a half-made profile:", userId, error.message);
+  }
+  const { error } = await adminClient.auth.admin.deleteUser(userId);
+  if (error) console.error("[register] could not remove a half-made account:", userId, error.message);
+}
 
 /**
  * Self-service signup — off by default (platform_settings.registration_
  * enabled), so re-checked here even though the page itself already hides
  * the form when disabled (a direct POST must not bypass the gate). Mirrors
  * acceptInvitationAction's create-user → insert-profile → sign-in shape.
- * Username is collected in the same wizard (register-form.tsx's 4th step)
- * and set atomically on the profile insert — no more forced post-signup
- * "complete your profile" redirect, and once set here it can never be
- * changed again (see updateProfileAction).
+ * ONE submission creates the whole account: email + password (the login), username (set atomically on the profile insert and permanent,
+ * see updateProfileAction) and the Terms. There is no name field — display_name starts as the username and is editable in Profile.
+ * The username is checked BEFORE the login is created, so the common failure (a taken handle) never creates and deletes an auth user;
+ * the unique index still decides a race, and any later failure removes what was made, so no half-made account is left behind.
  */
 export async function registerAction(
   _prevState: RegisterState,
@@ -136,16 +153,17 @@ export async function registerAction(
     return { error: "Registration is currently closed." };
   }
 
-  const parsed = registerSchema.safeParse({
+  const input = {
     email: formData.get("email"),
     password: formData.get("password"),
-    displayName: formData.get("displayName"),
     username: formData.get("username"),
     acceptedTerms: formData.get("acceptedTerms") === "on",
-  });
+  };
+  const parsed = registerSchema.safeParse(input);
 
   if (!parsed.success) {
-    return { error: "Check your details and try again." };
+    const fieldErrors = registerFieldErrors(input);
+    return Object.keys(fieldErrors).length > 0 ? { error: null, fieldErrors } : { error: "Check your details and try again." };
   }
 
   const allowed = await checkRegisterRateLimit(parsed.data.email);
@@ -154,6 +172,17 @@ export async function registerAction(
   }
 
   const adminClient = createAdminClient();
+
+  // Usernames are public (profile links), so telling the person one is taken reveals nothing; checking first spares the login a create-then-delete round trip.
+  const { data: taken, error: takenError } = await adminClient.from("user_profiles").select("id").eq("username", parsed.data.username).maybeSingle();
+  if (takenError) {
+    console.error("[register] username check failed:", takenError.message);
+    return { error: "Could not create your account. Try again." };
+  }
+  if (taken) {
+    return { error: null, fieldErrors: { username: "That username is taken. Try another." } };
+  }
+
   const { data: created, error: createError } = await adminClient.auth.admin.createUser({
     email: parsed.data.email,
     password: parsed.data.password,
@@ -161,34 +190,33 @@ export async function registerAction(
   });
 
   if (createError || !created.user) {
-    return {
-      error: createError?.message.includes("already been registered")
-        ? "An account with this email already exists."
-        : "Could not create your account.",
-    };
+    // Unchanged policy: the same sentence as before for an email that already has an account (no new account-enumeration signal).
+    return createError?.message.includes("already been registered")
+      ? { error: null, fieldErrors: { email: "An account with this email already exists." }, existingAccount: true }
+      : { error: "Could not create your account." };
   }
 
   // Explicitly a MEMBER account, before its profile exists (idempotent; the database also refuses a profile for anything that isn't a Member).
   try {
     await typeAccountAsMember(adminClient, created.user.id);
   } catch {
-    await adminClient.auth.admin.deleteUser(created.user.id);
+    await discardAccount(adminClient, created.user.id, false);
     return { error: "Could not finish setting up your account." };
   }
 
   const { error: profileError } = await adminClient.from("user_profiles").insert({
     id: created.user.id,
-    display_name: parsed.data.displayName,
+    display_name: parsed.data.username,
     username: parsed.data.username,
     role: "player",
     is_active: true,
   });
 
   if (profileError) {
-    await adminClient.auth.admin.deleteUser(created.user.id);
-    return {
-      error: profileError.code === "23505" ? "That username is taken." : "Could not finish setting up your account.",
-    };
+    await discardAccount(adminClient, created.user.id, false);
+    return profileError.code === "23505"
+      ? { error: null, fieldErrors: { username: "That username is taken. Try another." } }
+      : { error: "Could not finish setting up your account." };
   }
 
   // What they agreed to, and when: a durable record of the CURRENT Terms and Privacy versions. If it can't be written, the account isn't kept
@@ -196,8 +224,7 @@ export async function registerAction(
   try {
     await recordLegalAcceptance(created.user.id, "register");
   } catch {
-    await adminClient.from("user_profiles").delete().eq("id", created.user.id);
-    await adminClient.auth.admin.deleteUser(created.user.id);
+    await discardAccount(adminClient, created.user.id, true);
     return { error: "Could not finish setting up your account." };
   }
 

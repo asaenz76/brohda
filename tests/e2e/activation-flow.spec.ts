@@ -38,16 +38,12 @@ async function seedGame(key: string, minutesAhead = 40): Promise<Game> {
   return { fixtureId: fixture!.id, marketId: market!.id, postId: post!.id, home, away };
 }
 
-/** The four-screen sign-up wizard: name, email, password, username + terms. */
+/** The one-screen sign-up (M8): email, password, username, Terms, one submit. */
 async function registerThroughWizard(page: Page, who: { label: string }) {
   const email = `m7-${who.label}-${suffix}@test.local`;
   const username = `m7${who.label.replace(/[^a-z0-9]/gi, "")}${suffix}`;
-  await page.locator("#displayName").fill(`M7 ${who.label} ${suffix}`);
-  await page.getByRole("button", { name: "Continue" }).click();
   await page.locator("#email").fill(email);
-  await page.getByRole("button", { name: "Continue" }).click();
   await page.locator("#password").fill(PASSWORD);
-  await page.getByRole("button", { name: "Continue" }).click();
   await page.locator("#username").fill(username);
   await page.getByRole("checkbox").check();
   await page.getByRole("button", { name: /join/i }).click();
@@ -130,7 +126,9 @@ test.describe("A new member's first Pick", () => {
       await expect(page).toHaveURL(new RegExp(`/register\\?next=%2Fpost%2F${game.postId}%3Fpick%3DYES$`));
       // The sign-up screen says why they are here: the Game.
       await expect(page.locator('[data-slot="auth-game-context"]')).toContainText(`${game.away} @ ${game.home}`);
-      await expect(page.locator('[data-slot="auth-game-context"]')).toContainText("Create your account to make your pick on this game.");
+      // M8: and the side they tapped, worded as intent — nothing is saved yet.
+      await expect(page.locator('[data-slot="auth-game-choice"]')).toHaveText(`You chose ${game.home}.`);
+      await expect(page.locator('[data-slot="auth-game-context"]')).toContainText("Create your account, then confirm your pick.");
       await expectNoHorizontalScroll(page, "register");
 
       const { username } = await registerThroughWizard(page, { label: `intent${viewport.width}` });
