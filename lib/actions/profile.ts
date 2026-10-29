@@ -54,7 +54,7 @@ export async function updateProfileAction(
 
   if (error) {
     return {
-      error: error.code === "23505" ? "That username is taken." : "Could not update profile.",
+      error: error.code === "23505" ? "That username is taken." : error.message.includes("reserved_username") ? "That username isn't available." : "Could not update profile.",
       success: false,
     };
   }

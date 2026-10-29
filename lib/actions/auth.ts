@@ -1,10 +1,12 @@
 "use server";
 
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { checkLoginRateLimit } from "@/lib/rate-limit/login";
 import { checkRegisterRateLimit } from "@/lib/rate-limit/register";
+import { clientNetworkIdentity } from "@/lib/rate-limit/key";
 import { loginHrefFor, sanitizeNextPath } from "@/lib/auth/safe-next";
 import { recordLegalAcceptance } from "@/lib/legal/acceptance";
 import { isSponsorArea, SPONSOR_HOME } from "@/lib/auth/account-routing";
@@ -135,6 +137,23 @@ async function discardAccount(adminClient: ReturnType<typeof createAdminClient>,
 }
 
 /**
+ * Anybody holding the public anon key can create a login for ANY email address straight through the Auth API. It stays unconfirmed (it can't sign in), but it holds the address — Member sign-up then fails with "already
+ * registered" — and carries a password the squatter chose. Such an orphan (never confirmed, never signed in, no account type, no profile, and at least ten minutes old so a Sponsor application mid-verification is never touched)
+ * is replaced; anything that has ever been used is left alone.
+ */
+async function reclaimOrphanLogin(adminClient: ReturnType<typeof createAdminClient>, email: string): Promise<boolean> {
+  const { data: orphanId } = await adminClient.rpc("reclaimable_orphan_auth_user", { p_email: email });
+  if (!orphanId) return false;
+  const { error } = await adminClient.auth.admin.deleteUser(orphanId);
+  if (error) {
+    console.error("[register] could not replace an unused unconfirmed login:", orphanId, error.message);
+    return false;
+  }
+  console.warn("[register] replaced an unused unconfirmed login:", orphanId);
+  return true;
+}
+
+/**
  * Self-service signup — off by default (platform_settings.registration_
  * enabled), so re-checked here even though the page itself already hides
  * the form when disabled (a direct POST must not bypass the gate). Mirrors
@@ -166,28 +185,39 @@ export async function registerAction(
     return Object.keys(fieldErrors).length > 0 ? { error: null, fieldErrors } : { error: "Check your details and try again." };
   }
 
-  const allowed = await checkRegisterRateLimit(parsed.data.email);
-  if (!allowed) {
+  const limit = await checkRegisterRateLimit(parsed.data.email, clientNetworkIdentity(await headers()));
+  if (limit === "limited") {
     return { error: "Too many attempts. Please try again in a few minutes." };
+  }
+  // The check itself could not be made: sign-up is refused for a moment instead of becoming unlimited.
+  if (limit === "unavailable") {
+    return { error: "We couldn't check this right now. Please try again in a minute." };
   }
 
   const adminClient = createAdminClient();
 
   // Usernames are public (profile links), so telling the person one is taken reveals nothing; checking first spares the login a create-then-delete round trip.
-  const { data: taken, error: takenError } = await adminClient.from("user_profiles").select("id").eq("username", parsed.data.username).maybeSingle();
-  if (takenError) {
-    console.error("[register] username check failed:", takenError.message);
+  const [{ data: taken, error: takenError }, { data: reserved, error: reservedError }] = await Promise.all([
+    adminClient.from("user_profiles").select("id").eq("username", parsed.data.username).maybeSingle(),
+    adminClient.from("reserved_usernames").select("username").eq("username", parsed.data.username).maybeSingle(),
+  ]);
+  if (takenError || reservedError) {
+    console.error("[register] username check failed:", (takenError ?? reservedError)?.message);
     return { error: "Could not create your account. Try again." };
   }
   if (taken) {
     return { error: null, fieldErrors: { username: "That username is taken. Try another." } };
   }
+  // Handles that could pass for the platform or its staff (the database refuses them too; this saves creating and removing a login).
+  if (reserved) {
+    return { error: null, fieldErrors: { username: "That username isn't available. Try another." } };
+  }
 
-  const { data: created, error: createError } = await adminClient.auth.admin.createUser({
-    email: parsed.data.email,
-    password: parsed.data.password,
-    email_confirm: true,
-  });
+  const createLogin = () => adminClient.auth.admin.createUser({ email: parsed.data.email, password: parsed.data.password, email_confirm: true });
+  let { data: created, error: createError } = await createLogin();
+  if (createError?.message.includes("already been registered") && (await reclaimOrphanLogin(adminClient, parsed.data.email))) {
+    ({ data: created, error: createError } = await createLogin());
+  }
 
   if (createError || !created.user) {
     // Unchanged policy: the same sentence as before for an email that already has an account (no new account-enumeration signal).
@@ -214,9 +244,9 @@ export async function registerAction(
 
   if (profileError) {
     await discardAccount(adminClient, created.user.id, false);
-    return profileError.code === "23505"
-      ? { error: null, fieldErrors: { username: "That username is taken. Try another." } }
-      : { error: "Could not finish setting up your account." };
+    if (profileError.code === "23505") return { error: null, fieldErrors: { username: "That username is taken. Try another." } };
+    if (profileError.message.includes("reserved_username")) return { error: null, fieldErrors: { username: "That username isn't available. Try another." } };
+    return { error: "Could not finish setting up your account." };
   }
 
   // What they agreed to, and when: a durable record of the CURRENT Terms and Privacy versions. If it can't be written, the account isn't kept

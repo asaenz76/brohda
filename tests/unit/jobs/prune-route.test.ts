@@ -7,6 +7,7 @@ let confidenceResult: () => Promise<unknown>;
 let settlementResult: () => Promise<unknown>;
 let previewsResult: () => Promise<unknown>;
 let generationResult: () => Promise<unknown>;
+let rateLimitsResult: () => Promise<unknown>;
 const providerLogCalls = vi.fn();
 const backgroundJobsCalls = vi.fn();
 const messagingCalls = vi.fn();
@@ -14,6 +15,7 @@ const confidenceCalls = vi.fn();
 const settlementCalls = vi.fn();
 const previewsCalls = vi.fn();
 const generationCalls = vi.fn();
+const rateLimitsCalls = vi.fn();
 
 vi.mock("@/lib/sports-data/provider-request-log-retention", () => ({
   runProviderRequestLogRetention: () => {
@@ -43,6 +45,12 @@ vi.mock("@/lib/confidence/settlement", () => ({
   runConfidenceSettlementSweep: () => {
     settlementCalls();
     return settlementResult();
+  },
+}));
+vi.mock("@/lib/rate-limit/retention", () => ({
+  runRateLimitRetention: () => {
+    rateLimitsCalls();
+    return rateLimitsResult();
   },
 }));
 vi.mock("@/lib/game-previews/housekeeping", () => ({
@@ -76,6 +84,8 @@ beforeEach(() => {
   settlementCalls.mockClear();
   previewsCalls.mockClear();
   generationCalls.mockClear();
+  rateLimitsCalls.mockClear();
+  rateLimitsResult = async () => ({ rowsDeleted: 0 });
   generationResult = async () => ({ enabled: false, configured: false, attempted: 0, succeeded: 0, failed: 0 });
   previewsResult = async () => ({ frozen: 0, missing: 0, stale: 0 });
   settlementResult = async () => ({ settled: 0 });
@@ -110,6 +120,7 @@ describe("prune-provider-request-log cron route", () => {
       confidence: { enabled: false, rounds: 0, processed: 0, remaining: 0 },
       confidenceSettlement: { settled: 0 },
       gamePreviews: { frozen: 0, missing: 0, stale: 0 },
+      rateLimits: { rowsDeleted: 0 },
       failures: [],
     });
   });
@@ -229,5 +240,15 @@ describe("Game Preview generation is NOT on the every-5-minutes housekeeping pat
     expect(generationCalls).not.toHaveBeenCalled();
     expect(body).not.toHaveProperty("gamePreviewGeneration");
     expect(previewsCalls).toHaveBeenCalled(); // the freeze of started Games' Previews stays here
+  });
+  it("expired rate-limit rows are pruned on the same path in their own failure domain: the failure skips nothing else and is reported", async () => {
+    rateLimitsResult = async () => {
+      throw new Error("rate limit prune failed");
+    };
+    const body = await (await GET(request("Bearer test-secret"))).json();
+    expect(providerLogCalls).toHaveBeenCalledTimes(1);
+    expect(previewsCalls).toHaveBeenCalledTimes(1);
+    expect(body.rateLimits).toBeNull();
+    expect(body.failures).toEqual([{ step: "rate_limits", error: "rate limit prune failed" }]);
   });
 });

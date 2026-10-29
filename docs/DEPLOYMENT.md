@@ -45,6 +45,7 @@ sourced from `.env.example`):
 | `DEFAULT_TIMEZONE` | `America/Costa_Rica` — used for the same-calendar-day anomaly-void grace window (X.7.2) |
 | `APP_URL` | The deployed app's public URL |
 | `CRON_SECRET` | Random secret; see below |
+| `RATE_LIMIT_HMAC_SECRET` | Random secret (`openssl rand -hex 32`). Keys the hash that names the sign-up / sign-in / Sponsor-sign-up rate-limit buckets (so the `rate_limits` table never holds an email or an IP address in the clear) and is the **rollout switch** for the per-network sign-up limit: while it is unset that limit does nothing. Set it per environment; unsetting it turns the network limit off again. Changing it only resets the current buckets |
 | `RESEND_API_KEY` | Used both by Supabase Auth's SMTP relay and directly by the app for pool-published emails — see Resend setup below |
 | `NEXT_PUBLIC_SENTRY_DSN` | Optional — see Sentry setup below. Leave unset to disable error monitoring entirely |
 | `SENTRY_ORG` / `SENTRY_PROJECT` / `SENTRY_AUTH_TOKEN` | Optional, build-time only — enables source-map upload for readable stack traces |
