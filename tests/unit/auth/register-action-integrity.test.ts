@@ -118,6 +118,31 @@ describe("registerAction — reserved usernames", () => {
   });
 });
 
+describe("registerAction — a password the provider refuses", () => {
+  const weak = (reasons: string[]) => ({ data: { user: null }, error: { code: "weak_password", message: "Password is known to be weak and easy to guess, please choose a different one.", reasons } });
+
+  it("a breached password is explained on the password field and creates nothing", async () => {
+    createUser.mockResolvedValue(weak(["pwned"]));
+    expect(await run({ password: "password123" })).toEqual({ error: null, fieldErrors: { password: "That password has appeared in a known data breach. Choose a different one." } });
+    expect(profileInsert).not.toHaveBeenCalled();
+    expect(deleteUser).not.toHaveBeenCalled();
+    expect(typeAsMember).not.toHaveBeenCalled();
+    expect(recordAcceptance).not.toHaveBeenCalled();
+  });
+
+  it("any other weak-password reason gets the plain wording", async () => {
+    createUser.mockResolvedValue(weak(["characters"]));
+    expect(await run()).toEqual({ error: null, fieldErrors: { password: "That password is too easy to guess. Choose a different one." } });
+  });
+
+  it("never echoes the password, and other create failures keep the generic message", async () => {
+    createUser.mockResolvedValue(weak(["pwned"]));
+    expect(JSON.stringify(await run({ password: "password123" }))).not.toContain("password123");
+    createUser.mockResolvedValue({ data: { user: null }, error: { message: "database error" } });
+    expect(await run()).toEqual({ error: "Could not create your account." });
+  });
+});
+
 describe("registerAction — an unused unconfirmed login squatting the address", () => {
   it("is replaced, and the sign-up then proceeds", async () => {
     createUser.mockResolvedValueOnce(ALREADY);
