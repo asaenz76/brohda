@@ -220,6 +220,12 @@ export async function registerAction(
   }
 
   if (createError || !created.user) {
+    // The provider refused the password itself (leaked-password protection, or a provider minimum stricter than ours). Nothing was created; say so on the field so the person can fix it instead of retrying blind.
+    if (createError?.code === "weak_password") {
+      const reasons = (createError as { reasons?: unknown }).reasons;
+      const breached = Array.isArray(reasons) && reasons.includes("pwned");
+      return { error: null, fieldErrors: { password: breached ? "That password has appeared in a known data breach. Choose a different one." : "That password is too easy to guess. Choose a different one." } };
+    }
     // Unchanged policy: the same sentence as before for an email that already has an account (no new account-enumeration signal).
     return createError?.message.includes("already been registered")
       ? { error: null, fieldErrors: { email: "An account with this email already exists." }, existingAccount: true }
